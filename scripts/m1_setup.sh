@@ -2,10 +2,14 @@
 # Milestone 1 test fixture: restricted users, roles, an index and saved searches.
 # TEST-ONLY. Do not use for anything else. See docs/m1-procedure.md.
 #
-# Usage: scripts/m1_setup.sh --host <mgmt url> [--insecure] [--cleanup]
-#   --host      Management URL, for example https://splunk.example.com:8089
-#   --insecure  Allow a self-signed management port certificate
-#   --cleanup   Remove everything this script created
+# Usage: scripts/m1_setup.sh --host <mgmt url> [--insecure] [--allow-http] [--cleanup]
+#   --host        Management URL, for example https://splunk.example.com:8089
+#   --insecure    Allow a self-signed management port certificate
+#   --allow-http  Allow a plain http:// host, which sends passwords unencrypted
+#   --cleanup     Remove everything this script created
+#
+# Everything created carries evidence of this script. Setup refuses to reuse a
+# user, role or index without that evidence, and cleanup skips it with a warning.
 #
 # Safe to re-run. Passwords and session keys reach curl only through
 # `--config -` on stdin, so they never appear in process listings, and they are
@@ -20,10 +24,18 @@ ROLE2=so_m1_owner2_role
 INDEX=so_m1_secret
 SHARED=_so_spike_shared
 PRIVATE_SEARCHES="_so_spike_identity _so_spike_secret _so_spike_args _so_spike_now _so_spike_loadjob _so_spike_long _so_spike_wrapper"
-HIDDEN="dispatchAs=owner is_scheduled=0 is_visible=0"
+# Evidence that this script created an object. Users carry it as realname,
+# searches as description, and the index as a word in its seed event. Roles have
+# no free-text field, so they carry an inert quota: these roles can't run
+# real-time searches at all.
+MARKER=so_m1_setup_fixture
+ROLE_MARKER_VALUE=1371
+ROLE_MARKER="name=\"rtSrchJobsQuota\">$ROLE_MARKER_VALUE<"
+HIDDEN="dispatchAs=owner is_scheduled=0 is_visible=0 description=$MARKER"
 
 BASE_URL=""
 INSECURE=0
+ALLOW_HTTP=0
 CLEANUP=0
 SESSION=""
 HTTP_CODE=""
@@ -32,12 +44,13 @@ RAW_BODY=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-usage() { sed -n '5,8p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '5,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ $# -ge 2 ] || usage; BASE_URL=${2%/}; shift 2 ;;
     --insecure) INSECURE=1; shift ;;
+    --allow-http) ALLOW_HTTP=1; shift ;;
     --cleanup) CLEANUP=1; shift ;;
     *) usage ;;
   esac
@@ -45,7 +58,10 @@ done
 [ -n "$BASE_URL" ] || usage
 case "$BASE_URL" in
   https://*) ;;
-  http://*) echo "WARNING: $BASE_URL is not TLS; the admin password travels unencrypted." >&2 ;;
+  http://*)
+    [ "$ALLOW_HTTP" = 1 ] || die "$BASE_URL would send passwords unencrypted. Use https://, or pass --allow-http to accept that."
+    echo "WARNING: $BASE_URL is not TLS; passwords travel unencrypted." >&2
+    ;;
   *) die "--host must start with https:// or http://" ;;
 esac
 command -v curl >/dev/null || die "curl is required"
@@ -116,25 +132,94 @@ prompt_admin() {
   SESSION=$ADMIN_KEY
 }
 
-run_cleanup() {
-  local failed=0 name
-  remove() {
-    api DELETE "$1"
-    if http_ok; then echo "removed: $1"
-    elif [ "$HTTP_CODE" = 404 ]; then echo "absent: $1"
-    else echo "FAILED: $1: HTTP $HTTP_CODE $(server_message)" >&2; failed=1
-    fi
+# secret_count: sets SECRET_COUNT to the number of marker events in the index.
+# A search that fails counts as no evidence.
+secret_count() {
+  SESSION=$ADMIN_KEY
+  api POST /services/search/jobs exec_mode=oneshot output_mode=csv earliest_time=0 latest_time=now \
+    "search=search index=$INDEX source=m1_setup sourcetype=so_m1_seed $MARKER | stats count"
+  SECRET_COUNT=0
+  if http_ok; then
+    SECRET_COUNT=$(printf '%s\n' "$HTTP_BODY" | grep -E '^"?[0-9]+"?$' | tail -n 1 | tr -dc '0-9' || true)
+    SECRET_COUNT=${SECRET_COUNT:-0}
+  fi
+}
+
+# object_state PATH MARKER_TEXT: sets STATE to absent, marked, foreign or error.
+object_state() {
+  SESSION=$ADMIN_KEY
+  api GET "$1"
+  case "$HTTP_CODE" in
+    404) STATE=absent ;;
+    2*) case "$HTTP_BODY" in *"$2"*) STATE=marked ;; *) STATE=foreign ;; esac ;;
+    *) STATE=error ;;
+  esac
+}
+
+user_state() { object_state "/services/authentication/users/$1" "$MARKER"; }
+role_state() { object_state "/services/authorization/roles/$1" "$ROLE_MARKER"; }
+
+index_state() {
+  object_state "/services/data/indexes/$INDEX" ""
+  if [ "$STATE" = foreign ] || [ "$STATE" = marked ]; then
+    secret_count
+    if [ "$SECRET_COUNT" -gt 0 ]; then STATE=marked; else STATE=foreign; fi
+  fi
+}
+
+# Runs before setup changes anything, so a refusal leaves the server untouched.
+refuse_foreign_objects() {
+  local refused="" name
+  note_state() {
+    case "$STATE" in
+      foreign) refused="$refused  $1 exists without this script's evidence"$'\n' ;;
+      error) die "could not inspect $1: HTTP $HTTP_CODE $(server_message)" ;;
+    esac
   }
-  for name in $PRIVATE_SEARCHES; do remove "/servicesNS/$USER1/$APP/saved/searches/$name"; done
-  remove "/servicesNS/nobody/$APP/saved/searches/$SHARED"
-  remove "/servicesNS/$USER2/$APP/saved/searches/$SHARED"
-  remove "/services/authentication/users/$USER1"
-  remove "/services/authentication/users/$USER2"
-  remove "/services/authorization/roles/$ROLE1"
-  remove "/services/authorization/roles/$ROLE2"
-  remove "/services/data/indexes/$INDEX"
+  for name in "$USER1" "$USER2"; do user_state "$name"; note_state "user $name"; done
+  for name in "$ROLE1" "$ROLE2"; do role_state "$name"; note_state "role $name"; done
+  index_state; note_state "index $INDEX"
+  if [ -n "$refused" ]; then
+    printf 'Refusing to reuse objects this script cannot show it created:\n%s' "$refused" >&2
+    die "nothing was changed. Rename or remove them first, if they really are disposable. An index left empty by an interrupted run also shows up here."
+  fi
+}
+
+warn_unless_marked() {
+  if [ "$STATE" != marked ]; then
+    echo "WARNING: $1 was saved but its evidence can't be read back; a re-run will refuse it and --cleanup will skip it." >&2
+  fi
+}
+
+run_cleanup() {
+  local failed=0 skipped=0 name
+  act_on_state() {
+    case "$STATE" in
+      absent) echo "absent: $1" ;;
+      foreign) echo "WARNING: skipped $1: no evidence this script created it" >&2; skipped=1 ;;
+      error) echo "FAILED: $1: HTTP $HTTP_CODE $(server_message)" >&2; failed=1 ;;
+      marked)
+        api DELETE "$1"
+        if http_ok; then echo "removed: $1"
+        elif [ "$HTTP_CODE" = 404 ]; then echo "absent: $1"
+        else echo "FAILED: $1: HTTP $HTTP_CODE $(server_message)" >&2; failed=1
+        fi
+        ;;
+    esac
+  }
+  remove_search() { object_state "$1" "$MARKER"; act_on_state "$1"; }
+  for name in $PRIVATE_SEARCHES; do remove_search "/servicesNS/$USER1/$APP/saved/searches/$name"; done
+  remove_search "/servicesNS/nobody/$APP/saved/searches/$SHARED"
+  remove_search "/servicesNS/$USER2/$APP/saved/searches/$SHARED"
+  for name in "$USER1" "$USER2"; do user_state "$name"; act_on_state "/services/authentication/users/$name"; done
+  for name in "$ROLE1" "$ROLE2"; do role_state "$name"; act_on_state "/services/authorization/roles/$name"; done
+  index_state; act_on_state "/services/data/indexes/$INDEX"
   [ "$failed" = 0 ] || die "cleanup incomplete; see FAILED lines above"
-  echo "Cleanup finished. To remove the spike rows too, uninstall the app or use a later build."
+  if [ "$skipped" = 1 ]; then
+    echo "Cleanup finished, but skipped the objects warned about above. Check them by hand."
+  else
+    echo "Cleanup finished. To remove the spike rows too, uninstall the app or use a later build."
+  fi
 }
 
 # ensure_role ROLE ALLOWED_INDEX [extra capability ...]
@@ -146,12 +231,14 @@ ensure_role() {
   api GET "/services/authorization/roles/$role"
   if http_ok; then
     # shellcheck disable=SC2086
-    api POST "/services/authorization/roles/$role" $caps "srchIndexesAllowed=$idx" "srchIndexesDefault=$idx" "imported_roles="
+    api POST "/services/authorization/roles/$role" $caps "srchIndexesAllowed=$idx" "srchIndexesDefault=$idx" "rtSrchJobsQuota=$ROLE_MARKER_VALUE" "imported_roles="
   else
     # shellcheck disable=SC2086
-    api POST /services/authorization/roles "name=$role" $caps "srchIndexesAllowed=$idx" "srchIndexesDefault=$idx"
+    api POST /services/authorization/roles "name=$role" $caps "srchIndexesAllowed=$idx" "srchIndexesDefault=$idx" "rtSrchJobsQuota=$ROLE_MARKER_VALUE"
   fi
   require_ok "role $role (searches $idx only, imports nothing)"
+  role_state "$role"
+  warn_unless_marked "role $role"
 }
 
 # ensure_user USER ROLE
@@ -159,20 +246,13 @@ ensure_user() {
   SESSION=$ADMIN_KEY
   api GET "/services/authentication/users/$1"
   if http_ok; then
-    api POST "/services/authentication/users/$1" "password=$TEST_PW" "roles=$2" "force-change-pass=0"
+    api POST "/services/authentication/users/$1" "password=$TEST_PW" "roles=$2" "force-change-pass=0" "realname=$MARKER"
   else
-    api POST /services/authentication/users "name=$1" "password=$TEST_PW" "roles=$2" "force-change-pass=0"
+    api POST /services/authentication/users "name=$1" "password=$TEST_PW" "roles=$2" "force-change-pass=0" "realname=$MARKER"
   fi
   require_ok "user $1"
-}
-
-secret_count() {
-  SESSION=$ADMIN_KEY
-  api POST /services/search/jobs exec_mode=oneshot output_mode=csv earliest_time=0 latest_time=now \
-    "search=search index=$INDEX | stats count"
-  require_ok "count events in $INDEX" >/dev/null
-  SECRET_COUNT=$(printf '%s\n' "$HTTP_BODY" | grep -E '^"?[0-9]+"?$' | tail -n 1 | tr -dc '0-9' || true)
-  SECRET_COUNT=${SECRET_COUNT:-0}
+  user_state "$1"
+  warn_unless_marked "user $1"
 }
 
 seed_index() {
@@ -182,7 +262,7 @@ seed_index() {
     echo "ok: $INDEX already holds $SECRET_COUNT event(s)"
     return
   fi
-  RAW_BODY="so_m1_secret seed event: so_m1_user must never be able to read this"
+  RAW_BODY="$MARKER seed event: so_m1_user must never be able to read this"
   api POST "/services/receivers/simple?index=$INDEX&sourcetype=so_m1_seed&source=m1_setup"
   RAW_BODY=""
   require_ok "seed event sent to $INDEX"
@@ -268,20 +348,24 @@ run_setup() {
     die "app $APP is not installed (HTTP $HTTP_CODE). Install it first; see docs/m1-procedure.md."
   fi
 
+  refuse_foreign_objects
+
+  SESSION=$ADMIN_KEY
   api GET "/services/data/indexes/$INDEX"
   if http_ok; then
-    echo "ok: index $INDEX exists"
+    echo "ok: index $INDEX exists, created by an earlier run"
   else
     api POST /services/data/indexes "name=$INDEX"
     require_ok "index $INDEX"
   fi
+  # Straight after creating the index, as its seed event is its evidence.
+  seed_index
 
   GRANTED=0
   ensure_role "$ROLE1" main
   ensure_role "$ROLE2" "$INDEX"
   ensure_user "$USER1" "$ROLE1"
   ensure_user "$USER2" "$ROLE2"
-  seed_index
 
   login "$USER1" "$TEST_PW"; USER1_KEY=$LOGIN_KEY
   login "$USER2" "$TEST_PW"; USER2_KEY=$LOGIN_KEY
@@ -317,7 +401,7 @@ Setup finished. What to do next:
      The sequence has finished when a row with check=done appears.
   3. Tell the builder the spike has run, so the results can be verified.
   4. When the milestone is closed, remove the test objects, while the app is still installed:
-       scripts/m1_setup.sh --host $BASE_URL$( [ "$INSECURE" = 1 ] && printf ' --insecure' ) --cleanup
+       scripts/m1_setup.sh --host $BASE_URL$( [ "$INSECURE" = 1 ] && printf ' --insecure' )$( [ "$ALLOW_HTTP" = 1 ] && printf ' --allow-http' ) --cleanup
 NEXT
 }
 

@@ -16,6 +16,8 @@ The spike answers spec §9's go/no-go question: can a modular input's system ses
 | Private hidden searches owned by `so_m1_user`, saved with that user's session: `_so_spike_identity`, `_so_spike_secret`, `_so_spike_args`, `_so_spike_now`, `_so_spike_loadjob`, `_so_spike_long`, `_so_spike_wrapper` | What the engine dispatches |
 | `_so_spike_shared`, owned by `so_m1_owner2`, shared in the app, `dispatchAs = owner` | The other owner's search that wrapper mode reaches |
 
+Everything created carries evidence of the script: `realname` on users, `description` on searches, `rtSrchJobsQuota = 1371` on roles (inert, as they can't run real-time searches), and the word `so_m1_setup_fixture` in the index's seed event. Setup checks first and refuses to reuse any user, role or index without that evidence, changing nothing. `--cleanup` skips anything without it and prints a warning, so check those objects by hand.
+
 If Splunk refuses a save as `so_m1_user` with HTTP 403, the script adds `edit_search_schedule_window` to both roles, says so, and retries. That capability gives no index access.
 
 ## Requirements
@@ -27,10 +29,10 @@ If Splunk refuses a save as `so_m1_user` with HTTP 403, the script adds `edit_se
 ## Procedure
 
 1. Install the app build and restart Splunk if prompted. The spike runs at this point too and records failures, because the fixtures don't exist yet. That's expected.
-2. Run the script. Add `--insecure` only if the management port uses a self-signed certificate:
+2. Run the script. Add `--insecure` only if the management port uses a self-signed certificate. A plain `http://` host is refused unless you add `--allow-http`, because passwords would travel unencrypted:
 
    ```
-   scripts/m1_setup.sh --host https://<server>:8089 [--insecure]
+   scripts/m1_setup.sh --host https://<server>:8089 [--insecure] [--allow-http]
    ```
 
    It asks for an admin username and password, and for a test-user password, which it generates if left blank. Passwords are not stored or printed, and they don't appear in process listings. The script is safe to re-run. Each run resets the test-user password.
@@ -51,7 +53,7 @@ If Splunk refuses a save as `so_m1_user` with HTTP 403, the script adds `edit_se
 6. When the milestone is closed, and before uninstalling the app, remove the test objects:
 
    ```
-   scripts/m1_setup.sh --host https://<server>:8089 [--insecure] --cleanup
+   scripts/m1_setup.sh --host https://<server>:8089 [--insecure] [--allow-http] --cleanup
    ```
 
 ## Reading the results
@@ -68,15 +70,15 @@ Each row has `check`, `ok` (0 or 1), `detail` (raw observations as JSON), `sid` 
 | `scheduled_time` | `info_min_time` was computed from a `dispatch.now` 7 days ago, sent as epoch seconds |
 | `scheduled_time_iso` | The same, sent as an ISO 8601 string with `dispatch.time_format` |
 | `job_status_read`, `job_results_read` | The system session reads the status and results of the `identity` job |
-| `job_touch` | `touch` was accepted |
-| `job_setttl` | `setttl` was accepted and the new TTL was observed |
-| `job_cancel` | `_so_spike_long` was cancelled while running and then disappeared or failed. `ok = 0` with "finished before cancel" means the cancel wasn't proven |
+| `job_touch` | `touch` was accepted, the job stayed readable, and its TTL afterwards is at least what it was before |
+| `job_setttl` | `setttl` was accepted and the TTL afterwards reflects the value set: at most 60 seconds below it |
+| `job_cancel` | `_so_spike_long` was running, and after the cancel its status is 404 or its `dispatchState` is `FINALIZING` or `CANCELED`. A job already over beforehand, or one that shows as failed or done afterwards, gives `ok = 0`, because the cancel isn't proven. `detail` records `before_state` |
 | `loadjob` | `_so_spike_loadjob`, as `so_m1_user`, read the `identity` job by search ID |
 | `wrapper_mode` | `_so_spike_wrapper` reached `_so_spike_shared`, belongs to `so_m1_user`, and returned count 0, so it ran with `so_m1_user`'s access |
 | `shared_direct_owner_ns`, `shared_direct_user_ns` | A direct dispatch of `_so_spike_shared`, in the `so_m1_owner2` and `so_m1_user` namespaces, returned a count above 0 and belongs to `so_m1_owner2` |
 | `workload_pool`, `workload_pool_prefixed` | Dispatch with `workload_pool`, or `dispatch.workload_pool`, was accepted and the job reports that pool. A failure on both drops `workload_pool` from the first version |
 | `system_dispatch_ad_hoc` | Informational, for the alternative route: a direct `search/jobs` POST in `so_m1_user`'s namespace ran as `so_m1_user`. `detail` records the username observed |
-| `done` | The sequence finished. `detail` lists the checks that didn't match |
+| `done` | Every expected check's row was written. `detail` has `expected` (count), `checks` (names written), `missing`, and `failed` (checks that didn't match). `ok = 0` means a partial run, and `missing` says what's absent |
 
 **On any `identity` or `index_access` failure, stop.** Spec §9's fallback is the owner's decision.
 

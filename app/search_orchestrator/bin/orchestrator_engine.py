@@ -32,6 +32,7 @@ ARG_VALUE = "spike_value"
 ISO_TIME_FORMAT = "%FT%T.%Q%:z"
 FALLBACK_POOL = "standard_perf"
 MAX_DETAIL = 8000
+CANCEL_STATES = ("FINALIZING", "CANCELED")
 DAY = 86400
 JOB_FIELDS = ("dispatchState", "isDone", "isFailed", "isFinalized", "resultCount", "ttl",
               "messages", "search", "label", "delegate", "isSavedSearch", "now",
@@ -142,6 +143,41 @@ def snapped_time_ok(info_min_time, now):
     return now - 2 * DAY - 3600 <= value <= now - DAY + 3600
 
 
+def _as_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def cancel_ok(before, after):
+    """Only proven if the job was running beforehand and the cancel left a mark."""
+    if before.get("missing") or job_finished(before):
+        return False
+    return bool(after.get("missing")) or after.get("dispatchState") in CANCEL_STATES
+
+
+def touch_ok(ttl_before, ttl_after):
+    before, after = _as_int(ttl_before), _as_int(ttl_after)
+    return before is not None and after is not None and after >= before
+
+
+def setttl_ok(ttl_after, target, slack=60):
+    """The ttl counts down from the value set, so it can only be slightly below it."""
+    after = _as_int(ttl_after)
+    return after is not None and 0 <= target - after <= slack
+
+
+def done_detail(expected, written, results):
+    """Summarize the run, so a partial run is visible in the done row."""
+    written = list(written)
+    return {"expected": len(expected), "checks": written,
+            "missing": [name for name in expected if name not in written],
+            "matched": len([name for name, ok in results if ok]),
+            "failed": [name for name, ok in results if not ok],
+            "python": sys.version.split()[0]}
+
+
 def iso_time(epoch):
     return time.strftime("%Y-%m-%dT%H:%M:%S.000+00:00", time.gmtime(epoch))
 
@@ -168,6 +204,7 @@ class Spike:
         self.current_sid = None
         self.identity_sid = None
         self.results = []
+        self.written = []
 
     # REST plumbing.
 
@@ -293,29 +330,32 @@ class Spike:
         before = self._status(sid).get("ttl")
         self._control(sid, "touch")
         after = self._status(sid).get("ttl")
-        return True, {"ttl_before": before, "ttl_after": after}
+        return touch_ok(before, after), {"ttl_before": before, "ttl_after": after}
 
     def check_job_setttl(self):
         sid = self._require_identity_sid()
         target = 1234
+        before = self._status(sid).get("ttl")
         self._control(sid, "setttl", ttl=target)
         after = self._status(sid).get("ttl")
-        try:
-            ok = abs(int(after) - target) <= 120
-        except (TypeError, ValueError):
-            ok = False
-        return ok, {"ttl_requested": target, "ttl_after": after}
+        return setttl_ok(after, target), {"ttl_before": before, "ttl_requested": target, "ttl_after": after}
 
     def check_job_cancel(self):
         sid = self._dispatch("_so_spike_long")
         before = self._status_or_missing(sid)
-        if before.get("missing") is None and job_finished(before):
-            return False, {"note": "finished before cancel; cancel not proven", "before": before}
+        for _ in range(5):  # a new job can take a moment to become readable
+            if not before.get("missing"):
+                break
+            self.sleep(1)
+            before = self._status_or_missing(sid)
+        state = before.get("dispatchState")
+        if before.get("missing") or job_finished(before):
+            return False, {"note": "not running before cancel; cancel not proven",
+                           "before_state": state, "before": before}
         self._control(sid, "cancel")
         self.sleep(2)
         after = self._status_or_missing(sid)
-        gone = bool(after.get("missing")) or job_failed(after) or _truthy(after.get("isFinalized"))
-        return gone, {"before": before, "after": after}
+        return cancel_ok(before, after), {"before_state": state, "before": before, "after": after}
 
     def _status_or_missing(self, sid):
         try:
@@ -406,6 +446,7 @@ class Spike:
             self.service.post(KV_PATH, owner="nobody", app=APP,
                               headers=[("Content-Type", "application/json")],
                               body=json.dumps(row))
+            self.written.append(row["check"])
         except Exception as err:
             self.log(EventWriter.ERROR, "so_spike: could not write row {}: {}".format(row["check"], err))
 
@@ -420,12 +461,11 @@ class Spike:
 
     def run(self):
         self.wait_and_clear()
-        for name, func in self.checks():
+        checks = self.checks()
+        for name, func in checks:
             self.run_check(name, func)
-        failed = [name for name, ok in self.results if not ok]
-        self.record(make_row("done", True, {
-            "matched": len(self.results) - len(failed), "failed": failed,
-            "python": sys.version.split()[0]}, None, self.clock()))
+        detail = done_detail([name for name, _ in checks], self.written, self.results)
+        self.record(make_row("done", not detail["missing"], detail, None, self.clock()))
 
 
 class OrchestratorEngine(Script):

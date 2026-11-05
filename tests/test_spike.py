@@ -96,3 +96,48 @@ def test_pick_pool():
                 pool("c", category="search", default_category_pool="1")) == "c"
     assert pick(pool("a", category="ingest"), pool("b", category="search")) == "b"
     assert pick(pool("a")) == "a"
+
+
+@pytest.mark.parametrize("before,after,expected", [
+    ({"dispatchState": "RUNNING", "isDone": False}, {"missing": True}, True),
+    ({"dispatchState": "RUNNING"}, {"dispatchState": "FINALIZING"}, True),
+    ({"dispatchState": "QUEUED"}, {"dispatchState": "CANCELED"}, True),
+    # The job failed by itself: the cancel did nothing.
+    ({"dispatchState": "RUNNING"}, {"dispatchState": "FAILED", "isFailed": True}, False),
+    # Finalized flag alone is not a cancel marker, and the job may have just finished.
+    ({"dispatchState": "RUNNING"}, {"dispatchState": "DONE", "isDone": True, "isFinalized": True}, False),
+    ({"dispatchState": "RUNNING"}, {"dispatchState": "RUNNING"}, False),
+    # Already over before the cancel.
+    ({"dispatchState": "DONE", "isDone": True}, {"missing": True}, False),
+    ({"dispatchState": "FAILED"}, {"dispatchState": "CANCELED"}, False),
+    ({"missing": True}, {"missing": True}, False),
+])
+def test_cancel_ok(before, after, expected):
+    assert spike.cancel_ok(before, after) is expected
+
+
+@pytest.mark.parametrize("before,after,expected", [
+    (100, 300, True), ("300", "300", True), (300, 299, False),
+    (None, 300, False), (300, None, False), ("x", 300, False),
+])
+def test_touch_ok(before, after, expected):
+    assert spike.touch_ok(before, after) is expected
+
+
+@pytest.mark.parametrize("after,expected", [
+    (1234, True), ("1200", True), (1174, True),
+    (1173, False), (1235, False), (300, False), (None, False),
+])
+def test_setttl_ok(after, expected):
+    assert spike.setttl_ok(after, 1234) is expected
+
+
+def test_done_detail_complete():
+    detail = spike.done_detail(["a", "b"], ["a", "b"], [("a", True), ("b", False)])
+    assert detail["expected"] == 2 and detail["checks"] == ["a", "b"] and detail["missing"] == []
+    assert detail["matched"] == 1 and detail["failed"] == ["b"]
+
+
+def test_done_detail_shows_partial_run():
+    detail = spike.done_detail(["a", "b", "c"], ["a"], [("a", True), ("b", True), ("c", True)])
+    assert detail["expected"] == 3 and detail["checks"] == ["a"] and detail["missing"] == ["b", "c"]
