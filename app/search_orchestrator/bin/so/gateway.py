@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
@@ -182,6 +182,18 @@ def parse_user_access(body):
     return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or [])}
 
 
+MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None}
+
+
+def parse_saved_search_info(body):
+    """Saved search JSON -> ``{"exists", "owner", "sharing", "dispatch_as"}``."""
+    entry = json.loads(body)["entry"][0]
+    acl = entry.get("acl") or {}
+    content = entry.get("content") or {}
+    return {"exists": True, "owner": acl.get("owner"), "sharing": acl.get("sharing"),
+            "dispatch_as": content.get("dispatchAs")}
+
+
 def check_webhook_url(url):
     """https only. Errors name the scheme and host only: URLs often carry secrets."""
     parts = urlsplit(url)
@@ -214,8 +226,11 @@ class Gateway(Protocol):
     def upsert_saved_search(self, owner: str, name: str, search: str, earliest: str,
                             latest: str, description: str = "") -> None: ...
     def delete_saved_search(self, owner: str, name: str) -> None: ...
+    def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
+    def index_exists(self, name: str) -> bool: ...
     def read_secret(self, name: str) -> Optional[str]: ...
     def write_secret(self, name: str, value: str) -> None: ...
+    def delete_secret(self, name: str) -> None: ...
     def post_webhook(self, url: str, headers: Dict[str, str], body: str) -> int: ...
 
 
@@ -396,6 +411,32 @@ class SplunkGateway:
             if self._status(err) != 404:
                 raise GatewayError("saved search delete failed: {}".format(err), self._status(err))
 
+    def saved_search_info(self, owner, name):
+        """How ``name`` looks from ``owner``'s namespace in this app (spec section 9's
+        two-mode rule). ``exists`` is False if it is missing or the session cannot read it."""
+        try:
+            body = self._call("get", "saved/searches/" + quote(name, safe=""), owner)
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) in (403, 404):
+                return dict(MISSING_SAVED_SEARCH)
+            raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return parse_saved_search_info(body)
+
+    def index_exists(self, name):
+        try:
+            self._call("get", "data/indexes/" + quote(name, safe=""))
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) == 404:
+                return False
+            raise GatewayError("index lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return True
+
     # KV Store.
 
     def kv_get(self, collection, key):
@@ -477,6 +518,16 @@ class SplunkGateway:
             raise
         except Exception as err:
             raise GatewayError("create secret failed: {}".format(err), self._status(err))
+
+    def delete_secret(self, name):
+        """A secret that is already gone (404) is not an error."""
+        try:
+            self._call("delete", "storage/passwords/" + self._password_id(name))
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) != 404:
+                raise GatewayError("delete secret failed: {}".format(err), self._status(err))
 
     # Webhooks.
 

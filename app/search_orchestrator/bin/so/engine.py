@@ -799,8 +799,11 @@ class Engine:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
         try:
+            # A direct-mode saved search (spec section 9) keeps its own summary indexing
+            # and actions; hidden searches never have any.
             search_id = self.gw.dispatch(run.get("owner"), name, int(run["scheduled_time"]), args,
-                                         sdef.get("earliest"), sdef.get("latest"))
+                                         sdef.get("earliest"), sdef.get("latest"),
+                                         trigger_actions=sdef.get("mode") == "direct")
         except DispatchError as err:
             _check_auth(err)
             if not err.transient:

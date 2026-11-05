@@ -1,0 +1,771 @@
+"""REST API route functions (spec sections 9-11), behind ``orchestrator_rest.py``.
+
+``handle(user, method, path, body, deps) -> (status, payload)`` is pure apart
+from the gateways it is given. ``deps``:
+
+* ``user_gateway``: the caller's own session. Used to read the caller's own
+  roles and capabilities (``user_access``), to check saved searches and to
+  write and delete hidden saved searches, so they are owned by the caller.
+* ``system_gateway``: the system session (``passSystemAuth``). Used for KV
+  Store (``so_*`` collections deny ordinary users) and secrets.
+* ``audit``: an object with ``emit(event)``.
+* ``clock`` (optional): returns epoch seconds.
+
+Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
+fields, such as ``choices`` for ``definition_choice_required``). A job or run
+the caller may not see is reported as 404, never 403, so its existence does
+not leak.
+
+Engine commands (``so_commands``), applied by ``Engine._apply_command``:
+``{"type": "pause"|"resume"|"cancel"|"dismiss", "run_id", "user"}`` and
+``{"type": "rerun", "run_id", "step_id", "definition": "latest"|"original",
+"restart_downstream_jobs": bool, "user"}``. The engine decides whether the
+run's state allows the command and audits the result.
+
+Hidden searches no longer needed are removed at each save of the job
+(``hidden.gc``). "Needed" covers active runs, held runs, and failed or
+cancelled runs that ended within the result-retention setting, since those
+may still be re-run with their original definition.
+"""
+import json
+import re
+import time
+import uuid
+from urllib.parse import unquote, urlsplit
+
+from . import authz, hidden, model, scheduler, tokens
+from .engine import DEFAULT_SETTINGS
+from .gateway import GatewayError, check_webhook_url
+from .lease import COLLECTION as LOCKS
+from .lease import KEY as LEASE_KEY
+from .lease import LEASE_SECONDS
+from .store import ACTIVE_RUN_STATES, COMMANDS, SETTINGS, Store
+
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+DESTINATIONS_KEY = "destinations"
+ACTION_RUNS = "so_action_runs"
+AUDIT_INDEX = "orchestrator"
+RERUNNABLE = ("blocked", "failed", "cancelled")
+ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
+HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed")
+PRESETS = ("slack", "generic")
+INT_SETTINGS = ("max_searches", "max_searches_per_job", "queue_cap", "result_retention",
+                "run_retention_days")
+CHAIN_LIMIT = 10
+# Bookkeeping fields: not part of a job's definition for "has the job changed".
+_META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
+         "hidden_searches", "enabled")
+_SERVER_FIELDS = ("owner", "hidden_searches", "created_at", "created_by", "updated_at",
+                  "updated_by")
+
+
+class ApiError(Exception):
+    def __init__(self, status, code, message, issues=None, **extra):
+        Exception.__init__(self, message)
+        self.status = status
+        self.code = code
+        self.message = message
+        self.issues = issues or []
+        self.extra = extra
+
+    def payload(self):
+        err = {"code": self.code, "message": self.message, "issues": self.issues}
+        err.update(self.extra)
+        return {"error": err}
+
+
+def _issue(level, code, message, step=None):
+    return {"level": level, "code": code, "message": message, "step": step}
+
+
+def _errors(issues):
+    return [i for i in issues if i.get("level") == "error"]
+
+
+class _Ctx:
+    def __init__(self, user, deps):
+        self.user = user
+        self.user_gw = deps["user_gateway"]
+        self.sys_gw = deps["system_gateway"]
+        self.store = Store(self.sys_gw)
+        self.audit = deps["audit"]
+        self.now = int((deps.get("clock") or time.time)())
+        self._access = None
+
+    @property
+    def access(self):
+        if self._access is None:
+            self._access = self.user_gw.user_access(self.user)
+        return self._access
+
+    def allowed(self, check, job):
+        return check(self.user, job, self.access["roles"], self.access["capabilities"])
+
+    def emit(self, event):
+        event = dict(event)
+        event.setdefault("_time", self.now)
+        event.setdefault("user", self.user)
+        event.setdefault("source", "rest")
+        try:
+            self.audit.emit(event)
+        except Exception:  # a lost audit event never fails the request
+            pass
+
+    def deny(self, action, **fields):
+        self.emit(dict(fields, type="permission_denied", action=action))
+        return ApiError(403, "forbidden", "you may not %s" % action.replace("_", " "))
+
+
+# Routing.
+
+def _routes():
+    return [
+        (r"jobs", {"GET": list_jobs, "POST": create_job}),
+        (r"jobs/validate", {"POST": validate_job}),
+        (r"jobs/(?P<job_id>[^/]+)", {"GET": get_job, "PUT": update_job, "DELETE": delete_job}),
+        (r"jobs/(?P<job_id>[^/]+)/runs", {"POST": start_run}),
+        (r"runs", {"GET": list_runs}),
+        (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
+        (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
+        (r"runs/(?P<run_id>[^/]+)/rerun", {"POST": rerun}),
+        (r"settings", {"GET": get_settings, "PUT": put_settings}),
+        (r"destinations", {"GET": list_destinations, "POST": save_destination}),
+        (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
+        (r"health", {"GET": health}),
+        (r"me", {"GET": me}),
+    ]
+
+
+def _relative(path):
+    """``/servicesNS/-/app/orchestrator/jobs/x`` -> ``jobs/x``."""
+    parts = [p for p in (path or "").split("/") if p]
+    if "orchestrator" in parts:
+        parts = parts[parts.index("orchestrator") + 1:]
+    return "/".join(parts)
+
+
+def handle(user, method, path, body, deps):
+    """Route one request. Returns ``(status, payload)``."""
+    method = (method or "GET").upper()
+    rel = _relative(path)
+    try:
+        if not user:
+            raise ApiError(401, "unauthenticated", "no user session")
+        for pattern, methods in _routes():
+            match = re.fullmatch(pattern, rel)
+            if not match:
+                continue
+            func = methods.get(method)
+            if func is None:
+                raise ApiError(405, "method_not_allowed", "%s is not allowed on %s" % (method, rel))
+            if body is not None and not isinstance(body, dict):
+                raise ApiError(400, "bad_request", "the request body must be a JSON object")
+            args = {k: unquote(v) for k, v in match.groupdict().items()}
+            return func(_Ctx(user, deps), body or {}, **args)
+        raise ApiError(404, "not_found", "no such route: %s" % rel)
+    except ApiError as err:
+        return err.status, err.payload()
+    except GatewayError as err:
+        return 502, ApiError(502, "splunk_error", "a call to Splunk failed: %s" % err).payload()
+
+
+# Jobs.
+
+def _public_job(ctx, job):
+    out = {k: v for k, v in job.items() if k not in ("_key", "_user", "hidden_searches")}
+    out["permissions"] = {"can_edit": ctx.allowed(authz.can_edit, job),
+                          "can_run": ctx.allowed(authz.can_run, job)}
+    return out
+
+
+def _visible_job(ctx, job_id):
+    job = ctx.store.get_job(job_id)
+    if job is None or not ctx.allowed(authz.can_view, job):
+        raise ApiError(404, "not_found", "no job %r" % job_id)
+    return job
+
+
+def list_jobs(ctx, body):
+    jobs = [j for j in ctx.store.list_jobs() if ctx.allowed(authz.can_view, j)]
+    jobs.sort(key=lambda j: (str(j.get("name") or ""), str(j.get("id"))))
+    return 200, {"jobs": [_public_job(ctx, j) for j in jobs]}
+
+
+def get_job(ctx, body, job_id):
+    return 200, {"job": _public_job(ctx, _visible_job(ctx, job_id))}
+
+
+def _new_id(ctx, body):
+    job_id = body.get("id")
+    if job_id is not None:
+        if not isinstance(job_id, str) or not JOB_ID_RE.fullmatch(job_id):
+            raise ApiError(400, "bad_job_id", "job id %r must be 1-64 letters, digits, _ or -, "
+                           "starting with a letter or digit" % (job_id,))
+        return job_id
+    slug = re.sub(r"[^a-z0-9]+", "_", str(body.get("name") or "job").lower()).strip("_")[:40]
+    base = slug or "job"
+    job_id = base
+    while ctx.store.get_job(job_id) is not None:
+        job_id = "%s_%s" % (base, uuid.uuid4().hex[:6])
+    return job_id
+
+
+def _prepare(body, job_id, owner):
+    job = {k: v for k, v in body.items() if not k.startswith("_") and k not in _SERVER_FIELDS}
+    job.update(_key=job_id, id=job_id, owner=owner)
+    if job.get("enabled") is None:
+        job["enabled"] = True
+    return job
+
+
+def _destination_names(ctx):
+    doc = ctx.sys_gw.kv_get(SETTINGS, DESTINATIONS_KEY) or {}
+    return {d.get("name") for d in doc.get("destinations") or []}
+
+
+def _job_issues(ctx, job):
+    """Checks beyond ``model.validate_job``: job fields, actions and the start_job cycle."""
+    issues = []
+    if not isinstance(job.get("name"), str) or not job["name"].strip():
+        issues.append(_issue("error", "bad_job", "the job needs a name"))
+    if not isinstance(job.get("enabled"), bool):
+        issues.append(_issue("error", "bad_job", "enabled must be true or false"))
+    roles = job.get("run_roles")
+    if roles is not None and not (isinstance(roles, list) and all(isinstance(r, str) for r in roles)):
+        issues.append(_issue("error", "bad_job", "run_roles must be a list of role names"))
+    dests = None
+    scoped = [(None, a) for a in job.get("actions") or []]
+    for step in job.get("steps") or []:
+        scoped.extend((step.get("id"), a) for a in step.get("actions") or [])
+    for step_id, action in scoped:
+        if not isinstance(action, dict):
+            issues.append(_issue("error", "bad_action", "an action must be an object", step_id))
+            continue
+        kind = action.get("type")
+        if kind not in ACTION_TYPES:
+            issues.append(_issue("error", "bad_action", "unknown action type %r" % (kind,), step_id))
+            continue
+        if action.get("hook") not in HOOKS:
+            issues.append(_issue("error", "bad_action", "unknown action hook %r"
+                                 % (action.get("hook"),), step_id))
+        required = {"email": "to", "event": "index", "start_job": "job",
+                    "alert_action": "action", "webhook": "destination"}[kind]
+        if not isinstance(action.get(required), str) or not action[required]:
+            issues.append(_issue("error", "bad_action", "%s action needs %s" % (kind, required),
+                                 step_id))
+        elif kind == "webhook":
+            if dests is None:
+                dests = _destination_names(ctx)
+            if action["destination"] not in dests:
+                issues.append(_issue("error", "unknown_destination", "unknown webhook destination "
+                                     "%r" % action["destination"], step_id))
+    cycle = _chain_cycle(ctx, job)
+    if cycle:
+        issues.append(_issue("warning", "job_chain_cycle",
+                             "start_job actions form a cycle across jobs (%s); each run starts the "
+                             "next until the chain depth limit (%d) stops it"
+                             % (" -> ".join(cycle), CHAIN_LIMIT)))
+    return issues
+
+
+def _chain_targets(job):
+    actions = list(job.get("actions") or [])
+    for step in job.get("steps") or []:
+        if isinstance(step, dict):
+            actions.extend(step.get("actions") or [])
+    return [a.get("job") for a in actions
+            if isinstance(a, dict) and a.get("type") == "start_job" and isinstance(a.get("job"), str)]
+
+
+def _chain_cycle(ctx, job):
+    """The path ``[job, ..., job]`` if start_job actions lead back to ``job``, else None."""
+    start = job["id"]
+    graph = {j.get("id") or j.get("_key"): _chain_targets(j) for j in ctx.store.list_jobs()}
+    graph[start] = _chain_targets(job)
+    parent = {start: None}
+    queue = [start]
+    while queue:
+        node = queue.pop(0)
+        for target in graph.get(node) or []:
+            if target == start:
+                path = [node]
+                while parent[path[-1]] is not None:
+                    path.append(parent[path[-1]])
+                return list(reversed(path)) + [start]
+            if target not in parent:
+                parent[target] = node
+                queue.append(target)
+    return None
+
+
+def _check(ctx, job):
+    """All save-time issues, without writing anything."""
+    issues = model.validate_job(job)
+    if _errors(issues):
+        return issues
+    issues += _job_issues(ctx, job)
+    if not _errors(issues):
+        _, _, found = hidden.plan(ctx.user_gw, job)
+        issues += found
+    return issues
+
+
+def validate_job(ctx, body):
+    if not ctx.allowed(authz.can_edit, None) and not ctx.allowed(authz.can_admin, None):
+        raise ctx.deny("validate_job")
+    job_id = body.get("id") if isinstance(body.get("id"), str) and body.get("id") else "job"
+    # Saving makes the saver the owner (an admin saving another's job takes it over).
+    issues = _check(ctx, _prepare(body, job_id, ctx.user))
+    return 200, {"valid": not _errors(issues), "issues": issues}
+
+
+def _save(ctx, job, previous):
+    issues = _check(ctx, job)
+    if _errors(issues):
+        raise ApiError(400, "job_invalid", "the job has errors and was not saved", issues)
+    job = hidden.sync(ctx.user_gw, job, previous)
+    job["created_at"] = (previous or {}).get("created_at", ctx.now)
+    job["created_by"] = (previous or {}).get("created_by", ctx.user)
+    job.update(updated_at=ctx.now, updated_by=ctx.user)
+    ctx.store.save_job(job)
+    _collect_garbage(ctx, job)
+    return job, issues
+
+
+def _runs_needing_searches(ctx, job_id):
+    retention = int((ctx.store.get_settings() or {}).get("result_retention")
+                    or DEFAULT_SETTINGS["result_retention"])
+    out = []
+    for run in ctx.store.list_runs({"job_id": job_id}):
+        state = run.get("state")
+        if state in ACTIVE_RUN_STATES or run.get("held"):
+            out.append(run)
+        elif state in RERUNNABLE and int(run.get("ended_at") or 0) >= ctx.now - retention:
+            out.append(run)
+    return out
+
+
+def _collect_garbage(ctx, job):
+    stale = hidden.gc(job, _runs_needing_searches(ctx, job["id"]))
+    if not stale:
+        return
+    gone = []
+    for entry in stale:
+        try:
+            ctx.user_gw.delete_saved_search(entry["owner"], entry["name"])
+            gone.append(entry)
+        except GatewayError as err:  # kept on the list; tried again at the next save
+            ctx.emit({"type": "hidden_search_delete_failed", "job_id": job["id"],
+                      "name": entry["name"], "owner": entry["owner"], "error": str(err)})
+    if gone:
+        job["hidden_searches"] = [e for e in job["hidden_searches"] if e not in gone]
+        ctx.store.save_job(job)
+
+
+def create_job(ctx, body):
+    if not ctx.allowed(authz.can_edit, None):
+        raise ctx.deny("create_job")
+    job_id = _new_id(ctx, body)
+    if ctx.store.get_job(job_id) is not None:
+        raise ApiError(409, "job_exists", "a job with id %r already exists" % job_id)
+    job, issues = _save(ctx, _prepare(body, job_id, ctx.user), None)
+    ctx.emit({"type": "job_saved", "job_id": job_id, "created": True, "owner": job["owner"]})
+    return 201, {"job": _public_job(ctx, job), "issues": issues}
+
+
+def update_job(ctx, body, job_id):
+    previous = _visible_job(ctx, job_id)
+    if not ctx.allowed(authz.can_edit, previous):
+        raise ctx.deny("edit_job", job_id=job_id)
+    old_owner = previous.get("owner")
+    job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous)
+    ctx.emit({"type": "job_saved", "job_id": job_id, "created": False, "owner": job["owner"],
+              "enabled": job.get("enabled")})
+    if old_owner != ctx.user:
+        ctx.emit({"type": "job_owner_changed", "job_id": job_id, "from": old_owner,
+                  "to": ctx.user})
+    return 200, {"job": _public_job(ctx, job), "issues": issues}
+
+
+def delete_job(ctx, body, job_id):
+    job = _visible_job(ctx, job_id)
+    if not ctx.allowed(authz.can_edit, job):
+        raise ctx.deny("delete_job", job_id=job_id)
+    active = ctx.store.list_runs({"job_id": job_id, "state": {"$in": ACTIVE_RUN_STATES}})
+    if active:
+        raise ApiError(409, "job_has_active_runs", "job %r has %d active or queued run(s); cancel "
+                       "them first" % (job_id, len(active)))
+    for entry in job.get("hidden_searches") or []:
+        ctx.user_gw.delete_saved_search(entry["owner"], entry["name"])
+    ctx.store.delete_job(job_id)
+    ctx.emit({"type": "job_deleted", "job_id": job_id, "owner": job.get("owner")})
+    return 200, {"deleted": job_id}
+
+
+# Runs.
+
+def _scheduled_time(ctx, body):
+    value = body.get("scheduled_time")
+    if value is None or value == "":
+        return ctx.now
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        out = int(float(value))
+    except (TypeError, ValueError):
+        raise ApiError(400, "bad_request", "scheduled_time must be epoch seconds")
+    if out < 0:
+        raise ApiError(400, "bad_request", "scheduled_time must be epoch seconds")
+    return out
+
+
+def start_run(ctx, body, job_id):
+    job = _visible_job(ctx, job_id)
+    if not ctx.allowed(authz.can_run, job):
+        raise ctx.deny("run_job", job_id=job_id)
+    if job.get("enabled") is False:
+        raise ApiError(409, "job_disabled", "job %r is disabled" % job_id)
+    params = body.get("params") or {}
+    if not isinstance(params, dict):
+        raise ApiError(400, "bad_request", "params must be an object")
+    scheduled = _scheduled_time(ctx, body)
+    try:
+        run_id = scheduler.create_run(ctx.store, job, "manual", scheduled, params, now=ctx.now,
+                                      audit=ctx.audit, chain_depth=0)
+    except tokens.TokenError as err:
+        message = "parameter %s: %s" % (err.token, err.reason)
+        raise ApiError(400, "bad_param", message, [_issue("error", "bad_param", message)])
+    if run_id is None:
+        raise ApiError(409, "queue_full", "job %r has reached its queue cap" % job_id)
+    ctx.emit({"type": "run_requested", "job_id": job_id, "run_id": run_id,
+              "scheduled_time": scheduled})
+    return 201, {"run_id": run_id}
+
+
+def _run_job(ctx, run, jobs=None):
+    """The job a run's permissions come from: the current job, or its snapshot if deleted."""
+    job_id = run.get("job_id")
+    job = jobs.get(job_id) if jobs is not None else ctx.store.get_job(job_id)
+    if job is None:
+        job = dict(run.get("definition") or {}, owner=run.get("owner"))
+    return job
+
+
+def _visible_run(ctx, run_id):
+    run = ctx.store.get_run(run_id)
+    if run is None or not ctx.allowed(authz.can_view, _run_job(ctx, run)):
+        raise ApiError(404, "not_found", "no run %r" % run_id)
+    return run
+
+
+def _summary(run):
+    return {k: v for k, v in run.items() if k not in ("_key", "_user", "definition")}
+
+
+def list_runs(ctx, body):
+    filters = {}
+    for key in ("job_id", "state"):
+        if isinstance(body.get(key), str) and body[key]:
+            filters[key] = body[key]
+    try:
+        limit = max(1, min(1000, int(body.get("limit") or 200)))
+    except (TypeError, ValueError):
+        raise ApiError(400, "bad_request", "limit must be a number")
+    jobs = {j.get("id") or j.get("_key"): j for j in ctx.store.list_jobs()}
+    runs = [r for r in ctx.store.list_runs(filters)
+            if ctx.allowed(authz.can_view, _run_job(ctx, r, jobs))]
+    return 200, {"runs": [_summary(r) for r in runs[:limit]]}
+
+
+def _definition(doc):
+    return {k: v for k, v in (doc or {}).items() if k not in _META}
+
+
+def _ancestors(definition, step_id):
+    preds = {}
+    for e in definition.get("edges") or []:
+        preds.setdefault(e.get("to"), []).append(e.get("from"))
+    seen, stack = set(), list(preds.get(step_id, []))
+    while stack:
+        n = stack.pop()
+        if n not in seen:
+            seen.add(n)
+            stack.extend(preds.get(n, []))
+    return seen
+
+
+def _latest_choice(run, job, step_id):
+    """``(available, reason)`` for re-running ``step_id`` with the job's latest definition."""
+    if job is None:
+        return False, "the job no longer exists"
+    original = run.get("definition") or {}
+    latest_ids = {s.get("id") for s in job.get("steps") or []}
+    needed = {step_id} | _ancestors(original, step_id)
+    missing = sorted(n for n in needed if n not in latest_ids)
+    if missing:
+        return False, ("the latest definition removed or renamed step(s) %s that this run "
+                       "depends on" % ", ".join("%r" % m for m in missing))
+    return True, None
+
+
+def _choices(latest_ok, reason):
+    return [{"definition": "latest", "available": latest_ok, "reason": reason},
+            {"definition": "original", "available": True, "reason": None}]
+
+
+def get_run(ctx, body, run_id):
+    run = _visible_run(ctx, run_id)
+    job = ctx.store.get_job(run.get("job_id"))
+    out = {k: v for k, v in run.items() if k not in ("_key", "_user")}
+    out["definition_changed"] = job is not None and \
+        _definition(job) != _definition(run.get("definition"))
+    out["rerun_latest"] = {}
+    for step in (run.get("definition") or {}).get("steps") or []:
+        ok, reason = _latest_choice(run, job, step["id"])
+        out["rerun_latest"][step["id"]] = {"available": ok, "reason": reason}
+    out["permissions"] = {"can_run": ctx.allowed(authz.can_run, _run_job(ctx, run))}
+    attempts = ctx.store.list_step_runs(run_id)
+    actions = ctx.sys_gw.kv_query(ACTION_RUNS, {"run_id": run_id})
+    return 200, {"run": out, "attempts": attempts, "actions": actions}
+
+
+def _controllable_run(ctx, run_id, action):
+    run = _visible_run(ctx, run_id)
+    if not ctx.allowed(authz.can_run, _run_job(ctx, run)):
+        raise ctx.deny(action + "_run", run_id=run_id)
+    return run
+
+
+def _enqueue(ctx, command):
+    command = dict(command, user=ctx.user, created_at=ctx.now)
+    key = ctx.store.enqueue_command(command)
+    ctx.emit({"type": "command_requested", "command": command["type"],
+              "run_id": command.get("run_id"), "step_id": command.get("step_id")})
+    return key
+
+
+def control_run(ctx, body, run_id, action):
+    run = _controllable_run(ctx, run_id, action)
+    key = _enqueue(ctx, {"type": action, "run_id": run.get("id") or run_id})
+    return 202, {"command_id": key}
+
+
+def rerun(ctx, body, run_id):
+    run = _controllable_run(ctx, run_id, "rerun")
+    step_id = body.get("step") if body.get("step") is not None else body.get("step_id")
+    if not isinstance(step_id, str) or not step_id:
+        raise ApiError(400, "bad_request", "step is required")
+    if run.get("state") not in RERUNNABLE:
+        raise ApiError(409, "invalid_state", "a %s run cannot be re-run; only blocked, failed and "
+                       "cancelled runs can" % run.get("state"))
+    original = run.get("definition") or {}
+    if step_id not in [s.get("id") for s in original.get("steps") or []]:
+        raise ApiError(400, "unknown_step", "the run has no step %r" % step_id)
+    choice = body.get("definition")
+    if choice not in (None, "latest", "original"):
+        raise ApiError(400, "bad_request", "definition must be \"latest\" or \"original\"")
+    restart = body.get("restart_downstream_jobs", False)
+    if not isinstance(restart, bool):
+        raise ApiError(400, "bad_request", "restart_downstream_jobs must be true or false")
+    job = ctx.store.get_job(run.get("job_id"))
+    changed = job is not None and _definition(job) != _definition(original)
+    latest_ok, reason = _latest_choice(run, job, step_id)
+    if choice is None and changed:
+        raise ApiError(409, "definition_choice_required",
+                       "the job changed since this run started: choose the latest or the "
+                       "original definition", choices=_choices(latest_ok, reason))
+    choice = choice or "original"
+    if choice == "latest" and not latest_ok:
+        raise ApiError(409, "definition_unavailable",
+                       "the latest definition cannot be used: %s" % reason,
+                       choices=_choices(latest_ok, reason))
+    key = _enqueue(ctx, {"type": "rerun", "run_id": run.get("id") or run_id, "step_id": step_id,
+                         "definition": choice, "restart_downstream_jobs": restart})
+    return 202, {"command_id": key, "definition": choice}
+
+
+# Settings and destinations.
+
+def _require_admin(ctx, action):
+    if not ctx.allowed(authz.can_admin, None):
+        raise ctx.deny(action)
+
+
+def _settings_view(stored):
+    out = dict(DEFAULT_SETTINGS)
+    out.update(fallback=None, base_url=None)
+    for key, value in (stored or {}).items():
+        if not key.startswith("_") and value is not None:
+            out[key] = value
+    return out
+
+
+def get_settings(ctx, body):
+    _require_admin(ctx, "read_settings")
+    return 200, {"settings": _settings_view(ctx.store.get_settings())}
+
+
+def _bad_setting(message):
+    return ApiError(400, "bad_setting", message)
+
+
+def _check_fallback(ctx, value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise _bad_setting("fallback must be an object or null")
+    kind = value.get("type")
+    if kind == "email":
+        to = value.get("to")
+        if not isinstance(to, str) or "@" not in to:
+            raise _bad_setting("fallback email needs an address in \"to\"")
+        return {"type": "email", "to": to}
+    if kind == "webhook":
+        dest = value.get("destination")
+        if dest not in _destination_names(ctx):
+            raise _bad_setting("unknown webhook destination %r" % (dest,))
+        out = {"type": "webhook", "destination": dest}
+        if value.get("preset") is not None:
+            if value["preset"] not in PRESETS:
+                raise _bad_setting("unknown preset %r" % (value["preset"],))
+            out["preset"] = value["preset"]
+        return out
+    raise _bad_setting("fallback type must be \"email\" or \"webhook\"")
+
+
+def put_settings(ctx, body):
+    _require_admin(ctx, "change_settings")
+    current = {k: v for k, v in (ctx.store.get_settings() or {}).items() if not k.startswith("_")}
+    for key, value in body.items():
+        if key in INT_SETTINGS:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise _bad_setting("%s must be a whole number of at least 1" % key)
+            current[key] = value
+        elif key == "fallback":
+            current[key] = _check_fallback(ctx, value)
+        elif key == "base_url":
+            if value not in (None, "") and not (isinstance(value, str)
+                                                and re.match(r"^https?://[^/\s]+", value)):
+                raise _bad_setting("base_url must be an http(s) URL")
+            current[key] = value or None
+        else:
+            raise _bad_setting("unknown setting %r" % key)
+    ctx.store.save_settings(current)
+    ctx.emit({"type": "settings_changed", "keys": sorted(body)})
+    return 200, {"settings": _settings_view(current)}
+
+
+def _destinations(ctx):
+    return list((ctx.sys_gw.kv_get(SETTINGS, DESTINATIONS_KEY) or {}).get("destinations") or [])
+
+
+def _save_destinations(ctx, dests):
+    doc = {"_key": DESTINATIONS_KEY, "destinations": dests}
+    if not ctx.sys_gw.kv_update(SETTINGS, DESTINATIONS_KEY, doc):
+        if not ctx.sys_gw.kv_insert(SETTINGS, doc):
+            ctx.sys_gw.kv_update(SETTINGS, DESTINATIONS_KEY, doc)
+
+
+def _public_destination(dest):
+    return {"name": dest.get("name"), "preset": dest.get("preset"), "host": dest.get("host"),
+            "has_headers": bool(dest.get("headers_secret_ref"))}
+
+
+def list_destinations(ctx, body):
+    if not (ctx.allowed(authz.can_admin, None) or ctx.allowed(authz.can_edit, None)):
+        raise ctx.deny("list_destinations")
+    return 200, {"destinations": [_public_destination(d) for d in _destinations(ctx)]}
+
+
+def save_destination(ctx, body):
+    _require_admin(ctx, "manage_destinations")
+    name = body.get("name")
+    if not isinstance(name, str) or not DEST_NAME_RE.fullmatch(name):
+        raise ApiError(400, "bad_destination", "destination name must be 1-64 letters, digits, "
+                       "_, . or -")
+    url = body.get("url")
+    if not isinstance(url, str):
+        raise ApiError(400, "bad_destination", "destination needs an https url")
+    try:
+        check_webhook_url(url)
+    except GatewayError as err:
+        raise ApiError(400, "bad_destination", str(err))
+    headers = body.get("headers", ...)
+    if headers not in (..., None) and not (isinstance(headers, dict) and all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
+        raise ApiError(400, "bad_destination", "headers must be an object of strings")
+    preset = body.get("preset") or "generic"
+    if preset not in PRESETS:
+        raise ApiError(400, "bad_destination", "unknown preset %r" % (preset,))
+    dests = _destinations(ctx)
+    old = next((d for d in dests if d.get("name") == name), {})
+    url_ref = "destination_%s_url" % name
+    ctx.sys_gw.write_secret(url_ref, url)
+    headers_ref = old.get("headers_secret_ref")
+    if headers is not ...:
+        if headers_ref and not headers:
+            ctx.sys_gw.delete_secret(headers_ref)
+        headers_ref = None
+        if headers:
+            headers_ref = "destination_%s_headers" % name
+            ctx.sys_gw.write_secret(headers_ref, json.dumps(headers, sort_keys=True))
+    dest = {"name": name, "url_secret_ref": url_ref, "headers_secret_ref": headers_ref,
+            "preset": preset, "host": urlsplit(url).hostname}
+    dests = [d for d in dests if d.get("name") != name] + [dest]
+    _save_destinations(ctx, dests)
+    ctx.emit({"type": "destination_saved", "destination": name, "host": dest["host"],
+              "created": not old})
+    return 201, {"destination": _public_destination(dest)}
+
+
+def delete_destination(ctx, body, name):
+    _require_admin(ctx, "manage_destinations")
+    dests = _destinations(ctx)
+    if not any(d.get("name") == name for d in dests):
+        raise ApiError(404, "not_found", "no destination %r" % name)
+    fallback = (ctx.store.get_settings() or {}).get("fallback") or {}
+    if fallback.get("type") == "webhook" and fallback.get("destination") == name:
+        raise ApiError(409, "destination_in_use", "destination %r is the fallback notification "
+                       "destination; change the fallback first" % name)
+    _save_destinations(ctx, [d for d in dests if d.get("name") != name])
+    dest = next(d for d in dests if d.get("name") == name)
+    for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref")):
+        if ref:
+            ctx.sys_gw.delete_secret(ref)
+    ctx.emit({"type": "destination_deleted", "destination": name})
+    return 200, {"deleted": name}
+
+
+# Health and the caller.
+
+def health(ctx, body):
+    settings = ctx.store.get_settings() or {}
+    fb = settings.get("fallback") or {}
+    fallback_set = bool((fb.get("type") == "email" and fb.get("to")) or
+                        (fb.get("type") == "webhook" and fb.get("destination") in
+                         _destination_names(ctx)))
+    lease = ctx.sys_gw.kv_get(LOCKS, LEASE_KEY)
+    heartbeat = int(lease["expires"]) - LEASE_SECONDS if lease and lease.get("expires") else None
+    alive = bool(lease) and int(lease.get("expires") or 0) > ctx.now
+    index_present = ctx.sys_gw.index_exists(AUDIT_INDEX)
+    messages = []
+    if not index_present:
+        messages.append("The %s index is missing, so audit events are being lost." % AUDIT_INDEX)
+    if not alive:
+        messages.append("The engine is not running: no run will advance.")
+    if not fallback_set:
+        messages.append("No fallback notification destination is set, so a job with no failure "
+                        "or delay action fails silently.")
+    pending = len(ctx.sys_gw.kv_query(COMMANDS))
+    return 200, {"health": {"index_present": index_present, "engine_alive": alive,
+                            "engine_heartbeat": heartbeat, "fallback_set": fallback_set,
+                            "pending_commands": pending, "messages": messages}}
+
+
+def me(ctx, body):
+    caps = sorted(c for c in ctx.access["capabilities"] if c.startswith("orchestrator_"))
+    return 200, {"user": ctx.user, "roles": list(ctx.access["roles"]), "capabilities": caps,
+                 "can_admin": ctx.allowed(authz.can_admin, None),
+                 "can_build": ctx.allowed(authz.can_edit, None),
+                 "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None)}

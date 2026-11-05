@@ -205,3 +205,39 @@ def test_kv_409_on_update_raises_kv_error():
 def test_parse_user_access():
     body = ('{"entry":[{"content":{"roles":["ops"],"capabilities":["orchestrator_run"]}}]}')
     assert g.parse_user_access(body) == {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
+
+
+def test_parse_saved_search_info():
+    body = ('{"entry":[{"name":"s","acl":{"owner":"alice","sharing":"user","app":"search_orchestrator"},'
+            '"content":{"dispatchAs":"owner","search":"index=x"}}]}')
+    assert g.parse_saved_search_info(body) == {"exists": True, "owner": "alice", "sharing": "user",
+                                               "dispatch_as": "owner"}
+
+
+def test_saved_search_info_404_is_missing():
+    info = _raiser(404).saved_search_info("alice", "nope")
+    assert info == {"exists": False, "owner": None, "sharing": None, "dispatch_as": None}
+
+
+def test_saved_search_info_reads_owner_namespace():
+    body = ('{"entry":[{"acl":{"owner":"bob","sharing":"app"},"content":{"dispatchAs":"user"}}]}')
+    svc = StubService(lambda m, p, kw: Resp(body))
+    info = g.SplunkGateway(svc).saved_search_info("alice", "x y")
+    assert svc.calls[0][0] == "get" and svc.calls[0][2]["owner"] == "alice"
+    assert svc.calls[0][1] == "saved/searches/x%20y"
+    assert info == {"exists": True, "owner": "bob", "sharing": "app", "dispatch_as": "user"}
+
+
+def test_index_exists():
+    svc = StubService(lambda m, p, kw: Resp('{"entry":[{"name":"orchestrator"}]}'))
+    assert g.SplunkGateway(svc).index_exists("orchestrator") is True
+    assert _raiser(404).index_exists("orchestrator") is False
+
+
+def test_delete_secret_path_and_404_ok():
+    svc = StubService(lambda m, p, kw: Resp("{}"))
+    g.SplunkGateway(svc).delete_secret("destination_ops_url")
+    assert svc.calls[0][:2] == ("delete", "storage/passwords/search_orchestrator:destination_ops_url:")
+    _raiser(404).delete_secret("gone")
+    with pytest.raises(g.GatewayError):
+        _raiser(500).delete_secret("x")

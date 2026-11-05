@@ -22,6 +22,8 @@ def test_package_contains_required_files():
                 "default/collections.conf", "default/indexes.conf", "default/macros.conf",
                 "default/props.conf", "default/inputs.conf", "README/inputs.conf.spec",
                 "metadata/default.meta", "bin/orchestrator_engine.py",
+                "default/restmap.conf", "default/web.conf", "default/savedsearches.conf",
+                "bin/orchestrator_rest.py",
                 "lib/splunklib/__init__.py"]:
         assert "search_orchestrator/" + rel in names, rel
     assert all(n.split("/")[0] == "search_orchestrator" for n in names)

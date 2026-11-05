@@ -43,6 +43,7 @@ class FakeGateway:
         self.clock = None  # optional callable: history records real dispatch time, like splunkd
         self.removed_users = set()  # owners whose accounts no longer exist
         self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
+        self.indexes = {"orchestrator"}
 
     # Scripting.
 
@@ -186,11 +187,34 @@ class FakeGateway:
     def delete_saved_search(self, owner, name):
         self.saved_searches.pop((owner, name), None)
 
+    def saved_search_info(self, owner, name):
+        """A saved search entry may carry ``sharing`` (default "user", private) and
+        ``dispatch_as`` (default "owner"). Another owner's search is visible only if shared."""
+        found = None
+        if (owner, name) in self.saved_searches:
+            found = (owner, self.saved_searches[(owner, name)])
+        else:
+            for (o, n), entry in sorted(self.saved_searches.items()):
+                if n == name and entry.get("sharing", "user") in ("app", "global"):
+                    found = (o, entry)
+                    break
+        if found is None:
+            return {"exists": False, "owner": None, "sharing": None, "dispatch_as": None}
+        o, entry = found
+        return {"exists": True, "owner": o, "sharing": entry.get("sharing", "user"),
+                "dispatch_as": entry.get("dispatch_as", "owner")}
+
+    def index_exists(self, name):
+        return name in self.indexes
+
     def read_secret(self, name):
         return self.secrets.get(name)
 
     def write_secret(self, name, value):
         self.secrets[name] = value
+
+    def delete_secret(self, name):
+        self.secrets.pop(name, None)
 
     def post_webhook(self, url, headers, body):
         if not url.startswith("https://"):
