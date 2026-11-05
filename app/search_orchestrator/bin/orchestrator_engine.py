@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from splunklib import client  # noqa: E402
-from splunklib.modularinput import EventWriter, Scheme, Script  # noqa: E402
+from splunklib.modularinput import Argument, EventWriter, Scheme, Script  # noqa: E402
 
 APP = "search_orchestrator"
 OWNER = "so_m1_user"
@@ -476,6 +476,12 @@ class OrchestratorEngine(Script):
         # Multi-instance so that interval = 0 applies: one process, one stanza.
         scheme.use_single_instance = False
         scheme.streaming_mode = Scheme.streaming_mode_simple
+        # splunkd doesn't seem to register a scheme with no arguments. The spike
+        # ignores this one; the real engine uses it.
+        scheme.add_argument(Argument("tick_seconds", title="Tick seconds",
+                                     description="How often, in seconds, the engine advances runs.",
+                                     data_type=Argument.data_type_number,
+                                     required_on_create=False))
         return scheme
 
     def stream_events(self, inputs, ew):

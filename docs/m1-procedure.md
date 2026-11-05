@@ -34,7 +34,7 @@ If Splunk still refuses a save, the script says so and does the least it can, an
 
 ## Procedure
 
-1. Install the app build and restart Splunk if prompted. The spike runs at this point too and records failures, because the fixtures don't exist yet. That's expected.
+1. Install the app build `dist/search_orchestrator-0.0.4.tgz` and restart Splunk if prompted. On 0.0.3 and earlier splunkd never registered the input, so the spike didn't run. To check it's registered: `| rest /services/data/modular-inputs splunk_server=local | search title=orchestrator_engine`. The spike runs at this point too and records failures, because the fixtures don't exist yet. That's expected.
 2. Run the script. Add `--insecure` only if the management port uses a self-signed certificate. A plain `http://` host is refused unless you add `--allow-http`, because passwords would travel unencrypted:
 
    ```
