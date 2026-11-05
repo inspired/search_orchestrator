@@ -35,12 +35,20 @@ Retries: a failing action is retried 3 times (4 attempts) after ``state.backoff`
 seconds. A non-transient error (https rule, 4xx, unknown destination, no
 permission) fails at once.
 
-Fallback (spec section 10, decided here): an ``on_delayed`` or ``on_failure``
-event with no matching action at its scope, or whose matching action ran out
-of retries, is sent to ``settings.fallback``: ``{"type": "webhook",
-"destination": name}`` or ``{"type": "email", "to": address}``. state.py emits
-both step-level and job-level hooks for one event, so the fallback row key is
-``run_id:fallback:hook:occurrence`` and one event sends at most one fallback.
+Fallback (spec section 10, decided here, on the job-scope event only): the run
+failing (``on_failure``) or being delayed (``on_delayed``) is sent to
+``settings.fallback`` (``{"type": "webhook", "destination": name}`` or
+``{"type": "email", "to": address}``) unless the job has a job-level action for
+the hook, or (failure) an unhandled failed step has a step-level on_failure
+action, or (delay) a delayed step has a step-level on_delayed action. Handled
+step failures never use the fallback. A matching action that runs out of
+retries sends it too. The key is ``run_id:fallback:hook:occurrence``, so one
+event sends at most one fallback.
+
+Rows snapshot everything they need (action definitions, owner, scheduled time,
+ctx, chain depth) at submit, so ``pump`` never re-reads the run (a queue-cap
+rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease``
+between rows and starts no new action after ``PUMP_BUDGET`` seconds.
 Fallback rows have ``kind="fallback"`` and ``scope="fallback"``. Content is only job,
 run and step names, status and links. Email goes through the
 system-owned hidden search ``_so_fallback_email`` under ``nobody``.
@@ -63,6 +71,8 @@ log = logging.getLogger(__name__)
 ACTION_RUNS = "so_action_runs"
 SETTINGS = "so_settings"
 MAX_RETRIES = 3
+PUMP_BUDGET = 5.0
+CHAIN_LIMIT = 10
 RUNNING_LIMIT = 600  # seconds a hidden action search may run
 BATCH = 100
 FALLBACK_HOOKS = ("on_delayed", "on_failure")
@@ -95,12 +105,50 @@ def indexed_actions(definition):
 
 
 def _entry(index, action):
-    return {"index": index, "type": action.get("type"), "state": "pending", "attempts": 0,
+    return {"index": index, "type": action.get("type"), "action": dict(action),
+            "state": "pending", "attempts": 0,
             "error": None, "next_at": 0, "sid": None, "started_at": None}
 
 
+def _scrub(text, url):
+    """Remove a webhook URL (and its path, query and credentials) from an error text."""
+    text = str(text)
+    parts = urlsplit(url)
+    bits = [url, parts.path if len(parts.path) > 1 else "", parts.query,
+            parts.netloc.rpartition("@")[0]]
+    for bit in sorted(set(b for b in bits if b), key=len, reverse=True):
+        text = text.replace(bit, "[url]")
+    return text
+
+
+def _needs_failure_fallback(run, definition):
+    if any(a.get("hook") == "on_failure" for a in definition.get("actions") or []):
+        return False
+    handled = {e.get("from") for e in definition.get("edges") or []
+               if e.get("condition") in ("on_failure", "always")}
+    for step in definition.get("steps") or []:
+        st = (run.get("steps") or {}).get(step.get("id")) or {}
+        if st.get("state") == "failed" and step.get("id") not in handled \
+                and any(a.get("hook") == "on_failure" for a in step.get("actions") or []):
+            return False
+    return True
+
+
+def _needs_delay_fallback(run, definition):
+    if any(a.get("hook") == "on_delayed" for a in definition.get("actions") or []):
+        return False
+    for step in definition.get("steps") or []:
+        st = (run.get("steps") or {}).get(step.get("id")) or {}
+        if st.get("delay_alerted") \
+                and any(a.get("hook") == "on_delayed" for a in step.get("actions") or []):
+            return False
+    return True
+
+
 class ActionRunner:
-    def __init__(self, gateway, store=None, audit=None, clock=time.time):
+    def __init__(self, gateway, store=None, audit=None, clock=time.time,
+                 monotonic=time.monotonic):
+        self.monotonic = monotonic
         self.gw = gateway
         self.store = store
         self.audit = audit
@@ -125,12 +173,15 @@ class ActionRunner:
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),
                "scope": scope, "hook": hook, "step_id": step_id, "occurrence": occurrence,
-               "ctx": ctx, "actions": [_entry(i, a) for i, a in matching],
+               "ctx": ctx, "chain_depth": int(run.get("chain_depth") or 0),
+               "actions": [_entry(i, a) for i, a in matching],
                "state": "pending" if matching else "done", "attempts": 0, "error": None,
                "fallback": False, "created_at": int(self.clock())}
         new = self.gw.kv_insert(ACTION_RUNS, doc)
-        if not matching and hook in FALLBACK_HOOKS:  # also on replay: the insert is idempotent
-            self._ensure_fallback(doc)
+        needs = {"on_failure": _needs_failure_fallback,
+                 "on_delayed": _needs_delay_fallback}.get(hook)
+        if scope == "job" and needs and needs(run, definition):
+            self._ensure_fallback(doc)  # also on replay: the insert is idempotent
         return new
 
     @staticmethod
@@ -161,15 +212,24 @@ class ActionRunner:
 
     # -- pump -----------------------------------------------------------------
 
-    def pump(self, now):
-        """Run due actions and poll running ones. Returns the number of rows touched."""
+    def pump(self, now, keep_lease=None):
+        """Run due actions and poll running ones. Returns the number of rows touched.
+
+        ``keep_lease()`` is called between rows (it raises if the lease is lost; rows
+        are already saved). After ``PUMP_BUDGET`` seconds no new action starts.
+        """
         rows = self.gw.kv_query(ACTION_RUNS, {"state": "pending"}, sort="created_at:1",
                                 limit=BATCH)
+        started = self.monotonic()
         touched = 0
         settings = None
         for row in rows:
+            if keep_lease is not None:
+                keep_lease()
             changed = False
             for entry in row["actions"]:
+                if self.monotonic() - started > PUMP_BUDGET:
+                    break
                 if entry["state"] == "pending" and entry["next_at"] > now:
                     continue
                 if entry["state"] not in ("pending", "running"):
@@ -178,16 +238,19 @@ class ActionRunner:
                     settings = self.gw.kv_get(SETTINGS, "settings") or {}
                 self._advance(row, entry, settings, now)
                 changed = True
-            if not changed:
-                continue
-            touched += 1
-            self._roll_up(row)
-            if (row["state"] == "failed" and row["hook"] in FALLBACK_HOOKS
-                    and not row["fallback"]):
-                self._ensure_fallback(row)  # idempotent, so a crash before the save is safe
-                row["fallback"] = True
-            self.gw.kv_update(ACTION_RUNS, row["_key"], row)
+                self._save_row(row)
+            if changed:
+                touched += 1
+            if self.monotonic() - started > PUMP_BUDGET:
+                break
         return touched
+
+    def _save_row(self, row):
+        self._roll_up(row)
+        if row["state"] == "failed" and row["hook"] in FALLBACK_HOOKS and not row["fallback"]:
+            self._ensure_fallback(row)  # idempotent, so a crash before the save is safe
+            row["fallback"] = True
+        self.gw.kv_update(ACTION_RUNS, row["_key"], row)
 
     @staticmethod
     def _roll_up(row):
@@ -254,7 +317,7 @@ class ActionRunner:
         ctx = self._links(row["ctx"], settings)
         if row["kind"] == "fallback":
             return self._fallback(row, entry, ctx, settings, now)
-        action = self._definition_action(row, entry)
+        action = entry.get("action") or {}
         kind = entry["type"]
         if kind == "webhook":
             return self._webhook(row, entry, action, ctx, now)
@@ -263,15 +326,6 @@ class ActionRunner:
         if kind == "start_job":
             return self._start_job(row, entry, action, now)
         raise _Fail("unknown action type %r" % (kind,))
-
-    def _definition_action(self, row, entry):
-        run = self.store.get_run(row["run_id"]) if self.store else None
-        if run is None:
-            raise _Fail("run %s no longer exists" % row["run_id"])
-        for i, _s, _sid, action in indexed_actions(run.get("definition") or {}):
-            if i == entry["index"]:
-                return action
-        raise _Fail("action %s no longer in the run's definition" % entry["index"])
 
     @staticmethod
     def _links(ctx, settings):
@@ -318,14 +372,13 @@ class ActionRunner:
             try:
                 status = self.gw.post_webhook(url, headers, json.dumps(body))
             except GatewayError as err:
-                text = str(err).replace(url, "[url]")
-                raise GatewayError(text, status=err.status, transient=err.transient)
+                raise GatewayError(_scrub(err, url), status=err.status, transient=err.transient)
         except _Fail:
             raise
         except GatewayError as err:
-            raise _Fail(str(err).replace(url, "[url]"), err.transient)
-        except ValueError as err:
-            raise _Fail("bad webhook body: %s" % err)
+            raise _Fail(_scrub(err, url), err.transient)
+        except Exception as err:  # e.g. http.client.InvalidURL, whose text has the URL
+            raise _Fail("bad webhook request (%s): %s" % (type(err).__name__, _scrub(err, url)))
         self._done(row, entry, now, http_status=status, **where)
 
     def _webhook(self, row, entry, action, ctx, now):
@@ -357,6 +410,8 @@ class ActionRunner:
             payload = action.get("payload")
             if payload:
                 payload = presets.fill(payload, full)
+                if not isinstance(payload, str):
+                    payload = json.dumps(payload)
             else:
                 payload = json.dumps({"job": ctx["job"], "run_id": ctx["run_id"],
                                       "hook": ctx["hook"], "step": ctx["step_id"],
@@ -394,10 +449,16 @@ class ActionRunner:
         access = self.gw.user_access(owner) if owner else {"roles": [], "capabilities": []}
         if not authz.can_run(owner, target, access["roles"], access["capabilities"]):
             raise _Fail("owner %r may not run job %r" % (owner, target_id))
+        depth = int(row.get("chain_depth") or 0) + 1
+        if depth > CHAIN_LIMIT:
+            self._emit({"type": "chain_depth_exceeded", "run_id": row["run_id"],
+                        "job_id": row["job_id"], "target_job": target_id, "limit": CHAIN_LIMIT},
+                       now)
+            raise _Fail("Job chain depth limit (%d) reached" % CHAIN_LIMIT)
         key = scheduler.run_key(target_id, "start_job", row.get("scheduled_time"), row["run_id"])
         created = scheduler.create_run(self.store, target, "start_job", row.get("scheduled_time"),
                                        action.get("params") or {}, upstream=row["run_id"],
-                                       now=now, audit=self.audit)
+                                       now=now, audit=self.audit, chain_depth=depth)
         if created is None and self.store.get_run(key) is None:
             raise _Fail("run of job %r was not created (queue is full)" % target_id)
         self._done(row, entry, now, target_job=target_id, target_run_id=key)

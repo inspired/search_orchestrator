@@ -102,7 +102,7 @@ def snapshot(job):
 
 
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
-               catchup=False, audit=None, actions=None, queue_cap=None):
+               catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0):
     """Insert a queued run and return its ID, or None if it already exists or the
     job's queue is full. Raises tokens.TokenError for invalid parameters."""
     now = int(time.time() if now is None else now)
@@ -118,7 +118,7 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "catchup": bool(catchup), "created_at": now, "queued_at": now,
            "started_at": None, "ended_at": None, "delay_base": None, "giveup_base": None,
            "paused_seconds": 0, "paused_at": None, "hooks_fired": [], "delay_alerted": False,
-           "held": False, "gave_up": False, "rerun_count": 0,
+           "held": False, "gave_up": False, "rerun_count": 0, "chain_depth": int(chain_depth),
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:
         queue_cap = (store.get_settings() or {}).get("queue_cap") or QUEUE_CAP

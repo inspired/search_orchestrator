@@ -344,3 +344,133 @@ def test_removed_owner_fails_search_action_without_raising():
     w.submit()
     w.pump()
     assert w.rows(kind="action")[0]["state"] == "failed"
+
+
+# Fix round 1.
+
+def _fail_run(w, step_state="failed"):
+    w.run["steps"]["a"]["state"] = step_state
+
+
+def test_handled_step_failure_does_not_consume_fallback():
+    w = W(settings=FALLBACK)
+    w.definition["edges"] = [{"from": "a", "to": "b", "condition": "on_failure"}]
+    w.submit("on_failure", "step", "a")  # handled step failure
+    assert not w.rows(kind="fallback")
+    w.pump()
+    assert not w.gw.webhook_log
+    w.submit("on_failure", "job")  # later unhandled run failure
+    w.pump()
+    assert len(w.rows(kind="fallback")) == 1 and len(w.gw.webhook_log) == 1
+
+
+def test_job_level_failure_action_suppresses_fallback_on_step_failures():
+    w = W(actions=[WEBHOOK], settings=FALLBACK)
+    w.submit("on_failure", "step", "a")
+    w.submit("on_failure", "job")
+    assert not w.rows(kind="fallback")
+
+
+def test_step_level_action_on_unhandled_failed_step_suppresses_fallback():
+    w = W(step_actions=[{"hook": "on_failure", "type": "webhook", "destination": "ops"}],
+          settings=FALLBACK)
+    w.submit("on_failure", "job")
+    assert not w.rows(kind="fallback")
+
+
+def test_delay_fallback_decided_on_job_event():
+    w = W(settings=FALLBACK)
+    w.submit("on_delayed", "step", "a")
+    assert not w.rows(kind="fallback")
+    w.submit("on_delayed", "job")
+    assert len(w.rows(kind="fallback")) == 1
+    w2 = W(step_actions=[{"hook": "on_delayed", "type": "webhook", "destination": "ops"}],
+           settings=FALLBACK)
+    w2.run["steps"]["a"]["delay_alerted"] = True
+    w2.submit("on_delayed", "job")
+    assert not w2.rows(kind="fallback")
+
+
+def test_rejected_run_action_is_sent_from_snapshot():
+    w = W(actions=[WEBHOOK], settings=FALLBACK)
+    ghost = dict(w.run, _key="ghost", id="ghost", state="rejected")  # never saved
+    w.runner.submit(ghost, "on_failure", "job", None)
+    w.pump()
+    assert w.rows(kind="action")[0]["state"] == "done"
+    assert len(w.gw.webhook_log) == 1 and not w.rows(kind="fallback")
+
+
+def test_pump_budget_stops_new_sends():
+    w = W(settings=FALLBACK)
+    ticks = iter(range(0, 1000, 3))  # each clock read advances 3 s
+    w.runner.monotonic = lambda: next(ticks)
+    for n in range(4):
+        w.run = dict(w.run, _key="r%d" % n, id="r%d" % n)
+        w.submit("on_failure", "job")
+    w.pump()
+    assert 0 < len(w.gw.webhook_log) < 4
+    assert len([r for r in w.rows(kind="fallback") if r["state"] == "pending"]) > 0
+    w.runner.monotonic = lambda: 0
+    w.pump(T + 1)
+    assert len(w.gw.webhook_log) == 4
+
+
+def test_pump_stops_when_lease_lost_with_rows_saved():
+    w = W(settings=FALLBACK)
+    for n in range(3):
+        w.run = dict(w.run, _key="r%d" % n, id="r%d" % n)
+        w.submit("on_failure", "job")
+    calls = []
+
+    def keep():
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("lease lost")
+
+    with pytest.raises(RuntimeError):
+        w.runner.pump(T, keep_lease=keep)
+    assert len(w.gw.webhook_log) == 1
+    assert [r["state"] for r in w.rows(kind="fallback")].count("done") == 1
+
+
+def test_start_job_chain_depth_limit():
+    w = W(actions=[{"hook": "on_failure", "type": "start_job", "job": "j"}])
+    w.gw.users["alice"] = {"roles": [], "capabilities": ["orchestrator_admin"]}
+    run = w.run
+    for depth in range(12):
+        run = dict(run, _key="c%d" % depth, id="c%d" % depth, chain_depth=depth)
+        w.store.save_run(run)
+        w.runner.submit(run, "on_failure", "job", None)
+        w.pump(T + depth)
+        child = w.store.get_run("j:c%d:start_job" % depth)
+        if child is None:
+            break
+        assert child["chain_depth"] == depth + 1
+        run = child
+    assert depth == 10
+    failed = [r for r in w.rows(kind="action") if r["state"] == "failed"]
+    assert "chain depth limit (10)" in failed[0]["error"]
+    assert w.audit.of("chain_depth_exceeded")
+
+
+def test_invalid_url_error_text_is_scrubbed():
+    import http.client
+    w = W(actions=[WEBHOOK])
+
+    def boom(url, headers, body):
+        raise http.client.InvalidURL("URL can't contain control characters. '/T0/SECRETTOKEN'")
+
+    w.gw.post_webhook = boom
+    w.submit()
+    w.pump()
+    assert "SECRETTOKEN" not in json.dumps(w.rows()) + json.dumps(w.audit.events)
+
+
+def test_event_payload_non_string_is_json_encoded():
+    w = W(actions=[{"hook": "on_failure", "type": "event", "index": "i",
+                    "payload": {"job": "{{job}}"}}])
+    w.gw.script_job("_so_j_action_0", ["done"])
+    w.submit()
+    w.pump()
+    assert json.loads(w.gw.dispatch_log[0]["args"]["payload"].replace('\\"', '"')) == \
+        {"job": "Nightly"}

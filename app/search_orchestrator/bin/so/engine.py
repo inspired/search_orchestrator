@@ -16,7 +16,7 @@ Splunk and KV Store. It is the only component that advances runs.
 6. Touch results of non-terminal runs (live, and queued re-runs with kept
    results) every 5 minutes; at run end, set their TTL to the result-retention
    setting.
-7. ``actions.pump(now)``.
+7. ``actions.pump(now, keep_lease)``.
 8. Each run is saved as one document; audit events are emitted after the
    save that made them true. Ended runs are pruned at most once an hour.
 
@@ -230,7 +230,7 @@ class Engine:
         self._keep_lease()
         self._advance_all(runs, jobs, settings, now)
         self._keep_lease()
-        self.actions.pump(now)
+        self.actions.pump(now, keep_lease=self._keep_lease)
         self._keep_lease()
         self._prune(settings, now)
         self._save_estate(now)
