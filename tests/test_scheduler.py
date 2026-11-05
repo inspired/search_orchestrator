@@ -91,3 +91,14 @@ def test_create_run_validates_params():
         scheduler.create_run(store, j, "manual", T0, {"n": "x"}, now=T0)
     run_id = scheduler.create_run(store, j, "manual", T0, {"n": "007"}, now=T0)
     assert store.get_run(run_id)["params"] == {"n": "7"}
+
+
+def test_run_keys_match_run_id_pattern():
+    cron = scheduler.run_key("daily", "cron", 1800000000)
+    manual = scheduler.run_key("daily-2", "manual", 1)
+    chained = scheduler.run_key("down", "start_job", 1, upstream=cron)
+    deeper = scheduler.run_key("down_2", "completion", 1, upstream=chained)
+    for key in (cron, manual, chained, deeper):
+        assert scheduler.is_run_id(key), key
+    for bad in ("..", "x", "a/b:c", "a:..", ":a", "a::b", "a:b c", None, "a:" + "b" * 2050):
+        assert not scheduler.is_run_id(bad), bad

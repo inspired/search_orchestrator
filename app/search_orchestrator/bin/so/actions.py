@@ -23,8 +23,9 @@ run's definition snapshot): ``{"hook", "type", ...}`` with
 * ``event``: ``index``, optional ``payload`` (template)
 * ``start_job``: ``job`` (target job ID) and optional ``params``
 * ``alert_action``: ``action`` (name) and ``params``
-Email, event and alert_action dispatch a hidden search as the run's owner
-(see ``hidden.py`` for the args contract).
+Email, event and alert_action dispatch a hidden search as the run's owner,
+named by the action's ``hidden_search`` in the run's definition snapshot
+(content-addressed, written at job save; see ``hidden.py`` for the args contract).
 
 Webhook destinations live in ``so_settings`` document ``destinations``:
 ``{"destinations": [{"name", "url_secret_ref", "headers_secret_ref", "preset"}]}``.
@@ -421,7 +422,10 @@ class ActionRunner:
             args["action"] = action.get("action") or ""
             for k, v in (action.get("params") or {}).items():
                 args["param." + str(k)] = presets.fill(str(v), full)
-        name = hidden.action_search_name(row["job_id"], entry["index"])
+        name = action.get("hidden_search")
+        if not name:
+            raise _Fail("action %s has no hidden saved search in its definition; re-save the "
+                        "job to create it" % entry["index"])
         self._dispatch(row, entry, row["owner"], name, args, now)
 
     def _dispatch(self, row, entry, owner, name, args, now):

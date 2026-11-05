@@ -20,6 +20,7 @@ per-job queue cap: a rejected run is audited and reported through the job's
 """
 import copy
 import logging
+import re
 import time
 import uuid
 
@@ -34,6 +35,14 @@ ONTIME_GRACE = 300
 WINDOW = 86400
 QUEUE_CAP = 20
 _SNAPSHOT_SKIP = ("_key", "_user")
+# Everything run_key produces: a job id, then ":"-separated parts (a slot, a trigger, a
+# random suffix, or a chained upstream run id, which itself contains ":").
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?::[A-Za-z0-9_-]{1,64})+$")
+RUN_ID_MAX = 2048
+
+
+def is_run_id(value):
+    return isinstance(value, str) and len(value) <= RUN_ID_MAX and bool(RUN_ID_RE.fullmatch(value))
 
 
 def cron_specs(job):

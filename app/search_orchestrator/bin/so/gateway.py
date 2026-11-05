@@ -194,6 +194,21 @@ def parse_saved_search_info(body):
             "dispatch_as": content.get("dispatchAs")}
 
 
+def encoded_path(*parts):
+    """A splunkd path whose last parts are names (saved searches, indexes, KV keys).
+
+    ``parts[0]`` is a fixed route such as ``saved/searches``; every later part is
+    percent-encoded once, ``/`` included, and the result is marked as already
+    encoded so splunklib does not encode it again.
+    """
+    from splunklib.binding import UrlEncoded
+
+    def one(part):
+        text = quote(str(part), safe="")
+        return text.replace(".", "%2E") if text in (".", "..") else text  # no dot segments
+    return UrlEncoded("/".join([parts[0]] + [one(p) for p in parts[1:]]), skip_encode=True)
+
+
 def check_webhook_url(url):
     """https only. Errors name the scheme and host only: URLs often carry secrets."""
     parts = urlsplit(url)
@@ -303,7 +318,8 @@ class SplunkGateway:
                  trigger_actions=False):
         params = dispatch_params(now_epoch, args, earliest, latest, trigger_actions)
         try:
-            body = self._call("post", "saved/searches/{}/dispatch".format(name), owner, **params)
+            body = self._call("post", encoded_path("saved/searches", name, "dispatch"), owner,
+                              **params)
         except GatewayError as err:
             raise DispatchError(err.transient, str(err), err.status)
         except Exception as err:
@@ -349,7 +365,7 @@ class SplunkGateway:
 
     def history(self, owner, name, since_epoch):
         try:
-            body = self._call("get", "saved/searches/{}/history".format(name), owner, count=0)
+            body = self._call("get", encoded_path("saved/searches", name, "history"), owner, count=0)
         except GatewayError:
             raise
         except Exception as err:
@@ -388,7 +404,7 @@ class SplunkGateway:
     def upsert_saved_search(self, owner, name, search, earliest, latest, description=""):
         params = saved_search_params(search, earliest, latest, description)
         try:
-            self._call("post", "saved/searches/{}".format(name), owner, **params)
+            self._call("post", encoded_path("saved/searches", name), owner, **params)
             return
         except GatewayError:
             raise
@@ -404,7 +420,7 @@ class SplunkGateway:
 
     def delete_saved_search(self, owner, name):
         try:
-            self._call("delete", "saved/searches/{}".format(name), owner)
+            self._call("delete", encoded_path("saved/searches", name), owner)
         except GatewayError:
             raise
         except Exception as err:
@@ -415,7 +431,7 @@ class SplunkGateway:
         """How ``name`` looks from ``owner``'s namespace in this app (spec section 9's
         two-mode rule). ``exists`` is False if it is missing or the session cannot read it."""
         try:
-            body = self._call("get", "saved/searches/" + quote(name, safe=""), owner)
+            body = self._call("get", encoded_path("saved/searches", name), owner)
         except GatewayError:
             raise
         except Exception as err:
@@ -427,7 +443,7 @@ class SplunkGateway:
 
     def index_exists(self, name):
         try:
-            self._call("get", "data/indexes/" + quote(name, safe=""))
+            self._call("get", encoded_path("data/indexes", name))
         except GatewayError:
             raise
         except Exception as err:
@@ -440,7 +456,7 @@ class SplunkGateway:
     # KV Store.
 
     def kv_get(self, collection, key):
-        status, body = self._kv("get", "storage/collections/data/{}/{}".format(collection, key),
+        status, body = self._kv("get", encoded_path("storage/collections/data", collection, key),
                                  expected=(404,))
         return None if status == 404 else json.loads(body)
 
@@ -452,12 +468,12 @@ class SplunkGateway:
 
     def kv_update(self, collection, key, doc):
         """True if updated; False if there is no such key (404)."""
-        status, _ = self._kv("post", "storage/collections/data/{}/{}".format(collection, key),
+        status, _ = self._kv("post", encoded_path("storage/collections/data", collection, key),
                              expected=(404,), headers=self._json_headers(), body=json.dumps(doc))
         return status != 404
 
     def kv_delete(self, collection, key):
-        self._kv("delete", "storage/collections/data/{}/{}".format(collection, key),
+        self._kv("delete", encoded_path("storage/collections/data", collection, key),
                  expected=(404,))
 
     def kv_delete_query(self, collection, query):

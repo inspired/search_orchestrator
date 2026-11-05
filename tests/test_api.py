@@ -4,7 +4,7 @@ import calendar
 import pytest
 
 from fakes import FakeGateway
-from so import api, hidden
+from so import api
 from so.actions import ActionRunner
 from so.engine import Engine
 from so.store import COMMANDS, JOBS, RUNS, Store
@@ -181,7 +181,8 @@ def test_delete_removes_job_and_hidden_searches(w):
     assert w.store.get_job("daily") is None
     for st in job["steps"]:
         assert ("alice", st["hidden_search"]) not in w.gw.saved_searches
-    assert ("alice", hidden.action_search_name("daily", 0)) not in w.gw.saved_searches
+    assert ("alice", job["actions"][0]["hidden_search"]) not in w.gw.saved_searches
+    assert w.gw.saved_searches == {}
     assert w.audit.of("job_deleted")
 
 
@@ -617,3 +618,193 @@ def test_destination_headers_cleared_deletes_secret(w):
     w.call("root", "POST", "/orchestrator/destinations",
            {"name": "ops", "url": "https://hooks.example.com/x", "headers": None})
     assert set(w.gw.secrets) == {"destination_ops_url"}
+
+
+# Fix round 1.
+
+@pytest.mark.parametrize("bad", ["..", "..%2Fso_runs%2Fx", "a%2Fb", "%2E%2E", "a b", "a:b"])
+def test_bad_job_ids_in_path_404_without_kv_calls(w, bad):
+    saved(w)
+    w.calls.clear()
+    for method, path in (("GET", "jobs/%s"), ("PUT", "jobs/%s"), ("DELETE", "jobs/%s"),
+                         ("POST", "jobs/%s/runs")):
+        status, out = w.call("root", method, "/orchestrator/" + path % bad, job_body())
+        assert status == 404 and error(out) == "not_found", (method, bad)
+    assert not [c for c in w.calls if c[1].startswith("kv_")]
+
+
+@pytest.mark.parametrize("bad", ["..", "..%2Fso_jobs%2Fdaily", "daily%2F1", "x", ":", "a::b"])
+def test_bad_run_ids_in_path_404_without_kv_calls(w, bad):
+    saved(w)
+    w.calls.clear()
+    for method, path in (("GET", "runs/%s"), ("POST", "runs/%s/cancel"),
+                         ("POST", "runs/%s/rerun")):
+        status, out = w.call("root", method, "/orchestrator/" + path % bad, {"step": "a"})
+        assert status == 404 and error(out) == "not_found", (method, bad)
+    assert not [c for c in w.calls if c[1].startswith("kv_")]
+
+
+def test_real_run_ids_accepted(w):
+    saved(w)
+    run_id = start(w)
+    assert ":" in run_id
+    from urllib.parse import quote
+    assert w.call("alice", "GET", "/orchestrator/runs/" + quote(run_id, safe=""))[0] == 200
+
+
+def test_bad_destination_name_in_path_404(w):
+    status, out = w.call("root", "DELETE", "/orchestrator/destinations/..%2Fsettings")
+    assert status == 404
+
+
+def test_cycle_warning_redacts_hidden_jobs(w):
+    saved(w, "bob", job_body("bobs", actions=[{"hook": "on_success", "type": "start_job",
+                                               "job": "mine"}], run_roles=[]))
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(
+        "mine", actions=[{"hook": "on_success", "type": "start_job", "job": "bobs"}]))
+    assert status == 201
+    msg = [i for i in out["issues"] if i["code"] == "job_chain_cycle"][0]["message"]
+    assert "bobs" not in msg and "(hidden job)" in msg and "mine" in msg
+    status, out = w.call("root", "PUT", "/orchestrator/jobs/mine", job_body(
+        "mine", actions=[{"hook": "on_success", "type": "start_job", "job": "bobs"}]))
+    assert "bobs" in [i for i in out["issues"] if i["code"] == "job_chain_cycle"][0]["message"]
+
+
+def test_health_requires_orchestrator_capability(w):
+    w.gw.users["eve"] = {"roles": ["user"], "capabilities": ["search"]}
+    status, out = w.call("eve", "GET", "/orchestrator/health")
+    assert status == 403 and error(out) == "forbidden"
+    assert w.call("carol", "GET", "/orchestrator/health")[0] == 200
+
+
+def test_health_reports_missing_index(w):
+    w.gw.indexes.clear()
+    out = w.call("alice", "GET", "/orchestrator/health")[1]["health"]
+    assert out["index_present"] is False and any("index" in m for m in out["messages"])
+
+
+def test_route_keyword_job_ids_reserved(w):
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body("validate"))
+    assert status == 400 and error(out) == "bad_job_id"
+    body = job_body()
+    del body["id"]
+    body["name"] = "Validate"
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 201 and out["job"]["id"] != "validate"
+    assert w.call("alice", "GET", "/orchestrator/jobs/" + out["job"]["id"])[0] == 200
+
+
+def test_delete_destination_deletes_secrets_first(w):
+    w.call("root", "POST", "/orchestrator/destinations",
+           {"name": "ops", "url": "https://hooks.example.com/x", "headers": {"A": "b"}})
+    order = []
+    real_delete, real_update = w.gw.delete_secret, w.gw.kv_update
+    w.gw.delete_secret = lambda n: (order.append(("secret", n)), real_delete(n))[1]
+    w.gw.kv_update = lambda c, k, d: (order.append(("doc", k)), real_update(c, k, d))[1]
+    assert w.call("root", "DELETE", "/orchestrator/destinations/ops")[0] == 200
+    assert [o[0] for o in order] == ["secret", "secret", "doc"]
+
+
+def test_delete_destination_secret_failure_keeps_doc_and_audits(w):
+    from so.gateway import GatewayError
+    w.call("root", "POST", "/orchestrator/destinations",
+           {"name": "ops", "url": "https://hooks.example.com/x"})
+
+    def boom(name):
+        raise GatewayError("HTTP 500", status=500)
+    w.gw.delete_secret = boom
+    status, out = w.call("root", "DELETE", "/orchestrator/destinations/ops")
+    assert status == 502 and error(out) == "secret_delete_failed"
+    assert [d["name"] for d in w.call("root", "GET", "/orchestrator/destinations")[1]
+            ["destinations"]] == ["ops"]
+    failed = w.audit.of("destination_secret_delete_failed")
+    assert failed and failed[0]["destination"] == "ops"
+
+
+@pytest.mark.parametrize("key,top", [("max_searches", 100), ("max_searches_per_job", 50),
+                                     ("queue_cap", 1000), ("run_retention_days", 3650),
+                                     ("result_retention", 7 * 86400)])
+def test_settings_upper_bounds(w, key, top):
+    assert w.call("root", "PUT", "/orchestrator/settings", {key: top})[0] == 200
+    status, out = w.call("root", "PUT", "/orchestrator/settings", {key: top + 1})
+    assert status == 400 and error(out) == "bad_setting"
+
+
+def test_non_admin_cannot_put_settings(w):
+    assert w.call("alice", "PUT", "/orchestrator/settings", {"queue_cap": 5})[0] == 403
+
+
+def test_validate_requires_build(w):
+    assert w.call("carol", "POST", "/orchestrator/jobs/validate", job_body())[0] == 403
+
+
+def test_owner_will_change_flag(w):
+    saved(w)
+    status, out = w.call("root", "POST", "/orchestrator/jobs/validate", job_body())
+    assert out["owner_will_change"] is True and out["owner"] == "root"
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", job_body())
+    assert out["owner_will_change"] is False and out["owner"] == "alice"
+    status, out = w.call("bob", "POST", "/orchestrator/jobs/validate", job_body())
+    assert out["owner_will_change"] is False  # bob cannot see alice's job: nothing leaks
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", job_body())
+    assert out["owner_will_change"] is False and out["owner"] == "alice"
+    status, out = w.call("root", "PUT", "/orchestrator/jobs/daily", job_body())
+    assert out["owner_will_change"] is True and out["owner"] == "root"
+
+
+def test_action_searches_versioned_for_active_runs(w):
+    first = saved(w)["actions"][0]["hidden_search"]
+    run_id = start(w)
+    body = job_body(actions=[{"hook": "on_failure", "type": "event", "index": "summary"}])
+    out = w.call("alice", "PUT", "/orchestrator/jobs/daily", body)[1]
+    second = out["job"]["actions"][0]["hidden_search"]
+    assert first != second and first.startswith("_so_daily_action_0_")
+    assert ("alice", first) in w.gw.saved_searches and ("alice", second) in w.gw.saved_searches
+    assert w.store.get_run(run_id)["definition"]["actions"][0]["hidden_search"] == first
+    run = w.store.get_run(run_id)
+    run.update(state="succeeded", ended_at=w.now)
+    w.store.save_run(run)
+    w.call("alice", "PUT", "/orchestrator/jobs/daily", body)
+    assert ("alice", first) not in w.gw.saved_searches
+
+
+def test_partial_hidden_failure_tracked_for_gc(w):
+    from so.gateway import GatewayError
+    saved(w)
+    body = job_body()
+    body["steps"][0]["spl"] = "| makeresults count=3"
+    body["steps"][1]["spl"] = "| makeresults count=4"
+    real = w.gw.upsert_saved_search
+    calls = []
+
+    def flaky(owner, name, *a, **kw):
+        calls.append(name)
+        if len(calls) == 2:
+            raise GatewayError("HTTP 500", status=500)
+        return real(owner, name, *a, **kw)
+    w.gw.upsert_saved_search = flaky
+    status, _ = w.call("alice", "PUT", "/orchestrator/jobs/daily", body)
+    assert status == 502
+    job = w.store.get_job("daily")
+    assert job["steps"][0]["spl"] != "| makeresults count=3"  # definition unchanged
+    tracked = {e["name"] for e in job["hidden_searches"]}
+    assert calls[0] in tracked and calls[1] in tracked
+    w.gw.upsert_saved_search = real
+    w.call("alice", "PUT", "/orchestrator/jobs/daily", job_body())
+    assert ("alice", calls[0]) not in w.gw.saved_searches  # orphan from the failed save removed
+
+
+def test_partial_hidden_failure_on_create_rolls_back(w):
+    from so.gateway import GatewayError
+    real = w.gw.upsert_saved_search
+    calls = []
+
+    def flaky(owner, name, *a, **kw):
+        calls.append(name)
+        if len(calls) == 2:
+            raise GatewayError("HTTP 500", status=500)
+        return real(owner, name, *a, **kw)
+    w.gw.upsert_saved_search = flaky
+    status, _ = w.call("alice", "POST", "/orchestrator/jobs", job_body())
+    assert status == 502
+    assert w.store.get_job("daily") is None and w.gw.saved_searches == {}

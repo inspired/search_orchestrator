@@ -224,7 +224,7 @@ def test_saved_search_info_reads_owner_namespace():
     svc = StubService(lambda m, p, kw: Resp(body))
     info = g.SplunkGateway(svc).saved_search_info("alice", "x y")
     assert svc.calls[0][0] == "get" and svc.calls[0][2]["owner"] == "alice"
-    assert svc.calls[0][1] == "saved/searches/x%20y"
+    assert svc.calls[0][1] == "saved/searches/x%20y"  # encoded exactly once (see below)
     assert info == {"exists": True, "owner": "bob", "sharing": "app", "dispatch_as": "user"}
 
 
@@ -241,3 +241,43 @@ def test_delete_secret_path_and_404_ok():
     _raiser(404).delete_secret("gone")
     with pytest.raises(g.GatewayError):
         _raiser(500).delete_secret("x")
+
+
+def _final_path(path, owner="alice"):
+    """The path splunklib actually requests for a gateway path segment."""
+    from splunklib import binding
+    return binding.Context(owner=owner, app="search_orchestrator")._abspath(path, owner=owner,
+                                                                            app="search_orchestrator")
+
+
+def test_saved_search_names_encoded_once_with_spaces_and_slash():
+    svc = StubService(lambda m, p, kw: Resp('{"entry":[{"acl":{},"content":{}}]}'
+                                            if m == "get" else '{"sid":"1"}'))
+    gw = g.SplunkGateway(svc)
+    name = "Errors last 24h/by host"
+    gw.saved_search_info("alice", name)
+    gw.dispatch("alice", name, 1, {})
+    gw.upsert_saved_search("alice", name, "x", "-1h", "now")
+    gw.delete_saved_search("alice", name)
+    gw.history("alice", name, 0)
+    want = "/servicesNS/alice/search_orchestrator/saved/searches/Errors%20last%2024h%2Fby%20host"
+    finals = [_final_path(c[1]) for c in svc.calls]
+    assert finals[0] == want and finals[2] == want and finals[3] == want
+    assert finals[1] == want + "/dispatch" and finals[4] == want + "/history"
+
+
+def test_kv_keys_quoted_against_traversal():
+    svc = StubService(lambda m, p, kw: Resp("{}"))
+    gw = g.SplunkGateway(svc)
+    gw.kv_get("so_jobs", "../so_runs/x")
+    gw.kv_update("so_jobs", "a/b", {})
+    gw.kv_delete("so_jobs", "..")
+    finals = [_final_path(c[1], "nobody") for c in svc.calls]
+    base = "/servicesNS/nobody/search_orchestrator/storage/collections/data/so_jobs/"
+    assert finals == [base + "..%2Fso_runs%2Fx", base + "a%2Fb", base + "%2E%2E"]
+
+
+def test_index_name_encoded_once():
+    svc = StubService(lambda m, p, kw: Resp("{}"))
+    g.SplunkGateway(svc).index_exists("my index")
+    assert _final_path(svc.calls[0][1], "nobody").endswith("/data/indexes/my%20index")

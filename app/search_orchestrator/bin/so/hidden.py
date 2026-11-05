@@ -25,8 +25,12 @@ Step searches (``steps[i]``, written into the job definition):
 Action searches
 ---------------
 Actions of type ``email``, ``event`` and ``alert_action`` run as the job
-owner through a hidden saved search named ``action_search_name(job_id, i)``,
-created here at job save. The engine (``actions.py``) dispatches them with
+owner through a hidden saved search created here at job save and named by
+content, ``action_search_name(job_id, i, action_hash(job_id, i, type, spl))``
+(``_so_<job>_action_<i>_<hash8>``), so a run in progress keeps the version its
+definition snapshot names (spec section 4). The resolved name is written into
+the action as ``hidden_search``; ``actions.py`` snapshots the action into its
+row and dispatches exactly that name. It dispatches them with
 ``trigger_actions=0`` and ``dispatch.now`` set to the run's scheduled time.
 The SPL reads these ``args.*`` (every value is escaped as an SPL string with
 ``tokens.escape_spl_string``, so each sits inside double quotes):
@@ -48,9 +52,12 @@ actions first (the order of ``job["actions"]``), then each step's
 Garbage collection
 ------------------
 ``job["hidden_searches"]`` lists every ``{"owner", "name"}`` the app created
-for the job (never a direct-mode search). ``gc(job, active_runs)`` returns the
-entries that neither the job nor any active run's definition snapshot uses;
-the caller deletes them and drops them from the list.
+for the job, step and action searches alike (never a direct-mode search).
+``apply`` hands the list, including the names about to be created, to its
+``record`` callback before any upsert, so the caller can store it first and a
+partial failure still leaves every name tracked. ``gc(job, active_runs)``
+returns the entries that neither the job nor any active run's definition
+snapshot uses; the caller deletes them and drops them from the list.
 
 Fallback email
 --------------
@@ -73,9 +80,14 @@ _ALERT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _PARAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
 
-def action_search_name(job_id, action_index):
-    """``_so_<job>_action_<index>`` for a job's action that runs through a search."""
-    return "_so_%s_action_%d" % (job_id, int(action_index))
+def action_search_name(job_id, action_index, compiled_hash):
+    """``_so_<job>_action_<index>_<hash8>`` for a job's action that runs through a search."""
+    return "_so_%s_action_%d_%s" % (job_id, int(action_index), compiled_hash[:8])
+
+
+def action_hash(job_id, action_index, action_type, spl):
+    text = "\0".join(["action", job_id, str(int(action_index)), action_type or "", spl])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def step_hash(job_id, step_id, compiled_spl, earliest, latest):
@@ -167,48 +179,62 @@ def plan(gw, job):
                          "latest": latest,
                          "description": "Search Orchestrator job %s, step %s" % (job_id, sid)})
     for index, step_id, action in _indexed(job):
+        action.pop("hidden_search", None)  # only ever set here, never from the request
         if action.get("type") not in SEARCH_ACTIONS:
             continue
         found = _action_issues(action, step_id)
         issues.extend(found)
         if found:
             continue
-        searches.append({"owner": owner, "name": action_search_name(job_id, index),
-                         "search": action_spl(action), "earliest": ACTION_EARLIEST,
+        spl = action_spl(action)
+        name = action_search_name(job_id, index, action_hash(job_id, index, action["type"], spl))
+        action["hidden_search"] = name
+        searches.append({"owner": owner, "name": name,
+                         "search": spl, "earliest": ACTION_EARLIEST,
                          "latest": ACTION_LATEST,
                          "description": "Search Orchestrator job %s, %s action %d"
                                         % (job_id, action.get("type"), index)})
     return job, searches, issues
 
 
-def sync(gw, job, previous, issues=None):
-    """Create the job's hidden searches with the user's session ``gw``; return the job
-    with ``hidden_search``/``mode`` per step and the updated ``hidden_searches`` list.
-    Issues found (warnings, or errors that skip a search) are appended to ``issues``."""
-    planned, searches, found = plan(gw, job)
-    if issues is not None:
-        issues.extend(found)
+def apply(gw, planned, searches, previous, record=None):
+    """Create ``plan``'s ``searches`` with the user's session ``gw``. The tracked list
+    (previous entries plus every planned name) goes to ``record(tracked)`` before the
+    first upsert. Returns ``planned`` with its ``hidden_searches`` set."""
     tracked = [dict(e) for e in ((previous or {}).get("hidden_searches") or [])]
     for s in searches:
-        gw.upsert_saved_search(s["owner"], s["name"], s["search"], s["earliest"], s["latest"],
-                               s["description"])
         entry = {"owner": s["owner"], "name": s["name"]}
         if entry not in tracked:
             tracked.append(entry)
-    planned["hidden_searches"] = tracked
+    if record is not None:
+        record(tracked)
+    for s in searches:
+        gw.upsert_saved_search(s["owner"], s["name"], s["search"], s["earliest"], s["latest"],
+                               s["description"])
+    planned = dict(planned, hidden_searches=tracked)
     return planned
+
+
+def sync(gw, job, previous, issues=None, record=None):
+    """Create the job's hidden searches with the user's session ``gw``; return the job
+    with ``hidden_search``/``mode`` per step and action and the updated
+    ``hidden_searches`` list. Issues found (warnings, or errors that skip a search)
+    are appended to ``issues``."""
+    planned, searches, found = plan(gw, job)
+    if issues is not None:
+        issues.extend(found)
+    return apply(gw, planned, searches, previous, record)
 
 
 def used(definition, owner):
     """``{(owner, name)}`` of the app-created searches a definition dispatches."""
     out = set()
-    job_id = definition.get("id")
     for step in definition.get("steps") or []:
         if step.get("hidden_search") and step.get("mode") != "direct":
             out.add((owner, step["hidden_search"]))
-    for index, _, action in _indexed(definition):
-        if action.get("type") in SEARCH_ACTIONS:
-            out.add((owner, action_search_name(job_id, index)))
+    for _, _, action in _indexed(definition):
+        if action.get("type") in SEARCH_ACTIONS and action.get("hidden_search"):
+            out.add((owner, action["hidden_search"]))
     return out
 
 

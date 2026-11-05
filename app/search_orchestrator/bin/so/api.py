@@ -43,6 +43,7 @@ from .store import ACTIVE_RUN_STATES, COMMANDS, SETTINGS, Store
 
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+RESERVED_JOB_IDS = ("validate",)  # route keywords under jobs/
 DESTINATIONS_KEY = "destinations"
 ACTION_RUNS = "so_action_runs"
 AUDIT_INDEX = "orchestrator"
@@ -50,8 +51,10 @@ RERUNNABLE = ("blocked", "failed", "cancelled")
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
 HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed")
 PRESETS = ("slack", "generic")
-INT_SETTINGS = ("max_searches", "max_searches_per_job", "queue_cap", "result_retention",
-                "run_retention_days")
+# Integer settings and their upper bounds (the lower bound is 1).
+INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 1000,
+                "result_retention": 7 * 86400, "run_retention_days": 3650}
+HIDDEN_JOB = "(hidden job)"
 CHAIN_LIMIT = 10
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
 _META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
@@ -137,6 +140,14 @@ def _routes():
     ]
 
 
+def _is_job_id(value):
+    return bool(JOB_ID_RE.fullmatch(value))
+
+
+_ID_CHECKS = {"job_id": _is_job_id, "run_id": scheduler.is_run_id,
+              "name": lambda v: bool(DEST_NAME_RE.fullmatch(v))}
+
+
 def _relative(path):
     """``/servicesNS/-/app/orchestrator/jobs/x`` -> ``jobs/x``."""
     parts = [p for p in (path or "").split("/") if p]
@@ -162,6 +173,10 @@ def handle(user, method, path, body, deps):
             if body is not None and not isinstance(body, dict):
                 raise ApiError(400, "bad_request", "the request body must be a JSON object")
             args = {k: unquote(v) for k, v in match.groupdict().items()}
+            for key, value in args.items():
+                if not _ID_CHECKS.get(key, lambda v: True)(value):
+                    # Never let a malformed id reach a KV Store path on the system session.
+                    raise ApiError(404, "not_found", "no such %s" % key.replace("_id", ""))
             return func(_Ctx(user, deps), body or {}, **args)
         raise ApiError(404, "not_found", "no such route: %s" % rel)
     except ApiError as err:
@@ -202,11 +217,13 @@ def _new_id(ctx, body):
         if not isinstance(job_id, str) or not JOB_ID_RE.fullmatch(job_id):
             raise ApiError(400, "bad_job_id", "job id %r must be 1-64 letters, digits, _ or -, "
                            "starting with a letter or digit" % (job_id,))
+        if job_id.lower() in RESERVED_JOB_IDS:
+            raise ApiError(400, "bad_job_id", "job id %r is reserved" % job_id)
         return job_id
     slug = re.sub(r"[^a-z0-9]+", "_", str(body.get("name") or "job").lower()).strip("_")[:40]
     base = slug or "job"
     job_id = base
-    while ctx.store.get_job(job_id) is not None:
+    while job_id in RESERVED_JOB_IDS or ctx.store.get_job(job_id) is not None:
         job_id = "%s_%s" % (base, uuid.uuid4().hex[:6])
     return job_id
 
@@ -262,6 +279,7 @@ def _job_issues(ctx, job):
                                      "%r" % action["destination"], step_id))
     cycle = _chain_cycle(ctx, job)
     if cycle:
+        cycle = _redact_cycle(ctx, cycle, job["id"])
         issues.append(_issue("warning", "job_chain_cycle",
                              "start_job actions form a cycle across jobs (%s); each run starts the "
                              "next until the chain depth limit (%d) stops it"
@@ -276,6 +294,20 @@ def _chain_targets(job):
             actions.extend(step.get("actions") or [])
     return [a.get("job") for a in actions
             if isinstance(a, dict) and a.get("type") == "start_job" and isinstance(a.get("job"), str)]
+
+
+def _redact_cycle(ctx, cycle, own_id):
+    """Replace the ids of jobs the caller may not view with ``(hidden job)``."""
+    jobs = {}
+    out = []
+    for job_id in cycle:
+        if job_id != own_id:
+            if job_id not in jobs:
+                jobs[job_id] = ctx.store.get_job(job_id)
+            if jobs[job_id] is None or not ctx.allowed(authz.can_view, jobs[job_id]):
+                job_id = HIDDEN_JOB
+        out.append(job_id)
+    return out
 
 
 def _chain_cycle(ctx, job):
@@ -300,31 +332,64 @@ def _chain_cycle(ctx, job):
 
 
 def _check(ctx, job):
-    """All save-time issues, without writing anything."""
+    """``(issues, planned, searches)`` for a save, without writing anything. ``planned``
+    and ``searches`` come from ``hidden.plan`` and are None if an earlier check failed."""
     issues = model.validate_job(job)
     if _errors(issues):
-        return issues
+        return issues, None, None
     issues += _job_issues(ctx, job)
-    if not _errors(issues):
-        _, _, found = hidden.plan(ctx.user_gw, job)
-        issues += found
-    return issues
+    if _errors(issues):
+        return issues, None, None
+    planned, searches, found = hidden.plan(ctx.user_gw, job)
+    issues += found
+    return issues, planned, searches
+
+
+def _owner_change(ctx, previous):
+    """``{"owner_will_change", "owner"}``: saving makes the saver the owner, so an admin
+    saving another person's job takes it over (spec section 9)."""
+    changes = previous is not None and previous.get("owner") != ctx.user
+    return {"owner_will_change": changes, "owner": ctx.user}
 
 
 def validate_job(ctx, body):
     if not ctx.allowed(authz.can_edit, None) and not ctx.allowed(authz.can_admin, None):
         raise ctx.deny("validate_job")
     job_id = body.get("id") if isinstance(body.get("id"), str) and body.get("id") else "job"
-    # Saving makes the saver the owner (an admin saving another's job takes it over).
-    issues = _check(ctx, _prepare(body, job_id, ctx.user))
-    return 200, {"valid": not _errors(issues), "issues": issues}
+    existing = None
+    if body.get("id") and _is_job_id(job_id):
+        existing = ctx.store.get_job(job_id)
+        if existing is not None and not ctx.allowed(authz.can_view, existing):
+            existing = None  # as if new: never reveal that the id is taken
+    issues, _, _ = _check(ctx, _prepare(body, job_id, ctx.user))
+    out = {"valid": not _errors(issues), "issues": issues}
+    out.update(_owner_change(ctx, existing))
+    return 200, out
 
 
 def _save(ctx, job, previous):
-    issues = _check(ctx, job)
+    issues, planned, searches = _check(ctx, job)
     if _errors(issues):
         raise ApiError(400, "job_invalid", "the job has errors and was not saved", issues)
-    job = hidden.sync(ctx.user_gw, job, previous)
+
+    def record(tracked):
+        # Stored before any upsert, on the doc the engine already uses, so a partial
+        # failure leaves every new name tracked for gc. A new job has no doc yet: on
+        # failure its searches are removed again below.
+        if previous is not None:
+            ctx.store.save_job(dict(previous, hidden_searches=tracked))
+
+    try:
+        job = hidden.apply(ctx.user_gw, planned, searches, previous, record)
+    except GatewayError:
+        if previous is None:
+            for s in searches:
+                try:
+                    ctx.user_gw.delete_saved_search(s["owner"], s["name"])
+                except GatewayError as err:
+                    ctx.emit({"type": "hidden_search_delete_failed", "job_id": job["id"],
+                              "name": s["name"], "owner": s["owner"], "error": str(err)})
+        raise
     job["created_at"] = (previous or {}).get("created_at", ctx.now)
     job["created_by"] = (previous or {}).get("created_by", ctx.user)
     job.update(updated_at=ctx.now, updated_by=ctx.user)
@@ -371,7 +436,9 @@ def create_job(ctx, body):
         raise ApiError(409, "job_exists", "a job with id %r already exists" % job_id)
     job, issues = _save(ctx, _prepare(body, job_id, ctx.user), None)
     ctx.emit({"type": "job_saved", "job_id": job_id, "created": True, "owner": job["owner"]})
-    return 201, {"job": _public_job(ctx, job), "issues": issues}
+    out = {"job": _public_job(ctx, job), "issues": issues}
+    out.update(_owner_change(ctx, None))
+    return 201, out
 
 
 def update_job(ctx, body, job_id):
@@ -379,13 +446,16 @@ def update_job(ctx, body, job_id):
     if not ctx.allowed(authz.can_edit, previous):
         raise ctx.deny("edit_job", job_id=job_id)
     old_owner = previous.get("owner")
+    change = _owner_change(ctx, previous)
     job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous)
     ctx.emit({"type": "job_saved", "job_id": job_id, "created": False, "owner": job["owner"],
               "enabled": job.get("enabled")})
     if old_owner != ctx.user:
         ctx.emit({"type": "job_owner_changed", "job_id": job_id, "from": old_owner,
                   "to": ctx.user})
-    return 200, {"job": _public_job(ctx, job), "issues": issues}
+    out = {"job": _public_job(ctx, job), "issues": issues}
+    out.update(change)
+    return 200, out
 
 
 def delete_job(ctx, body, job_id):
@@ -639,8 +709,9 @@ def put_settings(ctx, body):
     current = {k: v for k, v in (ctx.store.get_settings() or {}).items() if not k.startswith("_")}
     for key, value in body.items():
         if key in INT_SETTINGS:
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise _bad_setting("%s must be a whole number of at least 1" % key)
+            top = INT_SETTINGS[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= top:
+                raise _bad_setting("%s must be a whole number from 1 to %d" % (key, top))
             current[key] = value
         elif key == "fallback":
             current[key] = _check_fallback(ctx, value)
@@ -728,11 +799,18 @@ def delete_destination(ctx, body, name):
     if fallback.get("type") == "webhook" and fallback.get("destination") == name:
         raise ApiError(409, "destination_in_use", "destination %r is the fallback notification "
                        "destination; change the fallback first" % name)
-    _save_destinations(ctx, [d for d in dests if d.get("name") != name])
     dest = next(d for d in dests if d.get("name") == name)
     for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref")):
-        if ref:
+        if not ref:
+            continue
+        try:
             ctx.sys_gw.delete_secret(ref)
+        except GatewayError as err:  # the doc entry stays, so the delete can be retried
+            ctx.emit({"type": "destination_secret_delete_failed", "destination": name,
+                      "error": "HTTP %s" % err.status if err.status else type(err).__name__})
+            raise ApiError(502, "secret_delete_failed", "could not delete the stored secrets of "
+                           "destination %r; it was kept, try again" % name)
+    _save_destinations(ctx, [d for d in dests if d.get("name") != name])
     ctx.emit({"type": "destination_deleted", "destination": name})
     return 200, {"deleted": name}
 
@@ -740,6 +818,8 @@ def delete_destination(ctx, body, name):
 # Health and the caller.
 
 def health(ctx, body):
+    if not any(c.startswith("orchestrator_") for c in ctx.access["capabilities"]):
+        raise ctx.deny("read_health")
     settings = ctx.store.get_settings() or {}
     fb = settings.get("fallback") or {}
     fallback_set = bool((fb.get("type") == "email" and fb.get("to")) or

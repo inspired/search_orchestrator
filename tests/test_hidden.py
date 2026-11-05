@@ -98,10 +98,16 @@ def test_action_searches_numbered_like_indexed_actions():
     out = hidden.sync(gw, j, None)
     idx = {i: a["type"] for i, _, _, a in actions.indexed_actions(out)}
     assert idx == {0: "webhook", 1: "email", 2: "event", 3: "alert_action"}
-    assert ("alice", hidden.action_search_name("daily", 0)) not in gw.saved_searches
-    email = gw.saved_searches[("alice", hidden.action_search_name("daily", 1))]["search"]
-    event = gw.saved_searches[("alice", hidden.action_search_name("daily", 2))]["search"]
-    alert = gw.saved_searches[("alice", hidden.action_search_name("daily", 3))]["search"]
+    flat = [a for _, _, _, a in actions.indexed_actions(out)]
+    assert "hidden_search" not in flat[0]
+    for i in (1, 2, 3):
+        assert flat[i]["hidden_search"].startswith("_so_daily_action_%d_" % i)
+        assert len(flat[i]["hidden_search"]) == len("_so_daily_action_%d_" % i) + 8
+    email = gw.saved_searches[("alice", flat[1]["hidden_search"])]["search"]
+    event = gw.saved_searches[("alice", flat[2]["hidden_search"])]["search"]
+    alert = gw.saved_searches[("alice", flat[3]["hidden_search"])]["search"]
+    assert {e["name"] for e in out["hidden_searches"]} >= {flat[i]["hidden_search"]
+                                                          for i in (1, 2, 3)}
     for arg in ("to", "subject", "message"):
         assert '"$args.%s$"' % arg in email
     assert "sendemail" in email
@@ -159,3 +165,50 @@ def test_fallback_email_stanza_shipped():
     assert "| sendemail" in st["search"]
     meta = (APP / "metadata" / "default.meta").read_text()
     assert "[savedsearches/%s]" % hidden.FALLBACK_EMAIL_SEARCH in meta
+
+
+def _email_job(**action):
+    return job(actions=[dict({"hook": "on_failure", "type": "email", "to": "a@example.com"},
+                             **action)])
+
+
+def test_action_name_changes_with_type_and_spl_only():
+    gw = FakeGateway()
+    one = hidden.sync(gw, _email_job(), None)["actions"][0]["hidden_search"]
+    same = hidden.sync(gw, _email_job(to="b@example.com"), None)["actions"][0]["hidden_search"]
+    assert one == same  # recipients are run-time args, not SPL
+    ev = hidden.sync(gw, job(actions=[{"hook": "on_failure", "type": "event", "index": "s"}]),
+                     None)["actions"][0]["hidden_search"]
+    assert ev != one and ev.startswith("_so_daily_action_0_")
+    alert = lambda p: hidden.sync(gw, job(actions=[{  # noqa: E731
+        "hook": "on_failure", "type": "alert_action", "action": "n", "params": p}]),
+        None)["actions"][0]["hidden_search"]
+    assert alert({"a": "1"}) != alert({"b": "1"})
+
+
+def test_request_cannot_set_action_hidden_search():
+    out = hidden.sync(FakeGateway(), job(actions=[
+        {"hook": "on_failure", "type": "webhook", "destination": "x", "hidden_search": "evil"},
+        {"hook": "on_failure", "type": "email", "to": "a@b.c", "hidden_search": "evil"}]), None)
+    assert "hidden_search" not in out["actions"][0]
+    assert out["actions"][1]["hidden_search"].startswith("_so_daily_action_1_")
+
+
+def test_gc_keeps_action_versions_for_active_runs():
+    gw = FakeGateway()
+    one = hidden.sync(gw, _email_job(), None)
+    two = hidden.sync(gw, job(actions=[{"hook": "on_failure", "type": "event", "index": "s"}]),
+                      one)
+    old = one["actions"][0]["hidden_search"]
+    assert hidden.gc(two, [_run(one)]) == []
+    assert hidden.gc(two, []) == [{"owner": "alice", "name": old}]
+
+
+def test_apply_records_names_before_upserts():
+    gw = FakeGateway()
+    seen = []
+    planned, searches, _ = hidden.plan(gw, _email_job())
+    hidden.apply(gw, planned, searches, None,
+                 record=lambda tracked: seen.append((list(tracked), dict(gw.saved_searches))))
+    tracked, existing = seen[0]
+    assert {e["name"] for e in tracked} == {s["name"] for s in searches} and existing == {}

@@ -22,8 +22,20 @@ class RecordingAudit:
         return [e for e in self.events if e.get("type") == kind]
 
 
+SEARCH_TYPES = ("email", "event", "alert_action")
+
+
+def _name_actions(actions, step_actions):
+    """Give each search action the hidden_search name job save would write (flat index)."""
+    flat = list(actions) + list(step_actions)
+    for i, action in enumerate(flat):
+        if action.get("type") in SEARCH_TYPES and "hidden_search" not in action:
+            action["hidden_search"] = "_so_j_action_%d" % i
+
+
 class W:
     def __init__(self, actions=None, step_actions=None, owner="alice", settings=None):
+        _name_actions(actions or [], step_actions or [])
         self.gw = FakeGateway()
         self.store = Store(self.gw)
         self.audit = RecordingAudit()
@@ -64,7 +76,29 @@ WEBHOOK = {"hook": "on_failure", "type": "webhook", "destination": "ops", "prese
 
 
 def test_action_search_name():
-    assert hidden.action_search_name("j", 2) == "_so_j_action_2"
+    assert hidden.action_search_name("j", 2, "0123456789abcdef") == "_so_j_action_2_01234567"
+
+
+def test_search_action_dispatches_snapshot_name_not_current_job():
+    w = W(actions=[{"hook": "on_failure", "type": "email", "to": "a@b.c",
+                    "hidden_search": "_so_j_action_0_aaaaaaaa"}])
+    w.gw.script_job("_so_j_action_0_aaaaaaaa", ["done"])
+    w.submit()
+    job = w.store.get_job("j")
+    job["actions"][0]["hidden_search"] = "_so_j_action_0_bbbbbbbb"  # edited after submit
+    w.store.save_job(job)
+    w.pump()
+    assert w.gw.dispatch_log[0]["name"] == "_so_j_action_0_aaaaaaaa"
+
+
+def test_search_action_without_hidden_name_fails_clearly():
+    w = W(actions=[{"hook": "on_failure", "type": "email", "to": "a@b.c",
+                    "hidden_search": None}])
+    w.submit()
+    w.pump()
+    row = w.rows(kind="action")[0]
+    assert row["state"] == "failed" and "re-save the job" in row["error"]
+    assert not w.gw.dispatch_log
 
 
 def test_webhook_posts_and_marks_done():
