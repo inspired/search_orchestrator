@@ -1,0 +1,7 @@
+.superpowers/
+node_modules/
+stage/
+dist/
+__pycache__/
+*.pyc
+.venv/
