@@ -42,6 +42,7 @@ class FakeGateway:
         self.history_by_search = {}
         self.clock = None  # optional callable: history records real dispatch time, like splunkd
         self.removed_users = set()  # owners whose accounts no longer exist
+        self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
 
     # Scripting.
 
@@ -108,6 +109,11 @@ class FakeGateway:
 
     def user_exists(self, name):
         return name not in self.removed_users
+
+    def user_access(self, name):
+        if name in self.removed_users:
+            return {"roles": [], "capabilities": []}
+        return copy.deepcopy(self.users.get(name, {"roles": [], "capabilities": []}))
 
     def history(self, owner, name, since_epoch):
         rows = [r for r in self.history_by_search.get((owner, name), []) if r[0] >= since_epoch]

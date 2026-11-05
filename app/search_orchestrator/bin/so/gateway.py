@@ -176,6 +176,12 @@ def saved_search_params(search, earliest, latest, description=""):
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
+def parse_user_access(body):
+    """User JSON -> ``{"roles": [...], "capabilities": [...]}`` (effective, from all roles)."""
+    c = json.loads(body)["entry"][0].get("content", {})
+    return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or [])}
+
+
 def check_webhook_url(url):
     """https only. Errors name the scheme and host only: URLs often carry secrets."""
     parts = urlsplit(url)
@@ -196,6 +202,7 @@ class Gateway(Protocol):
     def control(self, sid: str, action: str, **kw: Any) -> None: ...
     def history(self, owner: str, name: str, since_epoch: float) -> List[str]: ...
     def user_exists(self, name: str) -> bool: ...
+    def user_access(self, name: str) -> Dict[str, List[str]]: ...
     def kv_get(self, collection: str, key: str) -> Optional[Dict[str, Any]]: ...
     def kv_insert(self, collection: str, doc: Dict[str, Any]) -> bool: ...
     def kv_update(self, collection: str, key: str, doc: Dict[str, Any]) -> bool: ...
@@ -349,6 +356,19 @@ class SplunkGateway:
             raise GatewayError("user lookup failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return True
+
+    def user_access(self, name):
+        """``{"roles", "capabilities"}`` of a user; both empty if the user does not exist."""
+        try:
+            body = self._call("get", "/services/authentication/users/" + name)
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) == 404:
+                return {"roles": [], "capabilities": []}
+            raise GatewayError("user lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return parse_user_access(body)
 
     def upsert_saved_search(self, owner, name, search, earliest, latest, description=""):
         params = saved_search_params(search, earliest, latest, description)

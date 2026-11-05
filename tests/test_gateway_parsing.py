@@ -200,3 +200,8 @@ def test_kv_409_on_update_raises_kv_error():
         _raiser(409).kv_update("so_runs", "a", {})
     with pytest.raises(g.KvError):
         _raiser(409).kv_get("so_runs", "a")
+
+
+def test_parse_user_access():
+    body = ('{"entry":[{"content":{"roles":["ops"],"capabilities":["orchestrator_run"]}}]}')
+    assert g.parse_user_access(body) == {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
