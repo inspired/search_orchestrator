@@ -34,3 +34,26 @@ def test_string_vs_number_coercion():
 
 def test_tokens():
     assert tokens(parse("$a.sid$ == 'x' or not $b.status$ == 'y'")) == {"a.sid", "b.status"}
+
+
+def test_length_and_depth_caps():
+    for bad in ("(" * 400 + "1 == 1" + ")" * 400, "not " * 400 + "1 == 1",
+                " or ".join(["1 == 1"] * 400), "1 == 1" + " " * 2000):
+        with pytest.raises(ExprError):
+            parse(bad)
+    assert evaluate(parse("(" * 40 + "1 == 1" + ")" * 40), {}.get)
+
+
+def test_numeric_coercion_strict():
+    assert not evaluate(parse("$a.n$ == 5"), {"a.n": "5e0"}.get)
+    assert not evaluate(parse("$a.n$ == 5"), {"a.n": " 5"}.get)
+    assert not evaluate(parse("$a.n$ == 5"), {"a.n": "²"}.get)
+    assert not evaluate(parse("$a.n$ == 1"), {"a.n": "1_0"}.get)
+    assert evaluate(parse("$a.n$ == 5"), {"a.n": "5"}.get)
+    assert evaluate(parse("$a.n$ == 5"), {"a.n": 5}.get)
+
+
+def test_negative_literals():
+    assert evaluate(parse("$a.n$ < -1"), {"a.n": -2}.get)
+    assert evaluate(parse("$a.n$ == -1.5"), {"a.n": "-1.5"}.get)
+    assert evaluate(parse("-3 < 2"), {}.get)

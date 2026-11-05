@@ -2,7 +2,7 @@
 
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
-unknown_saved_search, bad_edge, bad_run_when, bad_timezone.
+unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape; warning timezone_fallback.
 ``workload_pool`` was removed from the first version and is ignored.
 """
 import re
@@ -11,7 +11,7 @@ from . import cron as cronmod
 from . import expr as exprmod
 from . import tokens as tk
 
-STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")  # and no "__": arg names use it
 PARAM_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 BUILTIN_DEFAULTS = {"delayed_after": 3600, "give_up_after": 86400,
                     "max_runtime": 14400, "retries": 0}
@@ -88,7 +88,7 @@ def _validate_params(job, issues):
     names = set()
     for p in job.get("params", []) or []:
         n = p.get("name")
-        if not isinstance(n, str) or not PARAM_NAME_RE.match(n):
+        if not isinstance(n, str) or not PARAM_NAME_RE.fullmatch(n):
             issues.append(_issue("error", "bad_param", "bad parameter name %r" % (n,)))
             continue
         if n in names:
@@ -133,17 +133,99 @@ def _token_ok(name, ids, params):
     return True
 
 
+def _is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def _lst(job, key):
+    v = job.get(key)
+    return v if isinstance(v, list) else []
+
+
+def _shape_issues(job):
+    out = []
+
+    def bad(msg, step=None):
+        out.append(_issue("error", "bad_shape", msg, step))
+
+    if not isinstance(job, dict):
+        return [_issue("error", "bad_shape", "job must be an object")]
+    for key in ("steps", "params", "edges", "triggers", "actions"):
+        v = job.get(key)
+        if v is not None and not (isinstance(v, list) and all(isinstance(x, dict) for x in v)):
+            bad("%s must be a list of objects" % key)
+    if job.get("defaults") is not None and not isinstance(job["defaults"], dict):
+        bad("defaults must be an object")
+    if job.get("timezone") is not None and not isinstance(job["timezone"], str):
+        bad("timezone must be a string")
+
+    def check_durations(d, where, step=None):
+        for k in BUILTIN_DEFAULTS:
+            if d.get(k) is not None and not _is_int(d[k]):
+                bad("%s %s must be a non-negative integer" % (where, k), step)
+
+    if isinstance(job.get("defaults"), dict):
+        check_durations(job["defaults"], "defaults")
+    for s in _lst(job, "steps"):
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("id") if isinstance(s.get("id"), str) else None
+        check_durations(s, "step", sid)
+        for k in ("spl", "saved_search_ref", "type"):
+            if s.get(k) is not None and not isinstance(s[k], str):
+                bad("step %s must be a string" % k, sid)
+        rw = s.get("run_when")
+        if rw is not None and not (isinstance(rw, dict) and isinstance(rw.get("kind"), (str, type(None)))
+                                   and isinstance(rw.get("value"), (str, type(None)))):
+            bad("run_when must be an object with string kind and value", sid)
+    for p in _lst(job, "params"):
+        if not isinstance(p, dict):
+            continue
+        if p.get("type") is not None and not isinstance(p["type"], str):
+            bad("parameter type must be a string")
+        if p.get("name") is not None and not isinstance(p["name"], str):
+            bad("parameter name must be a string")
+        if p.get("values") is not None and not isinstance(p["values"], list):
+            bad("parameter values must be a list")
+        if p.get("regex") is not None and not isinstance(p["regex"], str):
+            bad("parameter regex must be a string")
+        if isinstance(p.get("default"), (list, dict)):
+            bad("parameter default must be a scalar")
+    for e in _lst(job, "edges"):
+        if not isinstance(e, dict):
+            continue
+        for k in ("from", "to", "condition", "expression"):
+            if e.get(k) is not None and not isinstance(e[k], str):
+                bad("edge %s must be a string" % k)
+    for t in _lst(job, "triggers"):
+        if isinstance(t, dict) and t.get("cron") is not None and not isinstance(t["cron"], str):
+            bad("trigger cron must be a string")
+    return out
+
+
 def validate_job(job, known_saved_searches=None):
+    shape = _shape_issues(job)
+    if shape:
+        return shape
+    try:
+        return _validate(job, known_saved_searches)
+    except Exception as e:  # last-resort guard: never raise on JSON input
+        return [_issue("error", "bad_shape", "job is malformed (%s)" % type(e).__name__)]
+
+
+def _validate(job, known_saved_searches):
     issues = []
     steps = job.get("steps", []) or []
     params = _validate_params(job, issues)
 
     tz = job.get("timezone")
     if tz:
-        try:
-            cronmod.ZoneInfo(tz)
-        except Exception:
+        status = cronmod.tz_status(tz)
+        if status == "unknown":
             issues.append(_issue("error", "bad_timezone", "unknown time zone %r" % tz))
+        elif status == "unavailable":
+            issues.append(_issue("warning", "timezone_fallback",
+                                 "time zone database unavailable; server local time will be used"))
     for t in job.get("triggers", []) or []:
         if t.get("type") == "cron":
             try:
@@ -154,7 +236,7 @@ def validate_job(job, known_saved_searches=None):
     seen = set()
     for s in steps:
         sid = s.get("id")
-        if not isinstance(sid, str) or not STEP_ID_RE.match(sid):
+        if not isinstance(sid, str) or not STEP_ID_RE.fullmatch(sid) or "__" in sid:
             issues.append(_issue("error", "bad_step_id", "bad step id %r" % (sid,), sid if isinstance(sid, str) else None))
             continue
         if sid == "run":

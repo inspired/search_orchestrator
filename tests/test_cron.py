@@ -67,3 +67,53 @@ def test_slots_half_open_and_sorted():
 def test_unknown_tz_falls_back(caplog):
     assert isinstance(slots_between(parse("0 1 * * *"), 0, 86400 * 2, "No/Such_Zone"), list)
     assert "unavailable" in caplog.text
+
+
+def test_superscript_digit_is_cron_error():
+    for bad in ("² * * * *", "*/² * * * *"):
+        with pytest.raises(CronError):
+            parse(bad)
+
+
+@pytest.fixture
+def local_tz(monkeypatch):
+    import time as _t
+    if not hasattr(_t, "tzset"):
+        pytest.skip("tzset unavailable")
+    monkeypatch.setenv("TZ", "Europe/Oslo")
+    _t.tzset()
+    yield
+    monkeypatch.undo()
+    _t.tzset()
+
+
+def test_local_fallback_is_dst_aware(local_tz):
+    import so.cron as c
+    spec = parse("0 12 * * *")
+    for tz in (None, "No/Such_Zone"):
+        for day, utc_hour in (("2026-01-15", 11), ("2026-06-15", 10)):
+            r = c.slots_between(spec, ts_utc(day + " 00:00"), ts_utc(day + " 23:59"), tz)
+            assert r == [ts_utc("%s %02d:00" % (day, utc_hour))]
+    assert c.matches(spec, ts_utc("2026-06-15 10:00"), None)
+
+
+def test_local_fallback_dst_gap_and_repeat(local_tz):
+    spec = parse("30 2 * * *")
+    gap = slots_between(spec, ts_utc("2027-03-28 00:00"), ts_utc("2027-03-28 06:00"), None)
+    assert gap == [ts_utc("2027-03-28 01:00")]
+    rep = slots_between(spec, ts_utc("2027-10-30 22:00"), ts_utc("2027-10-31 06:00"), None)
+    assert rep == [ts_utc("2027-10-31 00:30")]
+
+
+def test_tz_status(monkeypatch):
+    import so.cron as c
+    assert c.tz_status("Europe/Oslo") == "ok"
+    assert c.tz_status("No/Such_Zone") == "unknown"
+    assert c.tz_status("../etc") == "unknown"
+
+    def boom(name):
+        raise c.ZoneInfo.__class__("x") if False else KeyError(name)
+    monkeypatch.setattr(c, "ZoneInfo", boom)
+    assert c.tz_status("Europe/Oslo") == "unavailable"
+    monkeypatch.setattr(c, "ZoneInfo", None)
+    assert c.tz_status("Europe/Oslo") == "unavailable"

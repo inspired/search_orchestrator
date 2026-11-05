@@ -15,8 +15,10 @@ fires once, at the instant the gap ends; a wall-clock time that occurs twice
 wall-clock test and returns False for the second occurrence of a repeated time.
 """
 import logging
+import re
+import time
 from collections import namedtuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 
 try:
     from zoneinfo import ZoneInfo
@@ -41,7 +43,7 @@ def _value(text, names, lo, hi, field):
     t = text.lower()
     if t in names:
         return names[t]
-    if not t.isdigit():
+    if not re.fullmatch(r"[0-9]+", t):
         raise CronError("bad value %r in %s field" % (text, field))
     v = int(t)
     if v < lo or v > hi:
@@ -58,7 +60,7 @@ def _field(text, lo, hi, names, field):
             raise CronError("empty list item in %s field" % field)
         base, _, step_s = part.partition("/")
         if "/" in part:
-            if not step_s.isdigit() or int(step_s) < 1:
+            if not re.fullmatch(r"[0-9]+", step_s) or int(step_s) < 1:
                 raise CronError("bad step %r in %s field" % (step_s, field))
             step = int(step_s)
         else:
@@ -93,6 +95,60 @@ def parse(expr):
                     parts[2].startswith("*"), parts[4].startswith("*"))
 
 
+_EPOCH = datetime(1970, 1, 1)
+
+
+def _gmtoff(ts):
+    return time.localtime(ts).tm_gmtoff
+
+
+class LocalTZ(tzinfo):
+    """Server local time, DST-aware: asks time.localtime for each instant."""
+
+    def utcoffset(self, dt):
+        u = int((dt.replace(tzinfo=None) - _EPOCH).total_seconds())
+        before, after = _gmtoff(u - 86400), _gmtoff(u + 86400)
+        valid = sorted({o for o in (before, after) if _gmtoff(u - o) == o}, reverse=True)
+        if len(valid) == 2:  # repeated wall time: fold=0 is the earlier instant
+            off = valid[1] if dt.fold else valid[0]
+        elif valid:
+            off = valid[0]
+        else:  # gap: fold=0 uses the offset before it, fold=1 the one after
+            off = after if dt.fold else before
+        return timedelta(seconds=off)
+
+    def dst(self, dt):
+        return None
+
+    def tzname(self, dt):
+        return None
+
+    def fromutc(self, dt):
+        u = int((dt.replace(tzinfo=None) - _EPOCH).total_seconds())
+        off = _gmtoff(u)
+        local = dt.replace(tzinfo=None) + timedelta(seconds=off)
+        res = local.replace(tzinfo=self)
+        if res.utcoffset() != timedelta(seconds=off):
+            res = local.replace(tzinfo=self, fold=1)
+        return res
+
+
+def tz_status(name):
+    """'ok', 'unknown' (bad zone key) or 'unavailable' (no tz database)."""
+    if ZoneInfo is None:
+        return "unavailable"
+    try:
+        ZoneInfo(name)
+        return "ok"
+    except Exception:
+        pass
+    try:
+        ZoneInfo("UTC")
+    except Exception:
+        return "unavailable"
+    return "unknown"
+
+
 def resolve_tz(tz):
     """Return a tzinfo for a name/tzinfo/None, falling back to server local time."""
     if tz is not None and not isinstance(tz, str):
@@ -102,7 +158,7 @@ def resolve_tz(tz):
             return ZoneInfo(tz)
         except Exception as e:  # missing tzdata or unknown key
             log.warning("time zone %r unavailable (%s); using server local time", tz, e)
-    return datetime.now().astimezone().tzinfo
+    return LocalTZ()
 
 
 def _day_ok(spec, d):

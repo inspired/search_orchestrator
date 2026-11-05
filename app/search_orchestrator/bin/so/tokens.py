@@ -25,6 +25,7 @@ raises TokenError(token, reason).
 """
 import math
 import re
+from decimal import Decimal, InvalidOperation
 
 
 class TokenError(Exception):
@@ -44,7 +45,7 @@ def _regex(step_ids):
     if steps:
         alts.append(r"(?:%s)\.(?:sid|resultCount|status)" % steps)
         alts.append(r"(?:%s)\.first\.%s" % (steps, _FIELD))
-    return re.compile(r"\$(?P<name>%s)(?:\|(?P<default>[^$]*))?\$" % "|".join(alts))
+    return re.compile(r"\$(?P<name>%s)(?:\|(?P<default>[A-Za-z0-9_.:@ -]*))?\$" % "|".join(alts))
 
 
 def is_valid_name(name, step_ids):
@@ -144,33 +145,46 @@ def render_args(names, ctx, defaults=None):
 
 
 _TIME_RE = re.compile(
-    r"^(?:now|\d{9,13}"
-    r"|[+-]?\d*(?:s|m|h|d|w|mon|q|y)(?:@[a-z]+\d*(?:[+-]\d+[a-z]+)?)?"
-    r"|@[a-z]+\d*(?:[+-]\d+[a-z]+)?"
-    r"|\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$")
+    r"now|[0-9]{9,13}"
+    r"|[+-]?[0-9]*(?:s|m|h|d|w|mon|q|y)(?:@[a-z]+[0-9]*(?:[+-][0-9]+[a-z]+)?)?"
+    r"|@[a-z]+[0-9]*(?:[+-][0-9]+[a-z]+)?"
+    r"|[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[ T][0-9]{2}:[0-9]{2}(?::[0-9]{2})?)?")
+_NUM_RE = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
+
+def _normalise_number(s):
+    d = Decimal(s)
+    return "0" if d == 0 else format(d.normalize(), "f")
 
 
 def validate_param(decl, value):
-    """Validate a run parameter value against its declaration; return it as str."""
+    """Validate a run parameter value against its declaration; return it as str.
+
+    Number values are returned normalised (``007`` -> ``7``, ``3.50`` -> ``3.5``).
+    """
     name = decl.get("name", "?")
     if value is None or value == "":
         if decl.get("default") is not None:
             value = decl["default"]
         else:
             raise TokenError("run.param." + name, "value is required")
-    s = str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        s = format(Decimal(repr(value)), "f")
+    else:
+        s = str(value)
     t = decl.get("type", "string")
     if t == "number":
+        if not _NUM_RE.fullmatch(s):
+            raise TokenError("run.param." + name, "not a number: %r" % s)
         try:
-            if not math.isfinite(float(s)):
-                raise ValueError
-        except ValueError:
+            s = _normalise_number(s)
+        except InvalidOperation:
             raise TokenError("run.param." + name, "not a number: %r" % s)
     elif t == "enum":
         if s not in (decl.get("values") or []):
             raise TokenError("run.param." + name, "%r is not one of the allowed values" % s)
     elif t == "time":
-        if not _TIME_RE.match(s):
+        if not _TIME_RE.fullmatch(s):
             raise TokenError("run.param." + name, "not a time value: %r" % s)
     elif t != "string":
         raise TokenError("run.param." + name, "unknown parameter type %r" % t)

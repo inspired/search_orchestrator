@@ -91,3 +91,47 @@ def test_topo_and_resolve():
     r = resolve_step(j, dict(j["steps"][0], retries=None, workload_pool="x"))
     assert r["max_runtime"] == 5 and r["retries"] == 1 and r["delayed_after"] == 3600
     assert "workload_pool" not in r
+
+
+def test_double_underscore_step_id_rejected():
+    assert "bad_step_id" in codes(validate_job(job(steps=("a__b", "c"))))
+    assert "bad_step_id" in codes(validate_job(job(steps=("a\n",))))
+
+
+def test_timezone_unknown_vs_unavailable(monkeypatch):
+    import so.cron as c
+    assert "bad_timezone" in codes(validate_job(job(timezone="No/Such_Zone")))
+    assert not codes(validate_job(job())) & {"bad_timezone", "timezone_fallback"}
+
+    def boom(name):
+        raise KeyError(name)
+    monkeypatch.setattr(c, "ZoneInfo", boom)
+    iss = validate_job(job())
+    assert "timezone_fallback" in codes(iss) and "bad_timezone" not in codes(iss)
+    assert [i["level"] for i in iss if i["code"] == "timezone_fallback"] == ["warning"]
+    monkeypatch.setattr(c, "ZoneInfo", None)
+    assert "timezone_fallback" in codes(validate_job(job()))
+
+
+def test_malformed_input_returns_bad_shape():
+    good = job(edges=[("a", "b")])
+    mutations = [
+        lambda j: j.update(steps=["x"]), lambda j: j.update(steps="x"), lambda j: j.update(steps=5),
+        lambda j: j.update(params=[1]), lambda j: j.update(edges=[[]]), lambda j: j.update(edges=[None]),
+        lambda j: j["steps"][0].update(run_when="x"), lambda j: j["steps"][0].update(run_when=[1]),
+        lambda j: j["steps"][0].update(run_when={"kind": 1, "value": 2}),
+        lambda j: j["steps"][0].update(retries="3"), lambda j: j["steps"][0].update(retries=True),
+        lambda j: j["steps"][0].update(max_runtime=-1), lambda j: j["steps"][0].update(delayed_after=1.5),
+        lambda j: j.update(defaults={"retries": "x"}), lambda j: j.update(defaults=[]),
+        lambda j: j["edges"][0].update({"from": ["a"]}), lambda j: j["steps"][0].update(spl=5),
+        lambda j: j.update(timezone=5), lambda j: j.update(params=[{"name": ["x"]}]),
+        lambda j: j.update(triggers=[{"type": "cron", "cron": 5}]), lambda j: j.update(actions=[3]),
+    ]
+    import copy
+    for m in mutations:
+        j = copy.deepcopy(good)
+        m(j)
+        iss = validate_job(j)
+        assert "bad_shape" in codes(iss), j
+    for junk in (None, [], "x", 5, {"steps": None}, {}):
+        assert isinstance(validate_job(junk), list)

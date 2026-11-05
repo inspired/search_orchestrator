@@ -96,3 +96,30 @@ def test_param_types():
         validate_param(d, "AB")
     with pytest.raises(TokenError):
         validate_param({"name": "s", "type": "string"}, None)
+
+
+def test_default_cannot_span_unterminated_token():
+    spl = '| eval a="$d.sid|" | rex "foo$"'
+    assert compile_spl(spl, {"d"}) == (spl, [])
+    assert find_tokens(spl, {"d"}) == set()
+    assert token_defaults(spl, {"d"}) == {}
+    assert compile_spl("$d.sid|a b-c_1.2:x@y$", {"d"})[1] == ["d__sid"]
+
+
+def test_number_param_strict_and_normalised():
+    d = {"name": "n", "type": "number"}
+    assert validate_param(d, "007") == "7"
+    assert validate_param(d, "3.50") == "3.5"
+    assert validate_param(d, "-0") == "0"
+    assert validate_param(d, 100) == "100"
+    assert validate_param(d, 2.5) == "2.5"
+    for bad in ("1e3", "+1", " 1", "1 ", "²", "٣", "1\n", ".5", "5."):
+        with pytest.raises(TokenError):
+            validate_param(d, bad)
+
+
+def test_time_param_fullmatch_ascii():
+    t = {"name": "t", "type": "time"}
+    for bad in ("now\n", "-1d\n", "١d", "-1d@d\n"):
+        with pytest.raises(TokenError):
+            validate_param(t, bad)

@@ -21,9 +21,14 @@ class ExprError(ValueError):
     pass
 
 
+MAX_LEN = 2000
+MAX_DEPTH = 50
+_NUM_RE = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
+
 _TOKEN_RE = re.compile(r"""
     \s*(?:
-      (?P<num>\d+(?:\.\d+)?)
+      (?P<num>-?[0-9]+(?:\.[0-9]+)?)
      |(?P<str>'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")
      |\$(?P<tok>[A-Za-z0-9_.]+)\$
      |(?P<op>==|!=|>=|<=|>|<)
@@ -52,6 +57,15 @@ def _lex(text):
 class _Parser:
     def __init__(self, toks):
         self.t, self.i = toks, 0
+        self.depth = 0
+
+    def enter(self):
+        self.depth += 1
+        if self.depth > MAX_DEPTH:
+            raise ExprError("expression nested too deeply")
+
+    def leave(self):
+        self.depth -= 1
 
     def peek(self):
         return self.t[self.i] if self.i < len(self.t) else (None, None)
@@ -81,13 +95,18 @@ class _Parser:
     def not_(self):
         if self.is_word("not"):
             self.take()
-            return ("not", self.not_())
+            self.enter()
+            n = ("not", self.not_())
+            self.leave()
+            return n
         return self.atom()
 
     def atom(self):
         if self.peek() == ("par", "("):
             self.take()
+            self.enter()
             n = self.expr()
+            self.leave()
             if self.take() != ("par", ")"):
                 raise ExprError("missing closing parenthesis")
             return n
@@ -112,8 +131,13 @@ class _Parser:
 def parse(text):
     if not isinstance(text, str) or not text.strip():
         raise ExprError("empty expression")
+    if len(text) > MAX_LEN:
+        raise ExprError("expression longer than %d characters" % MAX_LEN)
     p = _Parser(_lex(text))
-    n = p.expr()
+    try:
+        n = p.expr()
+    except RecursionError:
+        raise ExprError("expression too complex")
     if p.i != len(p.t):
         raise ExprError("unexpected trailing input")
     return n
@@ -138,10 +162,8 @@ def _num(v):
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    try:
-        return float(str(v).strip())
-    except ValueError:
-        return None
+    s = str(v)
+    return float(s) if _NUM_RE.fullmatch(s) else None
 
 
 def _cmp(op, a, b):
