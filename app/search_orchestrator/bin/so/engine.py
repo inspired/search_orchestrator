@@ -27,12 +27,18 @@ Crash safety
   ``outcome``) found later asks ``gateway.history(owner, name, intent_at)``,
   adopts the newest job, or dispatches if there is none. Adoption runs before
   evaluate, so a cancel or give-up cancels the adopted search; re-dispatch runs
-  after evaluate, only if the step is still wanted. If history cannot answer,
-  the run is skipped this tick.
+  after evaluate, only if the step is still wanted. A transient history
+  error leaves the step ``starting`` (in flight) and evaluate still runs, so
+  give-up, cancel and max_runtime proceed; an unknown that lasts 300 s from
+  the dispatch try (``try_at``) fails the attempt. A non-transient history
+  error fails the attempt at once. A step that ends while its search could
+  not be confirmed is audited as ``possible_orphan_search``.
 * Dispatch errors: a transient error checks history before counting a
   dispatch error; if history cannot answer, the step stays ``starting`` with
-  no outcome. A dispatch-error retry of the same attempt keeps its first
-  ``intent_at`` and checks history before dispatching again.
+  no outcome (bounded as above). A dispatch-error retry of the same attempt
+  keeps its first ``intent_at`` and checks history before dispatching again.
+* Commands are isolated: one that raises stays queued (``command_retry``)
+  and is dropped after 10 failures (``command_failed``).
 * Re-runs record ``kept_sids``. A step whose kept upstream results have
   expired fails with "Results of step <id> have expired; re-run from <id>".
 * Long ticks renew the lease every 10 s between steps and stop if another
@@ -75,6 +81,8 @@ IN_FLIGHT = ("starting", "running")
 LIVE = ("running", "blocked", "paused")
 PRUNE_BATCH = 200
 LEASE_RENEW_EVERY = 10
+UNKNOWN_LIMIT = 300  # seconds a dispatch's fate may stay unknown before the attempt fails
+COMMAND_ATTEMPTS = 10
 
 
 class LeaseLost(Exception):
@@ -289,7 +297,23 @@ class Engine:
     def _commands(self, jobs, settings, now):
         for command in self.store.list_commands():
             self._keep_lease()
-            result, detail, run = self._apply_command(command, jobs, settings, now)
+            try:
+                result, detail, run = self._apply_command(command, jobs, settings, now)
+            except LeaseLost:
+                raise
+            except KvError as err:
+                if err.transient:
+                    raise  # KV Store is down: the whole tick stops
+                self._command_failed(command, err, now)
+                continue
+            except GatewayError as err:
+                _check_auth(err)
+                self._command_failed(command, err, now)
+                continue
+            except Exception as err:  # never let one command stall the engine
+                log.exception("command %s failed", command.get("_key"))
+                self._command_failed(command, err, now)
+                continue
             self.store.delete_command(command["_key"])
             event = {"type": "command", "command": command.get("type"),
                      "run_id": command.get("run_id"), "step_id": command.get("step_id"),
@@ -299,6 +323,21 @@ class Engine:
             if detail:
                 event["detail"] = detail
             self._emit(event, now)
+
+    def _command_failed(self, command, err, now):
+        """Leave a failed command queued for the next tick, or drop it after
+        COMMAND_ATTEMPTS failures. Nothing it changed was saved."""
+        attempts = int(command.get("attempts") or 0) + 1
+        event = {"command": command.get("type"), "run_id": command.get("run_id"),
+                 "step_id": command.get("step_id"), "user": command.get("user"),
+                 "attempts": attempts, "error": "%s: %s" % (type(err).__name__, err)}
+        if attempts >= COMMAND_ATTEMPTS:
+            self.store.delete_command(command["_key"])
+            event["type"] = "command_failed"
+        else:
+            self.store.save_command(dict(command, attempts=attempts))
+            event["type"] = "command_retry"
+        self._emit(event, now)
 
     def _apply_command(self, command, jobs, settings, now):
         kind = command.get("type")
@@ -468,16 +507,17 @@ class Engine:
         # A starting step without a saved search ID: adopt the search it may have
         # started before anything else (so a cancel or give-up cancels it), and
         # re-dispatch only after evaluate, if it is still wanted.
-        redispatch = []
+        # If history cannot say yet, the step stays starting (in flight) and evaluate
+        # still runs, so give-up, cancel and max_runtime always proceed.
+        redispatch, unresolved = [], []
         for sid in list(defs):
             st = run["steps"].setdefault(sid, {"state": "waiting"})
             if st.get("state") == "starting" and not st.get("sid") and not st.get("outcome"):
-                found = self._adopt(run, sid, defs[sid], now, pending)
-                if found == "unknown":
-                    raise GatewayError("history unavailable for step %r; retrying next tick"
-                                       % sid, transient=True)
+                found = self._resolve_untracked(run, sid, defs[sid], now, pending)
                 if found == "none":
                     redispatch.append(sid)
+                elif found == "pending":
+                    unresolved.append(sid)
         if run.get("state") != "cancelled":
             for sid in list(defs):
                 st = run["steps"][sid]
@@ -496,6 +536,10 @@ class Engine:
                 hooks.append(effect[1:])
             elif kind == "start_step":
                 starts.append(effect[1])
+        for sid in unresolved:
+            if run["steps"][sid].get("state") != "starting":  # cancelled or given up meanwhile
+                self._orphan(run, sid, defs[sid], now, pending, "the run ended before it could "
+                             "be confirmed")
         for scope, hook, step_id in hooks:
             if self.actions.submit(run, hook, scope, step_id):
                 pending.events.append(self._event(run, "action_submitted", now, hook=hook,
@@ -527,8 +571,8 @@ class Engine:
                     # so history still finds a search that a timed-out dispatch started.
                     keep = st.get("intent_at") if st.get("dispatch_errors") else None
                     self._set_step(run, sid, {"state": "starting", "intent_at": keep or now,
-                                              "sid": None, "started_at": None, "ended_at": None,
-                                              "outcome": None}, pending, now)
+                                              "try_at": now, "sid": None, "started_at": None,
+                                              "ended_at": None, "outcome": None}, pending, now)
                 budget.adjust(run.get("job_id"), len(chosen))
                 self._save(run, pending)
                 pending = _Pending()
@@ -649,25 +693,58 @@ class Engine:
     def _adopt(self, run, sid, sdef, now, pending):
         """Adopt a job dispatched for this attempt whose search ID was never saved.
 
-        Returns "adopted", "none" (history has no such job) or "unknown"."""
+        Returns (kind, reason): "adopted", "none" (history has no such job),
+        "unknown" (transient history error) or "error" (non-transient)."""
         st = run["steps"][sid]
         name = sdef.get("hidden_search")
         if not name:
-            return "none"
+            return "none", None
         try:
             found = self.gw.history(run.get("owner"), name, st.get("intent_at") or now)
         except GatewayError as err:
             _check_auth(err)
             log.warning("history of %s failed: %s", name, err)
-            return "unknown"
+            return ("unknown" if err.transient else "error"), str(err)
         if not found:
-            return "none"
+            return "none", None
         self._set_step(run, sid, {"state": "running", "sid": found[0],
                                   "started_at": st.get("intent_at") or now}, pending, now)
         pending.rows.append(self._row(run, sid))
         pending.events.append(self._event(run, "step_adopted", now, step_id=sid, sid=found[0],
                                           attempt=st.get("attempt")))
-        return "adopted"
+        return "adopted", None
+
+    @staticmethod
+    def _unknown_expired(st, now):
+        """The fate of this dispatch has been unknown for UNKNOWN_LIMIT seconds."""
+        since = st.get("try_at") or st.get("intent_at") or now
+        return now - int(since) >= UNKNOWN_LIMIT
+
+    def _resolve_untracked(self, run, sid, sdef, now, pending):
+        """For a starting step that may have started a search we never recorded.
+
+        "adopted" or "none" (safe to dispatch); "pending" (history is briefly
+        unavailable: the step stays starting); "failed" (the attempt failed)."""
+        kind, reason = self._adopt(run, sid, sdef, now, pending)
+        if kind in ("adopted", "none"):
+            return kind
+        st = run["steps"][sid]
+        if kind == "error":
+            error = "Could not check whether the search for step %s started: %s" % (sid, reason)
+        elif self._unknown_expired(st, now):
+            error = "Could not confirm whether the search for step %s started" % sid
+        else:
+            return "pending"
+        self._attempt_failed(run, sid, error, now, pending)
+        self._orphan(run, sid, sdef, now, pending, error)
+        return "failed"
+
+    def _orphan(self, run, sid, sdef, now, pending, reason):
+        st = run["steps"][sid]
+        pending.events.append(self._event(run, "possible_orphan_search", now, step_id=sid,
+                                          hidden_search=sdef.get("hidden_search"),
+                                          owner=run.get("owner"), intent_at=st.get("intent_at"),
+                                          reason=reason))
 
     def _render_args(self, run, sdef):
         definition = run.get("definition") or {}
@@ -702,14 +779,20 @@ class Engine:
         if st.get("dispatch_errors"):
             # An earlier dispatch of this attempt failed transiently but may have started a
             # search: never launch a second one.
-            if self._adopt(run, sid, sdef, now, pending) != "none":
+            if self._resolve_untracked(run, sid, sdef, now, pending) != "none":
                 return None
-        expired = self._expired_upstream(run, sid)
-        if expired == "unknown":
-            return None  # stays starting; checked again next tick
-        if expired:
+        kind, up, reason = self._expired_upstream(run, sid)
+        if kind == "expired":
             return self._attempt_failed(run, sid, "Results of step %s have expired; re-run from %s"
-                                        % (expired, expired), now, pending)
+                                        % (up, up), now, pending)
+        if kind == "error":
+            return self._attempt_failed(run, sid, "Could not check the results of step %s: %s"
+                                        % (up, reason), now, pending)
+        if kind == "unknown":
+            if self._unknown_expired(st, now):
+                return self._attempt_failed(run, sid, "Could not confirm whether the results of "
+                                            "step %s are still available" % up, now, pending)
+            return None  # stays starting; checked again next tick
         try:
             args = self._render_args(run, sdef)
         except tokens.TokenError as err:
@@ -723,12 +806,12 @@ class Engine:
             if not err.transient:
                 return self._attempt_failed(run, sid, self._dispatch_failure(run, name, err),
                                             now, pending)
-            found = self._adopt(run, sid, sdef, now, pending)
-            if found == "adopted":
+            found = self._resolve_untracked(run, sid, sdef, now, pending)
+            if found in ("adopted", "failed"):
                 return None
-            if found == "unknown":
+            if found == "pending":
                 # The search may have started: stay starting with no outcome, so the next
-                # tick asks history again from the same intent_at.
+                # tick asks history again from the same intent_at (bounded by UNKNOWN_LIMIT).
                 st["error"] = "dispatch outcome unknown: %s" % err
                 return None
             st["dispatch_errors"] = (st.get("dispatch_errors") or 0) + 1
@@ -748,11 +831,11 @@ class Engine:
         return None
 
     def _expired_upstream(self, run, sid):
-        """For a re-run: the id of a kept upstream step whose results have expired, None,
-        or "unknown" if splunkd could not say."""
+        """For a re-run: (kind, upstream step, reason) with kind "expired", "unknown"
+        (transient status error), "error" (non-transient) or None (all available)."""
         kept = run.get("kept_sids") or {}
         if not kept:
-            return None
+            return None, None, None
         definition = run.get("definition") or {}
         ids = [s["id"] for s in definition.get("steps") or []]
         sdef = next((s for s in definition.get("steps") or [] if s["id"] == sid), {})
@@ -767,10 +850,10 @@ class Engine:
             except GatewayError as err:
                 _check_auth(err)
                 log.warning("status of kept search %s failed: %s", st["sid"], err)
-                return "unknown"
+                return ("unknown" if err.transient else "error"), up, str(err)
             if status.get("state") == "missing":
-                return up
-        return None
+                return "expired", up, None
+        return None, None, None
 
     def _dispatch_failure(self, run, name, err):
         owner = run.get("owner")
@@ -794,7 +877,19 @@ class Engine:
         if last is not None and now - int(last) < PRUNE_EVERY:
             return
         days = int(settings["run_retention_days"])
-        count = self.store.prune_runs(now - days * DAY, limit=PRUNE_BATCH, between=self._keep_lease)
+        deleted = [0]
+
+        def between():
+            deleted[0] += 1
+            self._keep_lease()
+
+        try:
+            count = self.store.prune_runs(now - days * DAY, limit=PRUNE_BATCH, between=between)
+        except LeaseLost:
+            if deleted[0]:
+                self._emit({"type": "runs_pruned", "count": deleted[0], "retention_days": days,
+                            "partial": True}, now)
+            raise
         if count < PRUNE_BATCH:  # a full batch means more may be left: continue next tick
             self._estate["last_prune"] = now
             self._estate_urgent = True

@@ -1019,3 +1019,120 @@ def test_give_up_adopts_untracked_search_then_cancels():
     assert (sid, "cancel", {}) in w.gw.control_log
     assert w.run(r)["state"] == "failed" and w.run(r)["gave_up"]
     assert len(w.gw.dispatch_log) == 1
+
+
+# --- review fix round 2 ------------------------------------------------------------
+
+def _history_fails_for(w, name, status, transient):
+    from so.gateway import GatewayError
+    real = w.gw.history
+
+    def history(owner, search, since):
+        if search == name:
+            raise GatewayError("history failed", status=status, transient=transient)
+        return real(owner, search, since)
+
+    w.gw.history = history
+
+
+def _untracked_start(w, job, at=T0):
+    """A run whose step dispatched a search but crashed before saving its ID."""
+    w.gw.crash_after_dispatch = True
+    run_id = w.manual(job, scheduled_time=at)
+    w.tick(at=at)
+    w.gw.crash_after_dispatch = False
+    assert w.step(run_id, "a")["state"] == "starting" and not w.step(run_id, "a").get("sid")
+    return run_id
+
+
+def test_cancel_with_failing_history_does_not_stall_other_jobs():
+    w = World(T0)
+    j = w.add_job(make_job("j", cron=None), scripts={"a": {"states": ["running"]}})
+    k = w.add_job(make_job("k", cron=None), scripts={"a": {"states": ["running"]}})
+    rj = _untracked_start(w, j)
+    _history_fails_for(w, j["steps"][0]["hidden_search"], 403, False)
+    w.command(type="cancel", run_id=rj)
+    rk = w.manual(k)
+    w.tick(advance=5)
+    assert w.run(rj)["state"] == "cancelled"
+    assert w.run(rk)["state"] == "running" and w.step(rk, "a")["state"] == "running"
+    assert not w.gw.kv.get("so_commands")
+    orphan = w.audit.of("possible_orphan_search", run_id=rj, step_id="a")
+    assert orphan and orphan[0]["hidden_search"] == j["steps"][0]["hidden_search"]
+    assert orphan[0]["intent_at"] == T0
+    assert len(w.dispatched()) == 2  # j's untracked search and k's; nothing re-dispatched
+
+
+def test_non_transient_history_error_fails_attempt_without_dispatch():
+    w = World(T0)
+    j = w.add_job(make_job(cron=None), scripts={"a": {"states": ["running"]}})
+    r = _untracked_start(w, j)
+    _history_fails_for(w, j["steps"][0]["hidden_search"], 403, False)
+    w.tick(advance=5)
+    a = w.step(r, "a")
+    assert a["state"] == "failed"
+    assert a["error"].startswith("Could not check whether the search for step a started: ")
+    assert w.run(r)["state"] == "blocked"
+    assert len(w.gw.dispatch_log) == 1
+    assert w.audit.of("possible_orphan_search", run_id=r)
+
+
+def test_unknown_history_bounded_to_300s():
+    w = World(T0)
+    j = w.add_job(make_job(cron=None), scripts={"a": {"states": ["running"]}})
+    r = _untracked_start(w, j)
+    _history_fails_for(w, j["steps"][0]["hidden_search"], 503, True)
+    w.tick(advance=5)
+    assert w.step(r, "a")["state"] == "starting"
+    assert w.run(r)["state"] == "running"  # evaluated, not skipped
+    w.tick(at=T0 + 299)
+    assert w.step(r, "a")["state"] == "starting"
+    w.tick(at=T0 + 300)
+    a = w.step(r, "a")
+    assert a["state"] == "failed"
+    assert a["error"] == "Could not confirm whether the search for step a started"
+    assert len(w.gw.dispatch_log) == 1
+
+
+def test_give_up_proceeds_when_history_unknown():
+    w = World(T0)
+    j = w.add_job(make_job(cron=None, defaults={"give_up_after": 200}),
+                  scripts={"a": {"states": ["running"]}})
+    r = _untracked_start(w, j)
+    _history_fails_for(w, j["steps"][0]["hidden_search"], 503, True)
+    w.tick(advance=5)
+    w.tick(at=T0 + 200)
+    run = w.run(r)
+    assert run["state"] == "failed" and run["gave_up"]
+    assert w.audit.of("possible_orphan_search", run_id=r, step_id="a")
+    assert len(w.gw.dispatch_log) == 1
+
+
+def test_command_dropped_after_10_failures():
+    from so.gateway import GatewayError
+    w = World(T0)
+    j = w.add_job(make_job("j", cron=None), scripts={"a": {"states": ["running"]}})
+    k = w.add_job(make_job("k", cron=None), scripts={"a": {"states": ["running"]}})
+    rj = w.manual(j)
+    w.tick()
+    sid = w.step(rj, "a")["sid"]
+    real = w.gw.control
+
+    def control(search, action, **kw):
+        if search == sid and action == "cancel":
+            raise GatewayError("splunkd busy", status=503, transient=True)
+        return real(search, action, **kw)
+
+    w.gw.control = control
+    w.command(type="cancel", run_id=rj)
+    rk = w.manual(k)
+    for _ in range(9):
+        w.tick(advance=5)
+    assert len(w.audit.of("command_retry", run_id=rj)) == 9
+    assert len(w.gw.kv["so_commands"]) == 1
+    assert w.run(rj)["state"] == "running"
+    assert w.run(rk)["state"] == "running"  # other jobs keep going
+    w.tick(advance=5)
+    failed = w.audit.of("command_failed", run_id=rj)
+    assert failed and failed[0]["attempts"] == 10 and "splunkd busy" in failed[0]["error"]
+    assert not w.gw.kv.get("so_commands")

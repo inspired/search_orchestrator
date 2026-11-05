@@ -117,6 +117,9 @@ class Store:
     def delete_command(self, key):
         self.gw.kv_delete(COMMANDS, key)
 
+    def save_command(self, command):
+        self._upsert(COMMANDS, command)
+
     # Settings.
 
     def get_settings(self):
