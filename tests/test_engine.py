@@ -573,9 +573,8 @@ def test_crash_after_dispatch_adopts_not_duplicates():
     w.gw.crash_after_dispatch = False
     w.engine = w.new_engine()
     w.tick(advance=5)
-    a = w.step(run_id, "a")
-    assert a["state"] == "running" and a["sid"] == w.gw.dispatch_log[0]["sid"]
-    w.tick(advance=5)
+    a = w.step(run_id, "a")  # adopted, then polled in the same tick
+    assert a["state"] == "succeeded" and a["sid"] == w.gw.dispatch_log[0]["sid"]
     assert w.run(run_id)["state"] == "succeeded"
     assert len(w.gw.dispatch_log) == 1
     assert w.audit.of("step_adopted", run_id=run_id)
@@ -840,3 +839,183 @@ def test_settings_defaults():
     assert enginemod.DEFAULT_SETTINGS == {
         "max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
         "result_retention": 86400, "run_retention_days": 90}
+
+
+# --- review fix round 1 ------------------------------------------------------------
+
+def test_queued_rerun_kept_results_are_touched():
+    w = World(T0)
+    j = w.add_job(make_job(steps=["a", "b"], edges=[("a", "b")], cron=None,
+                           after_give_up="continue", defaults={"give_up_after": 600}),
+                  scripts={"b": {"states": ["running"]}})
+    r1 = w.manual(j)
+    w.tick()
+    w.tick(advance=5)
+    sid_a = w.step(r1, "a")["sid"]
+    w.tick(at=T0 + 600)
+    assert w.run(r1)["state"] == "failed"
+    r2 = w.manual(j)
+    w.tick(advance=5)
+    assert w.run(r2)["state"] == "running"
+    w.command(type="rerun", run_id=r1, step_id="b", definition="original")
+    w.tick(advance=5)
+    assert w.run(r1)["state"] == "queued" and w.step(r1, "a")["sid"] == sid_a
+    touches = lambda: len([c for c in w.gw.control_log if c[:2] == (sid_a, "touch")])
+    first = touches()
+    assert first >= 1
+    w.tick(advance=60)
+    assert touches() == first
+    w.tick(advance=300)
+    assert touches() == first + 1
+    assert w.run(r1)["state"] == "queued"
+
+
+def test_transient_dispatch_error_with_unknown_history_dispatches_once():
+    w = World()
+    j = w.add_job(make_job())
+    real_dispatch, real_history = w.gw.dispatch, w.gw.history
+    calls = {"dispatch": 0, "history": 0}
+
+    def timed_out(*args, **kw):
+        calls["dispatch"] += 1
+        sid = real_dispatch(*args, **kw)  # the search really started
+        if calls["dispatch"] == 1:
+            raise DispatchError(True, "timed out", 503)
+        return sid
+
+    def flaky_history(*args, **kw):
+        calls["history"] += 1
+        if calls["history"] == 1:
+            from so.gateway import GatewayError
+            raise GatewayError("history unavailable", status=503, transient=True)
+        return real_history(*args, **kw)
+
+    w.gw.dispatch, w.gw.history = timed_out, flaky_history
+    run_id = cron_run(w, j)
+    a = w.step(run_id, "a")
+    assert a["state"] == "starting" and not a.get("outcome") and not a.get("dispatch_errors")
+    w.tick(advance=5)
+    w.tick(advance=5)
+    assert w.run(run_id)["state"] == "succeeded"
+    assert len(w.gw.dispatch_log) == 1
+    assert w.step(run_id, "a")["sid"] == w.gw.dispatch_log[0]["sid"]
+
+
+def test_dispatch_error_retry_keeps_intent_at_and_adopts():
+    w = World()
+    j = w.add_job(make_job())
+    real_dispatch, real_history = w.gw.dispatch, w.gw.history
+    calls = {"dispatch": 0, "history": 0}
+
+    def timed_out(*args, **kw):
+        calls["dispatch"] += 1
+        sid = real_dispatch(*args, **kw)
+        if calls["dispatch"] == 1:
+            raise DispatchError(True, "timed out", 503)
+        return sid
+
+    def lagging_history(*args, **kw):
+        calls["history"] += 1
+        return [] if calls["history"] == 1 else real_history(*args, **kw)
+
+    w.gw.dispatch, w.gw.history = timed_out, lagging_history
+    run_id = cron_run(w, j)
+    a = w.step(run_id, "a")
+    assert a["dispatch_errors"] == 1 and a["intent_at"] == T0
+    w.tick(advance=5)  # retrying
+    w.tick(advance=30)  # retry: history from the first intent_at finds the search
+    a = w.step(run_id, "a")
+    assert a["intent_at"] == T0 and a["sid"] == w.gw.dispatch_log[0]["sid"]
+    assert len(w.gw.dispatch_log) == 1
+
+
+def test_prune_is_bounded_per_tick():
+    w = World(T0)
+    for i in range(450):
+        w.store.create_run({"_key": "old%03d" % i, "job_id": "j", "state": "succeeded",
+                            "ended_at": T0 - 91 * DAY - i, "created_at": T0 - 92 * DAY,
+                            "steps": {}})
+    left = lambda: len(w.gw.kv.get("so_runs", {}))
+    w.tick()
+    assert left() == 250
+    w.tick(advance=5)
+    assert left() == 50
+    w.tick(advance=5)
+    assert left() == 0
+    assert w.store.get_engine_state()["last_prune"] == T0 + 10
+
+
+def test_lease_lost_mid_tick_stops_the_tick():
+    w = World(T0)
+    j = w.add_job(make_job("j", cron=None))
+    k = w.add_job(make_job("k", cron=None))
+    rj = w.manual(j, scheduled_time=T0 - 10)
+    rk = w.manual(k, scheduled_time=T0)
+    real = w.gw.dispatch
+
+    def slow_then_stolen(*args, **kw):
+        sid = real(*args, **kw)
+        w.clock.t += 15  # this tick is taking long
+        w.gw.kv["so_locks"]["engine"] = {"_key": "engine", "holder": "other",
+                                         "expires": T0 + 1000}
+        return sid
+
+    w.gw.dispatch = slow_then_stolen
+    w.tick()
+    assert w.step(rj, "a")["state"] == "running"
+    assert w.step(rk, "a")["state"] != "running"
+    assert len(w.gw.dispatch_log) == 1
+
+
+def test_rerun_with_expired_upstream_results_fails_clearly():
+    w = World()
+    j = w.add_job(make_job(steps=["a", {"id": "b", "spl": "| loadjob $a.sid$"}],
+                           edges=[("a", "b")]),
+                  scripts={"b": {"states": ["failed"]}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    w.tick(advance=5)
+    assert w.run(run_id)["state"] == "blocked"
+    del w.gw.jobs[w.step(run_id, "a")["sid"]]  # a's results expired
+    w.gw.script_job(j["steps"][1]["hidden_search"], ["done"])
+    w.command(type="rerun", run_id=run_id, step_id="b", definition="original")
+    w.tick(advance=5)
+    w.tick(advance=5)
+    b = w.step(run_id, "b")
+    assert b["state"] == "failed"
+    assert b["error"] == "Results of step a have expired; re-run from a"
+    assert len(w.dispatched("b")) == 1
+
+
+def test_cancel_adopts_untracked_search_then_cancels():
+    w = World()
+    j = w.add_job(make_job(), scripts={"a": {"states": ["running"]}})
+    w.tick(at=T0 - 5)
+    w.gw.crash_after_dispatch = True
+    w.tick(at=T0)
+    run_id = "j:%d" % T0
+    assert w.step(run_id, "a")["state"] == "starting" and not w.step(run_id, "a").get("sid")
+    w.gw.crash_after_dispatch = False
+    w.command(type="cancel", run_id=run_id)
+    w.tick(advance=5)
+    sid = w.gw.dispatch_log[0]["sid"]
+    assert (sid, "cancel", {}) in w.gw.control_log
+    assert w.run(run_id)["state"] == "cancelled"
+    assert w.step(run_id, "a")["sid"] == sid and w.step(run_id, "a")["state"] == "cancelled"
+    assert len(w.gw.dispatch_log) == 1
+
+
+def test_give_up_adopts_untracked_search_then_cancels():
+    w = World(T0)
+    j = w.add_job(make_job(cron=None, defaults={"give_up_after": 600}),
+                  scripts={"a": {"states": ["running"]}})
+    r = w.manual(j)
+    w.gw.crash_after_dispatch = True
+    w.tick()
+    w.gw.crash_after_dispatch = False
+    assert w.step(r, "a")["state"] == "starting"
+    w.tick(at=T0 + 600)
+    sid = w.gw.dispatch_log[0]["sid"]
+    assert (sid, "cancel", {}) in w.gw.control_log
+    assert w.run(r)["state"] == "failed" and w.run(r)["gave_up"]
+    assert len(w.gw.dispatch_log) == 1

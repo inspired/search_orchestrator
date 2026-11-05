@@ -77,17 +77,22 @@ class Store:
     def list_step_runs(self, run_id):
         return self.gw.kv_query(STEP_RUNS, {"run_id": run_id})
 
-    def prune_runs(self, before):
-        """Delete ended runs (and their attempt rows) that ended before ``before``.
+    def prune_runs(self, before, limit=0, between=None):
+        """Delete ended runs (and their attempt rows) that ended before ``before``,
+        oldest first, at most ``limit`` (0 = all). ``between()`` is called after each
+        run is deleted (the engine renews its lease there). Returns the number deleted.
 
         A held run is kept: it still holds its job's queue until dismissed.
         """
         old = self.gw.kv_query(RUNS, {"state": {"$in": TERMINAL_RUN_STATES},
-                                      "ended_at": {"$lt": int(before)}, "held": {"$ne": True}})
+                                      "ended_at": {"$lt": int(before)}, "held": {"$ne": True}},
+                               sort="ended_at:1", limit=limit)
         for run in old:
             run_id = run["_key"]
             self.gw.kv_delete_query(STEP_RUNS, {"run_id": run_id})
             self.gw.kv_delete(RUNS, run_id)
+            if between is not None:
+                between()
         return len(old)
 
     # Commands.
