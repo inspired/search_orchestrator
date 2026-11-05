@@ -40,12 +40,15 @@ class FakeGateway:
         self._dispatch_errors = {}
         self._sids = itertools.count(1)
         self.history_by_search = {}
+        self.clock = None  # optional callable: history records real dispatch time, like splunkd
+        self.removed_users = set()  # owners whose accounts no longer exist
 
     # Scripting.
 
     def script_job(self, name, states, result_count=0, first=None, error="scripted failure"):
         """Each dispatch of ``name`` makes a job whose status steps through ``states``
-        ("running", "done", "failed", "missing"); the last state sticks."""
+        ("running", "done", "failed", "missing", "finalized"); the last state sticks.
+        "finalized" is a job stopped early outside the app (done with isFinalized)."""
         self._scripts[name] = {"states": list(states), "result_count": result_count,
                                "first": first, "error": error}
 
@@ -60,6 +63,8 @@ class FakeGateway:
         if queue:
             transient = queue.pop(0)
             raise DispatchError(transient, "scripted dispatch error", 503 if transient else 400)
+        if owner in self.removed_users:
+            raise DispatchError(False, "HTTP 404 Not Found: user does not exist", 404)
         script = self._scripts.get(name)
         if script is None and (owner, name) not in self.saved_searches:
             raise DispatchError(False, "HTTP 404 Not Found: unknown saved search", 404)
@@ -69,7 +74,8 @@ class FakeGateway:
         self.dispatch_log.append({"sid": sid, "owner": owner, "name": name, "now": now_epoch,
                                   "args": dict(args or {}), "earliest": earliest,
                                   "latest": latest, "trigger_actions": trigger_actions})
-        self.history_by_search.setdefault((owner, name), []).append((now_epoch, sid))
+        when = self.clock() if self.clock else now_epoch
+        self.history_by_search.setdefault((owner, name), []).append((when, sid))
         if self.crash_after_dispatch:
             raise RuntimeError("simulated crash after dispatch")
         return sid
@@ -84,9 +90,12 @@ class FakeGateway:
         if state == "missing":
             return {"state": "missing", "result_count": 0, "error": "search job not found",
                     "finalized": False, "zombie": False, "ttl": 0}
+        finalized = state == "finalized"
+        if finalized:
+            state = "done"
         return {"state": state, "result_count": job["result_count"] if state == "done" else 0,
                 "error": job["error"] if state == "failed" else None,
-                "finalized": False, "zombie": False, "ttl": 0}
+                "finalized": finalized, "zombie": False, "ttl": 0}
 
     def first_row(self, sid):
         job = self.jobs.get(sid)
@@ -96,6 +105,9 @@ class FakeGateway:
         self.control_log.append((sid, action, kw))
         if action == "cancel" and sid in self.jobs:
             self.jobs[sid]["cancelled"] = True
+
+    def user_exists(self, name):
+        return name not in self.removed_users
 
     def history(self, owner, name, since_epoch):
         rows = [r for r in self.history_by_search.get((owner, name), []) if r[0] >= since_epoch]

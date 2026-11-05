@@ -195,6 +195,7 @@ class Gateway(Protocol):
     def first_row(self, sid: str) -> Optional[Dict[str, Any]]: ...
     def control(self, sid: str, action: str, **kw: Any) -> None: ...
     def history(self, owner: str, name: str, since_epoch: float) -> List[str]: ...
+    def user_exists(self, name: str) -> bool: ...
     def kv_get(self, collection: str, key: str) -> Optional[Dict[str, Any]]: ...
     def kv_insert(self, collection: str, doc: Dict[str, Any]) -> bool: ...
     def kv_update(self, collection: str, key: str, doc: Dict[str, Any]) -> bool: ...
@@ -335,6 +336,19 @@ class SplunkGateway:
             raise GatewayError("history failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return parse_history(body, since_epoch)
+
+    def user_exists(self, name):
+        """False only if splunkd says the user does not exist (404)."""
+        try:
+            self._call("get", "/services/authentication/users/" + name)
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) == 404:
+                return False
+            raise GatewayError("user lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return True
 
     def upsert_saved_search(self, owner, name, search, earliest, latest, description=""):
         params = saved_search_params(search, earliest, latest, description)

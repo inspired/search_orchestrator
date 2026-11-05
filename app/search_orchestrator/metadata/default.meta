@@ -25,12 +25,3 @@ access = read : [ admin ], write : [ admin ]
 
 [collections/so_settings]
 access = read : [ admin ], write : [ admin ]
-
-# Temporary: Milestone 1 spike results, exported so | inputlookup works from any app. Removed in Task 6.
-[collections/so_spike]
-access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
-export = system
-
-[transforms/so_spike_results]
-access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
-export = system

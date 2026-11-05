@@ -12,6 +12,7 @@ STEP_RUNS = "so_step_runs"
 COMMANDS = "so_commands"
 SETTINGS = "so_settings"
 SETTINGS_KEY = "settings"
+ENGINE_STATE_KEY = "engine_state"
 ACTIVE_RUN_STATES = ["queued", "running", "blocked", "paused"]
 TERMINAL_RUN_STATES = ["succeeded", "failed", "cancelled"]
 
@@ -77,9 +78,12 @@ class Store:
         return self.gw.kv_query(STEP_RUNS, {"run_id": run_id})
 
     def prune_runs(self, before):
-        """Delete ended runs (and their attempt rows) that ended before ``before``."""
+        """Delete ended runs (and their attempt rows) that ended before ``before``.
+
+        A held run is kept: it still holds its job's queue until dismissed.
+        """
         old = self.gw.kv_query(RUNS, {"state": {"$in": TERMINAL_RUN_STATES},
-                                      "ended_at": {"$lt": int(before)}})
+                                      "ended_at": {"$lt": int(before)}, "held": {"$ne": True}})
         for run in old:
             run_id = run["_key"]
             self.gw.kv_delete_query(STEP_RUNS, {"run_id": run_id})
@@ -101,6 +105,13 @@ class Store:
             self.gw.kv_delete(COMMANDS, command["_key"])
         return commands
 
+    def list_commands(self):
+        """Pending commands, oldest first. The engine deletes each once applied."""
+        return self.gw.kv_query(COMMANDS, sort="created_at:1")
+
+    def delete_command(self, key):
+        self.gw.kv_delete(COMMANDS, key)
+
     # Settings.
 
     def get_settings(self):
@@ -108,3 +119,10 @@ class Store:
 
     def save_settings(self, settings):
         self._upsert(SETTINGS, dict(settings, _key=SETTINGS_KEY))
+
+    def get_engine_state(self):
+        """The engine's own bookkeeping (cron last-checked times, last prune)."""
+        return self.gw.kv_get(SETTINGS, ENGINE_STATE_KEY) or {}
+
+    def save_engine_state(self, state):
+        self._upsert(SETTINGS, dict(state, _key=ENGINE_STATE_KEY))
