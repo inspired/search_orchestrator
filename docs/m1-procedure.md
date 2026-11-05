@@ -14,11 +14,17 @@ The spike answers spec §9's go/no-go question: can a modular input's system ses
 | Role `so_m1_owner2_role`: allowed and default index `so_m1_secret`, same capabilities | Can read `so_m1_secret` |
 | User `so_m1_owner2` with that role | A second owner, for wrapper mode |
 | Private hidden searches owned by `so_m1_user`, saved with that user's session: `_so_spike_identity`, `_so_spike_secret`, `_so_spike_args`, `_so_spike_now`, `_so_spike_loadjob`, `_so_spike_long`, `_so_spike_wrapper` | What the engine dispatches |
-| `_so_spike_shared`, owned by `so_m1_owner2`, shared in the app, `dispatchAs = owner` | The other owner's search that wrapper mode reaches |
+| `_so_spike_shared`, owned by `so_m1_owner2`, shared in the app, `dispatchAs = owner` set by an admin | The other owner's search that wrapper mode reaches |
 
 Everything created carries evidence of the script: `realname` on users, `description` on searches, `rtSrchJobsQuota = 1371` on roles (inert, as they can't run real-time searches), and the word `so_m1_setup_fixture` in the index's seed event. Setup checks first and refuses to reuse any user, role or index without that evidence, changing nothing. `--cleanup` skips anything without it and prints a warning, so check those objects by hand.
 
-If Splunk refuses a save as `so_m1_user` with HTTP 403, the script adds `edit_search_schedule_window` to both roles, says so, and retries. That capability gives no index access.
+The script saves searches with the restricted user's session and sends only what's needed, because Splunk refuses scheduling, alert and action arguments from a user without `schedule_search` (seen on 10.6.1.1 with `is_scheduled`). New searches are unscheduled by default. `dispatchAs = owner` is set by an admin, on the shared search only.
+
+If Splunk still refuses a save, the script says so and does the least it can, and none of these steps gives index access:
+
+- HTTP 403: it adds `edit_search_schedule_window` to both roles and retries.
+- `is_visible` or `description` refused: it adds `schedule_search` to both roles and retries. If that's refused too, it saves without the argument and sets it afterwards as admin, which keeps the owner, so `description` still works as evidence. If that also fails, it warns, and `--cleanup` skips that search.
+- Anything else: it prints Splunk's message against that search, carries on with the others, and exits with an error listing the searches not saved. Fix the cause and re-run.
 
 ## Requirements
 

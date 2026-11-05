@@ -31,7 +31,11 @@ PRIVATE_SEARCHES="_so_spike_identity _so_spike_secret _so_spike_args _so_spike_n
 MARKER=so_m1_setup_fixture
 ROLE_MARKER_VALUE=1371
 ROLE_MARKER="name=\"rtSrchJobsQuota\">$ROLE_MARKER_VALUE<"
-HIDDEN="dispatchAs=owner is_scheduled=0 is_visible=0 description=$MARKER"
+# Sent with the restricted user's session. New searches are unscheduled by default,
+# and scheduling, alert and action arguments are refused without schedule_search,
+# so none are sent. dispatchAs is only meaningful once shared, and defaults to
+# owner, so an admin sets it on the shared search alone.
+HIDDEN="is_visible=0 description=$MARKER"
 
 BASE_URL=""
 INSECURE=0
@@ -288,27 +292,81 @@ save_as() {
   fi
 }
 
-# save_private NAME name=value ...: private search owned by so_m1_user, using
-# that user's session. The role starts minimal. Its capability is added only if
-# Splunk refuses the save, and the script says so.
-save_private() {
-  local name=$1
-  shift
-  SESSION=$USER1_KEY
+# The argument Splunk says it refused, if that's what the last response was.
+rejected_argument() {
+  printf '%s\n' "$HTTP_BODY" | sed -n -E 's/.*Argument (&quot;|")([^"&]*)(&quot;|") is not supported by this handler.*/\2/p' | head -n 1
+}
+
+# Add a capability to both test roles, then log in again to pick it up.
+grant_capability() {
+  EXTRA_CAPS="$EXTRA_CAPS $1"
   # shellcheck disable=SC2086
-  save_as "$USER1" "$name" "$@" $HIDDEN
-  if [ "$HTTP_CODE" = 403 ] && [ "$GRANTED" = 0 ]; then
-    echo "note: saving was refused, adding edit_search_schedule_window to $ROLE1 and $ROLE2"
-    GRANTED=1
-    ensure_role "$ROLE1" main edit_search_schedule_window
-    ensure_role "$ROLE2" "$INDEX" edit_search_schedule_window
-    login "$USER1" "$TEST_PW"; USER1_KEY=$LOGIN_KEY
-    login "$USER2" "$TEST_PW"; USER2_KEY=$LOGIN_KEY
-    SESSION=$USER1_KEY
+  ensure_role "$ROLE1" main $EXTRA_CAPS
+  # shellcheck disable=SC2086
+  ensure_role "$ROLE2" "$INDEX" $EXTRA_CAPS
+  login "$USER1" "$TEST_PW"; USER1_KEY=$LOGIN_KEY
+  login "$USER2" "$TEST_PW"; USER2_KEY=$LOGIN_KEY
+}
+
+has_capability() { case " $EXTRA_CAPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# save_search USER NAME required_name=value ...: saves with USER's session, so
+# that USER owns a new search. Starts with minimal capabilities. If Splunk
+# refuses, it says so and adds the least it can. A refused argument from HIDDEN
+# gets schedule_search once, then is dropped and set afterwards by an admin,
+# which keeps the owner, so description stays available as evidence. Neither
+# capability gives index access. Any other refusal is recorded against this
+# search, and the remaining searches still run.
+save_search() {
+  local user=$1 name=$2 opts=$HIDDEN dropped="" rejected opt kept
+  shift 2
+  while :; do
+    if [ "$user" = "$USER1" ]; then SESSION=$USER1_KEY; else SESSION=$USER2_KEY; fi
     # shellcheck disable=SC2086
-    save_as "$USER1" "$name" "$@" $HIDDEN
+    save_as "$user" "$name" "$@" $opts
+    if http_ok; then break; fi
+    if [ "$HTTP_CODE" = 403 ] && ! has_capability edit_search_schedule_window; then
+      echo "note: saving $name was refused, adding edit_search_schedule_window to $ROLE1 and $ROLE2"
+      grant_capability edit_search_schedule_window
+      continue
+    fi
+    rejected=$(rejected_argument)
+    case " $opts " in
+      *" $rejected="*)
+        if [ -n "$rejected" ]; then
+          if ! has_capability schedule_search; then
+            echo "note: $user was refused argument $rejected on $name, adding schedule_search to $ROLE1 and $ROLE2"
+            grant_capability schedule_search
+            continue
+          fi
+          echo "note: $user is still refused argument $rejected on $name, dropping it and setting it as admin"
+          kept=""
+          for opt in $opts; do
+            case "$opt" in
+              "$rejected="*) dropped="$dropped $opt" ;;
+              *) kept="$kept $opt" ;;
+            esac
+          done
+          opts=$kept
+          continue
+        fi
+        ;;
+    esac
+    echo "FAILED: search $name as $user: HTTP $HTTP_CODE $(server_message)" >&2
+    SAVE_FAILURES="$SAVE_FAILURES $name"
+    return 0
+  done
+  echo "ok: search $name owned by $user"
+  if [ -n "$dropped" ]; then
+    SESSION=$ADMIN_KEY
+    # shellcheck disable=SC2086
+    api POST "/servicesNS/$user/$APP/saved/searches/$name" $dropped
+    if http_ok; then
+      echo "ok: set$dropped on $name as admin"
+    else
+      echo "WARNING: could not set$dropped on $name as admin: HTTP $HTTP_CODE $(server_message). Without description, --cleanup skips this search." >&2
+    fi
   fi
-  require_ok "search $name owned by $USER1"
 }
 
 save_shared() {
@@ -317,18 +375,25 @@ save_shared() {
   api GET "/servicesNS/nobody/$APP/saved/searches/$SHARED"
   if http_ok; then
     # Already shared by an earlier run, so only an admin may write it. Keeps its owner.
-    # shellcheck disable=SC2086
-    api POST "/servicesNS/nobody/$APP/saved/searches/$SHARED" "$spl" dispatch.earliest_time=0 dispatch.latest_time=now $HIDDEN
+    api POST "/servicesNS/nobody/$APP/saved/searches/$SHARED" "$spl" dispatch.earliest_time=0 dispatch.latest_time=now
+    if ! http_ok; then
+      echo "FAILED: search $SHARED as admin: HTTP $HTTP_CODE $(server_message)" >&2
+      SAVE_FAILURES="$SAVE_FAILURES $SHARED"
+      return 0
+    fi
+    echo "ok: search $SHARED updated, still owned by $USER2"
   else
-    SESSION=$USER2_KEY
-    # shellcheck disable=SC2086
-    save_as "$USER2" "$SHARED" "$spl" dispatch.earliest_time=0 dispatch.latest_time=now $HIDDEN
+    local before=$SAVE_FAILURES
+    save_search "$USER2" "$SHARED" "$spl" dispatch.earliest_time=0 dispatch.latest_time=now
+    if [ "$SAVE_FAILURES" != "$before" ]; then return 0; fi
   fi
-  require_ok "search $SHARED owned by $USER2"
   SESSION=$ADMIN_KEY
   api POST "/servicesNS/$USER2/$APP/saved/searches/$SHARED/acl" sharing=app "owner=$USER2" \
     "perms.read=$ROLE1,$ROLE2,admin" perms.write=admin
-  require_ok "$SHARED shared in the app, dispatchAs=owner"
+  require_ok "$SHARED shared in the app"
+  # shellcheck disable=SC2086
+  api POST "/servicesNS/nobody/$APP/saved/searches/$SHARED" dispatchAs=owner $HIDDEN
+  require_ok "$SHARED set to dispatchAs=owner as admin"
 }
 
 run_setup() {
@@ -361,7 +426,8 @@ run_setup() {
   # Straight after creating the index, as its seed event is its evidence.
   seed_index
 
-  GRANTED=0
+  EXTRA_CAPS=""
+  SAVE_FAILURES=""
   ensure_role "$ROLE1" main
   ensure_role "$ROLE2" "$INDEX"
   ensure_user "$USER1" "$ROLE1"
@@ -370,22 +436,26 @@ run_setup() {
   login "$USER1" "$TEST_PW"; USER1_KEY=$LOGIN_KEY
   login "$USER2" "$TEST_PW"; USER2_KEY=$LOGIN_KEY
 
-  save_private _so_spike_identity \
+  save_search "$USER1" _so_spike_identity \
     'search=| rest /services/authentication/current-context splunk_server=local | fields username roles'
-  save_private _so_spike_secret "search=search index=$INDEX | stats count" \
+  save_search "$USER1" _so_spike_secret "search=search index=$INDEX | stats count" \
     dispatch.earliest_time=0 dispatch.latest_time=now
-  save_private _so_spike_args \
+  save_search "$USER1" _so_spike_args \
     'search=| makeresults | eval v="$args.v$", literal="foo$", other="$unknown$"'
-  save_private _so_spike_now 'search=| makeresults | addinfo | table info_min_time' \
+  save_search "$USER1" _so_spike_now 'search=| makeresults | addinfo | table info_min_time' \
     dispatch.earliest_time=-1d@d
-  save_private _so_spike_loadjob 'search=| loadjob $args.sid$ | stats count'
+  save_search "$USER1" _so_spike_loadjob 'search=| loadjob $args.sid$ | stats count'
   # CPU-bound and bounded: the job-cancel check needs a job still running when
   # it cancels. dispatch.max_time stops it even if the cancel fails.
-  save_private _so_spike_long \
+  save_search "$USER1" _so_spike_long \
     'search=| makeresults count=50000 | eval x=mvrange(0,100) | mvexpand x | eval h=sha512(tostring(random())) | eventstats dc(h) AS d | stats count' \
     dispatch.max_time=120
   save_shared
-  save_private _so_spike_wrapper "search=| savedsearch $SHARED" dispatch.earliest_time=0
+  save_search "$USER1" _so_spike_wrapper "search=| savedsearch $SHARED" dispatch.earliest_time=0
+
+  if [ -n "$SAVE_FAILURES" ]; then
+    die "these searches were not saved:$SAVE_FAILURES. See the FAILED lines above. It's safe to re-run once fixed."
+  fi
 
   if [ "$generated" = 1 ]; then
     echo "The generated test-user password was used and not kept. Re-running sets a new one."
