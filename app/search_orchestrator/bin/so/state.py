@@ -290,7 +290,7 @@ class _Eval:
                 else:
                     self.set(sid, ended_at=self.now)
                     self.failed_attempt(sid, err)
-            elif st.get("state") == "running" and st.get("started_at") is not None:
+            elif st.get("started_at") is not None:  # running or starting
                 limit = self.defs[sid].get("max_runtime")
                 if limit and self.now - int(st["started_at"]) >= limit:
                     self.cancel(sid)
@@ -309,10 +309,14 @@ class _Eval:
         if base is None:
             return False
         elapsed = self.now - int(base) - self.paused_total()
+        # An unhandled failure's deadline counts only once the run is blocked:
+        # it must not cut short a parallel branch that can still progress.
+        blocked = self.run.get("state") == "blocked" or not any(
+            self.steps[s].get("state") in ACTIVE for s in self.order)
         expired = []
         for sid in self.order:
             s = self.steps[sid].get("state")
-            if s in UNFINISHED or (s == "failed" and not self.handled(sid)):
+            if s in UNFINISHED or (blocked and s == "failed" and not self.handled(sid)):
                 if elapsed >= self.defs[sid]["give_up_after"]:
                     expired.append(sid)
         if not expired:

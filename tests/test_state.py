@@ -314,6 +314,47 @@ def test_give_up_ends_blocked_run():
     assert ("job", "on_complete", None) in hooks(eff)
 
 
+def test_unhandled_failure_deadline_waits_for_running_branch():
+    j = job([{"id": "a", "give_up_after": 100}, {"id": "b", "give_up_after": 5000}])
+    r, _ = ev(make_run(j), T0)
+    r = engine_start(r, "b", T0, "sb")
+    r, _ = run_step_to(r, "a", T0, ok=False)
+    r, eff = ev(r, T0 + 100)
+    assert r["state"] == "running" and step(r, "b")["state"] == "running"
+    assert ("cancel_search", "b", "sb") not in eff
+    r = engine_finish(r, "b", T0 + 200)
+    r, _ = ev(r, T0 + 200)
+    assert step(r, "b")["state"] == "succeeded"
+    assert r["state"] == "failed" and r["gave_up"] is True  # blocked, a's deadline applies
+
+
+def test_unhandled_failure_deadline_applies_once_blocked():
+    j = job([{"id": "a", "give_up_after": 100}, {"id": "b", "give_up_after": 5000}])
+    r, _ = ev(make_run(j), T0)
+    r = engine_start(r, "b", T0, "sb")
+    r, _ = run_step_to(r, "a", T0, ok=False)
+    r = engine_finish(r, "b", T0 + 50)
+    r, _ = ev(r, T0 + 50)
+    assert r["state"] == "blocked"
+    r, eff = ev(r, T0 + 99)
+    assert r["state"] == "blocked"
+    r, eff = ev(r, T0 + 100)
+    assert r["state"] == "failed" and r["gave_up"] is True
+    assert ("job", "on_complete", None) in hooks(eff)
+
+
+def test_max_runtime_covers_starting_step():
+    j = job([{"id": "a", "max_runtime": 600}])
+    r, _ = ev(make_run(j), T0)
+    r = copy.deepcopy(r)
+    r["steps"]["a"].update({"state": "starting", "sid": "s1", "started_at": T0})
+    r, eff = ev(r, T0 + 599)
+    assert step(r, "a")["state"] == "starting"
+    r, eff = ev(r, T0 + 600)
+    assert ("cancel_search", "a", "s1") in eff
+    assert step(r, "a")["state"] == "failed" and "max_runtime" in step(r, "a")["error"]
+
+
 def test_pause_stops_starts_not_running_searches():
     j = job(["a", "b"], [("a", "b")])
     r, _ = ev(make_run(j), T0)
