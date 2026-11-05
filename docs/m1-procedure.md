@@ -90,4 +90,43 @@ Each row has `check`, `ok` (0 or 1), `detail` (raw observations as JSON), `sid` 
 
 ## Findings
 
-Pending. Recorded here after the owner has run the procedure.
+The spike ran from build 0.0.4 on Splunk 10.6.1.1, with the engine on Python 3.13.11. Every row was written, and `done` was `ok = 1`.
+
+### Results
+
+| `check` | Result | Observed |
+|---|---|---|
+| `identity` | Pass | `username = so_m1_user`, roles `so_m1_role`, job `acl_owner = so_m1_user` |
+| `secret_control` | Pass | Count 1 |
+| `index_access` | Pass | Count 0 |
+| `args` | Pass | `v` substituted. `literal = "foo$"` and `other = "$unknown$"` unchanged |
+| `scheduled_time` | Pass | With epoch `dispatch.now`, `info_min_time = 1793145600`, which is `-1d@d` of the time sent |
+| `scheduled_time_iso` | Fail | An ISO 8601 `dispatch.now` was ignored: `info_min_time` came from the real current time |
+| `job_status_read`, `job_results_read` | Pass | |
+| `job_touch` | Pass | TTL 600 before and 600 after |
+| `job_setttl` | Pass | TTL 1234 |
+| `job_cancel` | Pass | `PARSING` before the cancel, then 404 |
+| `loadjob` | Pass | Count 1, as `so_m1_user` |
+| `wrapper_mode` | Pass | Count 0, job owned by `so_m1_user` |
+| `workload_pool` | Fail | HTTP 400: `Argument workload_pool is not supported by this handler` |
+| `workload_pool_prefixed` | Fail | `dispatch.workload_pool` was accepted, but the job reports pool `""`. Whether workload management is enabled on the server is unknown |
+| `shared_direct_owner_ns`, `shared_direct_user_ns` | Fail | Job `acl_owner = so_m1_owner2`, but count 0. `so_m1_owner2_role` allows `so_m1_secret`, and `secret_control` found 1 event in the same time range. So a system-session direct dispatch of a shared `dispatchAs = owner` search did **not** run with its owner's index access |
+| `system_dispatch_ad_hoc` | Fail (informational) | Ran as `splunk-system-user` |
+
+Found during setup:
+
+- Restricted users without `schedule_search` can't send `is_scheduled` when saving a search. Splunk returns HTTP 400 `Argument "is_scheduled" is not supported by this handler`.
+- splunkd does not register a modular input whose scheme has no parameters. The input needs at least one declared argument, here `tick_seconds`.
+
+### Conclusions
+
+1. **Gate passed.** Hidden private saved searches owned by the job owner run with the owner's identity and access. The system session dispatches them via `/servicesNS/<owner>/search_orchestrator/saved/searches/<name>/dispatch`.
+2. `dispatch.now` must be sent as epoch seconds.
+3. `workload_pool` is dropped from the first version, as spec §9 provides.
+4. Saved-search steps: direct dispatch is **not** proven for shared searches. So every `saved_search` step uses the hidden `| savedsearch` wrapper owned by the job owner, unless the referenced search is private and owned by the job owner.
+5. Never use the ad hoc `search/jobs` route for user work, since it runs as `splunk-system-user`.
+
+These also bear on later tasks:
+
+- Hidden searches are saved with the user's own session. The REST handler must not send scheduling, alert or action arguments for users without `schedule_search`, and relies on the defaults for no schedule and `dispatchAs = owner`.
+- The engine's scheme must keep at least one parameter.
