@@ -1,0 +1,28 @@
+[]
+access = read : [ * ], write : [ admin ]
+export = none
+
+[views]
+export = system
+
+[collections/so_jobs]
+access = read : [ admin ], write : [ admin ]
+
+[collections/so_runs]
+access = read : [ admin ], write : [ admin ]
+
+[collections/so_step_runs]
+access = read : [ admin ], write : [ admin ]
+
+[collections/so_action_runs]
+access = read : [ admin ], write : [ admin ]
+
+[collections/so_commands]
+access = read : [ admin ], write : [ admin ]
+
+[collections/so_locks]
+access = read : [ admin ], write : [ admin ]
+
+[collections/so_settings]
+access = read : [ admin ], write : [ admin ]
+

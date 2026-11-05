@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "2.0.0",
+  "info": {
+    "title": "Search Orchestrator",
+    "id": {
+      "group": null,
+      "name": "search_orchestrator",
+      "version": "0.0.1"
+    },
+    "author": [{"name": "Search Orchestrator", "email": null, "company": null}],
+    "releaseDate": null,
+    "description": "Orchestrate dependent saved searches as jobs.",
+    "classification": {
+      "intendedAudience": "IT Operations",
+      "categories": ["IT Operations"],
+      "developmentStatus": "Development/Test"
+    },
+    "commonInformationModels": null,
+    "license": {"name": "Proprietary", "text": "LICENSE", "uri": null},
+    "privacyPolicy": {"name": null, "text": null, "uri": null},
+    "releaseNotes": {"name": null, "text": null, "uri": null}
+  },
+  "dependencies": null,
+  "tasks": null,
+  "inputGroups": null,
+  "incompatibleApps": null,
+  "platformRequirements": null,
+  "supportedDeployments": ["_standalone", "_distributed", "_search_head_clustering"],
+  "targetWorkloads": ["_search_heads"]
+}
