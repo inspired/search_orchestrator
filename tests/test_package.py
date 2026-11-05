@@ -39,7 +39,8 @@ def _stanzas(path):
 
 
 def test_all_collections_declared():
-    assert _stanzas(APP / "default" / "collections.conf") == COLLECTIONS
+    # so_spike is the temporary Milestone 1 collection; Task 6 removes it.
+    assert _stanzas(APP / "default" / "collections.conf") == COLLECTIONS + ["so_spike"]
 
 
 def test_every_collection_restricted_in_meta():
