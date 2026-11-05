@@ -71,7 +71,7 @@ A job holds: name, description, owner, enabled flag, triggers, declared paramete
 | `give_up_after` | Duration from the scheduled time. |
 | `max_runtime` | Limit per attempt. Exceeding it cancels the search and counts as a failed attempt. |
 | `retries` | Extra attempts after a search has run and failed, with exponential backoff. |
-| `workload_pool` | Optional. |
+| `workload_pool` | Removed from the first version after Milestone 1: the dispatch endpoint rejected it. |
 | `actions` | Step-level hooks. |
 
 Step fields left empty inherit the job's defaults. Builder-call defaults: `delayed_after` 1 hour, `give_up_after` 24 hours, `max_runtime` 4 hours, `retries` 0.
@@ -189,7 +189,7 @@ Steps run as the job owner, never as a privileged service account **(owner)**.
 - Tokens in the SPL are compiled to `$args.<name>$` so values can be passed at dispatch.
 - The engine dispatches through `/servicesNS/<owner>/search_orchestrator/saved/searches/<name>/dispatch`.
 - Saved-search steps depend on who owns the search **(builder call)**:
-  - **The job owner owns it and it has `dispatchAs = owner`:** dispatched directly, which preserves its configured time range, summary indexing and actions, unless the step overrides the time range.
+  - **The job owner owns it, it is private, and it has `dispatchAs = owner`:** dispatched directly, which preserves its configured time range, summary indexing and actions, unless the step overrides the time range. (Narrowed after Milestone 1: a system-session direct dispatch of a *shared* search did not run with its owner's index access, so shared searches always use the wrapper.)
   - **Anything else:** wrapped in a hidden `| savedsearch` owned by the job owner, so it runs with the job owner's access. Its own summary indexing and actions don't run in this mode, and the builder says so at save time.
 
 **This must be proven first.** Milestone 1 is a small build the owner installs, which verifies on the real server that:
