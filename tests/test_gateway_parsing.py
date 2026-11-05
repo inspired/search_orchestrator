@@ -157,3 +157,46 @@ def test_webhook_refuses_non_https():
     for url in ("http://example.com/x", "file:///etc/passwd", "ftp://h/x", "https:///x"):
         with pytest.raises(g.GatewayError):
             gw.post_webhook(url, {}, "{}")
+
+
+def test_from_session_accepts_loopback_only():
+    for uri in ("https://127.0.0.1:8089", "https://localhost:8089", "https://[::1]:8089"):
+        assert isinstance(g.SplunkGateway.from_session(uri, "key"), g.SplunkGateway)
+    for uri in ("https://splunk.example.com:8089", "https://10.0.0.5:8089", "https://127.0.0.1.evil.com:8089"):
+        with pytest.raises(g.GatewayError):
+            g.SplunkGateway.from_session(uri, "key")
+
+
+def test_webhook_error_does_not_leak_url_secret():
+    with pytest.raises(g.GatewayError) as info:
+        g.check_webhook_url("http://hooks.example.com/services/T0/B0/SECRETTOKEN")
+    assert "SECRETTOKEN" not in str(info.value) and "hooks.example.com" in str(info.value)
+
+
+def test_status_includes_ttl():
+    assert g.parse_job_status(fx("job_running.json"))["ttl"] == 600
+
+
+def _raiser(status):
+    def handler(method, path, kw):
+        raise FakeHTTPError(status)
+    return g.SplunkGateway(StubService(handler))
+
+
+def test_kv_404_on_insert_update_query_raises_kv_error():
+    gw = _raiser(404)
+    with pytest.raises(g.KvError):
+        gw.kv_insert("so_missing", {"_key": "a"})
+    with pytest.raises(g.KvError):
+        gw.kv_query("so_missing")
+    with pytest.raises(g.KvError):
+        gw.kv_batch_save("so_missing", [{"_key": "a"}])
+    assert gw.kv_update("so_runs", "a", {}) is False  # 404 on update means no such key
+    assert gw.kv_get("so_runs", "a") is None
+
+
+def test_kv_409_on_update_raises_kv_error():
+    with pytest.raises(g.KvError):
+        _raiser(409).kv_update("so_runs", "a", {})
+    with pytest.raises(g.KvError):
+        _raiser(409).kv_get("so_runs", "a")

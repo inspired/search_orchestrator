@@ -21,27 +21,26 @@ class Lease:
 
         1. Insert ``_key="engine"``. Exactly one concurrent insert succeeds; the
            others get a duplicate-key error and lose.
-        2. If the document is ours and unexpired, renew it by updating it and
-           re-reading it to confirm it is still ours.
-        3. If someone else holds it unexpired, we lose.
-        4. If it has expired, take over: delete the *exact expired document we
-           saw* (a query on _key, holder and expires), then insert. Two
-           contenders can both see the expiry, but only one insert wins, and
-           the other gets a duplicate-key error. Because the delete is
-           conditional on the observed holder and expiry, a slow contender
-           cannot delete the winner's fresh lease and then insert its own.
+        2. If someone else holds it unexpired, we lose.
+        3. Otherwise (ours, to renew, or expired, to take over) replace the
+           *exact document we saw*: delete it with a query on _key, holder and
+           expires, then insert. Renewal uses the same path as takeover, never
+           an unconditional update: A could read its own unexpired lease, B
+           (with a later clock) could take over, and A's update would then
+           overwrite B's document so both lead. With delete-then-insert the
+           conditional delete is a no-op once B's document replaced ours, and
+           A's insert gets a duplicate-key error, so A knows it lost. Likewise
+           a slow takeover contender cannot delete the winner's fresh lease.
+           The only cost is a brief gap with no document, in which another
+           contender may win; the renewer then simply loses, which is safe.
         """
         if self.gw.kv_insert(COLLECTION, self._doc(holder, now)):
             return True
         current = self.gw.kv_get(COLLECTION, KEY)
         if current is None:  # released between our insert and read
             return self.gw.kv_insert(COLLECTION, self._doc(holder, now))
-        if current.get("expires", 0) > now:
-            if current.get("holder") != holder:
-                return False
-            self.gw.kv_update(COLLECTION, KEY, self._doc(holder, now))
-            again = self.gw.kv_get(COLLECTION, KEY)
-            return bool(again) and again.get("holder") == holder
+        if current.get("expires", 0) > now and current.get("holder") != holder:
+            return False
         self.gw.kv_delete_query(COLLECTION, {"_key": KEY, "holder": current.get("holder"),
                                              "expires": current.get("expires")})
         return self.gw.kv_insert(COLLECTION, self._doc(holder, now))

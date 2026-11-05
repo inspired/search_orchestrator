@@ -10,6 +10,11 @@ Rulings proven on the real server (docs/m1-procedure.md):
   search/jobs route, and no workload_pool.
 * ``upsert_saved_search`` never sends ``is_scheduled`` or ``dispatchAs``:
   restricted users get HTTP 400 for them.
+* TLS policy: calls to the local splunkd management port are loopback, not
+  outbound, and splunkd's default certificate is self-signed, so verification
+  is off for them (``verify=False``). ``SplunkGateway.from_session`` therefore
+  accepts only a loopback host (127.0.0.1, ::1, localhost) and raises
+  otherwise. Outbound webhooks always verify TLS.
 * KV Store: only the documented storage/collections/data REST (insert, update
   by key, query, delete, batch_save). A duplicate ``_key`` insert returns 409.
 """
@@ -25,6 +30,7 @@ from urllib.parse import urlsplit
 
 APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
+LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 WEBHOOK_TIMEOUT = 10
 KV_PAGE = 1000
 _TRUE = (True, 1, "1", "true", "True")
@@ -104,12 +110,16 @@ def parse_job_status(body):
         count = int(c.get("resultCount", 0))
     except (TypeError, ValueError):
         count = 0
+    try:
+        ttl = int(c.get("ttl", 0))
+    except (TypeError, ValueError):
+        ttl = 0
     return {"state": state, "result_count": count, "error": error,
-            "finalized": _truthy(c.get("isFinalized")), "zombie": zombie}
+            "finalized": _truthy(c.get("isFinalized")), "zombie": zombie, "ttl": ttl}
 
 
 MISSING_STATUS = {"state": "missing", "result_count": 0, "error": "search job not found",
-                  "finalized": False, "zombie": False}
+                  "finalized": False, "zombie": False, "ttl": 0}
 
 
 def parse_first_row(body):
@@ -167,9 +177,11 @@ def saved_search_params(search, earliest, latest, description=""):
 
 
 def check_webhook_url(url):
+    """https only. Errors name the scheme and host only: URLs often carry secrets."""
     parts = urlsplit(url)
     if parts.scheme != "https" or not parts.hostname:
-        raise GatewayError("webhook URL must be https: " + url)
+        raise GatewayError("webhook URL must be https with a host (scheme {!r}, host {!r})".format(
+            parts.scheme, parts.hostname or ""))
 
 
 # The Protocol the engine and its tests code against.
@@ -220,9 +232,12 @@ class SplunkGateway:
     def from_session(cls, server_uri, session_key, timeout=60):
         from splunklib import client
         uri = urlsplit(server_uri, allow_fragments=False)
+        if (uri.hostname or "").lower() not in LOOPBACK_HOSTS:
+            raise GatewayError("refusing non-loopback splunkd host {!r}: certificate "
+                               "verification is off for the management port".format(uri.hostname))
         return cls(client.Service(scheme=uri.scheme, host=uri.hostname, port=uri.port,
                                   token=session_key, owner="nobody", app=APP,
-                                  autologin=False, timeout=timeout))
+                                  autologin=False, timeout=timeout, verify=False))
 
     # Plumbing.
 
@@ -238,15 +253,19 @@ class SplunkGateway:
     def _status(err):
         return getattr(err, "status", None)
 
-    def _kv(self, method, path, **params):
-        """KV call returning (status, body). 404 and 409 come back as statuses."""
+    def _kv(self, method, path, expected=(), **params):
+        """KV call returning (status, body).
+
+        ``expected`` lists the error statuses this caller handles (returned as
+        the status with an empty body). Any other failure raises KvError.
+        """
         try:
             return 200, self._call(method, path, **params)
-        except GatewayError:
-            raise
+        except GatewayError as err:
+            raise KvError(str(err), status=err.status, transient=True)
         except Exception as err:
             status = self._status(err)
-            if status in (404, 409):
+            if status in expected:
                 return status, ""
             raise KvError("KV Store error: {}".format(err), status=status,
                           transient=is_transient_status(status))
@@ -346,23 +365,25 @@ class SplunkGateway:
     # KV Store.
 
     def kv_get(self, collection, key):
-        status, body = self._kv("get", "storage/collections/data/{}/{}".format(collection, key))
+        status, body = self._kv("get", "storage/collections/data/{}/{}".format(collection, key),
+                                 expected=(404,))
         return None if status == 404 else json.loads(body)
 
     def kv_insert(self, collection, doc):
         """True if inserted; False if the _key already exists (409)."""
         status, _ = self._kv("post", "storage/collections/data/{}".format(collection),
-                             headers=self._json_headers(), body=json.dumps(doc))
+                             expected=(409,), headers=self._json_headers(), body=json.dumps(doc))
         return status != 409
 
     def kv_update(self, collection, key, doc):
         """True if updated; False if there is no such key (404)."""
         status, _ = self._kv("post", "storage/collections/data/{}/{}".format(collection, key),
-                             headers=self._json_headers(), body=json.dumps(doc))
+                             expected=(404,), headers=self._json_headers(), body=json.dumps(doc))
         return status != 404
 
     def kv_delete(self, collection, key):
-        self._kv("delete", "storage/collections/data/{}/{}".format(collection, key))
+        self._kv("delete", "storage/collections/data/{}/{}".format(collection, key),
+                 expected=(404,))
 
     def kv_delete_query(self, collection, query):
         self._kv("delete", "storage/collections/data/{}".format(collection),

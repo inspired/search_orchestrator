@@ -1,6 +1,7 @@
 """In-memory FakeGateway for engine tests. Mirrors the Gateway Protocol."""
 import copy
 import itertools
+import uuid
 
 from so.gateway import DispatchError, GatewayError, KvError
 
@@ -27,6 +28,7 @@ class FakeGateway:
     def __init__(self):
         self.kv = {}
         self.kv_down = False
+        self.missing_collections = set()
         self.crash_after_dispatch = False
         self.dispatch_log = []
         self.control_log = []
@@ -58,8 +60,10 @@ class FakeGateway:
         if queue:
             transient = queue.pop(0)
             raise DispatchError(transient, "scripted dispatch error", 503 if transient else 400)
-        script = self._scripts.get(name) or {"states": ["done"], "result_count": 1,
-                                             "first": None, "error": None}
+        script = self._scripts.get(name)
+        if script is None and (owner, name) not in self.saved_searches:
+            raise DispatchError(False, "HTTP 404 Not Found: unknown saved search", 404)
+        script = script or {"states": ["done"], "result_count": 1, "first": None, "error": None}
         sid = "fake.{}".format(next(self._sids))
         self.jobs[sid] = dict(script, idx=0)
         self.dispatch_log.append({"sid": sid, "owner": owner, "name": name, "now": now_epoch,
@@ -74,15 +78,15 @@ class FakeGateway:
         job = self.jobs.get(sid)
         if job is None or job.get("cancelled"):
             return {"state": "missing", "result_count": 0, "error": "search job not found",
-                    "finalized": False, "zombie": False}
+                    "finalized": False, "zombie": False, "ttl": 0}
         state = job["states"][min(job["idx"], len(job["states"]) - 1)]
         job["idx"] += 1
         if state == "missing":
             return {"state": "missing", "result_count": 0, "error": "search job not found",
-                    "finalized": False, "zombie": False}
+                    "finalized": False, "zombie": False, "ttl": 0}
         return {"state": state, "result_count": job["result_count"] if state == "done" else 0,
                 "error": job["error"] if state == "failed" else None,
-                "finalized": False, "zombie": False}
+                "finalized": False, "zombie": False, "ttl": 0}
 
     def first_row(self, sid):
         job = self.jobs.get(sid)
@@ -99,11 +103,14 @@ class FakeGateway:
 
     # KV.
 
-    def _check_kv(self):
+    def _check_kv(self, collection=None):
         if self.kv_down:
             raise KvError("KV Store unavailable", status=503, transient=True)
+        if collection in self.missing_collections:
+            raise KvError("HTTP 404 Not Found: no collection " + collection, status=404)
 
     def _coll(self, collection):
+        self._check_kv(collection)
         return self.kv.setdefault(collection, {})
 
     def kv_get(self, collection, key):
@@ -112,7 +119,8 @@ class FakeGateway:
 
     def kv_insert(self, collection, doc):
         self._check_kv()
-        key = doc["_key"]
+        doc = dict(doc)
+        key = doc.setdefault("_key", uuid.uuid4().hex)
         if key in self._coll(collection):
             return False
         self._coll(collection)[key] = copy.deepcopy(doc)
@@ -147,7 +155,9 @@ class FakeGateway:
     def kv_batch_save(self, collection, docs):
         self._check_kv()
         for doc in docs:
-            self._coll(collection)[doc["_key"]] = copy.deepcopy(doc)
+            doc = dict(doc)
+            key = doc.setdefault("_key", uuid.uuid4().hex)
+            self._coll(collection)[key] = copy.deepcopy(doc)
 
     # Saved searches, secrets, webhooks.
 
@@ -166,6 +176,6 @@ class FakeGateway:
 
     def post_webhook(self, url, headers, body):
         if not url.startswith("https://"):
-            raise GatewayError("webhook URL must be https: " + url)
+            raise GatewayError("webhook URL must be https")
         self.webhook_log.append({"url": url, "headers": dict(headers or {}), "body": body})
         return 200
