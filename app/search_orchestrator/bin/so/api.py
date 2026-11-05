@@ -10,6 +10,15 @@ from the gateways it is given. ``deps``:
   Store (``so_*`` collections deny ordinary users) and secrets.
 * ``audit``: an object with ``emit(event)``.
 * ``clock`` (optional): returns epoch seconds.
+* ``secrets`` (optional): session keys the self-test probe scrubs from its output.
+* ``sleep`` (optional): used by the self-test probe while it polls.
+
+``POST selftest`` (admin only, ``| orchestrate selftest``): ``{"scenario":
+"basic"|"rollup_late"|"rollup_fail", "slow_n", "delayed_after",
+"scheduled_time"}`` saves the built-in job (``selftest.py``) as the caller and
+starts a run (``{"job_id", "run_id", ...}``); ``"probe"`` returns
+``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
+``write(event)``, which raises on failure, for the probe's audit check.
 
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
@@ -33,7 +42,7 @@ import time
 import uuid
 from urllib.parse import unquote, urlsplit
 
-from . import authz, hidden, model, scheduler, tokens
+from . import authz, hidden, model, scheduler, selftest, tokens
 from .engine import DEFAULT_SETTINGS
 from .gateway import GatewayError, check_webhook_url
 from .lease import COLLECTION as LOCKS
@@ -89,6 +98,7 @@ def _errors(issues):
 class _Ctx:
     def __init__(self, user, deps):
         self.user = user
+        self.deps = deps
         self.user_gw = deps["user_gateway"]
         self.sys_gw = deps["system_gateway"]
         self.store = Store(self.sys_gw)
@@ -137,6 +147,7 @@ def _routes():
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
         (r"health", {"GET": health}),
         (r"me", {"GET": me}),
+        (r"selftest", {"POST": run_selftest}),
     ]
 
 
@@ -251,6 +262,15 @@ def _job_issues(ctx, job):
     roles = job.get("run_roles")
     if roles is not None and not (isinstance(roles, list) and all(isinstance(r, str) for r in roles)):
         issues.append(_issue("error", "bad_job", "run_roles must be a list of role names"))
+    for t in job.get("triggers") or []:
+        if not isinstance(t, dict) or t.get("type") != "completion":
+            continue
+        if not isinstance(t.get("job"), str) or not JOB_ID_RE.fullmatch(t["job"]):
+            issues.append(_issue("error", "bad_trigger", "a completion trigger needs the id of "
+                                 "the job it follows"))
+        if (t.get("on") or "success") not in ("success", "complete"):
+            issues.append(_issue("error", "bad_trigger", "a completion trigger's \"on\" must be "
+                                 "\"success\" or \"complete\""))
     dests = None
     scoped = [(None, a) for a in job.get("actions") or []]
     for step in job.get("steps") or []:
@@ -849,3 +869,61 @@ def me(ctx, body):
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
                  "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None)}
+
+
+# Self-test.
+
+def _bounded_int(body, key, default, top):
+    value = body.get(key)
+    if value is None or value == "":
+        return default
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        out = int(value)
+    except (TypeError, ValueError):
+        raise ApiError(400, "bad_request", "%s must be a whole number" % key)
+    if not 1 <= out <= top:
+        raise ApiError(400, "bad_request", "%s must be from 1 to %d" % (key, top))
+    return out
+
+
+def _save_selftest_job(ctx, job_id, definition):
+    body = dict(definition, id=job_id)
+    if ctx.store.get_job(job_id) is None:
+        create_job(ctx, body)
+    else:
+        update_job(ctx, body, job_id)
+    return ctx.store.get_job(job_id)
+
+
+def run_selftest(ctx, body):
+    _require_admin(ctx, "run_selftest")
+    scenario = body.get("scenario") or "basic"
+    if scenario == "probe":
+        job = _save_selftest_job(ctx, *selftest.scenario_job("basic"))
+        write = getattr(ctx.audit, "write", None) or ctx.audit.emit
+        checks = selftest.probe(ctx.user, ctx.user_gw, ctx.sys_gw, write, job,
+                                clock=ctx.deps.get("clock") or time.time,
+                                sleep=ctx.deps.get("sleep") or time.sleep,
+                                secrets=ctx.deps.get("secrets") or ())
+        ctx.emit({"type": "selftest", "scenario": scenario,
+                  "failed": [c["check"] for c in checks if not c["ok"]]})
+        return 200, {"scenario": scenario, "checks": checks}
+    slow_n = _bounded_int(body, "slow_n", selftest.DEFAULT_SLOW_N, selftest.SLOW_N_MAX)
+    delayed_after = _bounded_int(body, "delayed_after", selftest.DEFAULT_DELAYED_AFTER,
+                                 selftest.DELAYED_AFTER_MAX)
+    try:
+        job_id, definition = selftest.scenario_job(scenario, slow_n, delayed_after)
+    except ValueError as err:
+        raise ApiError(400, "bad_request", str(err))
+    if body.get("scheduled_time") in (None, ""):
+        scheduled = selftest.default_scheduled_time(scenario, ctx.now)
+    else:
+        scheduled = _scheduled_time(ctx, body)
+    _save_selftest_job(ctx, job_id, definition)
+    _, out = start_run(ctx, {"scheduled_time": scheduled}, job_id)
+    ctx.emit({"type": "selftest", "scenario": scenario, "job_id": job_id,
+              "run_id": out["run_id"]})
+    return 201, {"scenario": scenario, "job_id": job_id, "run_id": out["run_id"],
+                 "scheduled_time": scheduled}

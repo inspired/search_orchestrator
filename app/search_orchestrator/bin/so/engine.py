@@ -39,6 +39,19 @@ Crash safety
   keeps its first ``intent_at`` and checks history before dispatching again.
 * Commands are isolated: one that raises stays queued (``command_retry``)
   and is dropped after 10 failures (``command_failed``).
+* Completion triggers (``{"type": "completion", "job": <upstream job>, "on":
+  "success"|"complete"}`` on the downstream job) fire when an upstream run
+  closes: ``success`` on ``succeeded``; ``complete`` on ``succeeded``,
+  ``failed`` or ``cancelled`` (as the ``on_complete`` hook). The chained run
+  inherits the upstream ``scheduled_time`` and has ``chain_depth`` upstream + 1
+  (refused past ``CHAIN_LIMIT``, audited ``chain_depth_exceeded``), and the
+  upstream run's owner must be allowed to run the target (else
+  ``run_rejected``, reason ``permission``). The deterministic key
+  ``target:upstream_run_id:completion`` makes it fire once per upstream run,
+  across re-runs and restarts: the run is created before the upstream run that
+  closes is saved, and a replay finds it. A re-run with
+  ``restart_downstream_jobs`` adds ``:rerun<rerun_count>`` to the key (and to
+  start_job keys, through the action row), so it starts them once more.
 * Re-runs record ``kept_sids``. A step whose kept upstream results have
   expired fails with "Results of step <id> have expired; re-run from <id>".
 * Long ticks renew the lease every 10 s between steps and stop if another
@@ -62,8 +75,9 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import model, scheduler, tokens
+from . import authz, model, scheduler, tokens
 from . import state as statemod
+from .actions import CHAIN_LIMIT, chain_rerun
 from .gateway import DispatchError, GatewayError, KvError
 from .lease import Lease
 from .store import ACTIVE_RUN_STATES, TERMINAL_RUN_STATES
@@ -83,6 +97,7 @@ PRUNE_BATCH = 200
 LEASE_RENEW_EVERY = 10
 UNKNOWN_LIMIT = 300  # seconds a dispatch's fate may stay unknown before the attempt fails
 COMMAND_ATTEMPTS = 10
+COMPLETION_STATES = {"success": ("succeeded",), "complete": ("succeeded", "failed", "cancelled")}
 
 
 class LeaseLost(Exception):
@@ -183,6 +198,7 @@ class Engine:
         self._estate = None
         self._estate_saved = None
         self._estate_urgent = False
+        self._jobs = {}
 
     # -- the tick -------------------------------------------------------------
 
@@ -219,6 +235,7 @@ class Engine:
         jobs = {}
         for job in self.store.list_jobs():
             jobs[job.get("id") or job.get("_key")] = job
+        self._jobs = jobs
         self._fire_cron(jobs, settings, now)
         self._keep_lease()
         self._commands(jobs, settings, now)
@@ -395,6 +412,7 @@ class Engine:
             return "rejected", str(err), run
         new.update(rerun_count=(run.get("rerun_count") or 0) + 1, rerun_at=now,
                    rerun_by=command.get("user"), closed=False, touched_at=None,
+                   restart_downstream_jobs=command.get("restart_downstream_jobs") is True,
                    kept_sids={sid: st["sid"] for sid, st in new["steps"].items()
                               if st.get("sid") and st.get("state") != "waiting"})
         if definition is not None:
@@ -548,6 +566,7 @@ class Engine:
         ttl_sids = []
         if run.get("state") in TERMINAL_RUN_STATES:
             if not run.get("closed"):
+                self._fire_completions(run, settings, now, pending)
                 run["closed"] = True
                 ttl_sids = [st["sid"] for st in run["steps"].values() if st.get("sid")]
                 if (run["state"] == "failed" and run.get("gave_up")
@@ -583,6 +602,63 @@ class Engine:
         ttl = int(settings["result_retention"])
         for sid in ttl_sids:
             self._control(sid, "setttl", ttl=ttl)
+
+    def _completion_targets(self, run):
+        state = run.get("state")
+        out = []
+        for job_id, job in sorted(self._jobs.items()):
+            if job.get("enabled") is False:
+                continue
+            for t in job.get("triggers") or []:
+                if (isinstance(t, dict) and t.get("type") == "completion"
+                        and t.get("enabled") is not False and t.get("job") == run.get("job_id")
+                        and state in COMPLETION_STATES.get(t.get("on") or "success", ())):
+                    out.append((job_id, job))
+                    break
+        return out
+
+    def _fire_completions(self, run, settings, now, pending):
+        """Create the runs of jobs with a completion trigger on this run's job. Runs
+        before the closing save, so a replayed tick finds the runs already made."""
+        targets = self._completion_targets(run)
+        if not targets:
+            return
+        upstream = _run_id(run)
+        rerun = chain_rerun(run)
+        depth = int(run.get("chain_depth") or 0) + 1
+        owner = run.get("owner")
+        access = None
+        for job_id, job in targets:
+            key = scheduler.run_key(job_id, "completion", run["scheduled_time"], upstream, rerun)
+            if self.store.get_run(key) is not None:
+                continue  # already fired for this upstream run
+            if depth > CHAIN_LIMIT:
+                pending.events.append(self._event(
+                    run, "chain_depth_exceeded", now, target_job=job_id, limit=CHAIN_LIMIT,
+                    trigger="completion", error="Job chain depth limit (%d) reached" % CHAIN_LIMIT))
+                continue
+            if access is None:
+                access = self.gw.user_access(owner) if owner else {"roles": [],
+                                                                   "capabilities": []}
+            if not authz.can_run(owner, job, access["roles"], access["capabilities"]):
+                pending.events.append(self._event(
+                    run, "run_rejected", now, reason="permission", target_job=job_id,
+                    trigger="completion", error="owner %r may not run job %r" % (owner, job_id)))
+                continue
+            try:
+                created = scheduler.create_run(
+                    self.store, job, "completion", run["scheduled_time"], {}, upstream=upstream,
+                    now=now, audit=self.audit, actions=self.actions,
+                    queue_cap=settings["queue_cap"], chain_depth=depth, rerun=rerun)
+            except tokens.TokenError as err:
+                pending.events.append(self._event(
+                    run, "run_rejected", now, reason="invalid_params", target_job=job_id,
+                    trigger="completion", error=str(err)))
+                continue
+            if created:
+                pending.events.append(self._event(run, "completion_fired", now,
+                                                  target_job=job_id, target_run_id=created,
+                                                  outcome=run.get("state")))
 
     def _save(self, run, pending):
         self.store.save_run(run)

@@ -17,6 +17,12 @@ Rulings proven on the real server (docs/m1-procedure.md):
   otherwise. Outbound webhooks always verify TLS.
 * KV Store: only the documented storage/collections/data REST (insert, update
   by key, query, delete, batch_save). A duplicate ``_key`` insert returns 409.
+* ``orchestrator_api`` calls this app's own REST endpoint
+  (``/services/orchestrator/...``) with the gateway's session. ``| orchestrate``
+  and the alert action use it with the caller's session: neither has a system
+  session, and the endpoint's handler (``passSystemAuth``) needs one for KV
+  Store. ``search_oneshot`` is a read-only search in the given user's namespace
+  (the self-test reads its audit event back with it).
 """
 import json
 import re
@@ -247,6 +253,10 @@ class Gateway(Protocol):
     def write_secret(self, name: str, value: str) -> None: ...
     def delete_secret(self, name: str) -> None: ...
     def post_webhook(self, url: str, headers: Dict[str, str], body: str) -> int: ...
+    def orchestrator_api(self, method: str, path: str,
+                         body: Optional[Dict[str, Any]] = None) -> Any: ...
+    def search_oneshot(self, owner: str, query: str, earliest: str = "-1h",
+                       latest: str = "+1h", count: int = 10) -> List[Dict[str, Any]]: ...
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -501,6 +511,51 @@ class SplunkGateway:
         for i in range(0, len(docs), 500):
             self._kv("post", "storage/collections/data/{}/batch_save".format(collection),
                      headers=self._json_headers(), body=json.dumps(docs[i:i + 500]))
+
+    # This app's REST endpoint and read-only searches.
+
+    def orchestrator_api(self, method, path, body=None):
+        """``(status, payload)`` from ``/services/orchestrator/<path>``. GET and DELETE send
+        ``body`` as query parameters, POST and PUT as a JSON body. An HTTP error status
+        is returned, not raised; a connection error raises GatewayError."""
+        method = (method or "GET").upper()
+        full = "/services/orchestrator/" + path.lstrip("/")
+        try:
+            if method in ("GET", "DELETE"):
+                params = {k: v for k, v in (body or {}).items() if v is not None}
+                func = self.service.get if method == "GET" else self.service.delete
+                response = func(full, output_mode="json", **params)
+            else:
+                response = self.service.post(full, headers=self._json_headers(),
+                                             body=json.dumps(body or {}))
+            status, text = getattr(response, "status", 200), response.body.read()
+        except (socket.error, ssl.SSLError) as err:
+            raise GatewayError("connection error: {}".format(err), transient=True)
+        except Exception as err:
+            status = self._status(err)
+            if status is None:
+                raise
+            text = getattr(err, "body", b"") or b""
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", "replace")
+        try:
+            payload = json.loads(text) if text else {}
+        except ValueError:
+            payload = {"error": {"code": "bad_response", "issues": [],
+                                 "message": "HTTP {}: {}".format(status, text[:200])}}
+        return status, payload
+
+    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
+        """Result rows of a blocking read-only search run as ``owner`` in this app."""
+        try:
+            body = self._call("post", "search/jobs/oneshot", owner, search=query,
+                              earliest_time=earliest, latest_time=latest, count=count)
+        except GatewayError:
+            raise
+        except Exception as err:
+            raise GatewayError("search failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return json.loads(body).get("results") or [] if body else []
 
     # Secrets (storage/passwords).
 

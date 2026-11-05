@@ -44,6 +44,9 @@ class FakeGateway:
         self.removed_users = set()  # owners whose accounts no longer exist
         self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
         self.indexes = {"orchestrator"}
+        self.api_handler = None  # (method, path, body) -> (status, payload)
+        self.search_handler = None  # (owner, query) -> rows
+        self.search_log = []
 
     # Scripting.
 
@@ -97,7 +100,7 @@ class FakeGateway:
             state = "done"
         return {"state": state, "result_count": job["result_count"] if state == "done" else 0,
                 "error": job["error"] if state == "failed" else None,
-                "finalized": finalized, "zombie": False, "ttl": 0}
+                "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0)}
 
     def first_row(self, sid):
         job = self.jobs.get(sid)
@@ -107,6 +110,8 @@ class FakeGateway:
         self.control_log.append((sid, action, kw))
         if action == "cancel" and sid in self.jobs:
             self.jobs[sid]["cancelled"] = True
+        if action == "setttl" and sid in self.jobs:
+            self.jobs[sid]["ttl"] = int(kw.get("ttl") or 0)
 
     def user_exists(self, name):
         return name not in self.removed_users
@@ -215,6 +220,16 @@ class FakeGateway:
 
     def delete_secret(self, name):
         self.secrets.pop(name, None)
+
+    def orchestrator_api(self, method, path, body=None):
+        if self.api_handler is None:
+            raise GatewayError("no REST endpoint in this fake", status=None, transient=True)
+        return self.api_handler(method, path, body)
+
+    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
+        self.search_log.append((owner, query, earliest, latest))
+        rows = self.search_handler(owner, query) if self.search_handler else []
+        return copy.deepcopy(rows[:count])
 
     def post_webhook(self, url, headers, body):
         if not url.startswith("https://"):

@@ -14,7 +14,9 @@
 ``create_run`` inserts a queued run with a deterministic key, so a restart can
 never create one slot or one chained trigger twice: ``job:scheduled_time`` for
 cron, ``job:upstream_run_id:trigger`` for chained runs, and a random suffix
-otherwise. It snapshots the job definition (spec section 4) and enforces the
+otherwise. A re-run with "start downstream jobs again" ticked deliberately
+starts them once more: its chained keys add ``:rerun<rerun_count>``, which is
+still deterministic, so a restart cannot create that run twice either. It snapshots the job definition (spec section 4) and enforces the
 per-job queue cap: a rejected run is audited and reported through the job's
 ``on_failure`` actions.
 """
@@ -89,9 +91,11 @@ def is_catchup(slot, now):
     return int(now) - int(slot) > ONTIME_GRACE
 
 
-def run_key(job_id, trigger, scheduled_time, upstream=None):
+def run_key(job_id, trigger, scheduled_time, upstream=None, rerun=None):
+    """``rerun`` (a re-run count, chained runs only) restarts downstream jobs."""
     if upstream:
-        return "%s:%s:%s" % (job_id, upstream, trigger)
+        key = "%s:%s:%s" % (job_id, upstream, trigger)
+        return key + (":rerun%d" % int(rerun) if rerun else "")
     if trigger == "cron":
         return "%s:%d" % (job_id, int(scheduled_time))
     return "%s:%s:%s" % (job_id, trigger, uuid.uuid4().hex[:16])
@@ -111,12 +115,13 @@ def snapshot(job):
 
 
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
-               catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0):
+               catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0,
+               rerun=None):
     """Insert a queued run and return its ID, or None if it already exists or the
     job's queue is full. Raises tokens.TokenError for invalid parameters."""
     now = int(time.time() if now is None else now)
     job_id = job.get("id") or job.get("_key")
-    key = run_key(job_id, trigger, scheduled_time, upstream)
+    key = run_key(job_id, trigger, scheduled_time, upstream, rerun)
     if store.get_run(key) is not None:
         return None
     clean = validate_params(job, params)

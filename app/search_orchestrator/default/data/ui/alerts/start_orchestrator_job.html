@@ -1,0 +1,25 @@
+<form class="form-horizontal form-complex">
+    <div class="control-group">
+        <label class="control-label" for="start_orchestrator_job_job">Job</label>
+        <div class="controls">
+            <splunk-search-dropdown id="start_orchestrator_job_job" name="action.start_orchestrator_job.param.job"
+                search="| orchestrate jobs" value-field="job" label-field="name"
+                earliest="-1m" latest="now"></splunk-search-dropdown>
+            <span class="help-block">The job to start. The list shows the jobs you may run. The alert's owner must be allowed to run it.</span>
+        </div>
+    </div>
+    <div class="control-group">
+        <label class="control-label" for="start_orchestrator_job_params">Parameters</label>
+        <div class="controls">
+            <textarea id="start_orchestrator_job_params" name="action.start_orchestrator_job.param.params" rows="3"></textarea>
+            <span class="help-block">Optional. One name=value per line, for example region=eu. Tokens such as $result.host$ are filled in.</span>
+        </div>
+    </div>
+    <div class="control-group">
+        <label class="control-label" for="start_orchestrator_job_scheduled_time">Scheduled time</label>
+        <div class="controls">
+            <input type="text" id="start_orchestrator_job_scheduled_time" name="action.start_orchestrator_job.param.scheduled_time"/>
+            <span class="help-block">Optional. Epoch seconds, for example $trigger_time$. Leave empty to use the time the alert fires.</span>
+        </div>
+    </div>
+</form>

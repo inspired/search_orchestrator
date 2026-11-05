@@ -47,7 +47,7 @@ retries sends it too. The key is ``run_id:fallback:hook:occurrence``, so one
 event sends at most one fallback.
 
 Rows snapshot everything they need (action definitions, owner, scheduled time,
-ctx, chain depth) at submit, so ``pump`` never re-reads the run (a queue-cap
+ctx, chain depth, ``chain_rerun``) at submit, so ``pump`` never re-reads the run (a queue-cap
 rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease``
 between rows and starts no new action after ``PUMP_BUDGET`` seconds.
 Fallback rows have ``kind="fallback"`` and ``scope="fallback"``. Content is only job,
@@ -103,6 +103,14 @@ def indexed_actions(definition):
         for action in step.get("actions") or []:
             out.append((len(out), "step", step.get("id"), action))
     return out
+
+
+def chain_rerun(run):
+    """The re-run count that start_job and completion keys carry when the run is a re-run
+    with "start downstream jobs again" ticked (``restart_downstream_jobs``), else None."""
+    if run.get("restart_downstream_jobs") and run.get("rerun_count"):
+        return int(run["rerun_count"])
+    return None
 
 
 def _entry(index, action):
@@ -175,6 +183,7 @@ class ActionRunner:
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),
                "scope": scope, "hook": hook, "step_id": step_id, "occurrence": occurrence,
                "ctx": ctx, "chain_depth": int(run.get("chain_depth") or 0),
+               "chain_rerun": chain_rerun(run),
                "actions": [_entry(i, a) for i, a in matching],
                "state": "pending" if matching else "done", "attempts": 0, "error": None,
                "fallback": False, "created_at": int(self.clock())}
@@ -459,10 +468,12 @@ class ActionRunner:
                         "job_id": row["job_id"], "target_job": target_id, "limit": CHAIN_LIMIT},
                        now)
             raise _Fail("Job chain depth limit (%d) reached" % CHAIN_LIMIT)
-        key = scheduler.run_key(target_id, "start_job", row.get("scheduled_time"), row["run_id"])
+        rerun = row.get("chain_rerun")
+        key = scheduler.run_key(target_id, "start_job", row.get("scheduled_time"), row["run_id"],
+                                rerun)
         created = scheduler.create_run(self.store, target, "start_job", row.get("scheduled_time"),
                                        action.get("params") or {}, upstream=row["run_id"],
-                                       now=now, audit=self.audit, chain_depth=depth)
+                                       now=now, audit=self.audit, chain_depth=depth, rerun=rerun)
         if created is None and self.store.get_run(key) is None:
             raise _Fail("run of job %r was not created (queue is full)" % target_id)
         self._done(row, entry, now, target_job=target_id, target_run_id=key)

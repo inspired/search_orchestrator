@@ -37,21 +37,26 @@ log = logging.getLogger("so.rest")
 
 
 class RestAudit:
-    """Writes audit events with the system session. Never raises."""
+    """Writes audit events with the system session. ``emit`` never raises; ``write``
+    raises on failure (the self-test probe checks the write)."""
 
     def __init__(self, gateway, index=AUDIT_INDEX):
         self.gw = gateway
         self.index = index
 
-    def emit(self, event):
+    def write(self, event):
         doc = dict(event)
         doc["_time"] = int(doc.get("_time") if doc.get("_time") is not None else time.time())
+        self.gw.service.post("receivers/simple", index=self.index, sourcetype=SOURCETYPE,
+                             source=AUDIT_SOURCE,
+                             body=json.dumps(doc, sort_keys=True, default=str))
+        return doc
+
+    def emit(self, event):
         try:
-            self.gw.service.post("receivers/simple", index=self.index, sourcetype=SOURCETYPE,
-                                 source=AUDIT_SOURCE,
-                                 body=json.dumps(doc, sort_keys=True, default=str))
+            self.write(event)
         except Exception as err:
-            log.error("audit event lost (%s): %s", err, doc.get("type"))
+            log.error("audit event lost (%s): %s", type(err).__name__, event.get("type"))
 
 
 def _pairs(value):
@@ -100,7 +105,7 @@ def respond(request, build=SplunkGateway.from_session, audit_factory=RestAudit):
     try:
         system_gw = build(uri, system_token)
         deps = {"user_gateway": build(uri, user_token), "system_gateway": system_gw,
-                "audit": audit_factory(system_gw)}
+                "audit": audit_factory(system_gw), "secrets": [user_token, system_token]}
         status, payload = api.handle(user, request.get("method"), request.get("rest_path") or "",
                                      body, deps)
     except Exception as err:  # never leak a traceback to the caller

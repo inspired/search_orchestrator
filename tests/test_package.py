@@ -23,7 +23,10 @@ def test_package_contains_required_files():
                 "default/props.conf", "default/inputs.conf", "README/inputs.conf.spec",
                 "metadata/default.meta", "bin/orchestrator_engine.py",
                 "default/restmap.conf", "default/web.conf", "default/savedsearches.conf",
-                "bin/orchestrator_rest.py",
+                "bin/orchestrator_rest.py", "bin/orchestrate.py", "bin/start_orchestrator_job.py",
+                "bin/so/selftest.py", "default/commands.conf", "default/searchbnf.conf",
+                "default/alert_actions.conf", "README/alert_actions.conf.spec",
+                "default/data/ui/alerts/start_orchestrator_job.html", "lookups/so_selftest.csv",
                 "lib/splunklib/__init__.py"]:
         assert "search_orchestrator/" + rel in names, rel
     assert all(n.split("/")[0] == "search_orchestrator" for n in names)
