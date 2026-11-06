@@ -212,3 +212,26 @@ def test_apply_records_names_before_upserts():
                  record=lambda tracked: seen.append((list(tracked), dict(gw.saved_searches))))
     tracked, existing = seen[0]
     assert {e["name"] for e in tracked} == {s["name"] for s in searches} and existing == {}
+
+
+def test_saved_search_outside_app_context_is_clear_error():
+    # Final review I4: a search in another app that is not shared globally can't be
+    # dispatched or wrapped from the Search Orchestrator app context.
+    gw = FakeGateway()
+    gw.upsert_saved_search("alice", "nightly", "index=a", "-1d@d", "@d")
+    gw.saved_searches[("alice", "nightly")]["app"] = "search"
+    gw.upsert_saved_search("bob", "shared_in_search", "index=b", "-1h", "now")
+    gw.saved_searches[("bob", "shared_in_search")].update(app="search", sharing="app")
+    gw.upsert_saved_search("bob", "global_one", "index=c", "-1h", "now")
+    gw.saved_searches[("bob", "global_one")].update(app="search", sharing="global")
+    j = job(steps=[{"id": "n", "type": "saved_search", "saved_search_ref": "nightly"},
+                   {"id": "s", "type": "saved_search", "saved_search_ref": "shared_in_search"},
+                   {"id": "g", "type": "saved_search", "saved_search_ref": "global_one"}])
+    planned, searches, issues = hidden.plan(gw, j)
+    errors = {i["step"]: i for i in issues if i["level"] == "error"}
+    assert sorted(errors) == ["n", "s"]
+    assert errors["n"]["code"] == "saved_search_not_visible"
+    assert errors["n"]["message"] == ("Saved search 'nightly' must be shared globally or saved in "
+                                      "the Search Orchestrator app to be used as a step.")
+    assert errors["s"]["message"].startswith("Saved search 'shared_in_search' must be shared")
+    assert planned["steps"][2]["mode"] == "wrapped"

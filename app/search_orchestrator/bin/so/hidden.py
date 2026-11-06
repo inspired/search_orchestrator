@@ -20,7 +20,9 @@ Step searches (``steps[i]``, written into the job definition):
   deleted by the app). Otherwise ``mode = "wrapped"``: a hidden
   ``| savedsearch "<ref>"`` owned by the job owner, with a warning that the
   search's own summary indexing and actions won't run. A search the user
-  cannot read is an ``unknown_saved_search`` error.
+  cannot read is an ``unknown_saved_search`` error. The lookup spans all apps;
+  a search this app's context can't see (not saved in this app and not
+  shared globally) is a ``saved_search_not_visible`` error.
 
 Action searches
 ---------------
@@ -133,6 +135,11 @@ def _action_issues(action, step):
     return out
 
 
+def not_visible_message(ref):
+    return ("Saved search '%s' must be shared globally or saved in the Search Orchestrator "
+            "app to be used as a step." % ref)
+
+
 def _wrapped_warning(ref, owner, step):
     return _issue("warning", "saved_search_wrapped",
                   "Saved search %r is not a private search of %s with dispatchAs = owner, so it "
@@ -162,6 +169,10 @@ def plan(gw, job):
             if not info.get("exists"):
                 issues.append(_issue("error", "unknown_saved_search", "saved search %r was not "
                                      "found, or %s cannot read it" % (ref, owner), sid))
+                continue
+            if not info.get("visible", True):
+                issues.append(_issue("error", "saved_search_not_visible",
+                                     not_visible_message(ref), sid))
                 continue
             if (info.get("owner") == owner and info.get("sharing") == "user"
                     and info.get("dispatch_as") == "owner"):

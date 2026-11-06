@@ -834,3 +834,88 @@ def test_job_list_next_run_none_without_cron_or_when_disabled(w):
                            triggers=[{"type": "cron", "cron": "0 2 * * *"}]))
     jobs = {j["id"]: j for j in w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"]}
     assert jobs["nightly"]["next_run"] is None
+
+
+# Final review I1: a reused job id must not expose the old owner's runs.
+
+def test_reused_job_id_refused_while_runs_retained(w):
+    saved(w)
+    run_id = start(w)
+    fail_run(w, run_id)
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    assert w.call("bob", "GET", "/orchestrator/runs/" + run_id)[0] == 404
+    status, out = w.call("bob", "POST", "/orchestrator/jobs", job_body(run_roles=[]))
+    assert status == 409 and error(out) == "job_id_in_use"
+    assert out["error"]["message"] == ("Runs of a deleted job with this id are still retained; "
+                                       "choose another id")
+    assert w.store.get_job("daily") is None
+    assert w.call("bob", "GET", "/orchestrator/runs/" + run_id)[0] == 404
+    assert w.call("bob", "GET", "/orchestrator/runs")[1]["runs"] == []
+    status, _ = w.call("bob", "POST", "/orchestrator/runs/%s/rerun" % run_id,
+                       {"step": "b", "definition": "original"})
+    assert status == 404
+    # The snapshot's owner, its run_roles members and admins still see the run.
+    for user in ("alice", "carol", "root"):
+        assert w.call(user, "GET", "/orchestrator/runs/" + run_id)[0] == 200
+        assert [r["id"] for r in w.call(user, "GET", "/orchestrator/runs")[1]["runs"]] == [run_id]
+
+
+def test_generated_job_id_skips_ids_with_retained_runs(w):
+    saved(w, body=job_body(None, name="Daily"))
+    run_id = start(w)
+    fail_run(w, run_id)
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    status, out = w.call("bob", "POST", "/orchestrator/jobs", job_body(None, name="Daily"))
+    assert status == 201 and out["job"]["id"].startswith("daily_")
+
+
+def test_missing_job_run_visibility_uses_snapshot_owner_and_roles_only(w):
+    saved(w)
+    run_id = start(w)
+    fail_run(w, run_id)
+    run = w.store.get_run(run_id)
+    run["definition"]["owner"] = "bob"  # a stray field in the snapshot is never trusted
+    w.store.save_run(run)
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    assert w.call("bob", "GET", "/orchestrator/runs/" + run_id)[0] == 404
+    assert w.call("dave", "GET", "/orchestrator/runs/" + run_id)[0] == 404
+
+
+# Final review I3: GET runs pushes filters, sort, limit and a projection into KV.
+
+def test_list_runs_pushes_query_limit_and_projection_into_kv(w):
+    saved(w)
+    ids = []
+    for i in range(5):
+        w.now = T0 + i
+        ids.append(start(w, body={"params": {}, "scheduled_time": T0 + i}))
+    calls = []
+    real = w.gw.kv_query
+
+    def spy(collection, query=None, sort=None, limit=0, skip=0, fields=None):
+        calls.append((collection, query, sort, limit, skip, fields))
+        return real(collection, query, sort=sort, limit=limit, skip=skip, fields=fields)
+    w.gw.kv_query = spy
+    status, out = w.call("root", "GET", "/orchestrator/runs",
+                         {"job_id": "daily", "state": "queued", "limit": "2"})
+    assert status == 200
+    run_calls = [c for c in calls if c[0] == RUNS]
+    assert run_calls == [(RUNS, {"job_id": "daily", "state": "queued"}, "created_at:-1", 2, 0,
+                          "definition:0")]
+    assert len(out["runs"]) == 2 and all("definition" not in r for r in out["runs"])
+    calls.clear()
+    status, out = w.call("carol", "GET", "/orchestrator/runs", {"limit": "3"})
+    run_calls = [c for c in calls if c[0] == RUNS]
+    assert len(run_calls) == 1 and run_calls[0][3] == 3 and run_calls[0][5] == "definition:0"
+    assert len(out["runs"]) == 3
+    calls.clear()
+    assert w.call("bob", "GET", "/orchestrator/runs")[1]["runs"] == []
+
+
+def test_list_runs_newest_first(w):
+    saved(w)
+    first = start(w)
+    w.now += 10
+    second = start(w)
+    out = w.call("alice", "GET", "/orchestrator/runs")[1]
+    assert [r["id"] for r in out["runs"]] == [second, first]

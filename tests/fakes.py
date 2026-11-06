@@ -6,8 +6,25 @@ import uuid
 from so.gateway import DispatchError, GatewayError, KvError
 
 
+def _project(doc, fields):
+    """KV ``fields``: ``a,b`` or ``a:1,b:1`` keeps only those (and _key); ``a:0`` drops them."""
+    specs = [f.partition(":") for f in fields.split(",") if f]
+    if all(v == "0" for _, _, v in specs):
+        return {k: v for k, v in doc.items() if k not in {f for f, _, _ in specs}}
+    keep = {f for f, _, _ in specs} | {"_key"}
+    return {k: v for k, v in doc.items() if k in keep}
+
+
 def _match(doc, query):
     for field, cond in (query or {}).items():
+        if field == "$or":
+            if not any(_match(doc, q) for q in cond):
+                return False
+            continue
+        if field == "$and":
+            if not all(_match(doc, q) for q in cond):
+                return False
+            continue
         value = doc.get(field)
         if isinstance(cond, dict):
             for op, arg in cond.items():
@@ -16,7 +33,8 @@ def _match(doc, query):
                       "$gt": lambda: value is not None and value > arg,
                       "$gte": lambda: value is not None and value >= arg,
                       "$ne": lambda: value != arg,
-                      "$in": lambda: value in arg}[op]()
+                      "$in": lambda: value in arg,
+                      "$nin": lambda: value not in arg}[op]()
                 if not ok:
                     return False
         elif value != cond:
@@ -167,14 +185,16 @@ class FakeGateway:
         for key in [k for k, d in coll.items() if _match(d, query)]:
             del coll[key]
 
-    def kv_query(self, collection, query=None, sort=None, limit=0):
+    def kv_query(self, collection, query=None, sort=None, limit=0, skip=0, fields=None):
         self._check_kv()
         rows = [copy.deepcopy(d) for d in self._coll(collection).values() if _match(d, query)]
         if sort:
             field, _, direction = sort.partition(":")
             rows.sort(key=lambda d: (d.get(field) is None, d.get(field)),
                       reverse=direction == "-1")
-        return rows[:limit] if limit else rows
+        rows = rows[skip:]
+        rows = rows[:limit] if limit else rows
+        return [_project(r, fields) for r in rows] if fields else rows
 
     def kv_batch_save(self, collection, docs):
         self._check_kv()
@@ -193,21 +213,26 @@ class FakeGateway:
         self.saved_searches.pop((owner, name), None)
 
     def saved_search_info(self, owner, name):
-        """A saved search entry may carry ``sharing`` (default "user", private) and
-        ``dispatch_as`` (default "owner"). Another owner's search is visible only if shared."""
-        found = None
-        if (owner, name) in self.saved_searches:
-            found = (owner, self.saved_searches[(owner, name)])
-        else:
-            for (o, n), entry in sorted(self.saved_searches.items()):
-                if n == name and entry.get("sharing", "user") in ("app", "global"):
-                    found = (o, entry)
-                    break
-        if found is None:
-            return {"exists": False, "owner": None, "sharing": None, "dispatch_as": None}
-        o, entry = found
+        """A saved search entry may carry ``sharing`` (default "user", private),
+        ``dispatch_as`` (default "owner") and ``app`` (default "search_orchestrator").
+        Looked up across all apps, like the real gateway: the owner's own searches and
+        others' shared ones; a search visible from this app's context is preferred."""
+        found = []
+        for (o, n), entry in sorted(self.saved_searches.items()):
+            if n == name and (o == owner or entry.get("sharing", "user") in ("app", "global")):
+                found.append((o, entry))
+        if not found:
+            return {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
+                    "app": None, "visible": False}
+
+        def visible(entry):
+            return (entry.get("app", "search_orchestrator") == "search_orchestrator"
+                    or entry.get("sharing", "user") == "global")
+        found.sort(key=lambda f: (not visible(f[1]), f[0] != owner))
+        o, entry = found[0]
         return {"exists": True, "owner": o, "sharing": entry.get("sharing", "user"),
-                "dispatch_as": entry.get("dispatch_as", "owner")}
+                "dispatch_as": entry.get("dispatch_as", "owner"),
+                "app": entry.get("app", "search_orchestrator"), "visible": visible(entry)}
 
     def index_exists(self, name):
         return name in self.indexes

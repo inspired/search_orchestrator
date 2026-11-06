@@ -188,16 +188,29 @@ def parse_user_access(body):
     return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or [])}
 
 
-MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None}
+MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
+                        "app": None, "visible": False}
+
+
+def _visible_from_app(acl):
+    """Can ``| savedsearch`` and dispatch in this app's context see the search?"""
+    return acl.get("app") == APP or acl.get("sharing") in ("global", "system")
 
 
 def parse_saved_search_info(body):
-    """Saved search JSON -> ``{"exists", "owner", "sharing", "dispatch_as"}``."""
-    entry = json.loads(body)["entry"][0]
+    """Saved search JSON (looked up with a wildcard app, so several apps may hold the
+    name) -> ``{"exists", "owner", "sharing", "dispatch_as", "app", "visible"}``.
+    ``visible``: the search can be seen from this app's context. An entry that is
+    visible is preferred."""
+    entries = json.loads(body).get("entry") or []
+    if not entries:
+        return dict(MISSING_SAVED_SEARCH)
+    entry = next((e for e in entries if _visible_from_app(e.get("acl") or {})), entries[0])
     acl = entry.get("acl") or {}
     content = entry.get("content") or {}
     return {"exists": True, "owner": acl.get("owner"), "sharing": acl.get("sharing"),
-            "dispatch_as": content.get("dispatchAs")}
+            "dispatch_as": content.get("dispatchAs"), "app": acl.get("app"),
+            "visible": _visible_from_app(acl)}
 
 
 def encoded_path(*parts):
@@ -242,7 +255,8 @@ class Gateway(Protocol):
     def kv_delete(self, collection: str, key: str) -> None: ...
     def kv_delete_query(self, collection: str, query: Dict[str, Any]) -> None: ...
     def kv_query(self, collection: str, query: Optional[Dict[str, Any]] = None,
-                 sort: Optional[str] = None, limit: int = 0) -> List[Dict[str, Any]]: ...
+                 sort: Optional[str] = None, limit: int = 0, skip: int = 0,
+                 fields: Optional[str] = None) -> List[Dict[str, Any]]: ...
     def kv_batch_save(self, collection: str, docs: List[Dict[str, Any]]) -> None: ...
     def upsert_saved_search(self, owner: str, name: str, search: str, earliest: str,
                             latest: str, description: str = "") -> None: ...
@@ -438,10 +452,12 @@ class SplunkGateway:
                 raise GatewayError("saved search delete failed: {}".format(err), self._status(err))
 
     def saved_search_info(self, owner, name):
-        """How ``name`` looks from ``owner``'s namespace in this app (spec section 9's
-        two-mode rule). ``exists`` is False if it is missing or the session cannot read it."""
+        """How ``name`` looks from ``owner``'s namespace (spec section 9's two-mode rule),
+        looked up across all apps (``/servicesNS/<owner>/-/``). ``exists`` is False if it is
+        missing or the session cannot read it; ``visible`` says whether this app's
+        context (dispatch and ``| savedsearch``) can see it."""
         try:
-            body = self._call("get", encoded_path("saved/searches", name), owner)
+            body = self._call("get", encoded_path("saved/searches", name), owner, "-")
         except GatewayError:
             raise
         except Exception as err:
@@ -490,9 +506,10 @@ class SplunkGateway:
         self._kv("delete", "storage/collections/data/{}".format(collection),
                  query=json.dumps(query))
 
-    def kv_query(self, collection, query=None, sort=None, limit=0):
-        """All matching documents (paged), at most ``limit`` if limit > 0."""
-        out, skip = [], 0
+    def kv_query(self, collection, query=None, sort=None, limit=0, skip=0, fields=None):
+        """All matching documents (paged), at most ``limit`` if limit > 0, after skipping
+        ``skip``. ``fields`` is the KV projection (``definition:0`` drops a field)."""
+        out = []
         while True:
             page = KV_PAGE if not limit else min(KV_PAGE, limit - len(out))
             params = {"limit": page, "skip": skip}
@@ -500,6 +517,8 @@ class SplunkGateway:
                 params["query"] = json.dumps(query)
             if sort:
                 params["sort"] = sort
+            if fields:
+                params["fields"] = fields
             _, body = self._kv("get", "storage/collections/data/{}".format(collection), **params)
             rows = json.loads(body)
             out.extend(rows)

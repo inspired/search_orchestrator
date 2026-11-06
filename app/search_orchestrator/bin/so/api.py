@@ -58,6 +58,7 @@ DESTINATIONS_KEY = "destinations"
 ACTION_RUNS = "so_action_runs"
 AUDIT_INDEX = "orchestrator"
 RERUNNABLE = ("blocked", "failed", "cancelled")
+LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
 HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed")
 PRESETS = ("slack", "generic")
@@ -271,9 +272,15 @@ def _new_id(ctx, body):
     slug = re.sub(r"[^a-z0-9]+", "_", str(body.get("name") or "job").lower()).strip("_")[:40]
     base = slug or "job"
     job_id = base
-    while job_id in RESERVED_JOB_IDS or ctx.store.get_job(job_id) is not None:
+    while (job_id in RESERVED_JOB_IDS or ctx.store.get_job(job_id) is not None
+           or _has_runs(ctx, job_id)):
         job_id = "%s_%s" % (base, uuid.uuid4().hex[:6])
     return job_id
+
+
+def _has_runs(ctx, job_id):
+    """Does KV Store still hold any run of ``job_id`` (e.g. of a deleted job)?"""
+    return bool(ctx.store.list_runs({"job_id": job_id}, limit=1, fields="_key"))
 
 
 def _prepare(body, job_id, owner):
@@ -491,6 +498,10 @@ def create_job(ctx, body):
     job_id = _new_id(ctx, body)
     if ctx.store.get_job(job_id) is not None:
         raise ApiError(409, "job_exists", "a job with id %r already exists" % job_id)
+    if _has_runs(ctx, job_id):
+        # A new owner of the id would otherwise see, and re-run, the old owner's runs.
+        raise ApiError(409, "job_id_in_use", "Runs of a deleted job with this id are still "
+                       "retained; choose another id")
     job, issues = _save(ctx, _prepare(body, job_id, ctx.user), None)
     ctx.emit({"type": "job_saved", "job_id": job_id, "created": True, "owner": job["owner"]})
     out = {"job": _public_job(ctx, job), "issues": issues}
@@ -571,11 +582,13 @@ def start_run(ctx, body, job_id):
 
 
 def _run_job(ctx, run, jobs=None):
-    """The job a run's permissions come from: the current job, or its snapshot if deleted."""
+    """The job a run's permissions come from: the current job, or, if it was deleted,
+    only the run's own owner and its snapshot's run_roles (admins see every run)."""
     job_id = run.get("job_id")
     job = jobs.get(job_id) if jobs is not None else ctx.store.get_job(job_id)
     if job is None:
-        job = dict(run.get("definition") or {}, owner=run.get("owner"))
+        job = {"owner": run.get("owner"),
+               "run_roles": (run.get("definition") or {}).get("run_roles") or []}
     return job
 
 
@@ -599,10 +612,34 @@ def list_runs(ctx, body):
         limit = max(1, min(1000, int(body.get("limit") or 200)))
     except (TypeError, ValueError):
         raise ApiError(400, "bad_request", "limit must be a number")
+    if ctx.allowed(authz.can_admin, None):
+        runs = ctx.store.list_runs(filters, limit=limit, fields=LIST_FIELDS)
+        return 200, {"runs": [_summary(r) for r in runs]}
     jobs = {j.get("id") or j.get("_key"): j for j in ctx.store.list_jobs()}
-    runs = [r for r in ctx.store.list_runs(filters)
-            if ctx.allowed(authz.can_view, _run_job(ctx, r, jobs))]
-    return 200, {"runs": [_summary(r) for r in runs[:limit]]}
+    visible = sorted(k for k, j in jobs.items() if ctx.allowed(authz.can_view, j))
+    query = dict(filters)
+    if "job_id" in filters:
+        if filters["job_id"] in jobs and filters["job_id"] not in visible:
+            return 200, {"runs": []}
+    else:  # runs of jobs the caller may see, and runs of deleted jobs (checked below)
+        query["$or"] = [{"job_id": {"$in": visible}}, {"job_id": {"$nin": sorted(jobs)}}]
+    out, skip = [], 0
+    while len(out) < limit:
+        page = ctx.store.list_runs(query, limit=limit, skip=skip, fields=LIST_FIELDS)
+        out.extend(r for r in page if r.get("job_id") in visible or _deleted_job_run_visible(ctx, r))
+        if len(page) < limit:
+            break
+        skip += len(page)
+    return 200, {"runs": [_summary(r) for r in out[:limit]]}
+
+
+def _deleted_job_run_visible(ctx, row):
+    """A listed run (without its snapshot) of a deleted job: visible to its owner, or to
+    run_roles members per the snapshot, which is read only when needed."""
+    if row.get("owner") == ctx.user:
+        return True
+    run = ctx.store.get_run(row.get("_key") or row.get("id"))
+    return run is not None and ctx.allowed(authz.can_view, _run_job(ctx, run, {}))
 
 
 def _definition(doc):

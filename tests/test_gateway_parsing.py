@@ -211,12 +211,29 @@ def test_parse_saved_search_info():
     body = ('{"entry":[{"name":"s","acl":{"owner":"alice","sharing":"user","app":"search_orchestrator"},'
             '"content":{"dispatchAs":"owner","search":"index=x"}}]}')
     assert g.parse_saved_search_info(body) == {"exists": True, "owner": "alice", "sharing": "user",
-                                               "dispatch_as": "owner"}
+                                               "dispatch_as": "owner", "app": "search_orchestrator",
+                                               "visible": True}
+
+
+def test_parse_saved_search_info_visibility_across_apps():
+    def entry(app, sharing, owner="alice"):
+        return {"name": "s", "acl": {"owner": owner, "sharing": sharing, "app": app},
+                "content": {"dispatchAs": "owner"}}
+    one = lambda *e: g.parse_saved_search_info(json.dumps({"entry": list(e)}))  # noqa: E731
+    assert one(entry("search", "user"))["visible"] is False
+    assert one(entry("search", "app"))["visible"] is False
+    assert one(entry("search", "global"))["visible"] is True
+    assert one(entry("search", "system"))["visible"] is True
+    # Several apps hold the name: the one visible from this app wins.
+    info = one(entry("search", "user"), entry("search_orchestrator", "app", "bob"))
+    assert info["owner"] == "bob" and info["visible"] is True
+    assert one(entry("search", "user"))["app"] == "search"
 
 
 def test_saved_search_info_404_is_missing():
     info = _raiser(404).saved_search_info("alice", "nope")
-    assert info == {"exists": False, "owner": None, "sharing": None, "dispatch_as": None}
+    assert info == {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
+                    "app": None, "visible": False}
 
 
 def test_saved_search_info_reads_owner_namespace():
@@ -224,8 +241,10 @@ def test_saved_search_info_reads_owner_namespace():
     svc = StubService(lambda m, p, kw: Resp(body))
     info = g.SplunkGateway(svc).saved_search_info("alice", "x y")
     assert svc.calls[0][0] == "get" and svc.calls[0][2]["owner"] == "alice"
+    assert svc.calls[0][2]["app"] == "-"  # wildcard app: the lookup sees every app
     assert svc.calls[0][1] == "saved/searches/x%20y"  # encoded exactly once (see below)
-    assert info == {"exists": True, "owner": "bob", "sharing": "app", "dispatch_as": "user"}
+    assert info == {"exists": True, "owner": "bob", "sharing": "app", "dispatch_as": "user",
+                    "app": None, "visible": False}
 
 
 def test_index_exists():
@@ -243,11 +262,11 @@ def test_delete_secret_path_and_404_ok():
         _raiser(500).delete_secret("x")
 
 
-def _final_path(path, owner="alice"):
+def _final_path(path, owner="alice", app="search_orchestrator"):
     """The path splunklib actually requests for a gateway path segment."""
     from splunklib import binding
     return binding.Context(owner=owner, app="search_orchestrator")._abspath(path, owner=owner,
-                                                                            app="search_orchestrator")
+                                                                            app=app)
 
 
 def test_saved_search_names_encoded_once_with_spaces_and_slash():
@@ -261,8 +280,9 @@ def test_saved_search_names_encoded_once_with_spaces_and_slash():
     gw.delete_saved_search("alice", name)
     gw.history("alice", name, 0)
     want = "/servicesNS/alice/search_orchestrator/saved/searches/Errors%20last%2024h%2Fby%20host"
-    finals = [_final_path(c[1]) for c in svc.calls]
-    assert finals[0] == want and finals[2] == want and finals[3] == want
+    finals = [_final_path(c[1], app=c[2].get("app", "search_orchestrator")) for c in svc.calls]
+    assert finals[0] == want.replace("/search_orchestrator/", "/-/")
+    assert finals[2] == want and finals[3] == want
     assert finals[1] == want + "/dispatch" and finals[4] == want + "/history"
 
 

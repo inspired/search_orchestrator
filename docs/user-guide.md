@@ -25,6 +25,7 @@ Node positions are not saved. The graph is laid out again each time the job open
 ### Steps
 
 - **Search** steps hold SPL. **Saved search** steps run an existing saved search. A saved search that isn't your own private search runs through a `| savedsearch` wrapper, and its own summary indexing and alert actions don't run. The builder warns you.
+- **A saved search must be shared globally or saved in the Search Orchestrator app** to be used as a step. Steps run in this app's context, where a private search in Search & Reporting, or one shared only with another app, can't be seen. Saving the job then fails with: "Saved search '<name>' must be shared globally or saved in the Search Orchestrator app to be used as a step."
 - **Steps run as the job owner**, with the owner's roles and index access.
 - **Time range:** Earliest and Latest are relative to the run's **scheduled time**, never to when the step actually starts. A daily summary that starts late after midnight still summarises the right day. **A search step with no time range runs over all time.** Set Earliest and Latest, such as `-1d@d` and `@d`.
 - **Run when:** limits a step to some runs, so one job can hold daily, weekly and monthly steps. Presets such as "Mondays" and "1st of month" match the whole day of the scheduled time. A step that doesn't apply shows as *Skipped (run when)* and lets the steps after it go ahead.

@@ -61,9 +61,11 @@ class Store:
     def get_run(self, run_id):
         return self.gw.kv_get(RUNS, run_id)
 
-    def list_runs(self, filters=None):
-        """Runs matching equality filters (a value may be a KV query operator dict)."""
-        return self.gw.kv_query(RUNS, dict(filters or {}), sort="created_at:-1")
+    def list_runs(self, filters=None, limit=0, skip=0, fields=None):
+        """Runs matching equality filters (a value may be a KV query operator dict),
+        newest first. ``limit``, ``skip`` and the ``fields`` projection go to KV Store."""
+        return self.gw.kv_query(RUNS, dict(filters or {}), sort="created_at:-1", limit=limit,
+                                skip=skip, fields=fields)
 
     def list_active_runs(self):
         return self.gw.kv_query(RUNS, {"state": {"$in": ACTIVE_RUN_STATES}}, sort="created_at:1")
