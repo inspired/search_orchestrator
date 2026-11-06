@@ -29,11 +29,12 @@ class Audit:
 class Session:
     """One session's view of the shared fake server: records the calls made through it."""
 
-    def __init__(self, gw, label, log):
+    def __init__(self, gw, label, log, overrides=None):
         self._gw, self._label, self._log = gw, label, log
+        self._overrides = overrides or {}
 
     def __getattr__(self, name):
-        target = getattr(self._gw, name)
+        target = self._overrides.get(name) or getattr(self._gw, name)
         if not callable(target):
             return target
 
@@ -57,9 +58,11 @@ class World:
         self.now = T0
         self.calls = []
         self.store = Store(self.gw)
+        self.user_overrides = {}  # gateway method -> replacement, for users' own sessions
 
     def deps(self, user):
-        return {"user_gateway": Session(self.gw, "user:" + user, self.calls),
+        return {"user_gateway": Session(self.gw, "user:" + user, self.calls,
+                                        self.user_overrides),
                 "system_gateway": Session(self.gw, "system", self.calls),
                 "audit": self.audit, "clock": lambda: self.now}
 
@@ -1504,3 +1507,30 @@ def test_preview_job_cycle_or_bad_shape_blocks_every_preview_with_a_clear_error(
     assert out["error"]["message"].startswith("the job is malformed: ")
     assert out["error"]["message"].endswith("; fix it before previewing")
     assert out["error"]["issues"][0]["code"] == "bad_shape"
+
+
+def test_preview_run_results_forbidden_is_not_expired(w):
+    from so.gateway import GatewayError
+    run_id = run_with(w, chain_job(), {"a": {"state": "succeeded", "sid": "run_a",
+                                             "result_count": 1}})
+    w.gw.add_job("run_a", owner="alice")
+    body = {"job": chain_job(), "step_id": "b", "input": {"mode": "run", "run_id": run_id}}
+    forbidden = ("you may not read a's results from that run; only its owner or an admin can")
+    # splunkd says 404 to a caller it won't show the job to; the job still exists.
+    w.user_overrides["preview_info"] = lambda sid: dict(w.gw.preview_info("gone"))
+    status, out = preview(w, "root", **body)
+    assert status == 403 and error(out) == "run_results_forbidden", out
+    assert out["error"]["step"] == "a" and out["error"]["message"] == forbidden
+    # Or it refuses the caller outright.
+
+    def refuse(sid):
+        raise GatewayError("HTTP 403 Forbidden", status=403)
+    w.user_overrides["preview_info"] = refuse
+    status, out = preview(w, "root", **body)
+    assert status == 403 and error(out) == "run_results_forbidden", out
+    assert out["error"]["message"] == forbidden
+    # Gone for everyone: expired.
+    del w.user_overrides["preview_info"]
+    w.gw.forget_job("run_a")
+    status, out = preview(w, "root", **body)
+    assert status == 410 and error(out) == "run_results_expired", out

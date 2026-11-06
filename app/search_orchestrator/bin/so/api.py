@@ -32,8 +32,10 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
   ``"anyway": true`` when it bypassed a skip), 200 ``{"status": "skipped", "skip_kind",
   "reason"}``, 409 ``needs_preview`` (``steps``), ``upstream_failed`` (``step``: a failed
   step behind an on_success edge, as a run decides) or ``run_step_missing`` (``step``), 410
-  ``run_results_expired`` (``step``), 400 ``invalid`` (errors in the step, the steps it
-  reads, the edges into them, params or time zone) or ``bad_param``. The sid of a live
+  ``run_results_expired`` (``step``), 403 ``run_results_forbidden`` (``step``: splunkd
+  won't let the caller read that run's result), 400 ``invalid`` (errors in the step, the
+  steps it reads, the edges into them, params or time zone; or anywhere in the job for a
+  cycle or a malformed job) or ``bad_param``. The sid of a live
   input is checked statically (``preview.own_sid``) before splunkd is asked about it. Audited as ``preview_dispatched``.
 * ``GET preview/<sid>`` (query ``limit``, seconds, capped at ``preview.MAX_RUNTIME``):
   ``{"state", "result_count", "error", "truncated", "run_duration", "messages"}``; a
@@ -1154,11 +1156,31 @@ def _run_upstream(ctx, job, step_id, scope, run_id):
                            "live previews or pick another run" % up, step=up)
     for up in preview.reads(job, step_id):
         st = upstream.get(up) or {}
-        if st.get("state") == "succeeded" and st.get("sid") \
-                and ctx.user_gw.preview_info(st["sid"]).get("state") == "missing":
-            raise ApiError(410, "run_results_expired", "%s's results from that run have "
-                           "expired; switch to live previews or pick a newer run" % up, step=up)
+        if st.get("state") == "succeeded" and st.get("sid"):
+            _check_run_result(ctx, up, st["sid"])
     return upstream
+
+
+def _check_run_result(ctx, up, sid):
+    """The caller may read step ``up``'s result ``sid`` from a past run: else 410
+    ``run_results_expired`` when splunkd no longer has the job, or 403
+    ``run_results_forbidden`` when it refuses the caller. splunkd answers 404 for a job
+    it won't show the caller as well as for a gone one, so a 404 is checked again with
+    the system session (it only learns whether a sid the run recorded still exists)."""
+    forbidden = ApiError(403, "run_results_forbidden", "you may not read %s's results from "
+                         "that run; only its owner or an admin can" % up, step=up)
+    try:
+        info = ctx.user_gw.preview_info(sid)
+    except GatewayError as err:
+        if err.status == 403:
+            raise forbidden
+        raise
+    if (info or {}).get("state") != "missing":
+        return
+    if (ctx.sys_gw.preview_info(sid) or {}).get("state") != "missing":
+        raise forbidden
+    raise ApiError(410, "run_results_expired", "%s's results from that run have expired; "
+                   "switch to live previews or pick a newer run" % up, step=up)
 
 
 def _preview_upstream(ctx, job, job_ref, step_id, scope, source, scheduled, params):

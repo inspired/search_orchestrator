@@ -211,8 +211,9 @@ export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: 
     return request('POST', `runs/${enc(runId)}/rerun`, { body });
 }
 
-// Step previews. Errors: needs_preview (`extra.steps`), upstream_failed, run_step_missing
-// and run_results_expired (`extra.step`), invalid (`issues`), bad_param, forbidden.
+// Step previews. Errors: needs_preview (`extra.steps`), upstream_failed, run_step_missing,
+// run_results_expired and run_results_forbidden (`extra.step`), invalid (`issues`),
+// bad_param, forbidden.
 
 /** The time a preview defaults to: the job's latest cron slot, or now. */
 export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_time: number }> {
