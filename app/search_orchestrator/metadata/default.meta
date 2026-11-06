@@ -2,8 +2,12 @@
 access = read : [ * ], write : [ admin ]
 export = none
 
+# The app's pages stay in this app.
 [views]
-export = system
+export = none
+
+[nav]
+export = none
 
 [collections/so_jobs]
 access = read : [ admin ], write : [ admin ]

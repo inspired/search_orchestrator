@@ -51,6 +51,19 @@ const ICONS: Record<AnyState, Icon> = {
     abandoned: MinusCircle,
 };
 
+/** Visually hidden but read by screen readers. Use inside a positioned element. */
+export const srOnly: React.CSSProperties = {
+    position: 'absolute',
+    width: '1px',
+    height: '1px',
+    padding: 0,
+    margin: '-1px',
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    whiteSpace: 'nowrap',
+    border: 0,
+};
+
 const RUN_DELAYABLE = ['queued', 'running'];
 const STEP_UNFINISHED = ['waiting', 'ready', 'starting', 'running', 'retrying'];
 
@@ -90,7 +103,12 @@ export default function StatusText({ state, delayed = false, skipKind }: StatusT
         color = theme.statusColorHigh;
     }
     const label = statusLabel(state, delayed, skipKind);
-    const style: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '0.35em' };
+    const style: React.CSSProperties = {
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.35em',
+    };
     if (color) {
         style.color = color;
     }
@@ -98,7 +116,7 @@ export default function StatusText({ state, delayed = false, skipKind }: StatusT
         <span style={style} data-state={state} data-delayed={delayed ? 'true' : undefined}>
             <IconFor aria-hidden />
             <span>{label}</span>
-            {delayed && <span style={{ position: 'absolute', left: '-10000px' }}>{`, ${LABELS[state] || state}`}</span>}
+            {delayed && <span style={srOnly}>{`, ${LABELS[state] || state}`}</span>}
         </span>
     );
 }

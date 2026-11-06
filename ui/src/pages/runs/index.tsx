@@ -1,5 +1,5 @@
 /* Runs: every run the user may see, newest first, filterable by job and state. */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import { listJobs, listRuns } from '../../api/client';
@@ -39,7 +39,13 @@ function RunsPage() {
     }, []);
 
     // A new filter fetches at once, and is kept in the URL so the view can be shared.
+    // The first run is skipped: usePoll already loads on mount.
+    const firstFilters = useRef(true);
     useEffect(() => {
+        if (firstFilters.current) {
+            firstFilters.current = false;
+            return;
+        }
         const params = new URLSearchParams(window.location.search);
         ['job_id', 'state'].forEach((key) => {
             const value = filters[key as keyof RunsTableFilters];

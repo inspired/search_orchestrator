@@ -1,12 +1,14 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
 import StatusText from '../components/StatusText';
+import JobsTable from '../features/jobs/JobsTable';
+import RunsTable from '../features/runs/RunsTable';
 import RunBanner, { bannerMessages } from '../components/RunBanner';
-import { NOW, renderThemed, rollupRun } from './fixtures';
+import { NOW, job, me, renderThemed, rollupRun, runSummary } from './fixtures';
 
-function backgrounds(container: HTMLElement): string[] {
+function backgrounds(container: Element): string[] {
     const out: string[] = [];
-    container.querySelectorAll('*').forEach((el) => {
+    [container, ...Array.from(container.querySelectorAll('*'))].forEach((el) => {
         const node = el as HTMLElement;
         const computed = window.getComputedStyle(node);
         [node.style.background, node.style.backgroundColor, computed.backgroundColor, computed.background].forEach(
@@ -29,6 +31,48 @@ describe('StatusText', () => {
             expect(container.querySelector('svg')).not.toBeNull();
         }
     );
+
+    test('StatusText renders no filled background inside JobsTable and RunsTable cells', () => {
+        const states = ['queued', 'running', 'blocked', 'paused', 'succeeded', 'failed', 'cancelled'] as const;
+        const jobs = states.map((state, i) =>
+            job({
+                id: `j${i}`,
+                name: `Job ${i}`,
+                last_run: {
+                    id: `j${i}:1`,
+                    state,
+                    trigger: 'cron',
+                    scheduled_time: NOW,
+                    started_at: NOW,
+                    ended_at: null,
+                    delay_alerted: state === 'running',
+                    held: false,
+                    gave_up: false,
+                },
+            })
+        );
+        const runs = states.map((state, i) =>
+            runSummary({ id: `r:${i}`, state, delay_alerted: state === 'queued' })
+        );
+        const { container: jobsTable } = renderThemed(
+            <JobsTable jobs={jobs} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />
+        );
+        const { container: runsTable } = renderThemed(
+            <RunsTable runs={runs} jobNames={{ daily: 'Daily' }} filters={{}} onFiltersChange={jest.fn()} now={NOW} />
+        );
+        [jobsTable, runsTable].forEach((table) => {
+            const statuses = table.querySelectorAll('[data-state]');
+            expect(statuses).toHaveLength(states.length);
+            statuses.forEach((status) => {
+                expect(backgrounds(status)).toEqual([]);
+                // The cell holding it is not filled either.
+                const cell = status.closest('td') as HTMLElement;
+                expect(cell.style.background).toBe('');
+                expect(cell.style.backgroundColor).toBe('');
+            });
+            expect(table.querySelectorAll('[data-delayed="true"]')).toHaveLength(1);
+        });
+    });
 
     test('renders plain text labels', () => {
         renderThemed(<StatusText state="succeeded" />);

@@ -35,7 +35,8 @@ describe('client', () => {
         expect(err.status).toBe(400);
 
         const [url, init] = fetch.mock.calls[0] as FetchCall;
-        expect(url).toMatch(/\/splunkd\/__raw\/services\/orchestrator\/jobs\/daily\?output_mode=json$/);
+        // Through Splunk Web's splunkd proxy, under the locale prefix.
+        expect(url).toBe('/en-US/splunkd/__raw/services/orchestrator/jobs/daily?output_mode=json');
         expect(init.method).toBe('PUT');
         expect((init.headers as Record<string, string>)['X-Splunk-Form-Key']).toBe('tok123');
         expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');

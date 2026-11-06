@@ -5,7 +5,7 @@ import Link from '@splunk/react-ui/Link';
 import Switch from '@splunk/react-ui/Switch';
 import Table from '@splunk/react-ui/Table';
 import type { Job, Me } from '../../api/types';
-import StatusText, { isRunDelayed } from '../../components/StatusText';
+import StatusText, { isRunDelayed, srOnly } from '../../components/StatusText';
 import { pageHref } from '../../components/PageShell';
 import { formatTime } from '../../format';
 
@@ -31,7 +31,9 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, busy = 
                 <Table.HeadCell>Last run</Table.HeadCell>
                 <Table.HeadCell>Enabled</Table.HeadCell>
                 <Table.HeadCell>
-                    <span style={{ position: 'absolute', left: '-10000px' }}>Actions</span>
+                    <span style={{ position: 'relative' }}>
+                        <span style={srOnly}>Actions</span>
+                    </span>
                 </Table.HeadCell>
             </Table.Head>
             <Table.Body>
@@ -69,8 +71,8 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, busy = 
                                     disabled={!canEdit || Boolean(busy[job.id])}
                                     onClick={() => onToggleEnabled(job, !job.enabled)}
                                 >
-                                    <span style={{ position: 'absolute', left: '-10000px' }}>
-                                        {`Enable ${job.name}`}
+                                    <span style={{ position: 'relative' }}>
+                                        <span style={srOnly}>{`Enable ${job.name}`}</span>
                                     </span>
                                 </Switch>
                             </Table.Cell>
