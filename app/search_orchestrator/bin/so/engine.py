@@ -141,6 +141,8 @@ def first_fields(definition):
     found = set()
     for s in steps:
         found |= tokens.find_tokens(s.get("spl") or "", ids)
+    for text in _action_texts(definition):
+        found |= tokens.find_tokens(text, ids)
     texts = [e.get("expression") for e in definition.get("edges") or [] if e.get("expression")]
     texts += [(s.get("run_when") or {}).get("value") for s in steps
               if (s.get("run_when") or {}).get("kind") == "expression"]
@@ -155,6 +157,28 @@ def first_fields(definition):
         if len(parts) == 3 and parts[1] == "first" and parts[0] in ids:
             out.setdefault(parts[0], set()).add(parts[2])
     return out
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v)
+
+
+def _action_texts(definition):
+    """Every template string of the job's and steps' actions (they may hold tokens)."""
+    actions = list(definition.get("actions") or [])
+    for s in definition.get("steps") or []:
+        actions.extend(s.get("actions") or [])
+    for a in actions:
+        if isinstance(a, dict):
+            for key in ("subject", "message", "body", "payload", "params"):
+                yield from _strings(a.get(key))
 
 
 class _Budget:
@@ -831,15 +855,8 @@ class Engine:
         ids = [s["id"] for s in definition.get("steps") or []]
         spl = sdef.get("spl") or ""
         _, arg_names = tokens.compile_spl(spl, ids)
-        steps = {}
-        for i in ids:
-            st = (run.get("steps") or {}).get(i) or {}
-            steps[i] = {"status": st.get("state"), "sid": st.get("sid"),
-                        "resultCount": st.get("result_count"), "first": st.get("first")}
-        ctx = {"run": {"id": _run_id(run), "scheduled_time": str(int(run["scheduled_time"])),
-                       "params": run.get("params") or {}},
-               "steps": steps}
-        return tokens.render_args(arg_names, ctx, tokens.token_defaults(spl, ids))
+        return tokens.render_args(arg_names, tokens.run_context(run),
+                                  tokens.token_defaults(spl, ids))
 
     def _attempt_failed(self, run, sid, error, now, pending):
         st = run["steps"][sid]

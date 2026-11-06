@@ -70,6 +70,8 @@ Add actions to a step or to the whole job, on start, success, failure, complete 
 - **Webhook** to a destination your admin set up (Slack is a body format).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**.
 
+Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
+
 An action failing never changes the run's outcome; it shows on the run's Actions tab. If a job has no failure or delay action, your admin's fallback notification is used.
 
 ### Who may run

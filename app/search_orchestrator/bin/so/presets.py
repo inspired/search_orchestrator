@@ -7,6 +7,8 @@ Only names, statuses and links: never result data.
 """
 import re
 
+from . import tokens
+
 _VERB = {"on_start": "started", "on_success": "succeeded", "on_failure": "failed",
          "on_complete": "completed", "on_delayed": "is delayed"}
 _FIELD = re.compile(r"\{\{\s*(\w+)\s*\}\}")
@@ -62,12 +64,33 @@ def render(preset, ctx):
 
 def fill(value, ctx):
     """Replace ``{{name}}`` in strings (recursively) with ctx values. ``{{message}}``
-    is the default message."""
+    is the default message. If ``ctx["tokens"]`` holds a run's token context
+    (``tokens.run_context``), ``$run.*$`` and ``$<step>.*$`` tokens (with ``|default``)
+    are filled too, in the same pass, so a filled value is never expanded again.
+    Values are raw: the caller escapes them for the target."""
     values = dict(ctx, message=default_message(ctx))
+    tctx = ctx.get("tokens")
+    if tctx:
+        pattern = re.compile("%s|%s" % (_FIELD.pattern, tokens.text_pattern(
+            tctx.get("steps") or {}).pattern))
+
+        def sub(m):
+            if m.group(1) is not None:
+                return str(values.get(m.group(1), ""))
+            return tokens.text_value(m, tctx)
+    else:
+        pattern = _FIELD
+
+        def sub(m):
+            return str(values.get(m.group(1), ""))
+    return _fill(value, pattern, sub)
+
+
+def _fill(value, pattern, sub):
     if isinstance(value, str):
-        return _FIELD.sub(lambda m: str(values.get(m.group(1), "")), value)
+        return pattern.sub(sub, value)
     if isinstance(value, dict):
-        return {k: fill(v, ctx) for k, v in value.items()}
+        return {k: _fill(v, pattern, sub) for k, v in value.items()}
     if isinstance(value, list):
-        return [fill(v, ctx) for v in value]
+        return [_fill(v, pattern, sub) for v in value]
     return value

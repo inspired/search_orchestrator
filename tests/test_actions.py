@@ -510,3 +510,74 @@ def test_event_payload_non_string_is_json_encoded():
     w.pump()
     assert json.loads(w.gw.dispatch_log[0]["args"]["payload"].replace('\\"', '"')) == \
         {"job": "Nightly"}
+
+
+# Final review I5: $run.*$ and $step.*$ tokens in action templates.
+
+def _token_world(actions):
+    w = W(actions=actions)
+    w.definition["steps"].append({"id": "daily", "name": "Daily",
+                                  "spl": "| makeresults | eval h=\"$daily.first.host$\""})
+    w.run["params"] = {"region": 'e"u'}
+    w.run["steps"]["daily"] = {"state": "succeeded", "sid": "s9", "result_count": 42,
+                               "first": {"host": 'web"1'}}
+    w.store.save_run(w.run)
+    return w
+
+
+def test_email_tokens_rendered_and_spl_escaped():
+    w = _token_world([{"hook": "on_failure", "type": "email", "to": "a@b.c",
+                       "subject": "Daily rows: $daily.resultCount$",
+                       "message": "Run $run.id$ at $run.scheduled_time$ for $run.param.region$, "
+                                  "host $daily.first.host$, weekly $weekly.sid|none$ {{job}}"}])
+    w.gw.script_job("_so_j_action_0", ["done"])
+    w.submit()
+    w.pump()
+    args = w.gw.dispatch_log[0]["args"]
+    assert args["subject"] == "Daily rows: 42"
+    assert args["message"] == ('Run r1 at %d for e\\"u, host web\\"1, weekly $weekly.sid|none$ '
+                               'Nightly' % (T - 100))
+
+
+def test_token_default_and_missing_values_in_messages():
+    w = _token_world([{"hook": "on_failure", "type": "email", "to": "a@b.c",
+                       "subject": "$a.sid$ $a.resultCount|none$ $a.status$ $run.param.nope$|"}])
+    w.gw.script_job("_so_j_action_0", ["done"])
+    w.submit()
+    w.pump()
+    assert w.gw.dispatch_log[0]["args"]["subject"] == "s1 none failed |"
+
+
+def test_webhook_body_tokens_json_encoded_after_filling():
+    w = _token_world([{"hook": "on_failure", "type": "webhook", "destination": "ops",
+                       "body": json.dumps({"text": "rows $daily.resultCount$ host "
+                                                   "$daily.first.host$ {{job}}",
+                                           "nested": ["$run.param.region$"]})}])
+    w.submit()
+    w.pump()
+    body = json.loads(w.gw.webhook_log[0]["body"])
+    assert body == {"text": 'rows 42 host web"1 Nightly', "nested": ['e"u']}
+
+
+def test_event_and_alert_action_tokens_rendered():
+    w = _token_world([{"hook": "on_failure", "type": "event", "index": "audit",
+                       "payload": {"rows": "$daily.resultCount$", "host": "$daily.first.host$"}},
+                      {"hook": "on_failure", "type": "alert_action", "action": "pagerduty",
+                       "params": {"summary": "$daily.status$ in $run.param.region$"}}])
+    w.gw.script_job("_so_j_action_0", ["done"])
+    w.gw.script_job("_so_j_action_1", ["done"])
+    w.submit()
+    w.pump()
+    event, alert = w.gw.dispatch_log
+    assert event["args"]["payload"] == '{\\"rows\\": \\"42\\", \\"host\\": \\"web\\\\\\"1\\"}'
+    assert alert["args"]["param.summary"] == 'succeeded in e\\"u'
+
+
+def test_first_fields_include_action_template_tokens():
+    from so.engine import first_fields
+    definition = {"steps": [{"id": "daily", "spl": "| makeresults"}],
+                  "actions": [{"hook": "on_success", "type": "email", "to": "x",
+                               "subject": "$daily.first.host$"},
+                              {"hook": "on_success", "type": "webhook", "destination": "d",
+                               "body": {"a": ["$daily.first.count$"]}}]}
+    assert first_fields(definition) == {"daily": {"host", "count"}}

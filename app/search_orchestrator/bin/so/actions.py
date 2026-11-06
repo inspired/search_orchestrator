@@ -19,6 +19,13 @@ run's definition snapshot): ``{"hook", "type", ...}`` with
 * ``webhook``: ``destination`` (a name), optional ``preset`` (``slack`` or
   ``generic``) and ``body`` (a JSON template; ``{{job}}``, ``{{run_id}}``,
   ``{{message}}`` and the other ctx names are filled in)
+
+Templates (webhook body, email subject and message, event payload, alert
+action parameters) also take the SPL tokens ``$run.*$`` and ``$<step>.*$``
+(with ``|default``; a token with no value and no default is left empty). Their
+values come from ``tokens``, the run's token context snapshotted into the row
+at submit. Webhook bodies are JSON-encoded after filling; search action args
+are SPL-string escaped.
 * ``email``: ``to``, optional ``subject`` and ``message``
 * ``event``: ``index``, optional ``payload`` (template)
 * ``start_job``: ``job`` (target job ID) and optional ``params``
@@ -183,7 +190,8 @@ class ActionRunner:
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),
                "scope": scope, "hook": hook, "step_id": step_id, "occurrence": occurrence,
-               "ctx": ctx, "chain_depth": int(run.get("chain_depth") or 0),
+               "ctx": ctx, "tokens": tokens.run_context(run) if matching else None,
+               "chain_depth": int(run.get("chain_depth") or 0),
                "chain_rerun": chain_rerun(run),
                "actions": [_entry(i, a) for i, a in matching],
                "state": "pending" if matching else "done", "attempts": 0, "error": None,
@@ -332,6 +340,8 @@ class ActionRunner:
             return self._fallback(row, entry, ctx, settings, now)
         action = entry.get("action") or {}
         kind = entry["type"]
+        if row.get("tokens"):
+            ctx["tokens"] = row["tokens"]  # $run.*$ and $<step>.*$ in templates
         if kind == "webhook":
             return self._webhook(row, entry, action, ctx, now)
         if kind in SEARCH_TYPES:

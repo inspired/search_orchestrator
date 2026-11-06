@@ -170,6 +170,56 @@ def render_args(names, ctx, defaults=None):
     return out
 
 
+def run_context(run):
+    """The ``render_args``/``render_text`` ctx for a run document."""
+    definition = run.get("definition") or {}
+    steps = {}
+    for s in definition.get("steps") or []:
+        st = (run.get("steps") or {}).get(s.get("id")) or {}
+        steps[s.get("id")] = {"status": st.get("state"), "sid": st.get("sid"),
+                              "resultCount": st.get("result_count"), "first": st.get("first")}
+    scheduled = run.get("scheduled_time")
+    return {"run": {"id": run.get("_key") or run.get("id"),
+                    "scheduled_time": str(int(scheduled)) if scheduled is not None else None,
+                    "params": run.get("params") or {}},
+            "steps": steps}
+
+
+def text_pattern(step_ids):
+    """The compiled token regex (groups ``name`` and ``default``)."""
+    return _regex(step_ids)
+
+
+def text_value(match, ctx):
+    """The raw value of one token match for an action template: its value, else its
+    ``|default``, else an empty string. A skipped step still has its status. Values are
+    not escaped here: the caller escapes for the target (JSON or SPL string)."""
+    kind, sid, extra = _decode(arg_name(match.group("name")), ctx)
+    run = ctx.get("run", {})
+    value = None
+    if kind == "run":
+        value = run.get(extra)
+    elif kind == "param":
+        value = (run.get("params") or {}).get(extra)
+    else:
+        st = ctx["steps"][sid]
+        if kind == "step" and extra == "status":
+            value = st.get("status")
+        elif st.get("status") != "skipped":
+            if kind == "step":
+                value = st.get(extra)
+            else:
+                value = (st.get("first") or {}).get(extra)
+    if value is None:
+        value = match.group("default") or ""
+    return str(value)
+
+
+def render_text(text, ctx):
+    """Fill ``$run.*$`` and ``$<step>.*$`` tokens in an action template with raw values."""
+    return _regex(ctx.get("steps") or {}).sub(lambda m: text_value(m, ctx), text)
+
+
 _TIME_RE = re.compile(
     r"now|[0-9]{9,13}"
     r"|[+-]?[0-9]*(?:s|m|h|d|w|mon|q|y)(?:@[a-z]+[0-9]*(?:[+-][0-9]+[a-z]+)?)?"
