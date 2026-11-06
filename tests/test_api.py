@@ -1114,19 +1114,24 @@ def test_preview_live_running_upstream_needs_preview(w):
 
 def test_preview_live_skipped_upstream(w):
     # A run_when skip still takes an on_success edge, as in a run: $a.sid$ has no default.
-    status, out = preview(w, job=chain_job(), step_id="b",
-                          input=live(a={"skipped": "run_when"}))
+    job = chain_job()
+    job["steps"][0]["run_when"] = {"kind": "cron", "value": "* * * * 1"}  # never at T0
+    status, out = preview(w, job=job, step_id="b", input=live())
     assert status == 400 and error(out) == "invalid"
     assert out["error"]["issues"][0]["step"] == "b" and "$a.sid$" in out["error"]["issues"][0][
         "message"]
-    status, out = preview(w, job=chain_job(), step_id="b",
-                          input=live(a={"skipped": "not_taken"}))
+    # z succeeds, so the on_failure edge into a is not taken; a and then b are skipped.
+    w.gw.script_job("so_preview_", ["done"], result_count=1)
+    job = chain_job()
+    job["steps"].insert(0, {"id": "z", "type": "inline", "spl": "| makeresults"})
+    job["edges"] = [{"from": "z", "to": "a", "condition": "on_failure"}] + job["edges"]
+    _, out = preview(w, job=job, step_id="z")
+    z = {"sid": out["sid"]}
+    status, out = preview(w, job=job, step_id="b", input=live(z=z))
     assert status == 200 and out["status"] == "skipped" and out["skip_kind"] == "not_taken"
     assert out["reason"] == "none of the edges into it would be taken"
-    job = chain_job()
-    job["steps"][1]["spl"] = '| makeresults | eval s="$a.sid|none$"'
-    status, out = preview(w, job=job, step_id="b", anyway=True,
-                          input=live(a={"skipped": "not_taken"}))
+    job["steps"][2]["spl"] = '| makeresults | eval s="$a.sid|none$"'
+    status, out = preview(w, job=job, step_id="b", anyway=True, input=live(z=z))
     assert status == 201 and out["anyway"] is True and out["spl"].endswith('s="none"')
 
 
@@ -1458,3 +1463,13 @@ def test_previous_step_dispatch_has_no_time_range(w):
     sent = [d for d in w.gw.dispatch_log if d["name"] == b_name]
     assert sent and all((d["earliest"], d["latest"]) == (None, None) for d in sent), sent
     assert w.store.get_run(run_id)["steps"]["b"]["state"] == "succeeded"
+
+
+def test_preview_live_skipped_claim_for_a_step_that_runs_needs_a_preview(w):
+    job = _skip_b_job()
+    del job["steps"][1]["run_when"]  # b now runs, so a client claim that it was skipped is wrong
+    w.gw.script_job("so_preview_", ["done"], result_count=1)
+    _, out = preview(w, job=job)
+    status, out = preview(w, job=job, step_id="c",
+                          input=live(a={"sid": out["sid"]}, b={"skipped": "run_when"}))
+    assert status == 409 and error(out) == "needs_preview" and out["error"]["steps"] == ["b"], out

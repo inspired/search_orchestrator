@@ -276,8 +276,8 @@ def _validate(job, known_saved_searches):
                                          "A From previous steps search must start with |", sid))
                 if not any(e.get("to") == sid for e in job.get("edges", []) or []):
                     issues.append(_issue("error", "previous_needs_dependency",
-                                         "A From previous steps step needs at least one step "
-                                         "before it", sid))
+                                         "A From previous steps step must depend on at least "
+                                         "one step", sid))
             elif not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
                                      "This step searches all time.", sid))

@@ -1113,6 +1113,10 @@ def _live_upstream(ctx, job, job_ref, scope, previews, scheduled, params):
                 continue
             if decision == "needs":
                 raise _needs(upstream, detail.split(","))
+            entry = previews.get(up)
+            if isinstance(entry, dict) and "skipped" in entry:
+                needs.append(up)  # a run would run it, so a client claim of skipped is stale
+                continue
         st = _live_state(ctx, job, job_ref, up, previews.get(up), wanted.get(up))
         if st is None:
             needs.append(up)
