@@ -1,16 +1,7 @@
-/* Placeholder: the Settings page is built in a later task. */
+/* Settings: health, limits, retention, the fallback notification and webhook destinations
+ * (orchestrator_admin only). */
 import React from 'react';
-import Message from '@splunk/react-ui/Message';
-import PageShell, { renderPage } from '../../components/PageShell';
+import { renderPage } from '../../components/PageShell';
+import SettingsPage from '../../features/settings/SettingsPage';
 
-function Placeholder() {
-    return (
-        <PageShell title="Settings">
-            <Message type="info" appearance="default">
-                This page is coming in a later task.
-            </Message>
-        </PageShell>
-    );
-}
-
-renderPage(<Placeholder />, 'Settings');
+renderPage(<SettingsPage />, 'Settings');

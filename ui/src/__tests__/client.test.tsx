@@ -78,4 +78,52 @@ describe('client', () => {
         mockFetch(502, '<html>Bad gateway</html>');
         await expect(me()).rejects.toMatchObject({ code: 'http_502', status: 502 });
     });
+
+    test('a request that never settles times out after 30 seconds', async () => {
+        jest.useFakeTimers();
+        try {
+            let signal: AbortSignal | undefined;
+            (globalThis as unknown as { fetch: unknown }).fetch = jest.fn((_url: string, init: RequestInit) => {
+                signal = init.signal as AbortSignal;
+                return new Promise((_resolve, reject) => {
+                    signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+                });
+            });
+            const pending = me();
+            const caught = pending.catch((err) => err);
+            jest.advanceTimersByTime(29999);
+            expect(signal?.aborted).toBe(false);
+            jest.advanceTimersByTime(1);
+            const err = await caught;
+            expect(err).toBeInstanceOf(ApiError);
+            expect(err).toMatchObject({ code: 'timeout', status: 0 });
+            expect(signal?.aborted).toBe(true);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('a slow body read also times out', async () => {
+        jest.useFakeTimers();
+        try {
+            let signal: AbortSignal | undefined;
+            (globalThis as unknown as { fetch: unknown }).fetch = jest.fn((_url: string, init: RequestInit) => {
+                signal = init.signal as AbortSignal;
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    text: () =>
+                        new Promise((_resolve, reject) => {
+                            signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+                        }),
+                });
+            });
+            const caught = me().catch((err) => err);
+            await Promise.resolve();
+            jest.advanceTimersByTime(30000);
+            expect(await caught).toMatchObject({ code: 'timeout' });
+        } finally {
+            jest.useRealTimers();
+        }
+    });
 });

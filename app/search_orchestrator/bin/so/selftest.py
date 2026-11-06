@@ -53,7 +53,7 @@ PROBE_ROWS = 3
 NO_SUCH_USER = "so_selftest_no_such_user"
 NO_SUCH_INDEX = "so_selftest_no_such_index"
 FALLBACK_SEARCH = "_so_fallback_email"
-SCRATCH = "so_locks"
+SCRATCH = "so_selftest"  # its own collection, so the engine lease is never touched
 POLL_SECONDS = 20
 DETAIL_MAX = 400
 

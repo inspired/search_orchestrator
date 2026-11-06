@@ -5,7 +5,10 @@ splunkd runs ``start_orchestrator_job.py --execute`` with the alert's JSON
 payload on stdin. The run is started through the app's REST endpoint
 (``POST /services/orchestrator/jobs/<job>/runs``) over loopback with the
 alert's own session key, so ``api.py`` checks that the alert's owner may run
-the job, exactly as for the screens. Parameters:
+the job, exactly as for the screens. It refuses to act when the alert is
+owned by ``nobody`` (such an alert runs with the system user's session) or
+when the session's user, as ``/orchestrator/me`` reports it, is not the
+alert's owner. Parameters:
 
 * ``job``: the job id.
 * ``params``: ``name=value`` pairs, one per line or comma-separated, or a JSON
@@ -68,8 +71,20 @@ def run_alert(payload, build=SplunkGateway.from_session):
         body = {"params": parse_params(config.get("params"))}
         if str(config.get("scheduled_time") or "").strip():
             body["scheduled_time"] = str(config["scheduled_time"]).strip()
+        owner = str(payload.get("owner") or "").strip()
+        if not owner or owner == "nobody":
+            return False, ("start_orchestrator_job: alert %r is owned by %r; refusing to start "
+                           "job %s. An alert owned by nobody runs with the system user's "
+                           "session. Assign the alert to a real user who may run the job."
+                           % (payload.get("search_name"), owner or "(none)", job))
         gateway = build(payload.get("server_uri") or "https://127.0.0.1:8089",
                         payload.get("session_key"))
+        me_status, me_out = gateway.orchestrator_api("GET", "me", None)
+        session_user = (me_out or {}).get("user") if me_status == 200 else None
+        if session_user != owner:
+            return False, ("start_orchestrator_job: the alert %r session belongs to %r, not to "
+                           "the alert owner %r; refusing to start job %s"
+                           % (payload.get("search_name"), session_user, owner, job))
         status, out = gateway.orchestrator_api("POST", "jobs/%s/runs" % job, body)
     except Exception as err:
         return False, scrub("start_orchestrator_job: %s: %s" % (type(err).__name__, err), secrets)

@@ -2,7 +2,7 @@
 """``| orchestrate``: a generating search command (commands.conf, chunked).
 
     | orchestrate start job=<id> [param.<name>=<value>]... [scheduled_time=<epoch>]
-    | orchestrate status [run=<run id>] [job=<id>] [limit=<n>]
+    | orchestrate status [run=<run id>] [job=<id>] [limit=<n, at most 20>]
     | orchestrate cancel run=<run id>
     | orchestrate rerun run=<run id> step=<step> [definition=latest|original]
                         [restart_downstream_jobs=true|false]
@@ -38,6 +38,7 @@ OPTIONS = {"start": ("job", "scheduled_time"), "status": ("run", "job", "limit")
            "jobs": (), "selftest": ("scenario", "slow_n", "delayed_after", "scheduled_time")}
 REQUIRED = {"start": ("job",), "cancel": ("run",), "rerun": ("run", "step")}
 STATUS_LIMIT = 5
+STATUS_MAX_RUNS = 20  # each run is one more loopback call
 RUN_ROW = "(run)"
 _TRUE = ("1", "true", "t", "yes", "y")
 _FALSE = ("0", "false", "f", "no", "n")
@@ -145,7 +146,7 @@ def _status(call, options):
         limit = int(options.get("limit") or STATUS_LIMIT)
     except ValueError:
         raise CommandError("orchestrate status: limit must be a number")
-    query = {"limit": max(1, min(100, limit))}
+    query = {"limit": max(1, min(STATUS_MAX_RUNS, limit))}
     if options.get("job"):
         query["job_id"] = options["job"]
     rows = []

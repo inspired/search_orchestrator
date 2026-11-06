@@ -132,11 +132,25 @@ def test_probe_runs_every_check_on_fake():
 
     w.gw.dispatch = dispatch
     w.gw.kv.setdefault("so_locks", {})["engine"] = {"_key": "engine", "holder": "h"}
+    touched = []
+    for name in ("kv_insert", "kv_delete", "kv_delete_query", "kv_update"):
+        real = getattr(w.gw, name)
+
+        def spy(collection, *a, _real=real, _name=name, **kw):
+            touched.append((_name, collection))
+            return _real(collection, *a, **kw)
+
+        setattr(w.gw, name, spy)
     rows = run_cmd(w, "selftest scenario=probe", token="tok-root")
     assert [r["check"] for r in rows] == ["rest_me"] + PROBE_CHECKS
     assert all(r["ok"] == 1 for r in rows), [r for r in rows if not r["ok"]]
     assert all(set(r) == {"check", "ok", "detail"} for r in rows)
     assert set(w.gw.kv["so_locks"]) == {"engine"}  # scratch docs removed, lease kept
+    # The scratch docs live in their own collection: the engine lease is never touched.
+    assert selftest.SCRATCH == "so_selftest"
+    assert ("kv_delete_query", "so_selftest") in touched
+    assert not [t for t in touched if t[1] == "so_locks"]
+    assert not w.gw.kv.get("so_selftest")
     assert any(e.get("type") == "selftest_probe" for e in w.audit.events)
     for row in rows:
         assert "tok-" not in row["detail"]

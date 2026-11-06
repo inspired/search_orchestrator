@@ -30,6 +30,9 @@ access = read : [ admin ], write : [ admin ]
 [collections/so_settings]
 access = read : [ admin ], write : [ admin ]
 
+[collections/so_selftest]
+access = read : [ admin ], write : [ admin ]
+
 [savedsearches/_so_fallback_email]
 access = read : [ admin ], write : [ admin ]
 export = none

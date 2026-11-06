@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app" / "search_orchestrator"
 COLLECTIONS = ["so_jobs", "so_runs", "so_step_runs", "so_action_runs",
-               "so_commands", "so_locks", "so_settings"]
+               "so_commands", "so_locks", "so_settings", "so_selftest"]
 
 
 def build(tmp_path):

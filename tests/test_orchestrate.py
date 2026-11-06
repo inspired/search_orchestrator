@@ -214,3 +214,56 @@ def test_alert_action_main_reads_payload_and_exits_nonzero_on_failure(w):
                                        build=w.splunkd.gateway)
     assert code != 0 and "nope" in err.getvalue()
     assert start_orchestrator_job.main(["x"], io.StringIO(""), err) != 0
+
+
+def test_status_without_run_caps_loopback_calls_at_20_runs():
+    calls = []
+
+    class Gateway:
+        def orchestrator_api(self, method, path, body=None):
+            calls.append((method, path, body))
+            if path == "runs":
+                n = body["limit"]
+                return 200, {"runs": [{"id": "r:%d" % i} for i in range(n)]}
+            return 200, {"run": {"id": path[5:], "job_id": "j", "state": "succeeded",
+                                 "steps": {}, "definition": {"steps": []}}}
+
+    orchestrate.execute(["status", "limit=500"], Gateway())
+    assert calls[0] == ("GET", "runs", {"limit": orchestrate.STATUS_MAX_RUNS})
+    assert orchestrate.STATUS_MAX_RUNS == 20
+    assert len([c for c in calls if c[1].startswith("runs/")]) == 20
+
+
+def alert_payload(**over):
+    payload = {"session_key": "tok-alice", "server_uri": "https://127.0.0.1:8089",
+               "search_name": "my alert", "owner": "alice", "sid": "scheduler__x",
+               "configuration": {"job": "daily", "params": "p=5", "scheduled_time": ""}}
+    payload.update(over)
+    return payload
+
+
+def test_alert_action_refuses_nobody_owned_alert(w):
+    saved(w)
+    ok, message = start_orchestrator_job.run_alert(alert_payload(owner="nobody"),
+                                                   build=w.splunkd.gateway)
+    assert not ok and "nobody" in message and "tok-alice" not in message
+    assert not w.gw.kv.get("so_runs")
+    assert w.splunkd.sessions == []  # refused before any call with the session
+    ok, message = start_orchestrator_job.run_alert(alert_payload(owner=""),
+                                                   build=w.splunkd.gateway)
+    assert not ok and not w.gw.kv.get("so_runs")
+
+
+def test_alert_action_refuses_when_session_user_differs_from_owner(w):
+    saved(w)
+    # The session belongs to root, but the payload says the alert is alice's.
+    ok, message = start_orchestrator_job.run_alert(alert_payload(session_key="tok-root"),
+                                                   build=w.splunkd.gateway)
+    assert not ok
+    assert "root" in message and "alice" in message and "tok-root" not in message
+    assert not w.gw.kv.get("so_runs")
+    err = io.StringIO()
+    code = start_orchestrator_job.main(
+        ["x", "--execute"], io.StringIO(json.dumps(alert_payload(session_key="tok-root"))), err,
+        build=w.splunkd.gateway)
+    assert code != 0 and err.getvalue().startswith("ERROR ") and "tok-root" not in err.getvalue()

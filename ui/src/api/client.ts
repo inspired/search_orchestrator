@@ -45,6 +45,9 @@ export class ApiError extends Error {
     }
 }
 
+/** How long a request may take before it is abandoned. */
+export const REQUEST_TIMEOUT_MS = 30000;
+
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
 type Query = Record<string, string | number | boolean | undefined | null>;
 
@@ -73,18 +76,28 @@ async function request<T>(method: Method, path: string, options: { query?: Query
     if (token) {
         headers['X-Splunk-Form-Key'] = token;
     }
-    const init: RequestInit = { method, headers, credentials: 'include' };
+    // A request that never settles would stall polling, so every request gives up after
+    // REQUEST_TIMEOUT_MS, including the body read.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const init: RequestInit = { method, headers, credentials: 'include', signal: controller.signal };
     if (options.body !== undefined) {
         headers['Content-Type'] = 'application/json';
         init.body = JSON.stringify(options.body);
     }
     let res: Response;
+    let text: string;
     try {
         res = await fetch(url(path, options.query), init);
+        text = await res.text();
     } catch (err) {
+        if (controller.signal.aborted) {
+            throw new ApiError(0, 'timeout', `Splunk did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+        }
         throw new ApiError(0, 'network_error', `Splunk could not be reached (${(err as Error).message}).`);
+    } finally {
+        clearTimeout(timer);
     }
-    const text = await res.text();
     let payload: unknown = null;
     try {
         payload = text ? JSON.parse(text) : null;
