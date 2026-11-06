@@ -605,3 +605,15 @@ def test_preview_decision_run_when_expression_sees_params():
     j = job([{"id": "a", "run_when": {"kind": "expression", "value": '$run.param.env$ == "prod"'}}])
     assert state.preview_decision(j, "a", T0, {"env": "prod"}, {}) == ("run", None)
     assert state.preview_decision(j, "a", T0, {"env": "dev"}, {}) == ("skipped", "run_when")
+
+
+def test_preview_decision_errors_are_distinct():
+    with pytest.raises(KeyError):
+        state.preview_decision(job(["a"]), "nope", T0, {}, {})
+    bad_cron = job([{"id": "a", "run_when": {"kind": "cron", "value": "61 * * * *"}}])
+    with pytest.raises(ValueError) as info:
+        state.preview_decision(bad_cron, "a", T0, {}, {})
+    assert not isinstance(info.value, KeyError)
+    bad_kind = job([{"id": "a", "run_when": {"kind": "moon", "value": "x"}}])
+    with pytest.raises(ValueError):
+        state.preview_decision(bad_kind, "a", T0, {}, {})

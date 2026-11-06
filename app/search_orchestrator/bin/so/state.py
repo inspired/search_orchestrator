@@ -473,8 +473,9 @@ def preview_decision(definition, step_id, scheduled_time, params, upstream):
     failed behind an ``on_success`` edge).
 
     It builds a synthetic run and asks ``_Eval.edge`` and ``_Eval.run_when_applies``, so it
-    follows the run rules exactly. A bad ``run_when`` raises (CronError, ValueError,
-    TypeError), where a real run would fail the step."""
+    follows the run rules exactly. An unknown ``step_id`` raises KeyError. A bad ``run_when``
+    raises CronError (a ValueError), ValueError or TypeError, where a real run would fail
+    the step."""
     steps = {}
     for sid, st in (upstream or {}).items():
         if sid != step_id and isinstance(st, dict):
@@ -483,7 +484,7 @@ def preview_decision(definition, step_id, scheduled_time, params, upstream):
            "scheduled_time": scheduled_time, "params": dict(params or {}), "steps": steps}
     ev = _Eval(run, scheduled_time)
     if step_id not in ev.steps:
-        raise ValueError("unknown step %r" % step_id)
+        raise KeyError(step_id)
     incoming = ev.incoming[step_id]
     results = [ev.edge(e) for e in incoming]
     unresolved = {e["from"] for e, r in zip(incoming, results) if r is None}

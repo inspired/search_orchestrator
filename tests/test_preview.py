@@ -1,5 +1,7 @@
 import hashlib
 
+import pytest
+
 from so import preview
 
 
@@ -36,13 +38,37 @@ def test_preview_sid_ownership():
 def test_make_sid_shape_and_other_user():
     sid = preview.make_sid("alice", "new", "daily", "abc")
     h = hashlib.sha1(b"alice").hexdigest()[:8]
-    assert sid == "so_preview_%s_new_daily_abc" % h
+    assert sid == "so_preview_%s.new.daily.abc" % h
     assert sid.startswith(preview.PREFIX)
-    # bob owning a sid built for alice's hash is still not alice's
     assert not preview.own_preview({"owner": "alice"}, preview.make_sid("bob", "new", "d", "x"),
                                    "alice", "new")
     assert not preview.own_preview({"owner": "alice"}, sid, "alice", "ne")
     assert (preview.MAX_RUNTIME, preview.TABLE_ROWS, preview.TTL) == (600, 100, 1800)
+
+
+def test_own_preview_binds_one_job_and_step():
+    alice = {"owner": "alice"}
+    for other in ("j_1", "j_a", "j-1"):
+        assert not preview.own_preview(alice, preview.make_sid("alice", other, "s", "r1"),
+                                       "alice", "j")
+    sid = preview.make_sid("alice", "j", "s_1", "r1")
+    assert preview.own_preview(alice, sid, "alice", "j")
+    assert preview.own_preview(alice, sid, "alice", "j", step_id="s_1")
+    assert not preview.own_preview(alice, sid, "alice", "j", step_id="s")
+    assert not preview.own_preview(alice, sid + ".x", "alice", "j")       # 5 parts
+    assert not preview.own_preview(alice, sid + " ", "alice", "j")        # bad sid char
+    assert not preview.own_preview(alice, sid.replace(".r1", ".r-1"), "alice", "j")  # bad rand
+    assert not preview.own_preview(alice, sid.replace(".s_1.", ".S1."), "alice", "j")  # bad step
+    assert not preview.own_preview(alice, None, "alice", "j")
+
+
+def test_make_sid_validates_parts():
+    for args in (("alice", "j.1", "s", "r"), ("alice", "", "s", "r"),
+                 ("alice", "j", "s.x", "r"), ("alice", "j", "a__b", "r"),
+                 ("alice", "j", "s", "r.1"), ("alice", "j", "s", ""),
+                 ("alice", "j", "s", "x" * 33)):
+        with pytest.raises(ValueError):
+            preview.make_sid(*args)
 
 
 def test_closure_includes_token_sources():

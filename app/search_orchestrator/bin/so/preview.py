@@ -6,6 +6,7 @@ recognised by its sid (``PREFIX``, the caller's name hash and the job) and the j
 owner as splunkd reports it.
 """
 import hashlib
+import re
 
 from . import cron as cronmod
 from . import model
@@ -18,24 +19,58 @@ TTL = 1800          # seconds a finished preview job is kept
 LOOKBACK_DAYS = 400
 
 
+SID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+JOB_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # api.JOB_ID_RE; "new" matches
+RAND_RE = re.compile(r"^[A-Za-z0-9]{1,32}$")
+_HASH_RE = re.compile(r"^[0-9a-f]{8}$")
+
+
 def _user_hash(user):
     return hashlib.sha1(str(user).encode("utf-8")).hexdigest()[:8]
 
 
-def _sid_prefix(user, job_ref):
-    return "%s%s_%s_" % (PREFIX, _user_hash(user), job_ref)
+def _valid_step(step_id):
+    return isinstance(step_id, str) and bool(model.STEP_ID_RE.fullmatch(step_id)) \
+        and "__" not in step_id
+
+
+def _parts(sid):
+    """``(hash, job_ref, step_id, rand)`` of a well-formed preview sid, else None. ``.``
+    separates the parts: it is legal in a sid and absent from job, step and rand parts."""
+    if not isinstance(sid, str) or not SID_RE.fullmatch(sid) or not sid.startswith(PREFIX):
+        return None
+    parts = sid[len(PREFIX):].split(".")
+    if len(parts) != 4:
+        return None
+    h, job_ref, step_id, rand = parts
+    if not (_HASH_RE.fullmatch(h) and JOB_REF_RE.fullmatch(job_ref) and _valid_step(step_id)
+            and RAND_RE.fullmatch(rand)):
+        return None
+    return h, job_ref, step_id, rand
 
 
 def make_sid(user, job_ref, step_id, rand):
-    """``so_preview_<sha1(user)[:8]>_<job_ref>_<step_id>_<rand>``. ``job_ref`` is the job
-    id, or ``new`` for an unsaved job."""
-    return "%s%s_%s" % (_sid_prefix(user, job_ref), step_id, rand)
+    """``so_preview_<sha1(user)[:8]>.<job_ref>.<step_id>.<rand>``. ``job_ref`` is the job
+    id, or ``new`` for an unsaved job. Raises ValueError for a malformed part."""
+    if not isinstance(job_ref, str) or not JOB_REF_RE.fullmatch(job_ref):
+        raise ValueError("bad job reference %r" % (job_ref,))
+    if not _valid_step(step_id):
+        raise ValueError("bad step id %r" % (step_id,))
+    if not isinstance(rand, str) or not RAND_RE.fullmatch(rand):
+        raise ValueError("bad random part %r" % (rand,))
+    return "%s%s.%s.%s.%s" % (PREFIX, _user_hash(user), job_ref, step_id, rand)
 
 
-def own_preview(info, sid, user, job_ref):
-    """True when ``sid`` names a preview of ``job_ref`` made for ``user`` and splunkd says
-    ``user`` owns the job (``info`` is ``preview_info``)."""
-    return (isinstance(sid, str) and sid.startswith(_sid_prefix(user, job_ref))
+def own_preview(info, sid, user, job_ref, step_id=None):
+    """True when ``sid`` is a well-formed preview sid made for ``user`` and ``job_ref``
+    (and ``step_id``, if given), and splunkd says ``user`` owns the job (``info`` is
+    ``preview_info``)."""
+    parts = _parts(sid)
+    if parts is None:
+        return False
+    h, ref, step, _ = parts
+    return (h == _user_hash(user) and ref == job_ref
+            and (step_id is None or step == step_id)
             and (info or {}).get("owner") == user)
 
 
@@ -75,7 +110,7 @@ def closure(definition, step_id):
     graph = dict(definition, edges=list(definition.get("edges") or []) + token_edges)
     try:
         order = model.topo_order(graph)
-    except ValueError:  # a token reads a later step: order by edges only
+    except ValueError:  # token refs form a cycle with the edges: order by edges only
         order = model.topo_order(definition)
     return [s for s in order if s in seen]
 
