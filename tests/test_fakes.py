@@ -62,3 +62,12 @@ def test_fake_preview_jobs():
     assert fake.preview_info("nope")["state"] == "missing"
     fake.control(sid, "cancel")
     assert fake.preview_info(sid)["state"] == "missing"
+
+
+def test_add_and_forget_job():
+    gw = FakeGateway()
+    gw.add_job("s1", result_count=4)
+    assert gw.job_status("s1")["state"] == "done" and gw.job_status("s1")["result_count"] == 4
+    gw.forget_job("s1")
+    assert gw.job_status("s1")["state"] == "missing"
+    gw.forget_job("nosuch")  # no error

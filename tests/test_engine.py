@@ -980,7 +980,7 @@ def test_rerun_with_expired_upstream_results_fails_clearly():
     w.tick(advance=5)
     w.tick(advance=5)
     assert w.run(run_id)["state"] == "blocked"
-    del w.gw.jobs[w.step(run_id, "a")["sid"]]  # a's results expired
+    w.gw.forget_job(w.step(run_id, "a")["sid"])  # a's results expired
     w.gw.script_job(j["steps"][1]["hidden_search"], ["done"])
     w.command(type="rerun", run_id=run_id, step_id="b", definition="original")
     w.tick(advance=5)
@@ -1439,8 +1439,7 @@ def test_previous_input_bad_sid_fails_the_attempt():
     run = w.run(run_id)
     run["steps"]["a"]["sid"] = bad
     w.store.save_run(run)
-    w.gw.jobs[bad] = {"states": ["done"], "idx": 0, "result_count": 1, "first": None,
-                      "error": None}
+    w.gw.add_job(bad)
     w.tick(advance=5)
     w.tick(advance=5)
     assert w.step(run_id, "a")["state"] == "succeeded"

@@ -1032,8 +1032,7 @@ def run_with(w, job, steps):
 
 def kept(w, *sids):
     for sid in sids:
-        w.gw.jobs[sid] = {"states": ["done"], "idx": 0, "result_count": 1, "first": None,
-                          "error": None}
+        w.gw.add_job(sid)
 
 
 def test_preview_runs_as_caller_with_scheduled_now(w):
@@ -1433,7 +1432,7 @@ def test_preview_live_failed_grandparent_is_upstream_failed(w):
 def test_preview_poll_gone_job_is_missing(w):
     _, out = preview(w)
     sid = out["sid"]
-    del w.gw.jobs[sid]  # expired or deleted in splunkd
+    w.gw.forget_job(sid)  # expired or deleted in splunkd
     status, out = w.call("alice", "GET", "/orchestrator/preview/" + sid)
     assert status == 200 and out["state"] == "missing" and out["result_count"] == 0
     assert set(out) == {"state", "result_count", "error", "truncated", "run_duration", "messages"}

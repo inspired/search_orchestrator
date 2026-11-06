@@ -82,6 +82,17 @@ class FakeGateway:
                                "first": first, "error": error, "truncated": truncated,
                                "rows": list(rows or []), "run_duration": run_duration}
 
+    def add_job(self, sid, state="done", result_count=1, first=None, owner=None):
+        """A search job splunkd has under ``sid`` that no dispatch here made (a run's
+        result, or a sid a test plants), in ``state``; ``owner`` as ``preview_info``
+        reports it."""
+        self.jobs[sid] = {"states": [state], "idx": 0, "result_count": result_count,
+                          "first": first, "error": None, "owner": owner}
+
+    def forget_job(self, sid):
+        """splunkd no longer has the job: it expired or was deleted."""
+        self.jobs.pop(sid, None)
+
     def fail_dispatch(self, name, transient, times=1):
         self._dispatch_errors[name] = [transient] * times
 
