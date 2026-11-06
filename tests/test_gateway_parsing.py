@@ -456,7 +456,7 @@ def test_preview_dispatch_request_shape():
                                                            "search_orchestrator")
     assert kw["search"] == "| makeresults" and kw["id"] == "so_preview_abc"
     assert kw["now"] == 1794272400 and kw["exec_mode"] == "normal"
-    assert (kw["auto_cancel"], kw["timeout"]) == (60, 1800)
+    assert (kw["auto_cancel"], kw["timeout"]) == (180, 1800)
     assert (kw["earliest_time"], kw["latest_time"]) == ("-1d@d", "@d")
     svc.calls.clear()
     gw.preview_dispatch("alice", "| x", "", None, 1, "so_preview_abc")

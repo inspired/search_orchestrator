@@ -192,8 +192,8 @@ def parse_preview_results(body):
 
 def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
     """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
-    sid, ``now`` as the time base, cancelled 60 s after the last poll stops, kept 1800 s."""
-    params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 60,
+    sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s."""
+    params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 180,
               "timeout": 1800, "exec_mode": "normal"}
     if earliest:
         params["earliest_time"] = earliest

@@ -125,7 +125,7 @@ The job editor can run a step and show its rows. See [Previewing steps](user-gui
 
 - **Who:** `orchestrator_build` or `orchestrator_admin`, plus the right to edit the job. The REST handler checks this on every request.
 - **Runs as the caller.** A preview is an ad-hoc search dispatched as the user, in the Search Orchestrator app namespace (`servicesNS/<user>/search_orchestrator`). It is never run as the job owner or the system user, and it sees only what that user can see. Search job ids start with `so_preview_`.
-- **Auto-cancel:** 60 seconds. A preview that nobody polls, such as after a closed tab, is cancelled.
+- **Auto-cancel:** 180 seconds. A running preview that nobody polls, such as after a closed tab, is cancelled. The margin covers browsers that slow timers in background tabs.
 - **TTL:** 1800 seconds (30 minutes) once finished. The editor keeps it alive while it uses the preview.
 - **Runtime cap:** the smaller of the step's max runtime and 600 seconds.
 - **Rows:** the search isn't row-capped, so later previews read all rows. The table shows 100.
