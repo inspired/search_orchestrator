@@ -1,5 +1,5 @@
 []
-access = read : [ * ], write : [ admin ]
+access = read : [ * ], write : [ admin, sc_admin ]
 export = none
 
 # The app's pages stay in this app.
@@ -34,7 +34,7 @@ access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 
 [savedsearches/_so_fallback_email]
-access = read : [ admin ], write : [ admin ]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 export = none
 
 # | orchestrate and the "Start orchestrator job" alert action are usable from any app.
