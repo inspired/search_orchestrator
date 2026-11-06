@@ -1506,3 +1506,18 @@ def test_previous_old_definition_without_empty_search_fails_with_resave_message(
                           "job to create it")
     assert not w.dispatched("p")
     assert w.run(run_id)["state"] in ("failed", "blocked")
+
+
+def test_old_previous_step_with_time_range_dispatches_without_one():
+    # Saved before 1.1.0, a previous step may still carry earliest/latest in its definition.
+    w = World()
+    j = w.add_job(make_job(steps=[{"id": "a", "earliest": "-1d", "latest": "now"},
+                                  {"id": "p", "type": "previous", "spl": "| stats count",
+                                   "earliest": "-7d", "latest": "now"}],
+                           edges=[("a", "p")]))
+    run_id = cron_run(w, j)
+    for _ in range(3):
+        w.tick(advance=5)
+    assert [(d["earliest"], d["latest"]) for d in w.dispatched("a")] == [("-1d", "now")]
+    assert [(d["earliest"], d["latest"]) for d in w.dispatched("p")] == [(None, None)]
+    assert w.step(run_id, "p")["state"] == "succeeded"

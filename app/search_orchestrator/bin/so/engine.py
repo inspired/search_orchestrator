@@ -1009,6 +1009,11 @@ class Engine:
             problem = self._direct_problem(run, name)
             if problem is not None:
                 return self._attempt_failed(run, sid, problem, now, pending)
+        earliest, latest = sdef.get("earliest"), sdef.get("latest")
+        if sdef.get("type") == "previous":
+            # Its input is search results, not events: no time range, even on a step stored
+            # with one before 1.1.0 stopped saving it.
+            earliest = latest = None
         # Never dispatch without the lease: if another member took it, stop here. The step
         # stays starting with no search, and the new leader checks history first.
         self._keep_lease(force=True)
@@ -1016,7 +1021,7 @@ class Engine:
             # A direct-mode saved search (spec section 9) keeps its own summary indexing
             # and actions; hidden searches never have any.
             search_id = self.gw.dispatch(run.get("owner"), name, int(run["scheduled_time"]), args,
-                                         sdef.get("earliest"), sdef.get("latest"),
+                                         earliest, latest,
                                          trigger_actions=sdef.get("mode") == "direct")
         except DispatchError as err:
             _check_auth(err)
