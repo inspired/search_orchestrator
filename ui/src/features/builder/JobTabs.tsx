@@ -14,7 +14,8 @@ import AccessTab from './AccessTab';
 import ActionsEditor from './ActionsEditor';
 import ParamsTab from './ParamsTab';
 import type { BuilderAction } from './reducer';
-import { BUILTIN_DEFAULTS, DurationField } from './StepPanel';
+import { BUILTIN_DEFAULTS } from './previewLogic';
+import { DurationField } from './StepPanel';
 import TriggersTab from './TriggersTab';
 
 export interface JobTabsProps {

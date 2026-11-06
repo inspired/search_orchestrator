@@ -78,7 +78,8 @@ describe('StepPanel', () => {
         job.steps[2] = { id: 'c', type: 'previous', spl: '| stats count' };
         renderPanel(job, 'c');
         expect(screen.getByText('Input (added for you)')).toBeInTheDocument();
-        expect(screen.getByText('| loadjob ‹b› | append [| loadjob ‹a›]')).toBeInTheDocument();
+        // The label names the read-only input (aria-labelledby from ControlGroup).
+        expect(screen.getByLabelText('Input (added for you)')).toHaveTextContent('| loadjob ‹b› | append [| loadjob ‹a›]');
         expect(screen.getByText('Starts with |. Results of the steps before this one come first.')).toBeInTheDocument();
         expect(screen.getByLabelText('Search')).toHaveValue('| stats count');
         expect(screen.queryByLabelText('Earliest')).not.toBeInTheDocument();

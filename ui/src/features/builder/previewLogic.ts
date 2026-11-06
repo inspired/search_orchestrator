@@ -3,7 +3,7 @@
 import type { Edge, JobDefinition, SkipKind, StepDef } from '../../api/types';
 
 /** model.BUILTIN_DEFAULTS */
-const BUILTIN_DEFAULTS = { delayed_after: 3600, give_up_after: 86400, max_runtime: 14400, retries: 0 };
+export const BUILTIN_DEFAULTS = { delayed_after: 3600, give_up_after: 86400, max_runtime: 14400, retries: 0 };
 
 const FIELD = '[A-Za-z0-9_]+';
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -155,7 +155,8 @@ export interface PreviewContext {
 
 export type UpstreamKeys = Record<string, { key: string; sid?: string; skipped?: SkipKind }>;
 
-/** JSON with object keys sorted and undefined dropped, so equal values give equal text. */
+/** JSON with object keys sorted and null or undefined members dropped (an absent optional
+ * field and a null one mean the same), so equal values give equal text. */
 function stable(value: unknown): unknown {
     if (Array.isArray(value)) {
         return value.map(stable);
@@ -166,7 +167,7 @@ function stable(value: unknown): unknown {
             .sort()
             .forEach((k) => {
                 const v = (value as Record<string, unknown>)[k];
-                if (v !== undefined) {
+                if (v !== undefined && v !== null) {
                     out[k] = stable(v);
                 }
             });
@@ -175,8 +176,8 @@ function stable(value: unknown): unknown {
     return value;
 }
 
-/** What a step's preview depends on, as text: the step (without its display name, with
- * inherited defaults resolved), the edges into it, the time zone, "as if scheduled at",
+/** What a step's preview depends on, as text: the step (without its display name and its
+ * actions, which don't change what a preview shows; with inherited defaults resolved), the edges into it, the time zone, "as if scheduled at",
  * the params it references, where the inputs come from, and each upstream step's key and
  * sid. A live preview is valid while this is unchanged. */
 export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewContext, upstreamKeys: UpstreamKeys): string {
@@ -187,6 +188,7 @@ export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewConte
     const defaults = job.defaults || {};
     const resolved: Record<string, unknown> = { ...step };
     delete resolved.name;
+    delete resolved.actions;
     (Object.keys(BUILTIN_DEFAULTS) as (keyof typeof BUILTIN_DEFAULTS)[]).forEach((k) => {
         const own = step[k];
         const inherited = defaults[k];
@@ -226,6 +228,29 @@ export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewConte
             upstream,
         })
     );
+}
+
+/** Every step's current key, each built from its upstream steps' current keys and the
+ * sids (or skips) of their previews in `previews`. */
+export function previewKeys(
+    job: JobDefinition,
+    ctx: PreviewContext,
+    previews: Record<string, LivePreview | undefined>
+): Record<string, string> {
+    const out: Record<string, string> = {};
+    const keyOf = (id: string): string => {
+        if (!(id in out)) {
+            const ups: UpstreamKeys = {};
+            upstreamOf(job, id).forEach((u) => {
+                const p = previews[u];
+                ups[u] = { key: keyOf(u), sid: p?.sid, skipped: p?.skipped };
+            });
+            out[id] = previewKey(job, id, ctx, ups);
+        }
+        return out[id];
+    };
+    (job.steps || []).forEach((s) => keyOf(s.id));
+    return out;
 }
 
 /** A step's preview in this tab. `missing`: the server no longer has its search job. */

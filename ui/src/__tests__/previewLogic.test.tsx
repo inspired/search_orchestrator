@@ -5,6 +5,7 @@ import {
     LivePreview,
     PreviewContext,
     previewKey,
+    previewKeys,
     toBeRun,
     upstreamOf,
 } from '../features/builder/previewLogic';
@@ -19,21 +20,11 @@ const job = (steps: StepDef[], edges: JobDefinition['edges'] = [], over: Partial
 
 const ctx: PreviewContext = { scheduledTime: 1000, params: {}, source: 'live' };
 
-/** Every step's current key, each built from its upstream's current keys and sids. */
-function keysOf(j: JobDefinition, c: PreviewContext, previews: Record<string, LivePreview>) {
-    const memo: Record<string, string> = {};
-    const keyOf = (id: string): string => {
-        if (!(id in memo)) {
-            const ups: Record<string, { key: string; sid?: string }> = {};
-            upstreamOf(j, id).forEach((u) => {
-                ups[u] = { key: keyOf(u), sid: previews[u]?.sid };
-            });
-            memo[id] = previewKey(j, id, c, ups);
-        }
-        return memo[id];
-    };
-    return keyOf;
-}
+/** Every step's current key, through previewKeys. */
+const keysOf = (j: JobDefinition, c: PreviewContext, previews: Record<string, LivePreview>) => {
+    const keys = previewKeys(j, c, previews);
+    return (id: string) => keys[id];
+};
 
 const chain = () =>
     job(
@@ -142,7 +133,15 @@ describe('previewLogic', () => {
         const edited = {
             ...j,
             triggers: [{ type: 'cron', cron: '0 1 * * *' }],
-            steps: j.steps.map((s) => (s.id === 'x' ? { ...s, spl: '| makeresults count=9' } : s.id === 'b' ? { ...s, name: 'Bee' } : s)),
+            steps: j.steps.map((s) => {
+                if (s.id === 'x') {
+                    return { ...s, spl: '| makeresults count=9' };
+                }
+                if (s.id === 'b') {
+                    return { ...s, name: 'Bee', actions: [{ hook: 'on_success' as const, type: 'email' as const, to: 'a@b.c' }] };
+                }
+                return s;
+            }),
         };
         const after = keysOf(edited, ctx, {});
         ['a', 'b', 'c'].forEach((id) => expect(after(id)).toBe(before(id)));
@@ -165,5 +164,17 @@ describe('previewLogic', () => {
         expect(previewKey(job(steps, [], { params }), 'a', { ...ctx, params: { other: 'y' } }, {})).toBe(base);
         expect(previewKey(job(steps, [], { params }), 'a', { ...ctx, params: { host: 'db' } }, {})).not.toBe(base);
         expect(previewKey(job(steps, [], { params }), 'a', { ...ctx, source: 'run1' }, {})).not.toBe(base);
+        // An absent optional field and a null one are the same.
+        const nulls = [{ ...steps[0], run_when: null, delayed_after: null, max_runtime: undefined }];
+        expect(previewKey(job(nulls, [], { params }), 'a', ctx, {})).toBe(base);
+    });
+
+    test('previewKeys gives every step its key from its upstream keys and sids', () => {
+        const j = chain();
+        const previews: Record<string, LivePreview> = { a: { key: 'K', sid: 'sa', state: 'done', startedAt: 1 } };
+        const keys = previewKeys(j, ctx, previews);
+        expect(Object.keys(keys).sort()).toEqual(['a', 'b', 'c', 'x']);
+        expect(keys.b).toBe(previewKey(j, 'b', ctx, { a: { key: keys.a, sid: 'sa' } }));
+        expect(keys.c).toBe(previewKey(j, 'c', ctx, { a: { key: keys.a, sid: 'sa' }, b: { key: keys.b } }));
     });
 });

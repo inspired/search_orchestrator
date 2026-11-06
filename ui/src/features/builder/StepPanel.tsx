@@ -15,12 +15,9 @@ import Typography from '@splunk/react-ui/Typography';
 import type { Destination, Issue, JobDefinition, StepDef } from '../../api/types';
 import ActionsEditor from './ActionsEditor';
 import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
-import { generatedInput } from './previewLogic';
+import { BUILTIN_DEFAULTS, generatedInput } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
-
-/** model.BUILTIN_DEFAULTS */
-export const BUILTIN_DEFAULTS = { delayed_after: 3600, give_up_after: 86400, max_runtime: 14400, retries: 0 };
 
 export function formatMinutes(seconds: number): string {
     if (seconds % 3600 === 0 && seconds >= 3600) {
