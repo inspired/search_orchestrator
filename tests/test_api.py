@@ -1578,3 +1578,25 @@ def test_stored_previous_step_with_old_time_range_is_flagged_until_resaved(w):
     assert status == 200, out
     status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
     assert out["job"]["warnings"] == []
+
+
+def test_preview_run_results_forbidden_for_a_non_admin_editor(w):
+    # bob owns and may edit the job now; the run (and its search job) is alice's.
+    run_id = run_with(w, chain_job(), {"a": {"state": "succeeded", "sid": "run_a",
+                                             "result_count": 1}})
+    stored = w.store.get_job("daily")
+    w.store.save_job(dict(stored, owner="bob"))
+    w.gw.add_job("run_a", owner="alice")
+    w.user_overrides["preview_info"] = lambda sid: dict(w.gw.preview_info("gone"))  # hidden
+    body = {"job": chain_job(), "step_id": "b", "input": {"mode": "run", "run_id": run_id}}
+    status, out = preview(w, "bob", **body)
+    assert status == 403 and error(out) == "run_results_forbidden", out
+    assert out["error"]["message"] == ("you may not read a's results from that run; only its "
+                                       "owner or an admin can")
+    assert ("system", "preview_info") in w.calls
+    # A caller who may not edit the job is refused before splunkd is asked anything.
+    for user in ("carol", "alice"):
+        w.calls.clear()
+        status, out = preview(w, user, **body)
+        assert status in (403, 404), (user, out)
+        assert not [c for c in w.calls if c[1] == "preview_info"], (user, w.calls)
