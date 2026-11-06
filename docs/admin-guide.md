@@ -170,7 +170,7 @@ If a job owner's Splunk account is removed, that job's runs fail with a clear er
 
 Follow a run with `| orchestrate status run="<run id>"`, or on the Runs page.
 
-A job runs one run at a time, so a self-test run waits while an earlier run of the same self-test job is running, blocked or paused. The command then says so: `queued behind run <id>, which is blocked: cancel it with | orchestrate cancel run="<id>"`, with the run in `queued_behind` and its state in `queued_behind_state`.
+A job runs one run at a time, so a self-test run waits while another run of the same self-test job is running, blocked or paused, or is queued and goes first (re-runs first, then by scheduled time). The command then says so: `queued behind run <id>, which is blocked: cancel it with | orchestrate cancel run="<id>"`, with the run in `queued_behind` and its state in `queued_behind_state`.
 
 **What it leaves behind.** The self-test jobs stay after they run, so they can be run again:
 

@@ -17,7 +17,8 @@ from the gateways it is given. ``deps``:
 "basic"|"rollup_late"|"rollup_fail", "slow_n", "delayed_after",
 "scheduled_time"}`` saves the built-in job (``selftest.py``) as the caller and
 starts a run (``{"job_id", "run_id", ...}``, plus ``"queued_behind": {"run_id",
-"state"}`` when an active run of the job keeps it queued); ``"probe"`` returns
+"state"}`` when an active run of the job, or a queued one promoted first, keeps it
+queued); ``"probe"`` returns
 ``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
 ``write(event)``, which raises on failure, for the probe's audit check.
 
@@ -47,7 +48,7 @@ from urllib.parse import unquote, urlsplit
 
 from . import authz, hidden, model, preview, scheduler, selftest, tokens
 from . import cron as cronmod
-from .engine import DEFAULT_SETTINGS
+from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
 from .lease import COLLECTION as LOCKS
 from .lease import KEY as LEASE_KEY
@@ -1034,12 +1035,21 @@ def run_selftest(ctx, body):
 
 
 def _queued_behind(ctx, job, run_id):
-    """``{"run_id", "state"}`` of the active run of ``job`` that keeps the new run
-    ``run_id`` queued (one run per job at a time), or None. The self-test jobs use
-    ``after_give_up: continue``, so a failed run never holds their queue."""
-    live = [r for r in ctx.store.list_runs({"job_id": job["id"], "state": {"$in": [
-        "running", "blocked", "paused"]}}, fields=LIST_FIELDS) if r.get("id") != run_id]
-    if not live:
+    """``{"run_id", "state"}`` of the run of ``job`` that keeps the new run ``run_id``
+    queued (one run per job at a time), or None: the oldest active run, else the queued
+    run the engine promotes first (``engine.promotion_order``), if it goes before the new
+    one. The self-test jobs use ``after_give_up: continue``, so a failed run never holds
+    their queue."""
+    rows = [r for r in ctx.store.list_runs({"job_id": job["id"], "state": {"$in": [
+        "running", "blocked", "paused", "queued"]}}, fields=LIST_FIELDS)
+        if r.get("id") != run_id]
+    live = [r for r in rows if r.get("state") != "queued"]
+    if live:
+        oldest = min(live, key=lambda r: int(r.get("created_at") or 0))
+        return {"run_id": oldest.get("id"), "state": oldest.get("state")}
+    new = ctx.store.get_run(run_id) or {}
+    ahead = [r for r in rows if promotion_order(r) < promotion_order(new)]
+    if not ahead:
         return None
-    oldest = min(live, key=lambda r: int(r.get("created_at") or 0))
-    return {"run_id": oldest.get("id"), "state": oldest.get("state")}
+    first = min(ahead, key=promotion_order)
+    return {"run_id": first.get("id"), "state": first.get("state")}

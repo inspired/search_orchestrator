@@ -133,6 +133,13 @@ def _run_id(run):
     return run.get("_key") or run.get("id")
 
 
+def promotion_order(run):
+    """Sort key for which queued run of a job is promoted first: re-runs, then the
+    earliest scheduled time, then the oldest, then the run id."""
+    return (0 if run.get("rerun_count") else 1, int(run.get("scheduled_time") or 0),
+            int(run.get("created_at") or 0), _run_id(run))
+
+
 def _scalar(value):
     if isinstance(value, list):
         return value[0] if value else None
@@ -510,9 +517,7 @@ class Engine:
             queued = [r for r in job_runs if r.get("state") == "queued"]
             if not queued:
                 continue
-            run = min(queued, key=lambda r: (0 if r.get("rerun_count") else 1,
-                                             int(r.get("scheduled_time") or 0),
-                                             int(r.get("created_at") or 0), _run_id(r)))
+            run = min(queued, key=promotion_order)
             on_time = (run.get("trigger") == "cron" and not run.get("catchup")
                        and not run.get("rerun_count"))
             pending = _Pending()

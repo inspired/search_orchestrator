@@ -274,3 +274,32 @@ def test_selftest_says_when_queued_behind_another_run():
     # The self-test jobs never hold their queue after a failure.
     assert all(j["after_give_up"] == "continue" for j in w.store.list_jobs()
                if j["id"].startswith("so_selftest"))
+
+
+def test_selftest_queued_behind_names_the_queued_run_promotion_takes_first():
+    w = World()
+
+    def selftest_at(t):
+        status, out = w.call("root", "POST", "/orchestrator/selftest",
+                             {"scenario": "basic", "scheduled_time": t})
+        assert status == 201, out
+        return out
+
+    early = selftest_at(1000)["run_id"]  # queued: the engine hasn't promoted it
+    out = selftest_at(2000)
+    assert out["queued_behind"] == {"run_id": early, "state": "queued"}
+    # A queued re-run goes first, whatever its scheduled time.
+    rerun = selftest_at(5000)["run_id"]
+    w.store.save_run(dict(w.store.get_run(rerun), rerun_count=1))
+    out = selftest_at(3000)
+    assert out["queued_behind"] == {"run_id": rerun, "state": "queued"}
+    # Nothing ahead of it: only runs a promotion would take first count.
+    for r in w.store.list_runs({"job_id": "so_selftest"}):
+        if r["id"] != early:
+            w.store.save_run(dict(r, state="cancelled"))
+    out = selftest_at(500)
+    assert "queued_behind" not in out
+    # An active run blocks before any queued one.
+    w.store.save_run(dict(w.store.get_run(early), state="running"))
+    out = selftest_at(400)
+    assert out["queued_behind"] == {"run_id": early, "state": "running"}

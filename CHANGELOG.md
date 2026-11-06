@@ -4,7 +4,7 @@
 
 Step preview follow-ups.
 
-- `| orchestrate selftest` says when its new run is queued behind an active run of the same self-test job, names that run and its state, and says how to cancel it (`queued_behind`, `queued_behind_state`).
+- `| orchestrate selftest` says when its new run is queued behind another run of the same self-test job (an active one, or a queued one that goes first), names that run and its state, and says how to cancel it (`queued_behind`, `queued_behind_state`).
 - A preview with a past run as input tells results Splunk won't show you (403 `run_results_forbidden`: "you may not read <step>'s results from that run; only its owner or an admin can") apart from expired ones (410 `run_results_expired`).
 - A dependency cycle or a malformed job still blocks every preview, now with a message that names it: "the job has a cycle: a → b → a; fix it before previewing".
 - Jobs saved before 1.1.0 with a From previous steps step keep that step's old time range until they are re-saved: its hidden saved search still holds it. Validation now warns about such a step (`previous_old_time_range`, "re-save the job to drop this step's old time range"), in the editor and under the job's name on the Jobs page. The engine no longer sends a time range override for the step.
