@@ -12,6 +12,7 @@ from . import cron as cronmod
 from . import expr as exprmod
 from . import tokens as tk
 
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # job ids; also preview sids' job part
 STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")  # and no "__": arg names use it
 PARAM_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 BUILTIN_DEFAULTS = {"delayed_after": 3600, "give_up_after": 86400,

@@ -76,7 +76,7 @@ from .lease import KEY as LEASE_KEY
 from .lease import LEASE_SECONDS
 from .store import ACTIVE_RUN_STATES, COMMANDS, RUNS, SETTINGS, Store
 
-JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+JOB_ID_RE = model.JOB_ID_RE
 DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 RESERVED_JOB_IDS = ("validate", "new")  # route keywords under jobs/; "new": unsaved previews
 DESTINATIONS_KEY = "destinations"

@@ -20,7 +20,7 @@ LOOKBACK_DAYS = 400
 
 
 SID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-JOB_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # api.JOB_ID_RE; "new" matches
+JOB_REF_RE = model.JOB_ID_RE  # a job id, or "new" (which matches it) for an unsaved job
 RAND_RE = re.compile(r"^[A-Za-z0-9]{1,32}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{8}$")
 

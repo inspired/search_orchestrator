@@ -99,3 +99,24 @@ def test_own_sid_is_static():
     assert not preview.own_sid(sid, "alice", "j", "s_2")
     assert not preview.own_sid("x", "alice", "j") and not preview.own_sid(None, "alice", "j")
     assert not preview.own_preview({"owner": "bob"}, sid, "alice", "j")
+
+
+def test_job_ref_pattern_is_the_job_id_pattern():
+    import itertools
+    import re
+
+    from so import api, model
+    assert preview.JOB_REF_RE is model.JOB_ID_RE and api.JOB_ID_RE is model.JOB_ID_RE
+    first = "aZ09"
+    rest = "aZ09_-"
+    valid = ["new", "a", "Z", "0", "a" * 64, "0-_", "daily_summary-2"]
+    valid += [f + "".join(r) for f in first for r in itertools.product(rest, repeat=2)]
+    for job_id in valid:
+        assert api._is_job_id(job_id), job_id
+        sid = preview.make_sid("alice", job_id, "a", "r1")
+        assert preview.parts(sid)[1] == job_id
+    for bad in ("", "_a", "-a", "a" * 65, "a.b", "a b", "a/b"):
+        assert not model.JOB_ID_RE.fullmatch(bad)
+        with pytest.raises(ValueError):
+            preview.make_sid("alice", bad, "a", "r1")
+    assert re.compile(model.JOB_ID_RE.pattern).fullmatch("new")

@@ -29,9 +29,8 @@ sys.path.insert(0, os.path.join(_BIN, "..", "lib"))
 sys.path.insert(0, _BIN)
 
 from so.gateway import SplunkGateway  # noqa: E402
+from so.model import JOB_ID_RE  # noqa: E402
 from so.selftest import scrub  # noqa: E402
-
-JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 def parse_params(text):
