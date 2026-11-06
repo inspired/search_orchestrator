@@ -25,7 +25,10 @@ Crash safety
 * Step start: save ``state="starting"`` with ``intent_at``, render args,
   dispatch, save the search ID. A ``starting`` step with no search ID (and no
   ``outcome``) found later asks ``gateway.history(owner, name, intent_at)``,
-  adopts the newest job, or dispatches if there is none. Adoption runs before
+  adopts the newest job, or dispatches if there is none. In direct mode (the
+  owner's own saved search, which may also run on its own) only a job whose
+  ``dispatch.now`` (or published time) equals the run's scheduled time is
+  adopted; other jobs there make the outcome unknown. Adoption runs before
   evaluate, so a cancel or give-up cancels the adopted search; re-dispatch runs
   after evaluate, only if the step is still wanted. A transient history
   error leaves the step ``starting`` (in flight) and evaluate still runs, so
@@ -62,7 +65,9 @@ Crash safety
   before the run recording it in ``hooks_fired`` is saved, so a replayed tick
   never submits twice.
 * Searches are cancelled before the run that records the cancellation is
-  saved; a failed cancel skips the run's save so it is retried.
+  saved; a failed cancel skips the run's save so it is retried, for at most
+  UNKNOWN_LIMIT seconds; then the search is audited as
+  ``possible_orphan_search`` and the run proceeds.
 * A KV Store error aborts the tick without raising. Every write is a whole
   document, so a run is never half-written; the next tick re-derives the same
   decisions. An HTTP 401 (expired session key) raises ``AuthExpired`` and
@@ -132,6 +137,15 @@ def _scalar(value):
     if isinstance(value, list):
         return value[0] if value else None
     return value
+
+
+def _dispatched_for(detail, scheduled):
+    """Was this history job dispatched with ``dispatch.now`` = ``scheduled``? Without a
+    ``dispatch.now``, its published time must equal it."""
+    when = detail.get("dispatch_now")
+    if when is None:
+        when = detail.get("published")
+    return when is not None and int(when) == int(scheduled)
 
 
 def first_fields(definition):
@@ -575,7 +589,7 @@ class Engine:
             if kind == "set_step":
                 self._set_step(run, effect[1], effect[2], pending, now)
             elif kind == "cancel_search":
-                self._control(effect[2], "cancel", strict=True)
+                self._strict_cancel(run, effect[1], effect[2], now, pending)
             elif kind == "set_run":
                 self._set_run(run, effect[1], pending, now)
             elif kind == "hook":
@@ -666,8 +680,14 @@ class Engine:
                     trigger="completion", error="Job chain depth limit (%d) reached" % CHAIN_LIMIT))
                 continue
             if access is None:
-                access = self.gw.user_access(owner) if owner else {"roles": [],
-                                                                   "capabilities": []}
+                access = self._completion_access(run, owner, now)
+            if access.get("error"):
+                pending.events.append(self._event(
+                    run, "run_rejected", now, reason="permission_check_failed",
+                    target_job=job_id, trigger="completion",
+                    error="could not check whether owner %r may run job %r: %s"
+                          % (owner, job_id, access["error"])))
+                continue
             if not authz.can_run(owner, job, access["roles"], access["capabilities"]):
                 pending.events.append(self._event(
                     run, "run_rejected", now, reason="permission", target_job=job_id,
@@ -687,6 +707,27 @@ class Engine:
                 pending.events.append(self._event(run, "completion_fired", now,
                                                   target_job=job_id, target_run_id=created,
                                                   outcome=run.get("state")))
+
+    def _completion_access(self, run, owner, now):
+        """The upstream owner's roles and capabilities. A lookup error skips the run's
+        save (retried next tick), bounded at UNKNOWN_LIMIT seconds from the first failure
+        (kept on the stored run as ``access_failing_at``); then ``{"error": ...}``, so
+        the completion is rejected and the upstream run closes."""
+        if not owner:
+            return {"roles": [], "capabilities": []}
+        try:
+            return self.gw.user_access(owner)
+        except GatewayError as err:
+            _check_auth(err)
+            first = int(run.get("access_failing_at") or now)
+            if now - first >= UNKNOWN_LIMIT:
+                return {"roles": [], "capabilities": [], "error": str(err)}
+            if first == now:
+                fresh = self.store.get_run(_run_id(run))
+                if fresh is not None:
+                    fresh["access_failing_at"] = first
+                    self.store.save_run(fresh)
+            raise
 
     def _save(self, run, pending):
         self.store.save_run(run)
@@ -725,6 +766,33 @@ class Engine:
             if strict and err.transient:
                 raise  # cancel must succeed before the run records it
             log.warning("%s of search %s failed: %s", action, sid, err)
+
+    def _strict_cancel(self, run, step_id, sid, now, pending):
+        """Cancel a search before the run records it. A transient failure skips the
+        run's save (retried next tick), bounded at UNKNOWN_LIMIT seconds from the first
+        failure (kept on the stored run as ``cancel_failing``); then the search is
+        audited as ``possible_orphan_search`` and the run proceeds."""
+        try:
+            self.gw.control(sid, "cancel")
+            return
+        except GatewayError as err:
+            _check_auth(err)
+            if not err.transient:
+                log.warning("cancel of search %s failed: %s", sid, err)
+                return
+            first = int((run.get("cancel_failing") or {}).get(sid) or now)
+            if now - first < UNKNOWN_LIMIT:
+                if first == now:  # remember the first failure, without this tick's changes
+                    fresh = self.store.get_run(_run_id(run))
+                    if fresh is not None:
+                        fresh.setdefault("cancel_failing", {})[sid] = first
+                        self.store.save_run(fresh)
+                raise
+            log.warning("cancel of search %s kept failing; giving up on it: %s", sid, err)
+            pending.events.append(self._event(
+                run, "possible_orphan_search", now, step_id=step_id, sid=sid,
+                owner=run.get("owner"),
+                reason="cancel kept failing for %d s: %s" % (now - first, err)))
 
     def _touch(self, run, now):
         if now - int(run.get("touched_at") or 0) < TOUCH_EVERY:
@@ -803,12 +871,26 @@ class Engine:
         name = sdef.get("hidden_search")
         if not name:
             return "none", None
+        direct = sdef.get("mode") == "direct"
         try:
-            found = self.gw.history(run.get("owner"), name, st.get("intent_at") or now)
+            since = st.get("intent_at") or now
+            if direct:
+                details = self.gw.history_details(run.get("owner"), name, since)
+            else:
+                found = self.gw.history(run.get("owner"), name, since)
         except GatewayError as err:
             _check_auth(err)
             log.warning("history of %s failed: %s", name, err)
             return ("unknown" if err.transient else "error"), str(err)
+        if direct:
+            # The owner's own search may also run by hand or on its own schedule: adopt
+            # only a job dispatched for this run's scheduled time.
+            if not details:
+                return "none", None
+            found = [d["sid"] for d in details if _dispatched_for(d, run["scheduled_time"])]
+            if not found:
+                return "unknown", ("saved search %r ran since the dispatch, but not for "
+                                   "scheduled time %d" % (name, int(run["scheduled_time"])))
         if not found:
             return "none", None
         self._set_step(run, sid, {"state": "running", "sid": found[0],
@@ -895,6 +977,10 @@ class Engine:
         except tokens.TokenError as err:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
+        if sdef.get("mode") == "direct":
+            problem = self._direct_problem(run, name)
+            if problem is not None:
+                return self._attempt_failed(run, sid, problem, now, pending)
         # Never dispatch without the lease: if another member took it, stop here. The step
         # stays starting with no search, and the new leader checks history first.
         self._keep_lease(force=True)
@@ -932,6 +1018,26 @@ class Engine:
                                           owner=run.get("owner"),
                                           dispatch_now=int(run["scheduled_time"])))
         return None
+
+    def _direct_problem(self, run, name):
+        """Re-check a direct-mode saved search with the system session right before its
+        dispatch: it must still be the owner's private search with dispatchAs = owner,
+        or the system session's dispatch might not run as the owner. None if it is."""
+        owner = run.get("owner")
+        try:
+            info = self.gw.saved_search_info(owner, name)
+        except GatewayError as err:
+            _check_auth(err)
+            if err.transient:
+                raise  # the step stays starting; checked again next tick
+            return "could not check saved search %r before running it: %s" % (name, err)
+        if (info.get("exists") and info.get("owner") == owner and info.get("sharing") == "user"
+                and info.get("dispatch_as") == "owner"):
+            return None
+        return ("saved search %r is no longer a private search of %s with dispatchAs = owner "
+                "(owner %s, sharing %s, dispatchAs %s), so it was not run; re-save the job to "
+                "run it through a wrapper" % (name, owner, info.get("owner"), info.get("sharing"),
+                                              info.get("dispatch_as")))
 
     def _expired_upstream(self, run, sid):
         """For a re-run: (kind, upstream step, reason) with kind "expired", "unknown"

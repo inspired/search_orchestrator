@@ -120,6 +120,7 @@ const SERVER_FIELDS = [
     'owner',
     'permissions',
     'next_run',
+    'next_run_beyond',
     'last_run',
     'hidden_searches',
     'created_at',
@@ -156,6 +157,11 @@ export function createJob(job: JobDefinition): Promise<SaveResponse> {
 
 export function updateJob(jobId: string, job: JobDefinition | Job): Promise<SaveResponse> {
     return request<SaveResponse>('PUT', `jobs/${enc(jobId)}`, { body: toDefinition(job) });
+}
+
+/** Enable or disable a job. The owner is kept: nobody takes the job over. */
+export function setJobEnabled(jobId: string, enabled: boolean): Promise<{ job: Job }> {
+    return request<{ job: Job }>('POST', `jobs/${enc(jobId)}/enabled`, { body: { enabled } });
 }
 
 export function deleteJob(jobId: string): Promise<{ deleted: string }> {

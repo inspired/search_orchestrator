@@ -123,7 +123,7 @@ def test_restart_downstream_also_restarts_start_job_action():
                    scripts={"a": {"states": ["failed"], "error": "boom"}})
     run_id = w.manual(up)
     settle(w)
-    assert [r["_key"] for r in runs_of(w, "other")] == ["other:%s:start_job" % run_id]
+    assert [r["_key"] for r in runs_of(w, "other")] == ["other:%s:start_job:a0" % run_id]
     w.gw.script_job(up["steps"][0]["hidden_search"], ["failed"])
     rerun(w, run_id)
     settle(w)
@@ -131,7 +131,7 @@ def test_restart_downstream_also_restarts_start_job_action():
     rerun(w, run_id, restart=True)
     settle(w)
     keys = [r["_key"] for r in runs_of(w, "other")]
-    assert "other:%s:start_job:rerun2" % run_id in keys and len(keys) == 2
+    assert "other:%s:start_job:a0:rerun2" % run_id in keys and len(keys) == 2
     assert other
 
 
@@ -209,3 +209,26 @@ def test_completion_requires_upstream_owner_may_run_target():
     second = w.manual(up)
     settle(w)
     assert [r["upstream"] for r in runs_of(w, "down")] == [second]
+
+
+def test_persistent_user_access_error_rejects_completion_and_closes_upstream():
+    # Final review M5.
+    from so import engine as enginemod
+    from so.gateway import GatewayError
+    w, up, down = chain_world(down_owner="bob")
+
+    def broken(name):
+        raise GatewayError("user lookup failed: HTTP 503", status=503, transient=True)
+    w.gw.user_access = broken
+    first = w.manual(up)
+    settle(w, 8)
+    assert not w.run(first).get("closed")  # the closing save waits for the check
+    start = w.clock.t
+    while w.clock.t < start + enginemod.UNKNOWN_LIMIT + 10:
+        w.tick(advance=5)
+    run = w.run(first)
+    assert run["state"] == "succeeded" and run["closed"] is True
+    assert runs_of(w, "down") == []
+    rejected = w.audit.of("run_rejected", run_id=first, reason="permission_check_failed")
+    assert len(rejected) == 1 and rejected[0]["target_job"] == "down"
+    assert "503" in rejected[0]["error"]

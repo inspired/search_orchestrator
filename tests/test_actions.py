@@ -155,10 +155,10 @@ def test_webhook_https_only_rejected_at_runtime():
 def test_slack_preset_body():
     ctx = {"job": "Nightly", "run_id": "r1", "hook": "on_failure", "scope": "step",
            "step": "Step A", "status": "failed", "run_url": "/app/x/run?run_id=r1",
-           "failed": [{"step": "Step A", "url": "/app/search/job_inspector?sid=s1"}]}
+           "failed": [{"step": "Step A", "url": "/app/search/search?sid=s1"}]}
     body = presets.render("slack", ctx)
     assert "Step A" in body["text"] and "/app/x/run?run_id=r1" in body["text"]
-    assert "job_inspector?sid=s1" in json.dumps(body["blocks"])
+    assert "/app/search/search?sid=s1" in json.dumps(body["blocks"])
     assert presets.render("generic", ctx)["failed_searches"][0]["step"] == "Step A"
     with pytest.raises(ValueError):
         presets.render("nope", ctx)
@@ -255,7 +255,7 @@ def test_start_job_inherits_scheduled_time():
     w.pump()
     runs = w.store.list_runs({"job_id": "down"})
     assert len(runs) == 1 and runs[0]["scheduled_time"] == T - 100
-    assert runs[0]["upstream"] == "r1" and runs[0]["_key"] == "down:r1:start_job"
+    assert runs[0]["upstream"] == "r1" and runs[0]["_key"] == "down:r1:start_job:a0"
     w.submit(occurrence=5)  # same upstream run again: no second downstream run
     w.pump()
     assert len(w.store.list_runs({"job_id": "down"})) == 1
@@ -478,7 +478,7 @@ def test_start_job_chain_depth_limit():
         w.store.save_run(run)
         w.runner.submit(run, "on_failure", "job", None)
         w.pump(T + depth)
-        child = w.store.get_run("j:c%d:start_job" % depth)
+        child = w.store.get_run("j:c%d:start_job:a0" % depth)
         if child is None:
             break
         assert child["chain_depth"] == depth + 1
@@ -581,3 +581,40 @@ def test_first_fields_include_action_template_tokens():
                               {"hook": "on_success", "type": "webhook", "destination": "d",
                                "body": {"a": ["$daily.first.count$"]}}]}
     assert first_fields(definition) == {"daily": {"host", "count"}}
+
+
+def test_failed_search_link_points_at_search_page():
+    # Final review M1.
+    w = W(settings=FALLBACK)
+    w.submit()
+    w.pump()
+    body = json.loads(w.gw.webhook_log[0]["body"])
+    assert body["failed_searches"] == [{"step": "Step A", "url": "/app/search/search?sid=s1"}]
+    w = W(settings=dict(FALLBACK, base_url="https://splunk.example.com:8000/"))
+    w.submit()
+    w.pump()
+    body = json.loads(w.gw.webhook_log[0]["body"])
+    assert body["failed_searches"][0]["url"] == "https://splunk.example.com:8000/app/search/search?sid=s1"
+
+
+def test_two_start_job_actions_to_one_target_start_two_runs_once():
+    # Final review M15.
+    from so import scheduler
+    w = W(actions=[{"hook": "on_failure", "type": "start_job", "job": "down"},
+                   {"hook": "on_failure", "type": "start_job", "job": "down"}])
+    _job(w, "down")
+    w.gw.users["alice"] = {"roles": [], "capabilities": ["orchestrator_admin"]}
+    w.submit()
+    w.pump()
+    keys = sorted(r["_key"] for r in w.store.list_runs({"job_id": "down"}))
+    assert keys == ["down:r1:start_job:a0", "down:r1:start_job:a1"]
+    assert all(scheduler.is_run_id(k) for k in keys)
+    # A replay (a crash before the row's save) finds the runs and creates no more.
+    row = w.rows(kind="action")[0]
+    for entry in row["actions"]:
+        entry.update(state="pending", attempts=0)
+    row["state"] = "pending"
+    w.gw.kv["so_action_runs"][row["_key"]] = row
+    w.pump()
+    assert len(w.store.list_runs({"job_id": "down"})) == 2
+    assert all(e["state"] == "done" for e in w.rows(kind="action")[0]["actions"])

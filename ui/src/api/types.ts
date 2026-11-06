@@ -148,6 +148,8 @@ export interface Job extends JobDefinition {
     permissions: JobPermissions;
     /** Next cron slot, or null (GET jobs and GET jobs/<id> only). */
     next_run?: number | null;
+    /** True when no cron slot was found within the server's 400-day walk. */
+    next_run_beyond?: boolean;
     last_run?: LastRun | null;
 }
 

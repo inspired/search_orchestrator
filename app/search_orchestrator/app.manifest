@@ -16,7 +16,7 @@
       "developmentStatus": "Development/Test"
     },
     "commonInformationModels": null,
-    "license": {"name": "Proprietary", "text": "LICENSE", "uri": null},
+    "license": {"name": "Apache-2.0", "text": "LICENSE", "uri": "https://www.apache.org/licenses/LICENSE-2.0"},
     "privacyPolicy": {"name": null, "text": null, "uri": null},
     "releaseNotes": {"name": null, "text": null, "uri": null}
   },

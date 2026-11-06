@@ -301,3 +301,17 @@ def test_index_name_encoded_once():
     svc = StubService(lambda m, p, kw: Resp("{}"))
     g.SplunkGateway(svc).index_exists("my index")
     assert _final_path(svc.calls[0][1], "nobody").endswith("/data/indexes/my%20index")
+
+
+def test_parse_history_details_reads_dispatch_now():
+    body = json.dumps({"entry": [
+        {"name": "s1", "published": "2026-12-01T01:00:05+00:00",
+         "content": {"dispatch.now": "1796086800"}},
+        {"name": "s2", "published": "2026-12-01T01:00:09+00:00",
+         "content": {"request": {"dispatch.now": "1796086000"}}},
+        {"name": "s3", "published": "2026-12-01T01:00:07+00:00", "content": {}},
+        {"name": "old", "published": "2026-11-30T01:00:00+00:00", "content": {}}]})
+    out = g.parse_history_details(body, 1796086800)
+    assert [d["sid"] for d in out] == ["s2", "s3", "s1"]
+    assert out[0]["dispatch_now"] == 1796086000 and out[1]["dispatch_now"] is None
+    assert out[2]["dispatch_now"] == 1796086800 and out[1]["published"] == 1796086807

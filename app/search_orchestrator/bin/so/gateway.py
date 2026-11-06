@@ -167,6 +167,31 @@ def parse_history(body, since_epoch):
     return [sid for _, sid in found]
 
 
+def parse_history_details(body, since_epoch):
+    """History JSON -> ``[{"sid", "dispatch_now", "published"}]`` for jobs published or
+    dispatched at or after since_epoch, newest first. ``dispatch_now`` is the job's
+    ``dispatch.now`` (from its content or its request), or None if absent."""
+    found = []
+    for entry in json.loads(body).get("entry", []):
+        c = entry.get("content", {})
+        when = None
+        for raw in (entry.get("published"), c.get("published"), c.get("dispatch_time"),
+                    c.get("dispatch.now"), c.get("updated"), entry.get("updated")):
+            when = _epoch(raw)
+            if when is not None:
+                break
+        sid = entry.get("name") or c.get("sid")
+        if sid and when is not None and when >= since_epoch:
+            request = c.get("request") if isinstance(c.get("request"), dict) else {}
+            now = _epoch(c.get("dispatch.now"))
+            if now is None:
+                now = _epoch(request.get("dispatch.now"))
+            published = _epoch(entry.get("published") or c.get("published"))
+            found.append((when, {"sid": sid, "dispatch_now": now, "published": published}))
+    found.sort(key=lambda p: p[0], reverse=True)
+    return [d for _, d in found]
+
+
 def dispatch_params(now_epoch, args, earliest=None, latest=None, trigger_actions=False):
     params = {"dispatch.now": int(now_epoch), "force_dispatch": 1,
               "trigger_actions": 1 if trigger_actions else 0}
@@ -250,6 +275,8 @@ class Gateway(Protocol):
     def first_row(self, sid: str) -> Optional[Dict[str, Any]]: ...
     def control(self, sid: str, action: str, **kw: Any) -> None: ...
     def history(self, owner: str, name: str, since_epoch: float) -> List[str]: ...
+    def history_details(self, owner: str, name: str,
+                        since_epoch: float) -> List[Dict[str, Any]]: ...
     def user_exists(self, name: str) -> bool: ...
     def user_access(self, name: str) -> Dict[str, List[str]]: ...
     def kv_get(self, collection: str, key: str) -> Optional[Dict[str, Any]]: ...
@@ -401,6 +428,19 @@ class SplunkGateway:
             raise GatewayError("history failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return parse_history(body, since_epoch)
+
+    def history_details(self, owner, name, since_epoch):
+        """Like ``history``, with each job's ``dispatch_now`` and ``published`` time."""
+        try:
+            body = self._call("get", encoded_path("saved/searches", name, "history"), owner, count=0)
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) == 404:
+                return []
+            raise GatewayError("history failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return parse_history_details(body, since_epoch)
 
     def user_exists(self, name):
         """False only if splunkd says the user does not exist (404)."""

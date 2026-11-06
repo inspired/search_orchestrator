@@ -39,10 +39,10 @@ The engine is a modular input, `orchestrator_engine://main`, enabled by default.
 | Role shipped by the app | Capabilities |
 |---|---|
 | `orchestrator_admin_role` | admin, build, run |
-| `orchestrator_builder_role` | build, run |
-| `orchestrator_user_role` | run |
+| `orchestrator_builder_role` | build, run (imports `user`) |
+| `orchestrator_user_role` | run (imports `user`) |
 
-`admin` and `sc_admin` also get all three. Give users a role by having their role inherit one of these, or add the capabilities to an existing role. The REST handler checks the capabilities on every request; hiding a screen is only a convenience.
+`admin` and `sc_admin` also get all three. The builder and user roles import Splunk's `user` role, so either one alone is enough to use Splunk Web. Give users a role by having their role inherit one of these, or add the capabilities to an existing role. The REST handler checks the capabilities on every request; hiding a screen is only a convenience.
 
 **Who sees what.** Admins see everything. Anyone else sees the jobs they own or may run, including those jobs' SPL and run history.
 
@@ -67,6 +67,10 @@ Anything else (a shared search, or one owned by someone else) runs through a hid
 - the step's results are the saved search's results, so tokens and `loadjob` work as normal.
 
 The builder warns about this when the job is saved. If you need summary indexing, put `collect` in the step's SPL instead.
+
+Either way, the saved search must be shared globally or saved in the Search Orchestrator app; steps run in this app's context, so a search private to another app can't be used, and saving the job says so.
+
+The engine checks a directly dispatched search again, with its own session, right before each run: if it is no longer the owner's private search with dispatchAs = owner, the step fails with a clear message instead of running. **Keep the app's default ACL (`[] write : [admin, sc_admin]` in `metadata/default.meta`).** It stops non-admins sharing objects into this app, which is part of what keeps a direct dispatch running as the owner.
 
 ### Alert action "Start orchestrator job"
 

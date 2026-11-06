@@ -2,10 +2,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
-import Modal from '@splunk/react-ui/Modal';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import * as client from '../../api/client';
-import { toDefinition } from '../../api/client';
 import type { Job, Me } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import DeleteJobDialog from './DeleteJobDialog';
@@ -18,14 +16,14 @@ const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
 export interface JobsApi {
     me: typeof client.me;
     listJobs: typeof client.listJobs;
-    updateJob: typeof client.updateJob;
+    setJobEnabled: typeof client.setJobEnabled;
     deleteJob: typeof client.deleteJob;
 }
 
 const defaultApi: JobsApi = {
     me: client.me,
     listJobs: client.listJobs,
-    updateJob: client.updateJob,
+    setJobEnabled: client.setJobEnabled,
     deleteJob: client.deleteJob,
 };
 
@@ -35,7 +33,6 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
     const [fast, setFast] = useState(true);
     const jobs = usePoll(api.listJobs, fast ? 5000 : 30000, true);
     const [runNow, setRunNow] = useState<Job | null>(null);
-    const [confirm, setConfirm] = useState<{ job: Job; enabled: boolean } | null>(null);
     const [deleting, setDeleting] = useState<Job | null>(null);
     const deleteOpener = useRef<HTMLElement | null>(null);
     const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -51,12 +48,12 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
     const anyActive = (jobs.data || []).some((j) => j.last_run && ACTIVE.includes(j.last_run.state));
     useEffect(() => setFast(anyActive), [anyActive]);
 
-    const save = async (job: Job, enabled: boolean) => {
-        setConfirm(null);
+    // Enabling or disabling keeps the job's owner, so no ownership warning is needed.
+    const onToggle = async (job: Job, enabled: boolean) => {
         setError(null);
         setBusy((b) => ({ ...b, [job.id]: true }));
         try {
-            await api.updateJob(job.id, { ...toDefinition(job), enabled });
+            await api.setJobEnabled(job.id, enabled);
             jobs.refresh();
         } catch (err) {
             setError(`${job.name} could not be ${enabled ? 'enabled' : 'disabled'}: ${(err as Error).message}`);
@@ -66,14 +63,6 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                 delete next[job.id];
                 return next;
             });
-        }
-    };
-
-    const onToggle = (job: Job, enabled: boolean) => {
-        if (me && job.owner !== me.user) {
-            setConfirm({ job, enabled });
-        } else {
-            save(job, enabled);
         }
     };
 
@@ -136,24 +125,6 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                         }
                     }}
                 />
-            )}
-            {confirm && (
-                <Modal open onRequestClose={() => setConfirm(null)} returnFocus={returnFocus} style={{ width: '480px' }}>
-                    <Modal.Header title={`${confirm.enabled ? 'Enable' : 'Disable'} ${confirm.job.name}?`} />
-                    <Modal.Body>
-                        <p>
-                            {`This job belongs to ${confirm.job.owner}. Saving it makes you the owner, and its searches will run as you from now on.`}
-                        </p>
-                    </Modal.Body>
-                    <Modal.Footer>
-                        <Button appearance="secondary" label="Cancel" onClick={() => setConfirm(null)} />
-                        <Button
-                            appearance="primary"
-                            label={`${confirm.enabled ? 'Enable' : 'Disable'} and take ownership`}
-                            onClick={() => save(confirm.job, confirm.enabled)}
-                        />
-                    </Modal.Footer>
-                </Modal>
             )}
         </PageShell>
     );

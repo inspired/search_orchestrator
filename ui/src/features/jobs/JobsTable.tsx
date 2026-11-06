@@ -21,6 +21,17 @@ export interface JobsTableProps {
     busy?: Record<string, boolean>;
 }
 
+function nextRunText(job: Job): string {
+    if (job.next_run) {
+        return formatTime(job.next_run);
+    }
+    if (!job.enabled) {
+        return 'Disabled';
+    }
+    // Past the 400-day walk: the next slot is too far away to show.
+    return job.next_run_beyond ? '\u2014' : 'Not scheduled';
+}
+
 export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
     if (!jobs.length) {
         return <p>No jobs yet.{me && me.can_build ? ' Use New job to build one.' : ''}</p>;
@@ -55,7 +66,7 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
                             </Table.Cell>
                             <Table.Cell>{job.owner}</Table.Cell>
                             <Table.Cell>
-                                {job.next_run ? formatTime(job.next_run) : job.enabled ? 'Not scheduled' : 'Disabled'}
+                                {nextRunText(job)}
                             </Table.Cell>
                             <Table.Cell>
                                 {last ? (

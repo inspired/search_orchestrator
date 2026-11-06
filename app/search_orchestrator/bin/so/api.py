@@ -67,7 +67,7 @@ INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 10
                 "result_retention": 7 * 86400, "run_retention_days": 3650}
 HIDDEN_JOB = "(hidden job)"
 CHAIN_LIMIT = 10
-NEXT_RUN_HORIZON_DAYS = 366  # how far ahead the Jobs screen looks for the next cron slot
+NEXT_RUN_MAX_DAYS = 400  # day matches the Jobs screen's next-run walk may try per cron
 LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "ended_at",
                    "delay_alerted", "held", "gave_up")
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
@@ -143,6 +143,7 @@ def _routes():
         (r"jobs/validate", {"POST": validate_job}),
         (r"jobs/(?P<job_id>[^/]+)", {"GET": get_job, "PUT": update_job, "DELETE": delete_job}),
         (r"jobs/(?P<job_id>[^/]+)/runs", {"POST": start_run}),
+        (r"jobs/(?P<job_id>[^/]+)/enabled", {"POST": set_enabled}),
         (r"runs", {"GET": list_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
@@ -218,21 +219,18 @@ def _visible_job(ctx, job_id):
 
 
 def _next_run(job, now):
-    """The next cron slot after ``now`` (epoch seconds), or None if there is none."""
+    """``(next cron slot after now, beyond)``: the slot is None when there is none;
+    ``beyond`` is True when the walk (NEXT_RUN_MAX_DAYS days) ended without finding one,
+    so the Jobs screen shows a dash instead of "Not scheduled"."""
     if job.get("enabled") is False:
-        return None
+        return None, False
     specs = scheduler.cron_specs(job)
     if not specs:
-        return None
-    start = int(now) + 1
-    for _ in range(NEXT_RUN_HORIZON_DAYS):
-        end = start + scheduler.WINDOW
-        slots = [s for spec in specs
-                 for s in cronmod.slots_between(spec, start, end, job.get("timezone"))]
-        if slots:
-            return min(slots)
-        start = end
-    return None
+        return None, False
+    slots = [cronmod.next_slot(spec, int(now) + 1, job.get("timezone"), NEXT_RUN_MAX_DAYS)
+             for spec in specs]
+    slots = [s for s in slots if s is not None]
+    return (min(slots), False) if slots else (None, True)
 
 
 def _last_run(ctx, job_id):
@@ -245,7 +243,7 @@ def _last_run(ctx, job_id):
 def _listed_job(ctx, job):
     """A job for the Jobs screen: the public job plus its next and last run."""
     out = _public_job(ctx, job)
-    out["next_run"] = _next_run(job, ctx.now)
+    out["next_run"], out["next_run_beyond"] = _next_run(job, ctx.now)
     out["last_run"] = _last_run(ctx, job.get("id") or job.get("_key"))
     return out
 
@@ -524,6 +522,22 @@ def update_job(ctx, body, job_id):
     out = {"job": _public_job(ctx, job), "issues": issues}
     out.update(change)
     return 200, out
+
+
+def set_enabled(ctx, body, job_id):
+    """Enable or disable a job. Unlike a save, the owner is kept (an admin does not take
+    the job over), and the definition and its hidden searches are untouched."""
+    job = _visible_job(ctx, job_id)
+    if not ctx.allowed(authz.can_edit, job):
+        raise ctx.deny("enable_job", job_id=job_id)
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ApiError(400, "bad_request", "enabled must be true or false")
+    job.update(enabled=enabled, updated_at=ctx.now, updated_by=ctx.user)
+    ctx.store.save_job(job)
+    ctx.emit({"type": "job_enabled", "job_id": job_id, "enabled": enabled,
+              "owner": job.get("owner")})
+    return 200, {"job": _public_job(ctx, job)}
 
 
 def delete_job(ctx, body, job_id):

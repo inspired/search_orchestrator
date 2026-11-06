@@ -42,7 +42,7 @@ Use these in SPL, expressions and action messages:
 - `$<step>.sid$`, `$<step>.resultCount$`, `$<step>.status$`
 - `$<step>.first.<field>$`: a field from the step's first result row
 
-**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
+**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. A step can't call `| orchestrate`; use a start-job action instead. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
 
 ### Parameters
 
@@ -83,13 +83,14 @@ On the Access tab, list roles that may start the job. **Their runs search as you
 On the job Settings tab:
 
 - **Hold later runs** (default): later runs wait until someone re-runs or dismisses the failed run. A rollup can't run over a window with a missing day.
+  While runs are held, runs turned away because the job's queue is full are reported in the daily hold alert, not one notification each.
 - **Continue with later runs:** later runs go ahead, so a weekly rollup may run with a day missing.
 
 This setting is read from the job **as it is now**, not from the run's copy. Changing it affects runs already waiting.
 
 ## Follow runs
 
-- **Jobs** shows each job's next run and last outcome, with Run now and an enable switch. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
+- **Jobs** shows each job's next run and last outcome, with Run now and an enable switch. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
 - **Runs** lists runs, filterable by job and state.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 

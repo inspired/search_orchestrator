@@ -37,6 +37,15 @@ describe('JobsTable', () => {
         expect(within(weekly).getByText('Never run')).toBeInTheDocument();
     });
 
+    test('a next run past the walk shows a dash', () => {
+        renderThemed(
+            <JobsTable jobs={[job({ next_run: null, next_run_beyond: true })]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />
+        );
+        const row = screen.getByText('Daily summary').closest('tr') as HTMLElement;
+        expect(within(row).getByText('\u2014')).toBeInTheDocument();
+        expect(within(row).queryByText('Not scheduled')).toBeNull();
+    });
+
     test('hides Run now when the user may not run the job', () => {
         const jobs = [job({ permissions: { can_edit: false, can_run: false } })];
         const onRunNow = jest.fn();
@@ -126,7 +135,7 @@ describe('Delete job', () => {
         return {
             me: jest.fn(() => Promise.resolve(me)),
             listJobs: jest.fn(() => Promise.resolve(current)),
-            updateJob: jest.fn(),
+            setJobEnabled: jest.fn(() => Promise.resolve({ job: jobs[0] })),
             deleteJob: jest.fn((id: string) => {
                 current = current.filter((j) => j.id !== id);
                 return Promise.resolve({ deleted: id });
@@ -176,5 +185,25 @@ describe('Delete job', () => {
             await screen.findByText(/Daily summary has active or queued runs\. Cancel them on the Runs page, then delete it\./)
         ).toBeInTheDocument();
         expect(screen.getByText('Daily summary', { selector: 'td *, td' })).toBeInTheDocument();
+    });
+});
+
+describe('Enable switch', () => {
+    test("toggling another person's job keeps its owner: no takeover dialog", async () => {
+        const admin = { ...me, user: 'root', can_admin: true };
+        const jobs = [job({ owner: 'bob' })];
+        const api = {
+            me: jest.fn(() => Promise.resolve(admin)),
+            listJobs: jest.fn(() => Promise.resolve(jobs)),
+            setJobEnabled: jest.fn(() => Promise.resolve({ job: { ...jobs[0], enabled: false } })),
+            deleteJob: jest.fn(),
+        } as unknown as JobsApi;
+        renderThemed(<JobsPage api={api} />);
+        await waitFor(() => expect(api.me).toHaveBeenCalled());
+        const row = (await screen.findByText('Daily summary')).closest('tr') as HTMLElement;
+        fireEvent.click(within(row).getByRole('switch'));
+        await waitFor(() => expect(api.setJobEnabled).toHaveBeenCalledWith('daily', false));
+        expect(screen.queryByText(/take ownership/)).toBeNull();
+        await waitFor(() => expect(api.listJobs).toHaveBeenCalledTimes(2));
     });
 });

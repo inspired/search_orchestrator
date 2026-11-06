@@ -6,10 +6,17 @@ VERSION="${1:-0.0.1}"
 APP=search_orchestrator
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+UI="${SO_UI_DIR:-$ROOT/ui}"  # SO_UI_DIR: tests point this at a stand-in ui/
 mkdir -p "$WORK/$APP" "$ROOT/dist"
 cp -R "$ROOT/app/$APP/." "$WORK/$APP/"
-if [ -d "$ROOT/ui/stage" ]; then
-  cp -R "$ROOT/ui/stage/." "$WORK/$APP/"
+if [ -d "$UI" ]; then
+  # Always ship a fresh UI build, never a stale or missing ui/stage.
+  npm --prefix "$UI" run build >&2
+  if [ ! -d "$UI/stage" ]; then
+    echo "package.sh: ui/stage is missing after npm run build; not packaging" >&2
+    exit 1
+  fi
+  cp -R "$UI/stage/." "$WORK/$APP/"
 fi
 find "$WORK" \( -name __pycache__ -o -name '*.pyc' -o -name '.*' -o -name '.DS_Store' \) -not -path "$WORK" -prune -exec rm -rf {} +
 sed -i.bak "s/^version = .*/version = $VERSION/" "$WORK/$APP/default/app.conf"

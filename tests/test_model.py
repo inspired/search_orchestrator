@@ -135,3 +135,30 @@ def test_malformed_input_returns_bad_shape():
         assert "bad_shape" in codes(iss), j
     for junk in (None, [], "x", 5, {"steps": None}, {}):
         assert isinstance(validate_job(junk), list)
+
+
+def test_orchestrate_in_step_spl_is_an_error():
+    # Final review M14: it would bypass the chain depth limit.
+    for spl in ("| orchestrate start job=j", "index=x | ORCHESTRATE status", "x |orchestrate jobs"):
+        j = job()
+        j["steps"][0]["spl"] = spl
+        found = [i for i in validate_job(j) if i["code"] == "orchestrate_in_step"]
+        assert found and found[0]["level"] == "error" and found[0]["step"] == "a"
+        assert found[0]["message"] == "Steps cannot call | orchestrate; use a start_job action"
+    j = job()
+    j["steps"][0]["spl"] = '| makeresults | eval note="orchestrate later"'
+    assert "orchestrate_in_step" not in codes(validate_job(j))
+
+
+def test_step_without_time_range_warns():
+    # Final review M19.
+    j = job()
+    j["steps"][1].update(earliest="-1d@d", latest="@d")
+    found = [i for i in validate_job(j) if i["code"] == "all_time_search"]
+    assert [(i["step"], i["level"], i["message"]) for i in found] == [
+        ("a", "warning", "This step searches all time.")]
+    j["steps"][0]["earliest"] = "-1h"
+    assert "all_time_search" not in codes(validate_job(j))
+    j = job(steps=("a",))
+    j["steps"] = [{"id": "a", "type": "saved_search", "saved_search_ref": "x"}]
+    assert "all_time_search" not in codes(validate_job(j))  # its own time range applies

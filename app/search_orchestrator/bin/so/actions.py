@@ -356,7 +356,7 @@ class ActionRunner:
         out = dict(ctx)
         out["run_url"] = "%s/app/search_orchestrator/run?run_id=%s" % (base, quote(ctx["run_id"]))
         out["failed"] = [{"step": f["step"],
-                          "url": "%s/app/search/job_inspector?sid=%s" % (base, quote(f["sid"]))}
+                          "url": "%s/app/search/search?sid=%s" % (base, quote(f["sid"]))}
                          for f in ctx.get("failed") or []]
         return out
 
@@ -483,10 +483,11 @@ class ActionRunner:
             raise _Fail("Job chain depth limit (%d) reached" % CHAIN_LIMIT)
         rerun = row.get("chain_rerun")
         key = scheduler.run_key(target_id, "start_job", row.get("scheduled_time"), row["run_id"],
-                                rerun)
+                                rerun, entry["index"])
         created = scheduler.create_run(self.store, target, "start_job", row.get("scheduled_time"),
                                        action.get("params") or {}, upstream=row["run_id"],
-                                       now=now, audit=self.audit, chain_depth=depth, rerun=rerun)
+                                       now=now, audit=self.audit, chain_depth=depth, rerun=rerun,
+                                       action_index=entry["index"])
         if created is None and self.store.get_run(key) is None:
             raise _Fail("run of job %r was not created (queue is full)" % target_id)
         self._done(row, entry, now, target_job=target_id, target_run_id=key)

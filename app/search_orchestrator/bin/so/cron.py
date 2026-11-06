@@ -213,3 +213,18 @@ def slots_between(spec, start, end, tz):
                         out.add(e)
         day += timedelta(days=1)
     return sorted(out)
+
+
+def next_slot(spec, after, tz, max_days):
+    """The first slot at or after ``after``, looking at most ``max_days`` days ahead
+    (one cheap day match per day), or None if there is none within that walk."""
+    tz = resolve_tz(tz)
+    day = datetime.fromtimestamp(after, tz).date() - timedelta(days=1)
+    for _ in range(int(max_days) + 1):
+        if _day_ok(spec, day):
+            found = [e for e in (_to_epoch(datetime(day.year, day.month, day.day, h, m), tz)
+                                 for h in spec.hours for m in spec.minutes) if e >= after]
+            if found:
+                return min(found)
+        day += timedelta(days=1)
+    return None

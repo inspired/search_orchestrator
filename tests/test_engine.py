@@ -1236,3 +1236,135 @@ def test_lease_renewed_before_each_action_send():
     for i, item in enumerate(order):
         if item == "send":
             assert order[i - 1] == "lease"
+
+
+def test_queue_cap_rejections_while_held_fold_into_daily_hold_alert():
+    # Final review M2: a held job with a 5-minute cron fills its queue; each rejected
+    # slot must not notify on its own.
+    w = World(T0)
+    w.store.save_settings({"queue_cap": 3})
+    j = w.add_job(make_job(cron="*/5 * * * *", defaults={"give_up_after": 600}),
+                  scripts={"a": {"states": ["running"]}})
+    w.tick(at=T0 - 5)
+    w.tick(at=T0)
+    r1 = "j:%d" % T0
+    w.tick(at=T0 + 600)
+    assert w.run(r1)["held"]
+    t = T0 + 600
+    while t < T0 + 600 + DAY + 1800:
+        t += 300
+        w.tick(at=t)
+    rejected = w.audit.of("run_rejected", reason="queue_cap")
+    assert len(rejected) > 100 and all(e.get("held") for e in rejected)
+    rows = w.action_rows(hook="on_failure", scope="job")
+    assert sorted(str(r["occurrence"]) for r in rows) == ["0", "hold1"]
+    assert all(r["run_id"] == r1 for r in rows)
+
+
+def test_failing_cancel_on_give_up_is_bounded_then_orphan_audited():
+    # Final review M4: a strict cancel that keeps failing transiently must not stall the
+    # run forever.
+    from so.gateway import GatewayError
+    w = World(T0)
+    j = w.add_job(make_job("j", cron=None, after_give_up="continue",
+                           defaults={"give_up_after": 600}),
+                  scripts={"a": {"states": ["running"]}})
+    r = w.manual(j)
+    w.tick()
+    sid = w.step(r, "a")["sid"]
+    real = w.gw.control
+
+    def control(search, action, **kw):
+        if search == sid and action == "cancel":
+            raise GatewayError("splunkd busy", status=503, transient=True)
+        return real(search, action, **kw)
+    w.gw.control = control
+    w.tick(at=T0 + 600)
+    assert w.run(r)["state"] == "running"  # cancel must succeed first
+    w.tick(at=T0 + 600 + enginemod.UNKNOWN_LIMIT - 1)
+    assert w.run(r)["state"] == "running"
+    w.tick(at=T0 + 600 + enginemod.UNKNOWN_LIMIT)
+    assert w.run(r)["state"] == "failed"
+    orphan = w.audit.of("possible_orphan_search", run_id=r)
+    assert orphan and orphan[0]["sid"] == sid and "cancel" in orphan[0]["reason"]
+
+
+def _direct_job():
+    return make_job(steps=[{"id": "a", "type": "saved_search", "saved_search_ref": "mine",
+                            "mode": "direct", "hidden_search": "mine"}])
+
+
+def _add_direct(w, **entry):
+    j = w.add_job(_direct_job(), scripts={"a": {"states": ["done"]}})
+    w.gw.upsert_saved_search("alice", "mine", "index=a", "-1h", "now")
+    w.gw.saved_searches[("alice", "mine")].update(entry)
+    return j
+
+
+def test_direct_mode_adopts_only_job_with_matching_dispatch_now():
+    # Final review M6: the user's own search may also run by hand or on its own schedule.
+    w = World()
+    j = _add_direct(w)
+    w.tick(at=T0 - 5)
+    w.gw.crash_after_dispatch = True
+    w.tick(at=T0 + 100)
+    run_id = "j:%d" % T0
+    ours = w.gw.dispatch_log[0]["sid"]
+    w.gw.crash_after_dispatch = False
+    w.clock.t += 2
+    w.gw.dispatch("alice", "mine", T0 + 102, {})  # the owner ran it by hand meanwhile
+    w.engine = w.new_engine()
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["sid"] == ours and w.audit.of("step_adopted", run_id=run_id, sid=ours)
+
+
+def test_direct_mode_unmatched_history_is_unknown_then_fails():
+    w = World()
+    j = _add_direct(w)
+    w.tick(at=T0 - 5)
+    w.tick(at=T0)
+    run_id = "j:%d" % T0
+    run = w.run(run_id)
+    run["steps"]["a"] = {"state": "starting", "sid": None, "attempt": 1,
+                         "intent_at": T0 + 1, "try_at": T0 + 1}
+    run["state"] = "running"
+    w.store.save_run(run)
+    n = len(w.gw.dispatch_log)
+    w.clock.t = T0 + 5
+    w.gw.dispatch("alice", "mine", T0 + 5, {})  # not ours: wrong dispatch.now
+    w.tick(at=T0 + 10)
+    a = w.step(run_id, "a")
+    assert a["state"] == "starting" and not a.get("sid")
+    assert len(w.gw.dispatch_log) == n + 1  # never dispatched a second time
+    w.tick(at=T0 + 1 + enginemod.UNKNOWN_LIMIT)
+    attempts = w.audit.of("step_attempt", run_id=run_id, step_id="a", outcome="failed")
+    assert attempts and "Could not confirm" in attempts[-1]["error"]
+    assert w.audit.of("possible_orphan_search", run_id=run_id)
+    assert not w.audit.of("step_adopted", run_id=run_id)
+
+
+@pytest.mark.parametrize("change", [{"sharing": "app"}, {"dispatch_as": "user"}, None])
+def test_direct_mode_rechecked_before_dispatch(change):
+    # Final review M7: shared later with dispatchAs = user, a direct dispatch by the
+    # system session would not run as the owner.
+    w = World()
+    j = _add_direct(w)
+    if change is None:
+        del w.gw.saved_searches[("alice", "mine")]
+        w.gw.upsert_saved_search("bob", "mine", "index=b", "-1h", "now")
+        w.gw.saved_searches[("bob", "mine")]["sharing"] = "global"
+    else:
+        w.gw.saved_searches[("alice", "mine")].update(change)
+    run_id = cron_run(w, j)
+    assert not w.gw.dispatch_log
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="a", outcome="failed")
+    assert failed and "no longer a private search of alice" in failed[0]["error"]
+
+
+def test_direct_mode_dispatches_when_still_private():
+    w = World()
+    j = _add_direct(w)
+    run_id = cron_run(w, j)
+    assert len(w.gw.dispatch_log) == 1 and w.gw.dispatch_log[0]["name"] == "mine"
+    assert w.step(run_id, "a")["state"] in ("running", "succeeded")

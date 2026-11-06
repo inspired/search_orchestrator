@@ -919,3 +919,52 @@ def test_list_runs_newest_first(w):
     second = start(w)
     out = w.call("alice", "GET", "/orchestrator/runs")[1]
     assert [r["id"] for r in out["runs"]] == [second, first]
+
+
+# Final review M9: enable or disable a job without taking it over.
+
+def test_enabled_route_keeps_owner_and_audits(w):
+    saved(w)
+    status, out = w.call("root", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": False})
+    assert status == 200 and out["job"]["enabled"] is False and out["job"]["owner"] == "alice"
+    job = w.store.get_job("daily")
+    assert job["enabled"] is False and job["owner"] == "alice"
+    assert job["steps"][0]["hidden_search"]  # untouched definition
+    events = w.audit.of("job_enabled")
+    assert events and events[-1]["enabled"] is False and events[-1]["owner"] == "alice"
+    assert not w.audit.of("job_owner_changed")
+    assert w.call("alice", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": True})[0] == 200
+    assert w.store.get_job("daily")["enabled"] is True
+
+
+def test_enabled_route_needs_edit_rights_and_bool(w):
+    saved(w)
+    status, out = w.call("carol", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": False})
+    assert status == 403 and error(out) == "forbidden"
+    assert w.call("bob", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": False})[0] == 404
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": "no"})
+    assert status == 400
+    assert w.store.get_job("daily")["enabled"] is True
+
+
+def test_next_run_walk_is_capped(w):
+    # Final review M18: a rare cron (29 February) would walk a year or more of windows.
+    import time as _time
+    saved(w, body=job_body(triggers=[{"type": "cron", "cron": "0 0 29 2 *"}]))
+    started = _time.monotonic()
+    job = w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]
+    assert _time.monotonic() - started < 1.0
+    # T0 is 1 December 2026; the next 29 February is in 2028, over 400 days away.
+    assert job["next_run"] is None and job["next_run_beyond"] is True
+    saved(w, body=job_body("monthly", triggers=[{"type": "cron", "cron": "0 3 1 * *"}]))
+    jobs = {j["id"]: j for j in w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"]}
+    assert jobs["monthly"]["next_run"] == T0 + 2 * 3600 and jobs["monthly"]["next_run_beyond"] is False
+    assert jobs["daily"]["next_run_beyond"] is True
+
+
+def test_next_run_found_within_400_days(w):
+    import calendar as _cal
+    w.now = _cal.timegm((2027, 3, 1, 0, 0, 0))
+    saved(w, body=job_body(triggers=[{"type": "cron", "cron": "0 0 29 2 *"}]))
+    job = w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]
+    assert job["next_run"] == _cal.timegm((2028, 2, 29, 0, 0, 0)) and not job["next_run_beyond"]

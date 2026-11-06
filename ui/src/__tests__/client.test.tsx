@@ -1,4 +1,4 @@
-import { ApiError, listRuns, me, startRun, updateJob, validateJob } from '../api/client';
+import { ApiError, listRuns, me, setJobEnabled, startRun, updateJob, validateJob } from '../api/client';
 import { job } from './fixtures';
 
 type FetchCall = [string, RequestInit];
@@ -45,6 +45,15 @@ describe('client', () => {
         const sent = JSON.parse(init.body as string);
         expect(sent.name).toBe('Daily summary');
         ['permissions', 'next_run', 'last_run', 'owner'].forEach((k) => expect(sent).not.toHaveProperty(k));
+    });
+
+    test('setJobEnabled posts only the flag', async () => {
+        const fetch = mockFetch(200, { job: job({ enabled: false }) });
+        await setJobEnabled('daily', false);
+        const [url, init] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe('/en-US/splunkd/__raw/services/orchestrator/jobs/daily/enabled?output_mode=json');
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body as string)).toEqual({ enabled: false });
     });
 
     test('GET sends filters as query parameters and parses the body', async () => {

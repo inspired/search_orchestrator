@@ -19,6 +19,7 @@ _EDGE_CONDITIONS = ("on_success", "on_failure", "always", "expression")
 _PARAM_TYPES = ("string", "number", "enum", "time")
 # A dotted reference whose first segment is run or a step id but that is not valid.
 _DOTTED_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_.]+)(?:\|[^$]*)?\$")
+_ORCHESTRATE_RE = re.compile(r"\|\s*orchestrate\b", re.IGNORECASE)
 _SUFFIX_RE = re.compile(r"\.(?:sid|resultCount|status|first\.[A-Za-z0-9_]+)$")
 
 
@@ -259,6 +260,13 @@ def _validate(job, known_saved_searches):
         elif s.get("type") == "inline":
             if not (s.get("spl") or "").strip():
                 issues.append(_issue("error", "bad_step", "inline step needs spl", sid))
+            if _ORCHESTRATE_RE.search(s.get("spl") or ""):
+                # It would start runs outside the chain depth limit.
+                issues.append(_issue("error", "orchestrate_in_step",
+                                     "Steps cannot call | orchestrate; use a start_job action", sid))
+            if not s.get("earliest") and not s.get("latest"):
+                issues.append(_issue("warning", "all_time_search",
+                                     "This step searches all time.", sid))
         else:
             issues.append(_issue("error", "bad_step", "unknown step type %r" % s.get("type"), sid))
         rw = s.get("run_when")
