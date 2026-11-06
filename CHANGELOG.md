@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0-beta.2 (2026-11-06)
+## 1.1.0-beta.3 (2026-11-06)
 
 - New step type **From previous steps**: write only the part after the pipe; the step reads the results of every step before it that succeeded. Skipped and failed inputs add no rows. The step fails, rather than passing on fewer rows, when Splunk cuts an input short (subsearch row or time limit).
 - `| orchestrate selftest` has a new step `merged` that reads two branches and a skipped step.
