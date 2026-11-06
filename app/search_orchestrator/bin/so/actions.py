@@ -48,8 +48,9 @@ event sends at most one fallback.
 
 Rows snapshot everything they need (action definitions, owner, scheduled time,
 ctx, chain depth, ``chain_rerun``) at submit, so ``pump`` never re-reads the run (a queue-cap
-rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease``
-between rows and starts no new action after ``PUMP_BUDGET`` seconds.
+rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease()``
+between rows and ``keep_lease(force=True)`` right before each send, and starts
+no new action after ``PUMP_BUDGET`` seconds.
 Fallback rows have ``kind="fallback"`` and ``scope="fallback"``. Content is only job,
 run and step names, status and links. Email goes through the
 system-owned hidden search ``_so_fallback_email`` under ``nobody``.
@@ -246,6 +247,8 @@ class ActionRunner:
                     continue
                 if settings is None:
                     settings = self.gw.kv_get(SETTINGS, "settings") or {}
+                if keep_lease is not None and entry["state"] == "pending":
+                    keep_lease(force=True)  # never send without the lease
                 self._advance(row, entry, settings, now)
                 changed = True
                 self._save_row(row)

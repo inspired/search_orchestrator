@@ -54,8 +54,10 @@ Crash safety
   start_job keys, through the action row), so it starts them once more.
 * Re-runs record ``kept_sids``. A step whose kept upstream results have
   expired fails with "Results of step <id> have expired; re-run from <id>".
-* Long ticks renew the lease every 10 s between steps and stop if another
-  member took it. Pruning deletes at most 200 runs per tick.
+* Long ticks renew the lease every 10 s between steps, and right before each
+  dispatch and action send, and stop if another member took it. The lease is
+  90 s and every engine call times out after 15 s, so no call outlives it.
+  Pruning deletes at most 200 runs per tick.
 * Hooks: every hook effect is submitted (an idempotent ``so_action_runs`` row)
   before the run recording it in ``hooks_fired`` is saved, so a replayed tick
   never submits twice.
@@ -221,10 +223,12 @@ class Engine:
             _check_auth(err)
             log.warning("tick skipped (%s): %s", type(err).__name__, err)
 
-    def _keep_lease(self):
-        """Renew the lease during a long tick; stop the tick if another member took it."""
+    def _keep_lease(self, force=False):
+        """Renew the lease during a long tick (every LEASE_RENEW_EVERY seconds, or now if
+        ``force``: right before each dispatch and action send); stop the tick if another
+        member took it."""
         now = int(self.clock())
-        if now - self._lease_at < LEASE_RENEW_EVERY:
+        if not force and now - self._lease_at < LEASE_RENEW_EVERY:
             return
         if not self.lease.acquire(self.holder, now):
             raise LeaseLost()
@@ -874,6 +878,9 @@ class Engine:
         except tokens.TokenError as err:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
+        # Never dispatch without the lease: if another member took it, stop here. The step
+        # stays starting with no search, and the new leader checks history first.
+        self._keep_lease(force=True)
         try:
             # A direct-mode saved search (spec section 9) keeps its own summary indexing
             # and actions; hidden searches never have any.

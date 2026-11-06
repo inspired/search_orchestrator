@@ -38,6 +38,9 @@ APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 WEBHOOK_TIMEOUT = 10
+# Per-call timeout of the engine's splunkd calls: well under the 90 s lease, so a hung
+# call cannot outlive the lease while another member takes over.
+ENGINE_CALL_TIMEOUT = 15
 KV_PAGE = 1000
 _TRUE = (True, 1, "1", "true", "True")
 

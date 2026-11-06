@@ -456,7 +456,9 @@ def test_pump_stops_when_lease_lost_with_rows_saved():
         w.submit("on_failure", "job")
     calls = []
 
-    def keep():
+    def keep(force=False):
+        if force:  # the renewal right before each send
+            return
         calls.append(1)
         if len(calls) == 2:
             raise RuntimeError("lease lost")

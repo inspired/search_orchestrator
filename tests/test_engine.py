@@ -628,7 +628,7 @@ def test_only_lease_holder_acts():
     r = w.manual(j)
     assert Lease(w.gw).acquire("other", T0)
     w.tick()
-    w.tick(advance=29)
+    w.tick(advance=89)
     assert w.run(r)["state"] == "queued" and not w.gw.dispatch_log
     w.tick(advance=1)  # the other holder's lease expired
     assert w.run(r)["state"] == "running" and len(w.gw.dispatch_log) == 1
@@ -1136,3 +1136,103 @@ def test_command_dropped_after_10_failures():
     failed = w.audit.of("command_failed", run_id=rj)
     assert failed and failed[0]["attempts"] == 10 and "splunkd busy" in failed[0]["error"]
     assert not w.gw.kv.get("so_commands")
+
+
+# --- final review I2: lease vs call time --------------------------------------
+
+def test_lease_outlasts_engine_call_timeouts():
+    from so import gateway as gwmod
+    from so import lease as leasemod
+    assert gwmod.ENGINE_CALL_TIMEOUT == 15
+    assert leasemod.LEASE_SECONDS == 90
+    assert enginemod.LEASE_RENEW_EVERY == 10
+
+
+def test_engine_gateway_uses_short_call_timeout(monkeypatch):
+    import orchestrator_engine as oe
+    seen = {}
+
+    def fake_from_session(uri, key, timeout=60):
+        seen.update(uri=uri, key=key, timeout=timeout)
+        return "gw"
+    monkeypatch.setattr(oe.SplunkGateway, "from_session", staticmethod(fake_from_session))
+    assert oe.make_gateway("https://127.0.0.1:8089", "k") == "gw"
+    assert seen == {"uri": "https://127.0.0.1:8089", "key": "k", "timeout": 15}
+
+
+def test_lease_renewed_immediately_before_each_dispatch():
+    w = World(T0)
+    j = w.add_job(make_job("j", steps=["a", "b"], cron=None))
+    w.manual(j, scheduled_time=T0)
+    order = []
+    real_acquire, real_dispatch = w.engine.lease.acquire, w.gw.dispatch
+
+    def acquire(holder, now):
+        order.append("lease")
+        return real_acquire(holder, now)
+
+    def dispatch(*a, **kw):
+        order.append("dispatch")
+        return real_dispatch(*a, **kw)
+    w.engine.lease.acquire = acquire
+    w.gw.dispatch = dispatch
+    w.tick()
+    assert order.count("dispatch") == 2
+    for i, item in enumerate(order):
+        if item == "dispatch":
+            assert order[i - 1] == "lease"  # renewed right before, even within 10 s
+
+
+def test_lost_lease_means_no_dispatch():
+    w = World(T0)
+    j = w.add_job(make_job("j", cron=None))
+    r = w.manual(j, scheduled_time=T0)
+    real_acquire = w.engine.lease.acquire
+    calls = []
+
+    def acquire(holder, now):
+        calls.append(now)
+        if len(calls) == 1:
+            return real_acquire(holder, now)
+        # Another member took the lease while this tick was busy.
+        w.gw.kv["so_locks"]["engine"] = {"_key": "engine", "holder": "other",
+                                         "expires": now + 1000}
+        return False
+    w.engine.lease.acquire = acquire
+    w.tick()
+    assert not w.gw.dispatch_log
+    st = w.step(r, "a")
+    assert st["state"] in ("waiting", "starting") and not st.get("sid")
+    # The new leader finds the step starting with no search, checks history, dispatches once.
+    other = w.new_engine("other")
+    w.clock.t += 5
+    other.tick()
+    assert len(w.gw.dispatch_log) == 1
+
+
+def test_lease_renewed_before_each_action_send():
+    w = World(T0)
+    j = w.add_job(make_job("j", cron=None, actions=[
+        {"hook": "on_start", "type": "webhook", "destination": "ops"},
+        {"hook": "on_start", "type": "webhook", "destination": "ops"}]))
+    w.gw.kv.setdefault("so_settings", {})["destinations"] = {
+        "_key": "destinations", "destinations": [{"name": "ops", "url_secret_ref": "u"}]}
+    w.gw.secrets["u"] = "https://hooks.example.com/x"
+    w.manual(j, scheduled_time=T0)
+    order = []
+    real_acquire, real_post = w.engine.lease.acquire, w.gw.post_webhook
+
+    def acquire(holder, now):
+        order.append("lease")
+        return real_acquire(holder, now)
+
+    def post(*a, **kw):
+        order.append("send")
+        return real_post(*a, **kw)
+    w.engine.lease.acquire = acquire
+    w.gw.post_webhook = post
+    w.tick()
+    assert order.count("send") == 2
+    for i, item in enumerate(order):
+        if item == "send":
+            assert order[i - 1] == "lease"

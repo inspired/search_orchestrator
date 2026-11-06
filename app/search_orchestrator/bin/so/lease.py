@@ -5,7 +5,7 @@ Only insert, update and delete are used, with one semantic: inserting a
 """
 COLLECTION = "so_locks"
 KEY = "engine"
-LEASE_SECONDS = 30
+LEASE_SECONDS = 90  # well above the engine's 15 s per-call timeout (gateway.ENGINE_CALL_TIMEOUT)
 
 
 class Lease:

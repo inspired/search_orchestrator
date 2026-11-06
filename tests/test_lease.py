@@ -8,16 +8,16 @@ def test_lease_single_holder():
     assert a.acquire("A", 1000) is True
     assert b.acquire("B", 1001) is False
     assert a.acquire("A", 1010) is True   # renew
-    assert b.acquire("B", 1020) is False  # renewed to 1040
+    assert b.acquire("B", 1020) is False  # renewed to 1100
 
 
-def test_lease_takeover_after_30s():
+def test_lease_takeover_after_90s():
     gw = FakeGateway()
     a, b = Lease(gw), Lease(gw)
     assert a.acquire("A", 1000)
-    assert not b.acquire("B", 1029)
-    assert b.acquire("B", 1030)
-    assert not a.acquire("A", 1031)
+    assert not b.acquire("B", 1089)
+    assert b.acquire("B", 1090)
+    assert not a.acquire("A", 1091)
 
 
 def test_lease_race_only_one_wins():
@@ -50,18 +50,18 @@ def test_renew_interleaved_with_takeover_single_leader():
     """A reads its own unexpired lease; B (later clock) takes over before A writes."""
     gw = FakeGateway()
     a, b = Lease(gw), Lease(gw)
-    assert a.acquire("A", 1000)  # expires 1030
+    assert a.acquire("A", 1000)  # expires 1090
     real = gw.kv_delete_query
     state = {"armed": True}
 
     def b_takes_over_first(collection, query):
         if state["armed"]:
             state["armed"] = False
-            assert b.acquire("B", 1031)  # sees it expired
+            assert b.acquire("B", 1091)  # sees it expired
         real(collection, query)
 
     gw.kv_delete_query = b_takes_over_first
-    assert a.acquire("A", 1029) is False
+    assert a.acquire("A", 1089) is False
     assert gw.kv_get("so_locks", "engine")["holder"] == "B"
 
 
@@ -70,4 +70,4 @@ def test_renew_extends_expiry():
     lease = Lease(gw)
     lease.acquire("A", 1000)
     assert lease.acquire("A", 1020)
-    assert gw.kv_get("so_locks", "engine")["expires"] == 1050
+    assert gw.kv_get("so_locks", "engine")["expires"] == 1110

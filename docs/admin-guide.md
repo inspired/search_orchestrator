@@ -117,7 +117,7 @@ Run records are pruned from KV Store after the retention period; audit events st
 
 ## Search head clusters
 
-The engine runs on every member, and a KV Store lease (30 seconds, renewed every tick) makes sure only one member advances runs at a time. This was tested against a fake KV Store only; no real cluster was available. Watch the first runs after installing on a cluster.
+The engine runs on every member, and a KV Store lease (90 seconds, renewed about every 10 seconds and right before each search dispatch and action send; every engine call to splunkd times out after 15 seconds, so no call outlives the lease) makes sure only one member advances runs at a time. This was tested against a fake KV Store only; no real cluster was available. Watch the first runs after installing on a cluster.
 
 ## Deleting jobs
 

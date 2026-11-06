@@ -29,12 +29,17 @@ from splunklib.modularinput import Argument, EventWriter, Scheme, Script  # noqa
 from so.actions import ActionRunner  # noqa: E402
 from so.audit import Audit  # noqa: E402
 from so.engine import AuthExpired, Engine  # noqa: E402
-from so.gateway import SplunkGateway  # noqa: E402
+from so.gateway import ENGINE_CALL_TIMEOUT, SplunkGateway  # noqa: E402
 from so.store import Store  # noqa: E402
 
 MAIN_STANZA = "orchestrator_engine://main"
 DEFAULT_TICK = 5
 DEFAULT_INDEX = "orchestrator"
+
+
+def make_gateway(server_uri, session_key):
+    """The engine's gateway: every splunkd call times out well within the lease."""
+    return SplunkGateway.from_session(server_uri, session_key, timeout=ENGINE_CALL_TIMEOUT)
 
 
 def tick_seconds(value):
@@ -127,7 +132,7 @@ class OrchestratorEngine(Script):
         audit = Audit(ew, index=params.get("index") or DEFAULT_INDEX)
 
         def build(session_key):
-            gateway = SplunkGateway.from_session(meta["server_uri"], session_key)
+            gateway = make_gateway(meta["server_uri"], session_key)
             store = Store(gateway)
             return Engine(gateway, store, audit, ActionRunner(gateway, store, audit),
                           time.time, holder)
