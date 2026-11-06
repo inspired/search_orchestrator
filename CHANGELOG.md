@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1 (2026-11-06)
+
+Step preview follow-ups.
+
+- `| orchestrate selftest` says when its new run is queued behind an active run of the same self-test job, names that run and its state, and says how to cancel it (`queued_behind`, `queued_behind_state`).
+- A preview with a past run as input tells results Splunk won't show you (403 `run_results_forbidden`: "you may not read <step>'s results from that run; only its owner or an admin can") apart from expired ones (410 `run_results_expired`).
+- A dependency cycle or a malformed job still blocks every preview, now with a message that names it: "the job has a cycle: a → b → a; fix it before previewing".
+- A From previous steps step stored before 1.1.0 with Earliest and Latest now dispatches without them, as a re-saved one does.
+- A malformed preview sid is a 404 everywhere, never a server error.
+- **Input from** greys out runs that ended longer ago than the result retention, marked "(results expired)". `POST preview/defaults` now also returns `result_retention`.
+- The input line names every earlier step the preview read, through a connection or a token, as the server resolved it (a step a run would skip shows "skipped", even after Preview anyway), and its "2 min ago" updates each minute. `POST preview` returns the list as `input`.
+- **Cancel** on a preview also cancels the running previews of earlier steps it started, but never one another preview is waiting on.
+- The preview time field keeps `9:05` as typed and shows `09:05` when you leave it.
+- The editor flags a From previous steps search that doesn't start with `|` and a From previous steps step with no dependency, with the server's messages, before you save.
+- Preview searches stay unlabelled in the Job Inspector: Splunk's search job API has no label parameter. The sid names the job and step.
+- Internal: the preview routes moved from `api.py` to `preview_api.py`; one job id pattern (`model.JOB_ID_RE`) serves the API, preview sids and the alert action.
+
 ## 1.1.0 (2026-11-06)
 
 - **Step preview.** The job editor has a **Preview step** button for every step type. It runs the step, as you and without saving the job, and shows the first 100 rows. Nothing goes in the run history, and previews never run actions.

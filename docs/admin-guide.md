@@ -124,14 +124,14 @@ Run records are pruned from KV Store after the retention period; audit events st
 The job editor can run a step and show its rows. See [Previewing steps](user-guide.md#previewing-steps).
 
 - **Who:** `orchestrator_build` or `orchestrator_admin`, plus the right to edit the job. The REST handler checks this on every request.
-- **Runs as the caller.** A preview is an ad-hoc search dispatched as the user, in the Search Orchestrator app namespace (`servicesNS/<user>/search_orchestrator`). It is never run as the job owner or the system user, and it sees only what that user can see. Search job ids start with `so_preview_`.
+- **Runs as the caller.** A preview is an ad-hoc search dispatched as the user, in the Search Orchestrator app namespace (`servicesNS/<user>/search_orchestrator`). It is never run as the job owner or the system user, and it sees only what that user can see. Search job ids are `so_preview_<user hash>.<job id or new>.<step id>.<random>`, so the Job Inspector and the jobs list show the job and step in the sid. Splunk's `POST search/jobs` has no parameter that sets a label (`label` is a job property it reports, not one a request sets), so preview jobs have none.
 - **Auto-cancel:** 180 seconds. A running preview that nobody polls, such as after a closed tab, is cancelled. The margin covers browsers that slow timers in background tabs.
 - **TTL:** 1800 seconds (30 minutes) once finished. The editor keeps it alive while it uses the preview.
 - **Runtime cap:** the smaller of the step's max runtime and 600 seconds.
 - **Rows:** the search isn't row-capped, so later previews read all rows. The table shows 100.
 - **No actions.** A preview never sends actions. A saved-search step runs through the `| savedsearch` wrapper, so its own alert actions and summary indexing don't run.
 - **Audit:** every preview writes `type=preview_dispatched` to `index=orchestrator`, with the job, step and sid.
-- **Past runs as input:** a preview reads the run's step results with `loadjob`. They expire after the run's result retention (24 hours by default).
+- **Past runs as input:** a preview reads the run's step results with `loadjob`. They expire after the run's result retention (24 hours by default); the editor greys out runs past it. A step result Splunk won't show the caller (another owner's run, for a user Splunk doesn't let read it) fails with 403 `run_results_forbidden`, not "expired". To tell the two apart, the handler asks splunkd with the system session only whether that recorded sid still exists.
 
 To see current previews:
 
@@ -165,6 +165,8 @@ If a job owner's Splunk account is removed, that job's runs fail with a clear er
 | `\| orchestrate selftest scenario=probe` | Checks the server calls the app depends on (search history, job control, KV Store, users, saved searches, index checks, audit writes, the REST endpoint) and returns one row per check with `ok` and `detail`. It never prints secrets. |
 
 Follow a run with `| orchestrate status run="<run id>"`, or on the Runs page.
+
+A job runs one run at a time, so a self-test run waits while an earlier run of the same self-test job is running, blocked or paused. The command then says so: `queued behind run <id>, which is blocked: cancel it with | orchestrate cancel run="<id>"`, with the run in `queued_behind` and its state in `queued_behind_state`.
 
 **What it leaves behind.** The self-test jobs stay after they run, so they can be run again:
 
