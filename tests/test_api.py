@@ -1484,3 +1484,23 @@ def test_malformed_preview_sid_is_404_not_500(w, sid):
     for method, suffix in (("GET", ""), ("GET", "/results"), ("POST", "/cancel")):
         if sid:
             assert w.call("alice", method, "/orchestrator/preview/" + sid + suffix)[0] == 404
+
+
+def test_preview_job_cycle_or_bad_shape_blocks_every_preview_with_a_clear_error(w):
+    job = chain_job()
+    job["steps"].append({"id": "x", "type": "inline", "spl": "| makeresults"})
+    job["steps"].append({"id": "y", "type": "inline", "spl": "| makeresults"})
+    job["edges"] += [{"from": "x", "to": "y"}, {"from": "y", "to": "x"}]  # far from a
+    status, out = preview(w, job=job)
+    assert status == 400 and error(out) == "invalid"
+    assert out["error"]["message"] == ("the job has a cycle: x → y → x; fix it before "
+                                       "previewing")
+    assert out["error"]["issues"][0]["code"] == "cycle"
+    assert not w.gw.preview_log
+    job = chain_job()
+    job["steps"][1]["max_runtime"] = "soon"
+    status, out = preview(w, job=job)
+    assert status == 400 and error(out) == "invalid"
+    assert out["error"]["message"].startswith("the job is malformed: ")
+    assert out["error"]["message"].endswith("; fix it before previewing")
+    assert out["error"]["issues"][0]["code"] == "bad_shape"

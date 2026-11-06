@@ -1021,19 +1021,27 @@ def _invalid(issues):
     return ApiError(400, "invalid", "the step or a step it depends on has errors", issues)
 
 
+def _blocks_every_preview(message, issues):
+    return ApiError(400, "invalid", "%s; fix it before previewing" % message, issues)
+
+
 def _preview_scope(job, step_id):
     """The steps ``step_id`` reads, after checking the step, those steps, the edges into
     them, the params and the time zone. Errors elsewhere (other steps and edges, the
-    schedule, actions) don't block a preview."""
+    schedule, actions) don't block a preview, except two anywhere in the job, since
+    finding the steps a step reads needs a well-formed job whose edges form a DAG: a
+    malformed job (``bad_shape``) and a dependency cycle. Both are 400 ``invalid`` with a
+    message naming the problem ("the job has a cycle: a → b → a; fix it before
+    previewing")."""
     shape = [i for i in _errors(model.validate_job(job)) if i.get("code") == "bad_shape"]
     if shape:
-        raise _invalid(shape)
+        raise _blocks_every_preview("the job is malformed: %s" % shape[0]["message"], shape)
     if step_id not in [s.get("id") for s in job.get("steps") or []]:
         raise ApiError(400, "unknown_step", "the job has no step %r" % (step_id,))
-    try:
-        model.topo_order(job)
-    except ValueError:
-        raise _invalid([_issue("error", "cycle", "steps form a dependency cycle")])
+    cycle = model.find_cycle(job)
+    if cycle:
+        message = "the job has a cycle: %s" % " → ".join(cycle)
+        raise _blocks_every_preview(message, [_issue("error", "cycle", message)])
     scope = preview.closure(job, step_id)
     keep = set(scope) | {step_id}
     part = dict(job, steps=[s for s in job.get("steps") or [] if s.get("id") in keep],

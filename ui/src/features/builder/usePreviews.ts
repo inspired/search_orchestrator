@@ -61,7 +61,8 @@ export function effectiveMaxRuntime(job: JobDefinition, stepId: string): number 
 /** The server's message, with the issues for an invalid preview. */
 export function previewErrorText(err: unknown): string {
     if (err instanceof client.ApiError) {
-        const errors = (err.issues || []).filter((i) => i.level === 'error').map((i) => i.message);
+        // A job-level problem (a cycle, a malformed job) is named in the message already.
+        const errors = (err.issues || []).filter((i) => i.level === 'error' && !err.message.includes(i.message)).map((i) => i.message);
         if (err.code === 'invalid' && errors.length) {
             return `${err.message}: ${errors.join(' ')}`;
         }

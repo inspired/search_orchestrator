@@ -76,6 +76,34 @@ def topo_order(job):
     return out
 
 
+def find_cycle(job):
+    """A dependency cycle as a path ``[a, b, ..., a]`` (edges only, steps taken in step
+    order), or None when the edges form a DAG."""
+    ids, succ = _graph(job)
+    color, path = {}, []
+
+    def visit(n):
+        color[n] = 1
+        path.append(n)
+        for b in succ[n]:
+            if color.get(b) == 1:
+                return path[path.index(b):] + [b]
+            if b not in color:
+                found = visit(b)
+                if found:
+                    return found
+        color[n] = 2
+        path.pop()
+        return None
+
+    for s in _step_ids(job):
+        if s in ids and s not in color:
+            found = visit(s)
+            if found:
+                return found
+    return None
+
+
 def _downstream(succ, starts):
     seen, stack = set(), list(starts)
     while stack:

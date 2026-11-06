@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { ApiError } from '../api/client';
 import type { JobDefinition, PreviewRequest } from '../api/types';
 import type { PreviewContext } from '../features/builder/previewLogic';
-import usePreviews, { PreviewApi } from '../features/builder/usePreviews';
+import usePreviews, { PreviewApi, previewErrorText } from '../features/builder/usePreviews';
 
 const job: JobDefinition = {
     name: 'j',
@@ -466,5 +466,14 @@ describe('usePreviews', () => {
         expect(api.cancelPreview).not.toHaveBeenCalled();
         expect(result.current.previews.b.state).toBe('done');
         expect(result.current.previews.c.state).toBe('done');
+    });
+
+    test('previewErrorText adds the issues once, not again when the message names them', () => {
+        const issue = (message: string) => ({ level: 'error' as const, code: 'x', message, step: null });
+        expect(previewErrorText(new ApiError(400, 'invalid', 'the step has errors', [issue('a: bad')]))).toBe('the step has errors: a: bad');
+        const cycle = 'the job has a cycle: x → y → x';
+        expect(previewErrorText(new ApiError(400, 'invalid', `${cycle}; fix it before previewing`, [issue(cycle)]))).toBe(
+            `${cycle}; fix it before previewing`
+        );
     });
 });

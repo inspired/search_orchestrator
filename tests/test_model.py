@@ -195,3 +195,15 @@ def test_previous_step_shares_inline_spl_checks():
         "edges": [{"from": "a", "to": "b"}]}
     found = {i["code"] for i in model.validate_job(j) if i["level"] == "error"}
     assert {"orchestrate_in_step", "unsafe_token_position"} <= found
+
+
+def test_find_cycle_names_the_path():
+    from so import model as m
+    job = {"steps": [{"id": x} for x in ("a", "b", "c", "d")],
+           "edges": [{"from": "a", "to": "b"}, {"from": "b", "to": "c"},
+                     {"from": "c", "to": "b"}, {"from": "c", "to": "d"}]}
+    assert m.find_cycle(job) == ["b", "c", "b"]
+    job["edges"] = [{"from": "a", "to": "a"}]
+    assert m.find_cycle(job) == ["a", "a"]
+    job["edges"] = [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}]
+    assert m.find_cycle(job) is None
