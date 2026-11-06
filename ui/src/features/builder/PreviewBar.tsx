@@ -55,7 +55,11 @@ export interface PreviewBarProps {
 export default function PreviewBar({ scheduledTime, onScheduledTime, params, values, onValues, source, onSource, runs, onOpenRuns }: PreviewBarProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [timeDraft, setTimeDraft] = useState(timeOf(scheduledTime));
-    useEffect(() => setTimeDraft(timeOf(scheduledTime)), [scheduledTime]);
+    // A new time from outside (a picked run, the date) replaces the field, but not the
+    // entry being typed that set it ("9:05" stays until blur).
+    useEffect(() => {
+        setTimeDraft((draft) => (toEpoch(dateOf(scheduledTime), draft) === scheduledTime ? draft : timeOf(scheduledTime)));
+    }, [scheduledTime]);
     const timeError = !TIME_RE.test(timeDraft);
     const shown = [...runs].sort((a, b) => b.scheduled_time - a.scheduled_time).slice(0, RUNS_SHOWN);
 
@@ -106,6 +110,7 @@ export default function PreviewBar({ scheduledTime, onScheduledTime, params, val
                     value={timeDraft}
                     error={timeError}
                     style={{ width: '90px' }}
+                    onBlur={() => setTimeDraft(timeOf(scheduledTime))}
                     onChange={(_e: unknown, { value }: { value: string }) => {
                         setTimeDraft(value);
                         const epoch = toEpoch(dateOf(scheduledTime), value);

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { fireEvent, screen } from '@testing-library/react';
 import type { ParamDecl } from '../api/types';
 import PreviewBar, { PreviewBarProps } from '../features/builder/PreviewBar';
@@ -91,5 +91,37 @@ describe('PreviewBar', () => {
         fireEvent.click(screen.getByRole('option', { name: 'Live previews' }));
         expect(props.onSource).toHaveBeenCalledWith('live');
         expect(props.onScheduledTime).not.toHaveBeenCalled();
+    });
+    test('a valid time is kept as typed and normalised on blur', () => {
+        const seen: number[] = [];
+        function Live() {
+            const [time, setTime] = useState(t(2026, 11, 6, 1, 0));
+            return (
+                <PreviewBar
+                    scheduledTime={time}
+                    onScheduledTime={(e) => {
+                        seen.push(e);
+                        setTime(e);
+                    }}
+                    params={[]}
+                    values={{}}
+                    onValues={jest.fn()}
+                    source="live"
+                    onSource={jest.fn()}
+                    runs={[]}
+                />
+            );
+        }
+        renderThemed(<Live />);
+        const field = screen.getByLabelText('Time (HH:MM)');
+        fireEvent.change(field, { target: { value: '9:05' } });
+        expect(seen).toEqual([t(2026, 11, 6, 9, 5)]);
+        expect(field).toHaveValue('9:05');
+        fireEvent.blur(field);
+        expect(field).toHaveValue('09:05');
+        // A bad entry goes back to the time in use on blur.
+        fireEvent.change(field, { target: { value: '25:00' } });
+        fireEvent.blur(field);
+        expect(field).toHaveValue('09:05');
     });
 });
