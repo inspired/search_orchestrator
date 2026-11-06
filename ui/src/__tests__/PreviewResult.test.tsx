@@ -94,7 +94,7 @@ describe('PreviewResult', () => {
 
     test('skipped: the reason and Preview anyway', () => {
         const { onAnyway } = renderResult(view({ state: 'skipped', skipped: 'run_when', reason: 'runs on Mondays' }));
-        expect(screen.getByText('Would be skipped tonight: runs on Mondays')).toBeInTheDocument();
+        expect(screen.getByText('Would be skipped: runs on Mondays')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Preview anyway' }));
         expect(onAnyway).toHaveBeenCalled();
     });

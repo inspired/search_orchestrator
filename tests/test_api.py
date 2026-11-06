@@ -1122,6 +1122,7 @@ def test_preview_live_skipped_upstream(w):
     status, out = preview(w, job=chain_job(), step_id="b",
                           input=live(a={"skipped": "not_taken"}))
     assert status == 200 and out["status"] == "skipped" and out["skip_kind"] == "not_taken"
+    assert out["reason"] == "none of the edges into it would be taken"
     job = chain_job()
     job["steps"][1]["spl"] = '| makeresults | eval s="$a.sid|none$"'
     status, out = preview(w, job=job, step_id="b", anyway=True,
@@ -1202,7 +1203,7 @@ def test_preview_skip_and_anyway(w):
                            "run_when": {"kind": "cron", "value": "* * * * 1"}}], edges=[])
     status, out = preview(w, job=job)  # T0 is a Tuesday
     assert status == 200 and out["status"] == "skipped" and out["skip_kind"] == "run_when"
-    assert out["reason"]
+    assert out["reason"] == "its run when condition doesn't match at this time"
     assert not w.gw.preview_log
     status, out = preview(w, job=job, anyway=True)
     assert status == 201 and out["status"] == "started" and out["anyway"] is True

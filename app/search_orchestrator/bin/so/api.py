@@ -992,9 +992,8 @@ def me(ctx, body):
 # Preview.
 
 SKIP_REASONS = {
-    "run_when": "A run at this time would skip this step: its run when condition does not "
-                "match.",
-    "not_taken": "A run would skip this step: none of the edges into it would be taken."}
+    "run_when": "its run when condition doesn't match at this time",
+    "not_taken": "none of the edges into it would be taken"}
 POLL_FIELDS = ("state", "result_count", "error", "truncated", "run_duration", "messages")
 _UPSTREAM = ("state", "skip_kind", "sid", "result_count", "first")
 RUN_ENDED = ("succeeded", "failed", "skipped")  # step states a preview can read from a run

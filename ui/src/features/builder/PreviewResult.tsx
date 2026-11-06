@@ -160,7 +160,7 @@ export default function PreviewResult({ preview, onCancel, onAnyway }: PreviewRe
             case 'skipped':
                 body = (
                     <>
-                        <p>{`Would be skipped tonight: ${p.reason || 'a run would skip this step'}`}</p>
+                        <p>{`Would be skipped: ${p.reason || 'a run would skip this step'}`}</p>
                         <Button appearance="secondary" label="Preview anyway" onClick={onAnyway} />
                     </>
                 );
