@@ -214,8 +214,37 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         await doSave();
     };
 
+    const canvasArea = useRef<HTMLDivElement | null>(null);
+
+    // After a confirmed delete, focus moves to the next step, else the previous one, else
+    // the canvas. Applied once the modal has closed and handed focus back.
+    const [focusNext, setFocusNext] = useState<{ id: string | null } | null>(null);
+    useEffect(() => {
+        if (!focusNext || removing) {
+            return undefined;
+        }
+        const timer = window.setTimeout(() => {
+            const area = canvasArea.current;
+            if (area) {
+                const nodes = Array.from(area.querySelectorAll<HTMLElement>('[data-node-id]'));
+                const node = nodes.find((n) => n.getAttribute('data-node-id') === focusNext.id);
+                const target = node || area.querySelector<HTMLElement>('[data-canvas]');
+                if (target) {
+                    target.focus();
+                }
+            }
+            setFocusNext(null);
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [focusNext, removing]);
+
     const confirmRemove = () => {
         if (removing) {
+            const ids = job.steps.map((s) => s.id);
+            const at = ids.indexOf(removing);
+            const next = ids[at + 1] !== undefined ? ids[at + 1] : ids[at - 1];
+            returnFocus.current = null;
+            setFocusNext({ id: next === undefined ? null : next });
             dispatch({ type: 'removeStep', id: removing });
             if (selected && selected.kind === 'step' && selected.id === removing) {
                 setSelected(null);
@@ -230,6 +259,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         if (selectedStep) {
             return (
                 <StepPanel
+                    key={selectedStep}
                     job={job}
                     stepId={selectedStep}
                     issues={byStep[selectedStep] || []}
@@ -275,6 +305,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     />
                     <Button appearance="secondary" label="Auto layout" onClick={() => dispatch({ type: 'layout' })} />
                 </div>
+                <div ref={canvasArea}>
                 <Canvas
                     steps={job.steps}
                     edges={job.edges || []}
@@ -286,6 +317,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     onConnect={(from, to) => dispatch({ type: 'connect', from, to })}
                     onRequestRemove={setRemoving}
                 />
+                </div>
             </div>
             <div
                 style={{

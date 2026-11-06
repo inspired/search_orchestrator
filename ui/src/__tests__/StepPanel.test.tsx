@@ -42,11 +42,14 @@ describe('StepPanel', () => {
     });
 
     test('depends-on excludes options that would cycle', () => {
-        renderPanel(threeSteps([{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }]), 'a');
+        const job = threeSteps([{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }]);
+        job.steps.push({ id: 'd', type: 'inline', spl: '| makeresults' });
+        renderPanel(job, 'a');
         const input = screen.getByRole('combobox', { name: 'Depends on' });
         fireEvent.focus(input);
         fireEvent.keyDown(input, { key: 'ArrowDown', keyCode: 40 });
         const options = screen.queryAllByRole('option').map((o) => o.textContent);
+        expect(options).toContain('d');
         expect(options).not.toContain('b');
         expect(options).not.toContain('c');
     });
@@ -56,6 +59,18 @@ describe('StepPanel', () => {
         fireEvent.click(screen.getByTestId('run-when-select'));
         fireEvent.click(screen.getByRole('option', { name: 'Mondays' }));
         expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 1' });
+    });
+
+    test('a duration of 0 minutes is refused', () => {
+        const state = renderPanel(threeSteps([]), 'a');
+        const field = screen.getByLabelText('Give up after (minutes)');
+        fireEvent.change(field, { target: { value: '0' } });
+        expect(screen.getByText('At least 1 minute.')).toBeInTheDocument();
+        expect(state().job.steps[0].give_up_after).toBeUndefined();
+        fireEvent.change(field, { target: { value: '30' } });
+        expect(state().job.steps[0].give_up_after).toBe(1800);
+        fireEvent.change(field, { target: { value: '' } });
+        expect(state().job.steps[0].give_up_after).toBeNull();
     });
 
     test('retries above 0 shows the duplicate warning', () => {
@@ -102,6 +117,33 @@ describe('BuilderPage', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Save and take ownership' }));
         await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
         expect((api.updateJob as jest.Mock).mock.calls[0][0]).toBe('rollups');
+    });
+});
+
+describe('BuilderPage save checks', () => {
+    const issue = (level: 'error' | 'warning') => ({ level, code: 'x', message: `a server ${level}`, step: 'weekly' });
+
+    test('a server error blocks save', async () => {
+        const api = fakeApi({
+            validateJob: jest.fn().mockResolvedValue({ valid: false, issues: [issue('error')], owner_will_change: false, owner: 'alice' }),
+        });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        expect(await screen.findByText('The job has errors and was not saved.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Step Weekly rollup, 1 error/ })).toBeInTheDocument();
+        expect(api.updateJob).not.toHaveBeenCalled();
+    });
+
+    test('a server warning does not block save', async () => {
+        const api = fakeApi({
+            validateJob: jest.fn().mockResolvedValue({ valid: true, issues: [issue('warning')], owner_will_change: false, owner: 'alice' }),
+        });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        expect(await screen.findByText('Saved.')).toBeInTheDocument();
     });
 });
 

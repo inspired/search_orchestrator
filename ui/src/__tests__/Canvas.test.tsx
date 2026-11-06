@@ -49,6 +49,24 @@ describe('Canvas', () => {
         await waitFor(() => expect(screen.queryByRole('button', { name: /^Step Weekly rollup/ })).toBeNull());
     });
 
+    test('focus moves to the next step after a delete, or the canvas when none remain', async () => {
+        renderThemed(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        const weekly = await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        weekly.focus();
+        fireEvent.keyDown(weekly, { key: 'Delete' });
+        fireEvent.click(await screen.findByRole('button', { name: 'Remove step' }));
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Step Monthly rollup/ })));
+        for (const name of [/^Step Monthly rollup/, /^Step Daily summary/]) {
+            const node = screen.getByRole('button', { name });
+            node.focus();
+            fireEvent.keyDown(node, { key: 'Delete' });
+            fireEvent.click(await screen.findByRole('button', { name: 'Remove step' }));
+            // eslint-disable-next-line no-await-in-loop
+            await waitFor(() => expect(screen.queryByRole('button', { name })).toBeNull());
+        }
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Job steps/ })));
+    });
+
     test('GraphView shows status text per step', () => {
         renderThemed(
             <GraphView steps={steps} edges={edges} statusByStep={{ daily: { state: 'failed' }, weekly: { state: 'waiting' } }} />

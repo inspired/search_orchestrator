@@ -38,16 +38,34 @@ export interface DurationFieldProps {
     onChange: (seconds: number | null) => void;
 }
 
-/** Whole minutes in the field; seconds in the job. Empty inherits. */
+const MIN_DURATION_ERROR = 'At least 1 minute.';
+
+/** Whole minutes in the field; seconds in the job. Empty inherits. Zero is refused (a
+ * give-up of 0 would give up at once): the field shows an error and the job keeps its
+ * previous value. */
 export function DurationField({ id, label, value, inherited, inheritedFrom, help, onChange }: DurationFieldProps) {
+    const shown = value === null || value === undefined ? '' : String(Math.round(value / 60));
+    const [zero, setZero] = useState<string | null>(null);
     return (
-        <ControlGroup label={`${label} (minutes)`} labelFor={id} labelPosition="top" help={help}>
+        <ControlGroup
+            label={`${label} (minutes)`}
+            labelFor={id}
+            labelPosition="top"
+            help={zero !== null ? MIN_DURATION_ERROR : help}
+            error={zero !== null}
+        >
             <Text
                 inputId={id}
-                value={value === null || value === undefined ? '' : String(Math.round(value / 60))}
+                value={zero !== null ? zero : shown}
+                error={zero !== null}
                 placeholder={`${inheritedFrom} (${formatMinutes(inherited)})`}
                 onChange={(_e: unknown, { value: text }: { value: string }) => {
                     const digits = text.replace(/[^0-9]/g, '');
+                    if (digits !== '' && parseInt(digits, 10) === 0) {
+                        setZero(digits);
+                        return;
+                    }
+                    setZero(null);
                     onChange(digits === '' ? null : parseInt(digits, 10) * 60);
                 }}
             />

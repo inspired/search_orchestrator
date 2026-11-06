@@ -162,6 +162,8 @@ export default function Canvas({
             </div>
             <svg
                 ref={svgRef}
+                data-canvas="true"
+                tabIndex={-1}
                 role="group"
                 aria-label="Job steps. Tab to a step, Enter to select it, Delete to remove it."
                 width="100%"
@@ -268,6 +270,7 @@ export default function Canvas({
                             <NodeGroup
                                 key={s.id}
                                 data-testid={`node-${s.id}`}
+                                data-node-id={s.id}
                                 transform={`translate(${p.x},${p.y})`}
                                 role="button"
                                 tabIndex={0}

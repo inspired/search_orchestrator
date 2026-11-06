@@ -1,6 +1,6 @@
 /* The builder's state: the job being edited, where its nodes sit on the canvas, and
  * undo/redo history. Positions are layout only and are not saved with the job. */
-import type { Edge, JobDefinition, StepDef } from '../../api/types';
+import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
 import { autoLayout, NODE_H, Pos, Positions, wouldCycle } from './graphLogic';
 
 interface Snapshot {
@@ -73,6 +73,51 @@ function edits(state: BuilderState, job: JobDefinition, positions: Positions = s
 
 const fieldKey = (...parts: string[]) => parts.join('\u0000');
 
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Rewrites `$old.sid$`, `$old.resultCount$`, `$old.status$` and `$old.first.f$` (with an
+ * optional `|default`) to the new id. Anything else, such as a literal `$` or `$old$`,
+ * is left as it is (the token grammar of bin/so/tokens.py). */
+export function renameTokens(text: string, from: string, to: string): string {
+    const re = new RegExp(`\\$${escapeRe(from)}(\\.(?:sid|resultCount|status|first\\.[A-Za-z0-9_]+)(?:\\|[A-Za-z0-9_.:@ -]*)?\\$)`, 'g');
+    return text.replace(re, (_m, rest: string) => `$${to}${rest}`);
+}
+
+/** Every string inside an action (subject, message, payload, params values ...). */
+function renameInValue(value: unknown, from: string, to: string): unknown {
+    if (typeof value === 'string') {
+        return renameTokens(value, from, to);
+    }
+    if (Array.isArray(value)) {
+        return value.map((v) => renameInValue(v, from, to));
+    }
+    if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
+            out[k] = renameInValue(v, from, to);
+        });
+        return out;
+    }
+    return value;
+}
+
+const renameActions = (actions: Action[] | undefined, from: string, to: string) =>
+    actions ? (actions.map((a) => renameInValue(a, from, to)) as Action[]) : actions;
+
+function renameStepTokens(step: StepDef, from: string, to: string): StepDef {
+    const out = { ...step };
+    if (typeof out.spl === 'string') {
+        out.spl = renameTokens(out.spl, from, to);
+    }
+    if (out.run_when && out.run_when.kind === 'expression' && typeof out.run_when.value === 'string') {
+        out.run_when = { ...out.run_when, value: renameTokens(out.run_when.value, from, to) };
+    }
+    if (out.actions) {
+        out.actions = renameActions(out.actions, from, to);
+    }
+    return out;
+}
+
 const same = (e: Pick<Edge, 'from' | 'to'>, from: string, to: string) => e.from === from && e.to === to;
 
 export function reducer(state: BuilderState, action: BuilderAction): BuilderState {
@@ -117,12 +162,25 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                 const key = fieldKey('step', action.id, ...Object.keys(action.changes).sort());
                 return edits(state, { ...job, steps: nextSteps }, positions, key);
             }
-            const swap = (id: string) => (id === action.id ? (newId as string) : id);
-            const nextPositions = { ...positions, [newId as string]: positions[action.id] };
+            const to = newId as string;
+            const swap = (id: string) => (id === action.id ? to : id);
+            const nextPositions = { ...positions, [to]: positions[action.id] };
             delete nextPositions[action.id];
+            const edgesOut = edgeList.map((e) => {
+                const next = { ...e, from: swap(e.from), to: swap(e.to) };
+                if (typeof next.expression === 'string') {
+                    next.expression = renameTokens(next.expression, action.id, to);
+                }
+                return next;
+            });
             return edits(
                 state,
-                { ...job, steps: nextSteps, edges: edgeList.map((e) => ({ ...e, from: swap(e.from), to: swap(e.to) })) },
+                {
+                    ...job,
+                    steps: nextSteps.map((st) => renameStepTokens(st, action.id, to)),
+                    edges: edgesOut,
+                    actions: renameActions(job.actions, action.id, to),
+                },
                 nextPositions
             );
         }
