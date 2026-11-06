@@ -11,8 +11,9 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
   editor greys out runs past it in "Input from").
 * ``POST preview`` ``{"job", "step_id", "scheduled_time", "params", "input", "anyway"}``,
   ``input`` ``{"mode": "live", "previews": {step: {"sid"} | {"skipped": kind}}}`` or
-  ``{"mode": "run", "run_id"}``: 201 ``{"status": "started", "sid", "spl"}`` (plus
-  ``"anyway": true`` when it bypassed a skip), 200 ``{"status": "skipped", "skip_kind",
+  ``{"mode": "run", "run_id"}``: 201 ``{"status": "started", "sid", "spl", "input"}``
+  (``input``: the steps it read, directly or through tokens, as resolved: ``[{"step",
+  "state", "sid" | "skip_kind"}]``; plus ``"anyway": true`` when it bypassed a skip), 200 ``{"status": "skipped", "skip_kind",
   "reason"}``, 409 ``needs_preview`` (``steps``), ``upstream_failed`` (``step``: a failed
   step behind an on_success edge, as a run decides) or ``run_step_missing`` (``step``), 410
   ``run_results_expired`` (``step``), 403 ``run_results_forbidden`` (``step``: splunkd
@@ -281,6 +282,21 @@ def _preview_search(ctx, job, step, scheduled, params, upstream):
     return spl, step.get("earliest") or None, step.get("latest") or None
 
 
+def _inputs_read(job, step_id, upstream):
+    """The steps the preview read (its edge sources and the steps its SPL names in tokens),
+    as this request resolved them: ``[{"step", "state", "sid" | "skip_kind"}]``."""
+    out = []
+    for up in preview.reads(job, step_id):
+        st = upstream.get(up) or {}
+        entry = {"step": up, "state": st.get("state")}
+        if st.get("state") == "skipped":
+            entry["skip_kind"] = st.get("skip_kind")
+        elif st.get("sid"):
+            entry["sid"] = st["sid"]
+        out.append(entry)
+    return out
+
+
 def preview_defaults(ctx, body):
     job, _ = _preview_target(ctx, body)
     try:
@@ -311,7 +327,8 @@ def start_preview(ctx, body):
     sid = preview.make_sid(ctx.user, job_ref, step_id, uuid.uuid4().hex[:16])
     sid = ctx.user_gw.preview_dispatch(ctx.user, spl, earliest, latest, scheduled, sid)
     ctx.emit({"type": "preview_dispatched", "job_id": job_ref, "step_id": step_id, "sid": sid})
-    out = {"status": "started", "sid": sid, "spl": spl}
+    out = {"status": "started", "sid": sid, "spl": spl,
+           "input": _inputs_read(job, step_id, upstream)}
     if anyway:
         out["anyway"] = True
     return 201, out

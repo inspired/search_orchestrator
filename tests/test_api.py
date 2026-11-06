@@ -1537,3 +1537,24 @@ def test_preview_run_results_forbidden_is_not_expired(w):
     w.gw.forget_job("run_a")
     status, out = preview(w, "root", **body)
     assert status == 410 and error(out) == "run_results_expired", out
+
+
+def test_preview_reports_the_inputs_it_read_as_resolved(w):
+    w.gw.script_job("so_preview_", ["done"], result_count=2)
+    job = _skip_b_job(c_spl='| makeresults | eval n="$a.resultCount$" s="$b.sid|none$"')
+    _, out = preview(w, job=job)
+    a_sid = out["sid"]
+    assert out["input"] == []
+    _, out = preview(w, job=job, step_id="b", anyway=True, input=live(a={"sid": a_sid}))
+    b_sid = out["sid"]
+    assert out["input"] == [{"step": "a", "state": "succeeded", "sid": a_sid}]
+    # c reads a through a token and b through its edge; b, previewed anyway, is skipped.
+    status, out = preview(w, job=job, step_id="c", input=live(a={"sid": a_sid}, b={"sid": b_sid}))
+    assert status == 201, out
+    assert out["input"] == [{"step": "a", "state": "succeeded", "sid": a_sid},
+                            {"step": "b", "state": "skipped", "skip_kind": "run_when"}]
+    run_id = run_with(w, chain_job(), {"a": {"state": "succeeded", "sid": "run_a",
+                                             "result_count": 1}})
+    kept(w, "run_a")
+    status, out = preview(w, job=chain_job(), step_id="b", input={"mode": "run", "run_id": run_id})
+    assert out["input"] == [{"step": "a", "state": "succeeded", "sid": "run_a"}]
