@@ -47,9 +47,9 @@
 **Interfaces:**
 - Produces:
   - `tokens.INPUT_ARG = "so_input"`.
-  - `tokens.EMPTY_INPUT = '| makeresults | where 1=0'`.
-  - `tokens.input_spl(sids: list[str]) -> str`: `EMPTY_INPUT` for `[]`; `| loadjob "s1"` for one sid; `| loadjob "s1" | append [| loadjob "s2"]` and so on for more. Raises `TokenError("$so_input$", "bad search id")` for a sid not matching `^[A-Za-z0-9_.-]+$`.
-  - `tokens.step_spl(step: dict, step_ids: list) -> tuple[str, list[str]]`: the compiled saved-search text and arg names for an `inline` or `previous` step. For `previous` it is `"$args.so_input$ " + compiled_tail`, with names excluding `so_input`.
+  - `tokens.EMPTY_INPUT = 'makeresults | where 1=0'` (no leading pipe: the stored search supplies it; server check, Task 2).
+  - `tokens.input_spl(sids: list[str]) -> str`: `EMPTY_INPUT` for `[]`; `loadjob "s1"` for one sid; `loadjob "s1" | append [| loadjob "s2"]` and so on for more. Raises `TokenError("$so_input$", "bad search id")` for a sid not matching `^[A-Za-z0-9_.-]+$`.
+  - `tokens.step_spl(step: dict, step_ids: list) -> tuple[str, list[str]]`: the compiled saved-search text and arg names for an `inline` or `previous` step. For `previous` it is `"| $args.so_input$ " + compiled_tail`, with names excluding `so_input`.
   - `tokens.previous_inputs(definition: dict, step_id: str) -> list[str]`: the dependency step ids, in `definition["edges"]` order, deduplicated.
   - `tokens.fill(compiled: str, args: dict) -> str`: replaces each `$args.<name>$` with its value. Previews use it.
   - `gateway.parse_job_status(...)["truncated"]`: `None`, or the first message text containing `truncating to maxout`, or `Subsearch` together with `timed out` or `auto-finalized`, from any message type.
