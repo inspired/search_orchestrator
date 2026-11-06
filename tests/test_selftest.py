@@ -33,10 +33,17 @@ def test_selftest_definition_is_valid():
     job = selftest.definition()
     assert not errors(as_job(job))
     s = steps(job)
-    assert set(s) == {"a", "b", "c", "d", "skip_me", "flaky", "merged"}
+    assert set(s) == {"a", "b", "c", "d", "skip_me", "flaky", "merged", "merged_check"}
     assert edges(job) == sorted([("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"),
                                  ("a", "skip_me"), ("a", "flaky"), ("b", "merged"),
-                                 ("c", "merged"), ("skip_me", "merged")])
+                                 ("c", "merged"), ("skip_me", "merged"),
+                                 ("merged", "merged_check")])
+    # merged must give exactly one row: otherwise merged_check reads the missing lookup
+    # and fails, as flaky's first attempt does.
+    check = s["merged_check"]["spl"]
+    assert check.startswith("| inputlookup [| makeresults | eval lookup=if(")
+    assert '"$merged.resultCount$"="1"' in check
+    assert '"%s", "%s"' % (selftest.OK_LOOKUP, selftest.MISSING_LOOKUP) in check
     assert s["merged"]["type"] == "previous"
     assert s["merged"]["spl"] == "| stats dc(branch) AS branches | where branches=2"
     assert not s["merged"].get("earliest") and not s["merged"].get("latest")
@@ -100,6 +107,7 @@ def test_selftest_completes_on_fake():
     for parallel in ("b", "c"):
         w.gw.script_job(hidden(w, "so_selftest", parallel), ["done"], result_count=1,
                         first={"rows": "3"})
+    w.gw.script_job(hidden(w, "so_selftest", "merged"), ["done"], result_count=1)
     flaky = hidden(w, "so_selftest", "flaky")
     w.gw.script_job(flaky, ["failed"], error="lookup missing")
     for _ in range(40):
@@ -114,7 +122,11 @@ def test_selftest_completes_on_fake():
     st = run["steps"]
     assert st["skip_me"]["state"] == "skipped" and st["skip_me"]["skip_kind"] == "run_when"
     assert st["flaky"]["state"] == "succeeded" and st["flaky"]["attempt"] == 2
-    assert all(st[s]["state"] == "succeeded" for s in ("a", "b", "c", "d", "merged"))
+    assert all(st[s]["state"] == "succeeded"
+               for s in ("a", "b", "c", "d", "merged", "merged_check"))
+    c_args = [x["args"] for x in w.gw.dispatch_log
+              if x["name"] == hidden(w, "so_selftest", "merged_check")]
+    assert c_args == [{"merged__resultCount": "1"}]
     d_args = [x["args"] for x in w.gw.dispatch_log if x["name"] == hidden(w, "so_selftest", "d")]
     assert d_args and d_args[0]["b__first__rows"] == "3"
     m_args = [x["args"] for x in w.gw.dispatch_log

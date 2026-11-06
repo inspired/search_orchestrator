@@ -10,7 +10,8 @@
   matches; ``flaky`` after ``a`` with ``retries = 1``, whose first attempt fails;
   ``merged`` (From previous steps) after ``b``, ``c`` and ``skip_me``, which
   gives one row exactly when both branches were loaded and the skipped step
-  added nothing.
+  added nothing; ``merged_check`` after it fails (the missing lookup, as for
+  ``flaky``) unless ``merged`` gave exactly one row.
 * ``rollup_late`` / ``rollup_fail``: ``rollup_definition(fail_first)``,
   daily -> weekly -> monthly, every step ending in ``addinfo`` so its
   ``info_min_time`` / ``info_max_time`` show the window it summarised. The late
@@ -75,6 +76,13 @@ def _fail_first(step_id):
             % (AUDIT_INDEX, step_id, OK_LOOKUP, MISSING_LOOKUP))
 
 
+def _assert_spl(condition):
+    """SPL that fails unless the eval ``condition`` holds: it reads the shipped lookup when
+    it does, else the missing one, the way ``_fail_first`` fails a search."""
+    return ('| inputlookup [| makeresults | eval lookup=if(%s, "%s", "%s") | return $lookup]'
+            % (condition, OK_LOOKUP, MISSING_LOOKUP))
+
+
 def _step(step_id, name, spl, **extra):
     out = {"id": step_id, "name": name, "type": "inline", "spl": spl, "earliest": "-15m",
            "latest": "+15m", "actions": []}
@@ -103,6 +111,8 @@ def definition():
             _step("flaky", "Fails once", _fail_first("flaky") + " | stats count", retries=1),
             {"id": "merged", "name": "Merge inputs", "type": "previous",
              "spl": "| stats dc(branch) AS branches | where branches=2", "actions": []},
+            _step("merged_check", "Check merge",
+                  _assert_spl('"$merged.resultCount$"="1"') + " | stats count"),
         ],
         "edges": [{"from": "a", "to": "b", "condition": "on_success"},
                   {"from": "a", "to": "c", "condition": "on_success"},
@@ -112,7 +122,8 @@ def definition():
                   {"from": "a", "to": "flaky", "condition": "on_success"},
                   {"from": "b", "to": "merged", "condition": "on_success"},
                   {"from": "c", "to": "merged", "condition": "on_success"},
-                  {"from": "skip_me", "to": "merged", "condition": "on_success"}],
+                  {"from": "skip_me", "to": "merged", "condition": "on_success"},
+                  {"from": "merged", "to": "merged_check", "condition": "on_success"}],
         "actions": [_event_action("on_failure")],
     }
 
