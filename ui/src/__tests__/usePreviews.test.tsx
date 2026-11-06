@@ -476,4 +476,77 @@ describe('usePreviews', () => {
             `${cycle}; fix it before previewing`
         );
     });
+
+    const diamond: JobDefinition = {
+        name: 'j',
+        enabled: true,
+        steps: [
+            { id: 'a', type: 'inline', spl: '| makeresults' },
+            { id: 'b', type: 'previous', spl: '| stats count' },
+            { id: 'c', type: 'previous', spl: '| stats sum(x)' },
+            { id: 'd', type: 'previous', spl: '| stats max(x)' },
+        ],
+        edges: [
+            { from: 'a', to: 'b', condition: 'on_success' },
+            { from: 'b', to: 'c', condition: 'on_success' },
+            { from: 'b', to: 'd', condition: 'on_success' },
+        ],
+    };
+
+    /** a stays running for its first `slow` polls; the rest are done at once. The server
+     * says needs_preview for a step whose direct input it isn't sent. */
+    function slowA(slow = 4) {
+        let n = 0;
+        let aPolls = 0;
+        return fakeApi({
+            startPreview: jest.fn((req: PreviewRequest) => {
+                n += 1;
+                const sent = (req.input as { previews?: Record<string, unknown> }).previews || {};
+                const need = (diamond.edges || []).filter((e) => e.to === req.step_id && !(e.from in sent)).map((e) => e.from);
+                if (need.length) {
+                    return Promise.reject(new ApiError(409, 'needs_preview', `preview ${need.join(', ')} first`, [], { steps: need }));
+                }
+                return Promise.resolve({ status: 'started' as const, sid: `sid-${req.step_id}-${n}`, spl: 'x' });
+            }),
+            previewStatus: jest.fn((sid: string) => {
+                if (sid.startsWith('sid-a-')) {
+                    aPolls += 1;
+                    if (aPolls <= slow) {
+                        return Promise.resolve({ state: 'running' as const, result_count: 0, messages: [] });
+                    }
+                }
+                return Promise.resolve({ state: 'done' as const, result_count: 1, messages: [] });
+            }),
+        });
+    }
+
+    const startsOf = (api: ReturnType<typeof fakeApi>, id: string) => api.startPreview.mock.calls.filter((c) => (c[0] as PreviewRequest).step_id === id);
+
+    test.each([
+        ['c then d', 'c', 'd', true],
+        ['b then c', 'b', 'c', true],
+        ['c then d at once', 'c', 'd', false],
+        ['b then c at once', 'b', 'c', false],
+        ['c then b', 'c', 'b', true],
+    ])('a running upstream still waiting on its own upstream is awaited by a second chain (%s)', async (_n, first, second, gap) => {
+        const api = slowA();
+        const { result } = renderHook(() => usePreviews(diamond, ctx, api));
+        act(() => {
+            result.current.preview(first);
+        });
+        if (gap) {
+            await flush();
+        }
+        act(() => {
+            result.current.preview(second);
+        });
+        await settle(10);
+        // One start each, and none refused for a missing input (no restart of b either).
+        expect(startsOf(api, 'a')).toHaveLength(1);
+        expect(startsOf(api, 'b')).toHaveLength(1);
+        expect(startsOf(api, 'b')[0][0].input).toEqual({ mode: 'live', previews: { a: { sid: 'sid-a-1' } } });
+        expect(api.cancelPreview).not.toHaveBeenCalled();
+        [first, second].forEach((id) => expect(result.current.previews[id].state).toBe('done'));
+        expect(result.current.previews.b.state).toBe('done');
+    });
 });
