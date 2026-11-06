@@ -42,7 +42,7 @@ Use these in SPL, expressions and action messages:
 - `$<step>.sid$`, `$<step>.resultCount$`, `$<step>.status$`
 - `$<step>.first.<field>$`: a field from the step's first result row
 
-**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. A step can't call `| orchestrate`; use a start-job action instead. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
+**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. A token can't sit inside a ```` ``` ```` comment or right after a backslash (put the backslash in the value), and a parameter or result value containing a backtick fails the step. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. A step can't call `| orchestrate`; use a start-job action instead. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
 
 ### Parameters
 

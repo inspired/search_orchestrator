@@ -146,7 +146,6 @@ def test_injection_probe_value_cannot_escape_quotes():
     spl, names = compile_spl("index=$run.param.idx$ | stats count", set())
     for bad, want in (('main" | delete "', 'index="main\\" | delete \\"" | stats count'),
                       ("[| inputlookup x.csv]", 'index="[| inputlookup x.csv]" | stats count'),
-                      ("`mymacro`", 'index="`mymacro`" | stats count'),
                       ('x\\" | delete', 'index="x\\\\\\" | delete" | stats count')):
         ctx = {"run": {"params": {"idx": bad}}, "steps": {}}
         assert _substitute(spl, render_args(names, ctx)) == want
@@ -170,3 +169,36 @@ def test_quote_scanner_handles_escapes_and_literal_dollars():
     assert compile_spl(s, {"d"})[0] == (
         r'| eval a="x\" $args.run__id$" | rex "foo$" | eval b="$args.run__id$" c="\\" d="$args.d__sid$"')
     assert compile_spl("| loadjob $daily.sid$", {"daily"})[0] == '| loadjob "$args.daily__sid$"'
+
+
+def test_token_after_backslash_rejected():
+    # Final re-review: `\$tok$` let `" | delete` close the string.
+    for spl in (r'source="C:\logs\$run.param.p$"', r"path=\$run.param.p$"):
+        with pytest.raises(TokenError) as e:
+            compile_spl(spl, set())
+        assert "backslash" in e.value.reason
+    # An escaped backslash (even count) is fine.
+    assert compile_spl(r'source="C:\\$run.param.p$"', set())[0] == r'source="C:\\$args.run__param__p$"'
+
+
+def test_token_in_comment_rejected_and_comment_quotes_ignored():
+    with pytest.raises(TokenError) as e:
+        compile_spl("| makeresults ``` note $run.param.p$ ``` | stats count", set())
+    assert "comment" in e.value.reason
+    # A quote inside a comment must not flip the quote state for later tokens.
+    spl = '| makeresults ``` say "hi ``` | eval x=$run.param.p$'
+    assert compile_spl(spl, set())[0] == '| makeresults ``` say "hi ``` | eval x="$args.run__param__p$"'
+
+
+def test_backtick_in_search_value_fails_attempt():
+    spl, names = compile_spl("index=$run.param.idx$", set())
+    with pytest.raises(TokenError) as e:
+        render_args(names, {"run": {"params": {"idx": "`mymacro`"}}, "steps": {}})
+    assert "backtick" in e.value.reason
+    ctx = {"run": {}, "steps": {"d": {"status": "succeeded", "first": {"h": "a```b"}}}}
+    with pytest.raises(TokenError):
+        render_args(compile_spl("x=$d.first.h$", {"d"})[1], ctx)
+
+
+def test_escape_spl_string_neutralises_backticks():
+    assert escape_spl_string('a`b"c\\') == 'a\'b\\"c\\\\'

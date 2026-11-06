@@ -264,6 +264,11 @@ def _validate(job, known_saved_searches):
                 # It would start runs outside the chain depth limit.
                 issues.append(_issue("error", "orchestrate_in_step",
                                      "Steps cannot call | orchestrate; use a start_job action", sid))
+            try:
+                tk.compile_spl(s.get("spl") or "", ids)
+            except tk.TokenError as e:
+                issues.append(_issue("error", "unsafe_token_position",
+                                     "%s: %s" % (e.token, e.reason), sid))
             if not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
                                      "This step searches all time.", sid))

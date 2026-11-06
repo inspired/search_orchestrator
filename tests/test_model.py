@@ -162,3 +162,13 @@ def test_step_without_time_range_warns():
     j = job(steps=("a",))
     j["steps"] = [{"id": "a", "type": "saved_search", "saved_search_ref": "x"}]
     assert "all_time_search" not in codes(validate_job(j))  # its own time range applies
+
+
+def test_token_after_backslash_is_a_save_error():
+    from so import model
+    job = {"id": "j", "title": "J", "owner": "u",
+           "steps": [{"id": "a", "type": "inline", "earliest": "-1d", "latest": "now",
+                      "spl": 'search source="C:\\logs\\$run.param.p$"'}],
+           "edges": [], "params": [{"name": "p", "type": "string"}]}
+    issues = model.validate_job(job)
+    assert any(i["code"] == "unsafe_token_position" and i["level"] == "error" for i in issues)

@@ -64,29 +64,57 @@ def arg_name(name):
     return name.replace(".", "__")
 
 
-def _scan_quotes(spl, i, end, in_q):
-    """Advance the double-quote state from index i to end. A backslash escapes
-    the next character, so ``\\"`` neither opens nor closes a string."""
+def _scan(spl, i, end, in_q, in_c):
+    """Advance the lexer state from index i to end. ``in_q``: inside a double-quoted
+    string, where a backslash escapes the next character. ``in_c``: inside a ```` ``` ````
+    comment, whose contents don't affect quoting."""
     while i < end:
+        if in_c:
+            if spl.startswith("```", i):
+                in_c = False
+                i += 3
+            else:
+                i += 1
+            continue
         c = spl[i]
         if c == "\\":
             i += 2
             continue
         if c == '"':
             in_q = not in_q
+        elif not in_q and spl.startswith("```", i):
+            in_c = True
+            i += 3
+            continue
         i += 1
-    return i, in_q
+    return i, in_q, in_c
+
+
+def _backslashes_before(spl, index):
+    n = 0
+    while index - n - 1 >= 0 and spl[index - n - 1] == "\\":
+        n += 1
+    return n
 
 
 def compile_spl(spl, step_ids):
     """Rewrite known tokens to ``$args.x$``. A token inside a double-quoted SPL
     string stays ``$args.x$``; a token outside one becomes ``"$args.x$"``, so
-    every value lands in SPL as one quoted string, never as raw SPL."""
+    every value lands in SPL as one quoted string, never as raw SPL.
+
+    Raises TokenError for a token inside a ```` ``` ```` comment, or right after an
+    odd run of backslashes: in both places a value could escape its quotes."""
     names = []
     out = []
-    pos, i, in_q = 0, 0, False
+    pos, i, in_q, in_c = 0, 0, False, False
     for m in _regex(step_ids).finditer(spl):
-        i, in_q = _scan_quotes(spl, i, m.start(), in_q)
+        i, in_q, in_c = _scan(spl, i, m.start(), in_q, in_c)
+        token = m.group(0)
+        if in_c:
+            raise TokenError(token, "tokens can't be used inside a ``` comment")
+        if _backslashes_before(spl, m.start()) % 2:
+            raise TokenError(token, "a token can't follow a backslash; put the backslash "
+                                    "in the value instead")
         a = arg_name(m.group("name"))
         if a not in names:
             names.append(a)
@@ -108,7 +136,15 @@ def token_defaults(spl, step_ids):
 
 
 def escape_spl_string(value):
-    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+    """Escape for use inside a double-quoted SPL string. Backticks become ``'`` so a
+    value can never name a macro or close a comment."""
+    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("`", "'")
+
+
+def _search_value(value, token):
+    if "`" in str(value):
+        raise TokenError(token, "value contains a backtick, which search values can't contain")
+    return escape_spl_string(value)
 
 
 def _decode(arg, ctx):
@@ -144,7 +180,7 @@ def render_args(names, ctx, defaults=None):
             value = run.get("params", {}).get(extra)
             reason = "run parameter %r has no value" % extra
             if value is not None:
-                value = escape_spl_string(value)
+                value = _search_value(value, token)
         else:
             st = ctx["steps"][sid]
             if st.get("status") == "skipped":
@@ -160,7 +196,7 @@ def render_args(names, ctx, defaults=None):
                     value = row.get(extra)
                     reason = "first result row of step %r has no field %r" % (sid, extra)
                     if value is not None:
-                        value = escape_spl_string(value)
+                        value = _search_value(value, token)
         if value is None:
             if arg in defaults:
                 value = defaults[arg]
