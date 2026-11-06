@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<view template="search_orchestrator:/templates/runs.html" type="html" isDashboard="False">
+    <label>Runs</label>
+</view>

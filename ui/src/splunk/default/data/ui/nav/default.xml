@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<nav search_view="search">
+    <view name="jobs" default="true" />
+    <view name="runs" />
+    <view name="settings" />
+</nav>

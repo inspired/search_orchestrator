@@ -43,12 +43,13 @@ import uuid
 from urllib.parse import unquote, urlsplit
 
 from . import authz, hidden, model, scheduler, selftest, tokens
+from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS
 from .gateway import GatewayError, check_webhook_url
 from .lease import COLLECTION as LOCKS
 from .lease import KEY as LEASE_KEY
 from .lease import LEASE_SECONDS
-from .store import ACTIVE_RUN_STATES, COMMANDS, SETTINGS, Store
+from .store import ACTIVE_RUN_STATES, COMMANDS, RUNS, SETTINGS, Store
 
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -65,6 +66,9 @@ INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 10
                 "result_retention": 7 * 86400, "run_retention_days": 3650}
 HIDDEN_JOB = "(hidden job)"
 CHAIN_LIMIT = 10
+NEXT_RUN_HORIZON_DAYS = 366  # how far ahead the Jobs screen looks for the next cron slot
+LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "ended_at",
+                   "delay_alerted", "held", "gave_up")
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
 _META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
          "hidden_searches", "enabled")
@@ -212,14 +216,47 @@ def _visible_job(ctx, job_id):
     return job
 
 
+def _next_run(job, now):
+    """The next cron slot after ``now`` (epoch seconds), or None if there is none."""
+    if job.get("enabled") is False:
+        return None
+    specs = scheduler.cron_specs(job)
+    if not specs:
+        return None
+    start = int(now) + 1
+    for _ in range(NEXT_RUN_HORIZON_DAYS):
+        end = start + scheduler.WINDOW
+        slots = [s for spec in specs
+                 for s in cronmod.slots_between(spec, start, end, job.get("timezone"))]
+        if slots:
+            return min(slots)
+        start = end
+    return None
+
+
+def _last_run(ctx, job_id):
+    rows = ctx.sys_gw.kv_query(RUNS, {"job_id": job_id}, sort="created_at:-1", limit=1)
+    if not rows:
+        return None
+    return {k: rows[0].get(k) for k in LAST_RUN_FIELDS}
+
+
+def _listed_job(ctx, job):
+    """A job for the Jobs screen: the public job plus its next and last run."""
+    out = _public_job(ctx, job)
+    out["next_run"] = _next_run(job, ctx.now)
+    out["last_run"] = _last_run(ctx, job.get("id") or job.get("_key"))
+    return out
+
+
 def list_jobs(ctx, body):
     jobs = [j for j in ctx.store.list_jobs() if ctx.allowed(authz.can_view, j)]
     jobs.sort(key=lambda j: (str(j.get("name") or ""), str(j.get("id"))))
-    return 200, {"jobs": [_public_job(ctx, j) for j in jobs]}
+    return 200, {"jobs": [_listed_job(ctx, j) for j in jobs]}
 
 
 def get_job(ctx, body, job_id):
-    return 200, {"job": _public_job(ctx, _visible_job(ctx, job_id))}
+    return 200, {"job": _listed_job(ctx, _visible_job(ctx, job_id))}
 
 
 def _new_id(ctx, body):

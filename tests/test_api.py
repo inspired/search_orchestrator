@@ -808,3 +808,28 @@ def test_partial_hidden_failure_on_create_rolls_back(w):
     status, _ = w.call("alice", "POST", "/orchestrator/jobs", job_body())
     assert status == 502
     assert w.store.get_job("daily") is None and w.gw.saved_searches == {}
+
+
+# Jobs list: next run and last run (Task 10, the Jobs screen).
+
+def test_job_list_shows_next_run_and_last_run(w):
+    saved(w, body=job_body(triggers=[{"type": "cron", "cron": "0 2 * * *"}]))
+    status, out = w.call("alice", "GET", "/orchestrator/jobs")
+    job = out["jobs"][0]
+    assert status == 200 and job["next_run"] == T0 + 3600
+    assert job["last_run"] is None
+    run_id = start(w)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    assert out["job"]["next_run"] == T0 + 3600
+    last = out["job"]["last_run"]
+    assert last["id"] == run_id and last["state"] == "queued" and last["trigger"] == "manual"
+    assert "definition" not in last and "steps" not in last
+
+
+def test_job_list_next_run_none_without_cron_or_when_disabled(w):
+    saved(w)
+    assert w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]["next_run"] is None
+    saved(w, body=job_body("nightly", enabled=False,
+                           triggers=[{"type": "cron", "cron": "0 2 * * *"}]))
+    jobs = {j["id"]: j for j in w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"]}
+    assert jobs["nightly"]["next_run"] is None
