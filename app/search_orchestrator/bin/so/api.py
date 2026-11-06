@@ -1157,6 +1157,10 @@ def _preview_upstream(ctx, job, job_ref, step_id, scope, source, scheduled, para
                           params)
 
 
+def _input_mode(source):
+    return source.get("mode") if isinstance(source, dict) else "live"
+
+
 def _decide(job, step_id, scheduled, params, upstream):
     try:
         return statemod.preview_decision(job, step_id, scheduled, params, upstream)
@@ -1164,13 +1168,15 @@ def _decide(job, step_id, scheduled, params, upstream):
         raise _invalid([_issue("error", "bad_run_when", "run_when: %s" % err, step_id)])
 
 
-def _needs(upstream, steps):
+def _needs(upstream, steps, mode="live"):
     """A run would not reach the step: a failed step behind an on_success edge is
-    ``upstream_failed``, the same in both input modes."""
+    ``upstream_failed``, the same in both input modes (only the advice differs)."""
     failed = [s for s in steps if (upstream.get(s) or {}).get("state") == "failed"]
     if failed:
+        advice = ("pick another run or switch to live previews" if mode == "run"
+                  else "fix it or preview it again")
         return ApiError(409, "upstream_failed", "%s failed, so a run would not reach this "
-                        "step; fix it or preview it again" % failed[0], step=failed[0])
+                        "step; %s" % (failed[0], advice), step=failed[0])
     return ApiError(409, "needs_preview", "preview %s first" % ", ".join(steps), steps=steps)
 
 
@@ -1213,7 +1219,7 @@ def start_preview(ctx, body):
                                  scheduled, params)
     decision, detail = _decide(job, step_id, scheduled, params, upstream)
     if decision == "needs":
-        raise _needs(upstream, detail.split(","))
+        raise _needs(upstream, detail.split(","), _input_mode(body.get("input")))
     anyway = decision == "skipped" and body.get("anyway") is True
     if decision == "skipped" and not anyway:
         return 200, {"status": "skipped", "skip_kind": detail, "reason": SKIP_REASONS[detail]}

@@ -1218,6 +1218,8 @@ def test_preview_upstream_failed_and_expired(w):
     _, out = preview(w, job=chain_job())
     status, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": out["sid"]}))
     assert status == 409 and error(out) == "upstream_failed" and out["error"]["step"] == "a"
+    assert out["error"]["message"] == ("a failed, so a run would not reach this step; fix it "
+                                       "or preview it again")
     run_id = run_with(w, chain_job(), {"a": {"state": "succeeded", "sid": "gone",
                                              "result_count": 1}})
     status, out = preview(w, job=chain_job(), step_id="b",
@@ -1334,6 +1336,8 @@ def test_preview_failed_parent_on_success_in_run_mode(w):
     kept(w, "run_a")
     status, out = preview(w, job=chain_job(), step_id="b", input={"mode": "run", "run_id": run_id})
     assert status == 409 and error(out) == "upstream_failed" and out["error"]["step"] == "a"
+    assert out["error"]["message"] == ("a failed, so a run would not reach this step; pick "
+                                       "another run or switch to live previews")
 
 
 def test_preview_run_step_missing(w):
