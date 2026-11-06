@@ -6,7 +6,7 @@ Version 1.0.1. This guide covers installing, securing and running the app. The [
 
 | Platform | Status |
 |---|---|
-| Splunk Enterprise 9.4 and later, standalone search head | Supported. Verified on Splunk Enterprise 10.6.1.1 (pending owner check). |
+| Splunk Enterprise 9.4 and later, standalone search head | Supported. Verified on Splunk Enterprise 10.6.1.1. |
 | Splunk Cloud Platform, Victoria Experience | Supported. Checked with AppInspect's Cloud checks only; not run on a real Cloud stack. |
 | Splunk Cloud Platform, Classic Experience | **Not supported.** |
 | Search head cluster | Designed for it but **unit-tested only**. See [Search head clusters](#search-head-clusters). |
