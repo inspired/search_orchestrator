@@ -252,3 +252,25 @@ def test_probe_preview_as_caller_checks_owner():
     check = run()["preview_as_caller"]
     assert check["ok"] == 0 and "owner=nobody" in check["detail"]
     assert all(action == "cancel" for _, action, _ in gw.control_log)
+
+
+def test_selftest_says_when_queued_behind_another_run():
+    w = World()
+    w.splunkd = Splunkd(w)
+    status, out = w.call("root", "POST", "/orchestrator/selftest", {"scenario": "basic"})
+    assert status == 201 and "queued_behind" not in out
+    first = out["run_id"]
+    run = w.store.get_run(first)
+    run["state"] = "blocked"
+    w.store.save_run(run)
+    w.now += 60
+    status, out = w.call("root", "POST", "/orchestrator/selftest", {"scenario": "basic"})
+    assert status == 201 and out["queued_behind"] == {"run_id": first, "state": "blocked"}
+    rows = run_cmd(w, "selftest scheduled_time=%d" % (w.now + 60), token="tok-root")
+    assert rows[0]["queued_behind"] == first and rows[0]["queued_behind_state"] == "blocked"
+    assert rows[0]["message"] == (
+        'queued behind run %s, which is blocked: cancel it with | orchestrate cancel '
+        'run="%s", then poll with | orchestrate status run="%s"' % (first, first, rows[0]["run_id"]))
+    # The self-test jobs never hold their queue after a failure.
+    assert all(j["after_give_up"] == "continue" for j in w.store.list_jobs()
+               if j["id"].startswith("so_selftest"))

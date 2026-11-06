@@ -16,7 +16,8 @@ from the gateways it is given. ``deps``:
 ``POST selftest`` (admin only, ``| orchestrate selftest``): ``{"scenario":
 "basic"|"rollup_late"|"rollup_fail", "slow_n", "delayed_after",
 "scheduled_time"}`` saves the built-in job (``selftest.py``) as the caller and
-starts a run (``{"job_id", "run_id", ...}``); ``"probe"`` returns
+starts a run (``{"job_id", "run_id", ...}``, plus ``"queued_behind": {"run_id",
+"state"}`` when an active run of the job keeps it queued); ``"probe"`` returns
 ``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
 ``write(event)``, which raises on failure, for the probe's audit check.
 
@@ -1385,9 +1386,25 @@ def run_selftest(ctx, body):
         scheduled = selftest.default_scheduled_time(scenario, ctx.now)
     else:
         scheduled = _scheduled_time(ctx, body)
-    _save_selftest_job(ctx, job_id, definition)
+    job = _save_selftest_job(ctx, job_id, definition)
     _, out = start_run(ctx, {"scheduled_time": scheduled}, job_id)
     ctx.emit({"type": "selftest", "scenario": scenario, "job_id": job_id,
               "run_id": out["run_id"]})
-    return 201, {"scenario": scenario, "job_id": job_id, "run_id": out["run_id"],
-                 "scheduled_time": scheduled}
+    reply = {"scenario": scenario, "job_id": job_id, "run_id": out["run_id"],
+             "scheduled_time": scheduled}
+    ahead = _queued_behind(ctx, job, out["run_id"])
+    if ahead is not None:
+        reply["queued_behind"] = ahead
+    return 201, reply
+
+
+def _queued_behind(ctx, job, run_id):
+    """``{"run_id", "state"}`` of the active run of ``job`` that keeps the new run
+    ``run_id`` queued (one run per job at a time), or None. The self-test jobs use
+    ``after_give_up: continue``, so a failed run never holds their queue."""
+    live = [r for r in ctx.store.list_runs({"job_id": job["id"], "state": {"$in": [
+        "running", "blocked", "paused"]}}, fields=LIST_FIELDS) if r.get("id") != run_id]
+    if not live:
+        return None
+    oldest = min(live, key=lambda r: int(r.get("created_at") or 0))
+    return {"run_id": oldest.get("id"), "state": oldest.get("state")}

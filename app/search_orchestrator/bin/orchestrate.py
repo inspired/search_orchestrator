@@ -165,9 +165,17 @@ def _selftest(call, options):
         out = _check(*call("POST", "selftest", body))
         return [first] + out["checks"]
     out = _check(*call("POST", "selftest", body))
-    return [{"ok": 1, "scenario": out["scenario"], "job_id": out["job_id"],
-             "run_id": out["run_id"], "scheduled_time": out.get("scheduled_time"),
-             "message": "poll with | orchestrate status run=\"%s\"" % out["run_id"]}]
+    row = {"ok": 1, "scenario": out["scenario"], "job_id": out["job_id"],
+           "run_id": out["run_id"], "scheduled_time": out.get("scheduled_time"),
+           "message": "poll with | orchestrate status run=\"%s\"" % out["run_id"]}
+    ahead = out.get("queued_behind")
+    if ahead:
+        why = ("which is %s: cancel it with | orchestrate cancel run=\"%s\""
+               % (ahead.get("state"), ahead.get("run_id")))
+        row.update(queued_behind=ahead.get("run_id"), queued_behind_state=ahead.get("state"),
+                   message="queued behind run %s, %s, then %s" % (ahead.get("run_id"), why,
+                                                                   row["message"]))
+    return [row]
 
 
 def execute(argv, gateway):
