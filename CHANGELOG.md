@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.0.1 (2026-11-06)
+
+Fixes from the final review.
+
+### Security
+
+- Every `$run.*$` and `$<step>.*$` token is substituted as one quoted, escaped SPL string. A token outside double quotes gets the quotes added, so a parameter or a `first.<field>` value can't inject SPL commands or field names.
+- A job can't be created with the id of a deleted job whose runs are still retained (`job_id_in_use`). Runs of a deleted job are visible only to their owner, the run's "who may run" roles and admins.
+- A directly dispatched saved search is checked again right before each run; if it is no longer the owner's private search with dispatchAs = owner, the step fails instead of running.
+
+### Fixed
+
+- Search head clusters: the engine lease is 90 seconds, every engine call times out after 15 seconds, and the lease is renewed right before each dispatch and action send. A member that lost the lease dispatches nothing.
+- The Runs screen asks KV Store for only the runs it shows, newest first, without their definition snapshots.
+- Saved-search steps are looked up across apps. A search not visible from this app says it must be shared globally or saved in the Search Orchestrator app.
+- Action messages fill in `$run.*$` and `$<step>.*$` tokens (with `|default`) as well as `{{...}}` names.
+- Failed-search links in messages open the search page (`/app/search/search?sid=`).
+- While runs are held, queue-cap rejections fold into the daily hold alert.
+- A cancel or a permission check that keeps failing no longer stalls a run: after 5 minutes it is audited and the run proceeds.
+- In direct mode, a crash-recovered step adopts only a search dispatched for its scheduled time.
+- The enable switch keeps the job's owner (`POST /orchestrator/jobs/<id>/enabled`).
+- Two start-job actions to the same job start two runs.
+- The Jobs screen's next-run walk is capped; a slot over 400 days away shows a dash.
+- Saving a job warns about a step with no time range and refuses `| orchestrate` in step SPL.
+- `scripts/package.sh` builds the UI and refuses to package without it.
+- The app ships its LICENSE (Apache-2.0), and the builder and user roles import `user`.
+
 ## 1.0.0 (2026-11-06)
 
 First release.

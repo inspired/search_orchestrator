@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.0.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.0.1. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 

@@ -1,6 +1,6 @@
 # Search Orchestrator: admin guide
 
-Version 1.0.0. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
+Version 1.0.1. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
 
 ## Supported platforms
 
@@ -19,7 +19,7 @@ The app's pages use custom Mako page templates so they work on Splunk Enterprise
 
 ## Install
 
-1. Install `search_orchestrator-1.0.0.tgz` through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
+1. Install `search_orchestrator-1.0.1.tgz` through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
 2. Restart Splunk if asked.
 3. Create the audit index if it doesn't exist (see [Audit index](#audit-index)).
 4. Give people roles (see [Roles and capabilities](#roles-and-capabilities)).
@@ -171,7 +171,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `health`, `me` | GET |
 | `selftest` | POST (admin) |
 
-## Known limits in 1.0.0
+## Known limits in 1.0.1
 
 - Not tested on a real search head cluster or a real Splunk Cloud stack.
 - Classic Experience Cloud stacks are not supported.
