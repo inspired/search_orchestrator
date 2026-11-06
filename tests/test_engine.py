@@ -47,6 +47,9 @@ def make_job(job_id="j", steps=("a",), edges=(), cron="0 1 * * *", **over):
         d.setdefault("type", "inline")
         d.setdefault("spl", "| makeresults")
         d.setdefault("hidden_search", names.step_search_name(job_id, d["id"], "0123456789abcdef"))
+        if d["type"] == "previous":
+            d.setdefault("hidden_search_empty",
+                         names.step_search_name(job_id, d["id"], "fedcba9876543210"))
         out.append(d)
     es = [{"from": e[0], "to": e[1], "condition": e[2] if len(e) > 2 else "on_success"}
           for e in edges]
@@ -75,11 +78,11 @@ class World:
         scripts = scripts or {}
         self.store.save_job(job)
         for s in job["steps"]:
-            name = s["hidden_search"]
-            if s["id"] in scripts:
-                self.gw.script_job(name, **scripts[s["id"]])
-            else:
-                self.gw.upsert_saved_search(job["owner"], name, s["spl"], "", "")
+            for name in filter(None, (s["hidden_search"], s.get("hidden_search_empty"))):
+                if s["id"] in scripts:
+                    self.gw.script_job(name, **scripts[s["id"]])
+                else:
+                    self.gw.upsert_saved_search(job["owner"], name, s["spl"], "", "")
         return job
 
     def tick(self, at=None, advance=None):
@@ -1403,17 +1406,27 @@ def test_previous_input_skips_unsucceeded():
     assert w.step(run_id, "s")["state"] == "skipped"
     assert w.step(run_id, "f")["state"] == "failed"
     a_sid = w.step(run_id, "a")["sid"]
-    assert w.dispatched("p")[0]["args"] == {"so_input": 'loadjob "%s"' % a_sid}
+    p_dispatch = w.dispatched("p")
+    assert [d["name"] for d in p_dispatch] == [j["steps"][3]["hidden_search"]]
+    assert p_dispatch[0]["args"] == {"so_input": '"%s"' % a_sid}
 
     w2 = World()
     j2 = w2.add_job(make_job(steps=["a", {"id": "s", "run_when": NEVER},
-                                    {"id": "p", "type": "previous", "spl": "| stats count"}],
+                                    {"id": "p", "type": "previous",
+                                     "spl": '| stats count | eval r="$run.id$"'}],
                              edges=[("a", "s"), ("s", "p")]))
     run2 = cron_run(w2, j2)
     for _ in range(3):
         w2.tick(advance=5)
     assert w2.step(run2, "s")["state"] == "skipped"
-    assert w2.dispatched("p")[0]["args"] == {"so_input": tokens.EMPTY_INPUT}
+    p_dispatch = w2.dispatched("p")
+    # No input succeeded: the no-inputs search runs, with the tail's args only.
+    assert [d["name"] for d in p_dispatch] == [j2["steps"][2]["hidden_search_empty"]]
+    assert p_dispatch[0]["args"] == {"run__id": run2}
+    assert tokens.INPUT_ARG not in p_dispatch[0]["args"]
+    assert w2.step(run2, "p")["state"] == "succeeded"
+    assert w2.audit.of("step_dispatched", step_id="p")[0]["hidden_search"] == \
+        j2["steps"][2]["hidden_search_empty"]
 
 
 def test_previous_input_bad_sid_fails_the_attempt():
@@ -1453,3 +1466,24 @@ def test_previous_step_fails_on_subsearch_truncation():
     assert p["state"] == "failed"
     assert p["error"] == "input was cut short: " + TRUNC
     assert w.step(run_id, "i")["state"] == "succeeded"
+
+
+def test_previous_no_input_crash_after_dispatch_adopts_empty_search():
+    w = World()
+    j = w.add_job(make_job(steps=["a", {"id": "s", "run_when": NEVER},
+                                  {"id": "p", "type": "previous", "spl": "| stats count"}],
+                           edges=[("a", "s"), ("s", "p")]))
+    run_id = cron_run(w, j)
+    w.gw.crash_after_dispatch = True
+    w.tick(advance=5)  # a done, s skipped, p dispatched and the engine "crashes"
+    w.gw.crash_after_dispatch = False
+    assert len(w.dispatched("p")) == 1
+    p = w.step(run_id, "p")
+    assert p["state"] == "starting" and not p.get("sid")
+    w.engine = w.new_engine()
+    w.tick(advance=5)
+    p = w.step(run_id, "p")
+    assert p["state"] == "succeeded" and p["sid"] == w.dispatched("p")[0]["sid"]
+    assert len(w.dispatched("p")) == 1
+    assert w.dispatched("p")[0]["name"] == j["steps"][2]["hidden_search_empty"]
+    assert w.audit.of("step_adopted", run_id=run_id, step_id="p")

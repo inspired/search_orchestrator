@@ -207,12 +207,14 @@ def test_escape_spl_string_neutralises_backticks():
 
 
 def test_input_spl_shapes():
-    assert tk.input_spl([]) == tk.EMPTY_INPUT
-    assert tk.EMPTY_INPUT == "makeresults | where 1=0"
-    assert tk.input_spl(["1.2"]) == 'loadjob "1.2"'
-    assert tk.input_spl(["a_1", "b.2"]) == 'loadjob "a_1" | append [| loadjob "b.2"]'
+    assert tk.EMPTY_INPUT == "| makeresults | where 1=0"
+    assert tk.input_spl(["1.2"]) == '"1.2"'
+    assert tk.input_spl(["a_1", "b.2"]) == '"a_1" | append [| loadjob "b.2"]'
     assert tk.input_spl(["a", "b", "c"]) == \
-        'loadjob "a" | append [| loadjob "b"] | append [| loadjob "c"]'
+        '"a" | append [| loadjob "b"] | append [| loadjob "c"]'
+    with pytest.raises(tk.TokenError) as err:
+        tk.input_spl([])
+    assert err.value.reason == "no input to load"
     for bad in ['x" | delete', "", "a b", None]:
         with pytest.raises(tk.TokenError):
             tk.input_spl([bad])
@@ -221,8 +223,11 @@ def test_input_spl_shapes():
 def test_step_spl_previous_prefixes_input():
     step = {"id": "w", "type": "previous", "spl": "| stats sum(count) by $run.param.f$"}
     spl, names = tk.step_spl(step, ["d", "w"])
-    assert spl == '| $args.so_input$ | stats sum(count) by "$args.run__param__f$"'
+    assert spl == '| loadjob $args.so_input$ | stats sum(count) by "$args.run__param__f$"'
     assert names == ["run__param__f"]
+    assert tk.empty_step_spl(step, ["d", "w"]) == \
+        ('| makeresults | where 1=0 | stats sum(count) by "$args.run__param__f$"',
+         ["run__param__f"])
     inline = {"id": "w", "type": "inline", "spl": "| loadjob $d.sid$"}
     assert tk.step_spl(inline, ["d", "w"]) == ('| loadjob "$args.d__sid$"', ["d__sid"])
 
@@ -235,12 +240,12 @@ def test_previous_inputs_follow_edge_order():
 
 
 def test_fill_replaces_args_only():
-    assert tk.fill('| $args.so_input$ | eval x="$args.a__sid$" | eval y="$keep$"',
-                   {"so_input": 'loadjob "1"', "a__sid": "1"}) == \
+    assert tk.fill('| loadjob $args.so_input$ | eval x="$args.a__sid$" | eval y="$keep$"',
+                   {"so_input": '"1"', "a__sid": "1"}) == \
         '| loadjob "1" | eval x="1" | eval y="$keep$"'
     step = {"id": "p", "type": "previous", "spl": "| stats count"}
     for sids, full in ((["s1"], '| loadjob "s1" | stats count'),
-                       (["s1", "s2"], '| loadjob "s1" | append [| loadjob "s2"] | stats count'),
-                       ([], "| makeresults | where 1=0 | stats count")):
+                       (["s1", "s2"], '| loadjob "s1" | append [| loadjob "s2"] | stats count')):
         assert tk.fill(tk.step_spl(step, ["p"])[0], {"so_input": tk.input_spl(sids)}) == full
+    assert tk.empty_step_spl(step, ["p"])[0] == "| makeresults | where 1=0 | stats count"
     assert tk.fill('"$args.other$"', {"so_input": "x"}) == '"$args.other$"'

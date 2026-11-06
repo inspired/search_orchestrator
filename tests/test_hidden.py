@@ -247,8 +247,14 @@ def test_previous_step_saved_with_input_arg_first():
     b = out["steps"][1]
     assert b["mode"] == "previous" and b["hidden_search"].startswith("_so_daily_b_")
     saved = gw.saved_searches[("alice", b["hidden_search"])]
-    assert saved["search"] == '| $args.so_input$ | where p="$args.run__param__p$"'
+    assert saved["search"] == '| loadjob $args.so_input$ | where p="$args.run__param__p$"'
     assert (saved["earliest"], saved["latest"]) == ("", "")
+    empty = b["hidden_search_empty"]
+    assert empty.startswith("_so_daily_b_") and empty != b["hidden_search"]
+    assert gw.saved_searches[("alice", empty)]["search"] == \
+        '| makeresults | where 1=0 | where p="$args.run__param__p$"'
+    assert {e["name"] for e in out["hidden_searches"]} >= {b["hidden_search"], empty}
+    assert "hidden_search_empty" not in out["steps"][0]
 
 
 def test_every_previous_hidden_search_starts_with_a_pipe():
@@ -261,7 +267,31 @@ def test_every_previous_hidden_search_starts_with_a_pipe():
                    {"id": "d", "type": "previous", "spl": ""}],
             edges=[{"from": "a", "to": "b"}, {"from": "a", "to": "c"}, {"from": "b", "to": "d"}])
     planned, searches, _ = hidden.plan(gw, j)
-    names_prev = {s["hidden_search"] for s in planned["steps"] if s["type"] == "previous"}
-    prev = [s for s in searches if s["name"] in names_prev]
+    by_name = {s["name"]: s["search"] for s in searches}
+    prev = [s for s in planned["steps"] if s["type"] == "previous"]
     assert len(prev) == 3
-    assert all(s["search"].startswith("| $args.so_input$ ") for s in prev)
+    for step in prev:
+        main, empty = by_name[step["hidden_search"]], by_name[step["hidden_search_empty"]]
+        assert main.startswith("| loadjob $args.so_input$ ")
+        assert empty.startswith("| makeresults | where 1=0 ")
+    assert all(s.startswith("|") for s in by_name.values())
+
+
+def test_hidden_search_empty_from_request_is_dropped():
+    j = job(steps=[{"id": "a", "type": "inline", "spl": "| makeresults",
+                    "hidden_search_empty": "evil"}])
+    planned, _, _ = hidden.plan(FakeGateway(), j)
+    assert "hidden_search_empty" not in planned["steps"][0]
+
+
+def test_gc_keeps_empty_variant_while_used():
+    gw = FakeGateway()
+    steps = [{"id": "a", "type": "inline", "spl": "| makeresults"},
+             {"id": "b", "type": "previous", "spl": "| stats count"}]
+    one = hidden.sync(gw, job(steps=steps, edges=[{"from": "a", "to": "b"}]), None)
+    empty = one["steps"][1]["hidden_search_empty"]
+    assert ("alice", empty) in hidden.used(one, "alice")
+    assert hidden.gc(one, []) == []
+    two = hidden.sync(gw, job(steps=steps[:1]), one)
+    assert {"owner": "alice", "name": empty} not in hidden.gc(two, [_run(one)])
+    assert {"owner": "alice", "name": empty} in hidden.gc(two, [])

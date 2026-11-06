@@ -118,7 +118,7 @@ def test_selftest_completes_on_fake():
     assert d_args and d_args[0]["b__first__rows"] == "3"
     m_args = [x["args"] for x in w.gw.dispatch_log
               if x["name"] == hidden(w, "so_selftest", "merged")]
-    assert m_args == [{"so_input": 'loadjob "%s" | append [| loadjob "%s"]'
+    assert m_args == [{"so_input": '"%s" | append [| loadjob "%s"]'
                                    % (st["b"]["sid"], st["c"]["sid"])}]
     assert st["skip_me"].get("sid") is None
     assert [e for e in w.audit.events if e.get("run_id") == run_id and e["type"] == "run_state"]

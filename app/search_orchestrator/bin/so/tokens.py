@@ -128,35 +128,46 @@ def compile_spl(spl, step_ids):
 
 
 INPUT_ARG = "so_input"
-EMPTY_INPUT = 'makeresults | where 1=0'
+EMPTY_INPUT = '| makeresults | where 1=0'
 _SID_RE = re.compile(r"[A-Za-z0-9_.-]+")
 _ARGS_RE = re.compile(r"\$args\.([A-Za-z0-9_]+)\$")
 
 
 def input_spl(sids):
-    """The SPL that loads a ``previous`` step's input jobs, without its leading pipe
-    (the saved search supplies it): ``loadjob "s1"``, then ``| append [| loadjob "s2"]``
-    for each later one; ``EMPTY_INPUT`` for none. The only unquoted value the engine
-    builds, so every sid must match ``^[A-Za-z0-9_.-]+$``."""
+    """The ``so_input`` value: the arguments of the saved search's ``| loadjob``.
+    ``"s1"`` for one sid, then ``| append [| loadjob "s2"]`` for each later one. The only
+    unquoted value the engine builds, so every sid must match ``^[A-Za-z0-9_.-]+$``.
+    At least one sid is needed: with none, the step runs its ``empty_step_spl`` search.
+    The full input for display is ``"| loadjob " + input_spl(sids)``, or ``EMPTY_INPUT``."""
     token = "$%s$" % INPUT_ARG
+    if not sids:
+        raise TokenError(token, "no input to load")
     parts = []
     for sid in sids:
         if not isinstance(sid, str) or not _SID_RE.fullmatch(sid):
             raise TokenError(token, "bad search id")
-        parts.append('loadjob "%s"' % sid if not parts
-                     else '| append [| loadjob "%s"]' % sid)
-    return " ".join(parts) if parts else EMPTY_INPUT
+        parts.append('"%s"' % sid if not parts else '| append [| loadjob "%s"]' % sid)
+    return " ".join(parts)
 
 
 def step_spl(step, step_ids):
     """``(saved search text, arg names)`` for an ``inline`` or ``previous`` step. A
-    ``previous`` step's search is ``| $args.so_input$ <tail>``: it must start with a pipe,
-    or Splunk prefixes ``search`` and ``loadjob`` is no longer the first command.
-    ``so_input`` is filled at dispatch (``fill`` gives the full text for previews)."""
+    ``previous`` step's search is ``| loadjob $args.so_input$ <tail>``, filled at dispatch
+    (``fill`` gives the full text for previews). Splunk parses a saved search when it is
+    created, so it must start with a command: ``| $args.so_input$`` is rejected, and text
+    without a leading pipe gets ``search`` put in front, after which ``loadjob`` is no
+    longer the first command."""
     spl, names = compile_spl(step.get("spl") or "", step_ids)
     if step.get("type") == "previous":
-        spl = "| $args.%s$ %s" % (INPUT_ARG, spl)
+        spl = "| loadjob $args.%s$ %s" % (INPUT_ARG, spl)
     return spl, names
+
+
+def empty_step_spl(step, step_ids):
+    """``(saved search text, arg names)`` for a ``previous`` step none of whose inputs
+    succeeded: ``EMPTY_INPUT`` then its tail."""
+    spl, names = compile_spl(step.get("spl") or "", step_ids)
+    return "%s %s" % (EMPTY_INPUT, spl), names
 
 
 def previous_inputs(definition, step_id):

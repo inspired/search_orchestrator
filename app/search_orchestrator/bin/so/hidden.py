@@ -13,10 +13,12 @@ Step searches (``steps[i]``, written into the job definition):
   ``tokens.compile_spl`` and saved as ``names.step_search_name`` with a hash
   of the job and step IDs, compiled SPL, earliest and latest, so old and new
   versions coexist while runs still use them.
-* ``previous`` ("From previous steps"): ``mode = "previous"``. Compiled with
-  ``tokens.step_spl``, so the search starts with ``| $args.so_input$``, which the
-  engine fills at dispatch with ``| loadjob`` of each succeeded dependency.
-  Named and hashed like ``inline``.
+* ``previous`` ("From previous steps"): ``mode = "previous"``. Two searches,
+  named and hashed like ``inline``: ``hidden_search`` from ``tokens.step_spl``
+  (``| loadjob $args.so_input$ <tail>``; the engine fills ``so_input`` with the
+  succeeded dependencies' sids) and ``hidden_search_empty`` from
+  ``tokens.empty_step_spl`` (``| makeresults | where 1=0 <tail>``), dispatched
+  when no dependency succeeded.
 * ``saved_search``: the two-mode rule, checked with the user's session through
   ``gateway.saved_search_info``. If the job owner owns it, it is private
   (sharing ``user``) and has ``dispatchAs = owner``: ``mode = "direct"`` and
@@ -154,7 +156,8 @@ def _wrapped_warning(ref, owner, step):
 def plan(gw, job):
     """``(job, searches, issues)`` without writing anything.
 
-    ``job`` is a copy with ``steps[i].hidden_search`` and ``mode`` filled in;
+    ``job`` is a copy with ``steps[i].hidden_search`` and ``mode`` (and, for
+    ``previous`` steps, ``hidden_search_empty``) filled in;
     ``searches`` lists the saved searches to create, as
     ``{"owner", "name", "search", "earliest", "latest", "description"}``.
     """
@@ -166,6 +169,7 @@ def plan(gw, job):
     searches, issues = [], []
     for step in steps:
         sid = step.get("id")
+        step.pop("hidden_search_empty", None)  # only ever set here, never from the request
         earliest, latest = step.get("earliest") or "", step.get("latest") or ""
         if step.get("type") == "saved_search":
             ref = step.get("saved_search_ref") or ""
@@ -193,6 +197,15 @@ def plan(gw, job):
         searches.append({"owner": owner, "name": name, "search": spl, "earliest": earliest,
                          "latest": latest,
                          "description": "Search Orchestrator job %s, step %s" % (job_id, sid)})
+        if mode == "previous":
+            empty, _ = tokens.empty_step_spl(step, ids)
+            name = names.step_search_name(job_id, sid,
+                                          step_hash(job_id, sid, empty, earliest, latest))
+            step["hidden_search_empty"] = name
+            searches.append({"owner": owner, "name": name, "search": empty,
+                             "earliest": earliest, "latest": latest,
+                             "description": "Search Orchestrator job %s, step %s (no inputs)"
+                                            % (job_id, sid)})
     for index, step_id, action in _indexed(job):
         action.pop("hidden_search", None)  # only ever set here, never from the request
         if action.get("type") not in SEARCH_ACTIONS:
@@ -247,6 +260,8 @@ def used(definition, owner):
     for step in definition.get("steps") or []:
         if step.get("hidden_search") and step.get("mode") != "direct":
             out.add((owner, step["hidden_search"]))
+        if step.get("hidden_search_empty"):
+            out.add((owner, step["hidden_search_empty"]))
     for _, _, action in _indexed(definition):
         if action.get("type") in SEARCH_ACTIONS and action.get("hidden_search"):
             out.add((owner, action["hidden_search"]))

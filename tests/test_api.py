@@ -968,3 +968,27 @@ def test_next_run_found_within_400_days(w):
     saved(w, body=job_body(triggers=[{"type": "cron", "cron": "0 0 29 2 *"}]))
     job = w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]
     assert job["next_run"] == _cal.timegm((2028, 2, 29, 0, 0, 0)) and not job["next_run_beyond"]
+
+
+def test_gc_keeps_previous_empty_variant_while_used(w):
+    steps = [{"id": "a", "type": "inline", "spl": "| makeresults"},
+             {"id": "m", "type": "previous", "spl": "| stats count"}]
+    job = saved(w, body=job_body(steps=steps, edges=[{"from": "a", "to": "m"}]))
+    m = job["steps"][1]
+    main, empty = m["hidden_search"], m["hidden_search_empty"]
+    assert {("alice", main), ("alice", empty)} <= set(w.gw.saved_searches)
+    tracked = {e["name"] for e in w.store.get_job("daily")["hidden_searches"]}
+    assert {main, empty} <= tracked
+    run_id = start(w)
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily",
+                         job_body(steps=steps[:1], edges=[]))
+    assert status == 200, out
+    assert ("alice", empty) in w.gw.saved_searches  # the active run still uses it
+    run = w.store.get_run(run_id)
+    run.update(state="cancelled", ended_at=0)
+    w.store.save_run(run)
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily",
+                         job_body(steps=steps[:1], edges=[]))
+    assert status == 200, out
+    assert ("alice", empty) not in w.gw.saved_searches
+    assert ("alice", main) not in w.gw.saved_searches

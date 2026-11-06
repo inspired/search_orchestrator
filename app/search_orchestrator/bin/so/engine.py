@@ -872,7 +872,7 @@ class Engine:
         Returns (kind, reason): "adopted", "none" (history has no such job),
         "unknown" (transient history error) or "error" (non-transient)."""
         st = run["steps"][sid]
-        name = sdef.get("hidden_search")
+        name = self._search_name(run, sdef)
         if not name:
             return "none", None
         direct = sdef.get("mode") == "direct"
@@ -932,9 +932,27 @@ class Engine:
     def _orphan(self, run, sid, sdef, now, pending, reason):
         st = run["steps"][sid]
         pending.events.append(self._event(run, "possible_orphan_search", now, step_id=sid,
-                                          hidden_search=sdef.get("hidden_search"),
+                                          hidden_search=self._search_name(run, sdef),
                                           owner=run.get("owner"), intent_at=st.get("intent_at"),
                                           reason=reason))
+
+    @staticmethod
+    def _input_sids(run, sdef):
+        """A ``previous`` step's input search IDs: its dependencies that succeeded, in
+        edge order. Skipped and failed ones add nothing."""
+        steps = run.get("steps") or {}
+        return [(steps.get(up) or {}).get("sid")
+                for up in tokens.previous_inputs(run.get("definition") or {}, sdef["id"])
+                if (steps.get(up) or {}).get("state") == "succeeded"]
+
+    def _search_name(self, run, sdef):
+        """The saved search this attempt dispatches, for dispatch, history adoption and
+        orphan audits alike: a ``previous`` step with no succeeded input runs its
+        ``hidden_search_empty``. Its inputs are settled before it starts, so every call
+        for one attempt gives the same name."""
+        if sdef.get("type") == "previous" and not self._input_sids(run, sdef):
+            return sdef.get("hidden_search_empty")
+        return sdef.get("hidden_search")
 
     def _render_args(self, run, sdef):
         definition = run.get("definition") or {}
@@ -942,15 +960,11 @@ class Engine:
         spl = sdef.get("spl") or ""
         _, arg_names = tokens.step_spl(sdef, ids)
         args = tokens.render_args(arg_names, tokens.run_context(run),
-                                tokens.token_defaults(spl, ids))
+                                  tokens.token_defaults(spl, ids))
         if sdef.get("type") == "previous":
-            # Only dependencies that succeeded have results to load; skipped and failed
-            # ones add nothing.
-            steps = run.get("steps") or {}
-            sids = [(steps.get(up) or {}).get("sid")
-                    for up in tokens.previous_inputs(definition, sdef["id"])
-                    if (steps.get(up) or {}).get("state") == "succeeded"]
-            args[tokens.INPUT_ARG] = tokens.input_spl(sids)
+            sids = self._input_sids(run, sdef)
+            if sids:
+                args[tokens.INPUT_ARG] = tokens.input_spl(sids)
         return args
 
     def _attempt_failed(self, run, sid, error, now, pending):
@@ -963,7 +977,7 @@ class Engine:
 
     def _dispatch(self, run, sid, sdef, now, pending):
         st = run["steps"][sid]
-        name = sdef.get("hidden_search")
+        name = self._search_name(run, sdef)
         if not name:
             return self._attempt_failed(run, sid, "step %r has no hidden saved search in its "
                                         "definition; re-save the job to create it" % sid,
