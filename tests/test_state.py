@@ -564,3 +564,44 @@ def test_evaluate_does_not_mutate_input():
     before = copy.deepcopy(r)
     state.evaluate(r, T0 + 99999)
     assert r == before
+
+
+def test_preview_decision_mirrors_run_rules():
+    # The brief's job has no timezone (server local time); UTC pins the cron check.
+    job = {"timezone": "UTC",
+           "steps": [{"id": "d", "type": "inline", "spl": "x"},
+                     {"id": "w", "type": "previous", "spl": "| x",
+                      "run_when": {"kind": "cron", "value": "0 1 * * 1"}}],
+           "edges": [{"from": "d", "to": "w"}]}
+    tue = 1794272400  # Tuesday 2026-11-10 01:00 UTC; +6 days is Monday 2026-11-16
+    ok = {"d": {"state": "succeeded", "sid": "s1", "result_count": 3}}
+    assert state.preview_decision(job, "w", tue, {}, ok) == ("skipped", "run_when")
+    assert state.preview_decision(job, "w", tue + 6 * 86400, {}, ok) == ("run", None)
+    assert state.preview_decision(job, "w", tue, {}, {}) == ("needs", "d")
+    failed = {"d": {"state": "failed"}}
+    assert state.preview_decision(job, "w", tue + 6 * 86400, {}, failed) == ("needs", "d")
+
+
+def test_preview_decision_root_not_taken_and_expressions():
+    j = job(["a", "b", "c", "e"], [("a", "c", "on_failure"), ("b", "c"),
+                                   ("a", "e", "expression", "$a.resultCount$ > 2")])
+    assert state.preview_decision(j, "a", T0, {}, {}) == ("run", None)
+    ok = {"a": {"state": "succeeded", "sid": "s", "result_count": 3}}
+    assert state.preview_decision(j, "c", T0, {}, ok) == ("needs", "b")
+    taken = dict(ok, b={"state": "succeeded", "sid": "t", "result_count": 0})
+    assert state.preview_decision(j, "c", T0, {}, taken) == ("run", None)
+    neither = dict(ok, b={"state": "skipped", "skip_kind": "not_taken"})
+    assert state.preview_decision(j, "c", T0, {}, neither) == ("skipped", "not_taken")
+    assert state.preview_decision(j, "c", T0, {}, {}) == ("needs", "a,b")
+    assert state.preview_decision(j, "e", T0, {}, ok) == ("run", None)
+    few = {"a": {"state": "succeeded", "sid": "s", "result_count": 1}}
+    assert state.preview_decision(j, "e", T0, {}, few) == ("skipped", "not_taken")
+    skipped = {"a": {"state": "skipped", "skip_kind": "run_when"},
+               "b": {"state": "skipped", "skip_kind": "run_when"}}
+    assert state.preview_decision(j, "c", T0, {}, skipped) == ("run", None)
+
+
+def test_preview_decision_run_when_expression_sees_params():
+    j = job([{"id": "a", "run_when": {"kind": "expression", "value": '$run.param.env$ == "prod"'}}])
+    assert state.preview_decision(j, "a", T0, {"env": "prod"}, {}) == ("run", None)
+    assert state.preview_decision(j, "a", T0, {"env": "dev"}, {}) == ("skipped", "run_when")

@@ -7,7 +7,9 @@ functions so they can be tested with captured JSON.
 Rulings proven on the real server (docs/m1-procedure.md):
 * Dispatch only through saved/searches/<name>/dispatch in the job owner's
   namespace, with ``dispatch.now`` as integer epoch seconds. No ad hoc
-  search/jobs route, and no workload_pool.
+  search/jobs route for runs, and no workload_pool. The one exception is a step
+  preview (``preview_dispatch``): an ad hoc job POSTed to search/jobs as the
+  caller, with the caller's session, its own ``id`` and ``now`` as time base.
 * ``upsert_saved_search`` never sends ``is_scheduled`` or ``dispatchAs``:
   restricted users get HTTP 400 for them.
 * TLS policy: calls to the local splunkd management port are loopback, not
@@ -149,6 +151,55 @@ def _truncation(texts):
 
 MISSING_STATUS = {"state": "missing", "result_count": 0, "error": "search job not found",
                   "finalized": False, "zombie": False, "ttl": 0, "truncated": None}
+
+
+def parse_preview_info(body):
+    """Preview job JSON -> ``{"owner", "state", "result_count", "error", "truncated",
+    "run_duration", "messages": [{"type", "text"}]}``. ``owner`` is the entry's
+    ``acl.owner`` (or ``content["eai:acl"]["owner"]``); state and counts follow
+    ``parse_job_status``."""
+    status = parse_job_status(body)
+    entry = json.loads(body)["entry"][0]
+    c = entry.get("content", {})
+    acl = entry.get("acl") or c.get("eai:acl") or {}
+    try:
+        duration = float(c["runDuration"])
+    except (KeyError, TypeError, ValueError):
+        duration = None
+    return {"owner": acl.get("owner"), "state": status["state"],
+            "result_count": status["result_count"], "error": status["error"],
+            "truncated": status["truncated"], "run_duration": duration,
+            "messages": [{"type": kind, "text": text}
+                         for kind, text in _message_texts(c.get("messages"))]}
+
+
+MISSING_PREVIEW = {"owner": None, "state": "missing", "result_count": 0,
+                   "error": "search job not found", "truncated": None, "run_duration": None,
+                   "messages": []}
+
+
+def parse_preview_results(body):
+    """Results JSON -> ``{"fields": [names], "rows": [...]}``. splunkd lists fields as
+    names or as ``{"name": ...}`` objects."""
+    data = json.loads(body) if body else {}
+    fields = []
+    for f in data.get("fields") or []:
+        name = f.get("name") if isinstance(f, dict) else f
+        if name is not None:
+            fields.append(str(name))
+    return {"fields": fields, "rows": list(data.get("results") or [])}
+
+
+def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
+    """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
+    sid, ``now`` as the time base, cancelled 60 s after the last poll stops, kept 1800 s."""
+    params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 60,
+              "timeout": 1800, "exec_mode": "normal"}
+    if earliest:
+        params["earliest_time"] = earliest
+    if latest:
+        params["latest_time"] = latest
+    return params
 
 
 def parse_first_row(body):
@@ -321,6 +372,10 @@ class Gateway(Protocol):
                          body: Optional[Dict[str, Any]] = None) -> Any: ...
     def search_oneshot(self, owner: str, query: str, earliest: str = "-1h",
                        latest: str = "+1h", count: int = 10) -> List[Dict[str, Any]]: ...
+    def preview_dispatch(self, user: str, spl: str, earliest: Optional[str],
+                         latest: Optional[str], now_epoch: int, sid: str) -> str: ...
+    def preview_info(self, sid: str) -> Dict[str, Any]: ...
+    def preview_results(self, sid: str, count: int) -> Dict[str, Any]: ...
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -639,6 +694,49 @@ class SplunkGateway:
             raise GatewayError("search failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return json.loads(body).get("results") or [] if body else []
+
+    # Step previews: ad hoc jobs run as the caller, through a gateway built on the
+    # caller's own session. Cancel and touch go through ``control``.
+
+    def preview_dispatch(self, user, spl, earliest, latest, now_epoch, sid):
+        """Start a preview job as ``user`` in this app with sid ``sid``; returns the sid."""
+        params = preview_dispatch_params(spl, earliest, latest, now_epoch, sid)
+        try:
+            body = self._call("post", "search/jobs", user, **params)
+        except GatewayError as err:
+            raise DispatchError(err.transient, str(err), err.status)
+        except Exception as err:
+            status = self._status(err)
+            raise DispatchError(is_transient_status(status), str(err), status)
+        try:
+            return parse_sid(body)
+        except GatewayError as err:
+            raise DispatchError(False, str(err))
+
+    def preview_info(self, sid):
+        """``parse_preview_info`` of the job, or ``MISSING_PREVIEW`` on 404."""
+        try:
+            body = self._call("get", encoded_path("search/jobs", sid), "-", "-")
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) == 404:
+                return dict(MISSING_PREVIEW, messages=[])
+            raise GatewayError("preview status failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return parse_preview_info(body)
+
+    def preview_results(self, sid, count):
+        """The first ``count`` result rows and the field names."""
+        try:
+            body = self._call("get", encoded_path("search/jobs", sid, "results"), "-", "-",
+                              count=count)
+        except GatewayError:
+            raise
+        except Exception as err:
+            raise GatewayError("preview results failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return parse_preview_results(body)
 
     # Secrets (storage/passwords).
 

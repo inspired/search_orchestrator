@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from so.cron import CronError, matches, parse, slots_between
+from so.cron import CronError, matches, next_slot, parse, prev_slot, slots_between
 
 OSLO = ZoneInfo("Europe/Oslo")
 UTC = ZoneInfo("UTC")
@@ -117,3 +117,19 @@ def test_tz_status(monkeypatch):
     assert c.tz_status("Europe/Oslo") == "unavailable"
     monkeypatch.setattr(c, "ZoneInfo", None)
     assert c.tz_status("Europe/Oslo") == "unavailable"
+
+
+def test_prev_slot_is_mirror_of_next_slot():
+    spec = parse("0 1 * * *")
+    now = ts("2026-11-10 13:30", OSLO)
+    before = prev_slot(spec, now, OSLO, 2)
+    after = next_slot(spec, now, OSLO, 2)
+    assert before == ts("2026-11-10 01:00", OSLO) and after == ts("2026-11-11 01:00", OSLO)
+    assert before <= now < after
+    # Strictly before: a slot exactly at ``before`` is not returned.
+    assert prev_slot(spec, before, OSLO, 2) == ts("2026-11-09 01:00", OSLO)
+    assert prev_slot(spec, before + 1, OSLO, 2) == before
+    assert prev_slot(parse("0 1 30 2 *"), now, OSLO, 400) is None
+    monday = parse("0 1 * * 1")
+    assert prev_slot(monday, now, UTC, 1) is None  # Tuesday: looks at Wednesday and Tuesday
+    assert prev_slot(monday, now, UTC, 2) == ts_utc("2026-11-09 01:00")

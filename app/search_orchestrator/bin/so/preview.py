@@ -1,0 +1,97 @@
+"""Step preview helpers (pure). No I/O.
+
+A preview runs one step of a job as the caller, through the caller's own session, with
+an ad-hoc search job whose sid this module names. Nothing is stored: a preview is
+recognised by its sid (``PREFIX``, the caller's name hash and the job) and the job's
+owner as splunkd reports it.
+"""
+import hashlib
+
+from . import cron as cronmod
+from . import model
+from . import tokens
+
+PREFIX = "so_preview_"
+MAX_RUNTIME = 600   # seconds a preview search may run before it is cancelled
+TABLE_ROWS = 100    # rows shown in the preview table
+TTL = 1800          # seconds a finished preview job is kept
+LOOKBACK_DAYS = 400
+
+
+def _user_hash(user):
+    return hashlib.sha1(str(user).encode("utf-8")).hexdigest()[:8]
+
+
+def _sid_prefix(user, job_ref):
+    return "%s%s_%s_" % (PREFIX, _user_hash(user), job_ref)
+
+
+def make_sid(user, job_ref, step_id, rand):
+    """``so_preview_<sha1(user)[:8]>_<job_ref>_<step_id>_<rand>``. ``job_ref`` is the job
+    id, or ``new`` for an unsaved job."""
+    return "%s%s_%s" % (_sid_prefix(user, job_ref), step_id, rand)
+
+
+def own_preview(info, sid, user, job_ref):
+    """True when ``sid`` names a preview of ``job_ref`` made for ``user`` and splunkd says
+    ``user`` owns the job (``info`` is ``preview_info``)."""
+    return (isinstance(sid, str) and sid.startswith(_sid_prefix(user, job_ref))
+            and (info or {}).get("owner") == user)
+
+
+def _step_refs(step, step_ids):
+    """Step ids ``step``'s SPL names in tokens (``previous`` steps too)."""
+    out = set()
+    for name in tokens.find_tokens(step.get("spl") or "", step_ids):
+        ref = name.split(".")[0]
+        if ref != "run" and ref in step_ids:
+            out.add(ref)
+    return out
+
+
+def closure(definition, step_id):
+    """The upstream steps ``step_id`` reads through edges or tokens, transitively, in
+    topological order, without ``step_id`` itself."""
+    steps = {s.get("id"): s for s in definition.get("steps") or []}
+    ids = list(steps)
+    preds = {sid: set() for sid in ids}
+    for e in definition.get("edges") or []:
+        if e.get("from") in steps and e.get("to") in steps:
+            preds[e["to"]].add(e["from"])
+    token_edges = []
+    for sid, s in steps.items():
+        for ref in _step_refs(s, ids):
+            if ref != sid:
+                preds[sid].add(ref)
+                token_edges.append({"from": ref, "to": sid})
+    seen, stack = set(), list(preds.get(step_id, ()))
+    while stack:
+        n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        stack.extend(preds[n])
+    seen.discard(step_id)
+    graph = dict(definition, edges=list(definition.get("edges") or []) + token_edges)
+    try:
+        order = model.topo_order(graph)
+    except ValueError:  # a token reads a later step: order by edges only
+        order = model.topo_order(definition)
+    return [s for s in order if s in seen]
+
+
+def default_time(job, now):
+    """The latest slot before ``now`` of the job's enabled cron triggers (one without
+    ``enabled`` counts as enabled), looking back at most 400 days; else ``now``."""
+    best = None
+    for t in job.get("triggers") or []:
+        if not isinstance(t, dict) or t.get("type") != "cron" or t.get("enabled") is False:
+            continue
+        try:
+            spec = cronmod.parse(t.get("cron"))
+        except cronmod.CronError:
+            continue
+        slot = cronmod.prev_slot(spec, now, job.get("timezone"), LOOKBACK_DAYS)
+        if slot is not None and (best is None or slot > best):
+            best = slot
+    return now if best is None else best

@@ -228,3 +228,19 @@ def next_slot(spec, after, tz, max_days):
                 return min(found)
         day += timedelta(days=1)
     return None
+
+
+def prev_slot(spec, before, tz, max_days):
+    """The last slot strictly before ``before``, looking at most ``max_days`` days back
+    (one cheap day match per day), or None if there is none within that walk. The mirror
+    of ``next_slot``."""
+    tz = resolve_tz(tz)
+    day = datetime.fromtimestamp(before, tz).date() + timedelta(days=1)
+    for _ in range(int(max_days) + 1):
+        if _day_ok(spec, day):
+            found = [e for e in (_to_epoch(datetime(day.year, day.month, day.day, h, m), tz)
+                                 for h in spec.hours for m in spec.minutes) if e < before]
+            if found:
+                return max(found)
+        day -= timedelta(days=1)
+    return None

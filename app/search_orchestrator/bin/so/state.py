@@ -459,3 +459,38 @@ def reset_for_rerun(run, step_id, now, definition=None):
                delay_base=now, giveup_base=now, paused_seconds=0, paused_at=None)
     new["hooks_fired"] = [h for h in (run.get("hooks_fired") or []) if h not in _RESET_RUN_HOOKS]
     return new
+
+
+_UPSTREAM_FIELDS = ("state", "skip_kind", "sid", "result_count", "first")
+
+
+def preview_decision(definition, step_id, scheduled_time, params, upstream):
+    """What a run would do with ``step_id`` if its upstream steps ended as ``upstream``
+    (``{step_id: {"state": "succeeded"|"failed"|"skipped", "skip_kind", "sid",
+    "result_count", "first"}}``; a step not listed has not run). Returns ``("run", None)``,
+    ``("skipped", "run_when"|"not_taken")``, or ``("needs", "<ids>")`` naming, comma-separated
+    in topological order, the steps whose incoming edges cannot be resolved yet (not run, or
+    failed behind an ``on_success`` edge).
+
+    It builds a synthetic run and asks ``_Eval.edge`` and ``_Eval.run_when_applies``, so it
+    follows the run rules exactly. A bad ``run_when`` raises (CronError, ValueError,
+    TypeError), where a real run would fail the step."""
+    steps = {}
+    for sid, st in (upstream or {}).items():
+        if sid != step_id and isinstance(st, dict):
+            steps[sid] = {k: st.get(k) for k in _UPSTREAM_FIELDS}
+    run = {"id": "preview", "definition": definition, "state": "running",
+           "scheduled_time": scheduled_time, "params": dict(params or {}), "steps": steps}
+    ev = _Eval(run, scheduled_time)
+    if step_id not in ev.steps:
+        raise ValueError("unknown step %r" % step_id)
+    incoming = ev.incoming[step_id]
+    results = [ev.edge(e) for e in incoming]
+    unresolved = {e["from"] for e, r in zip(incoming, results) if r is None}
+    if unresolved:
+        return "needs", ",".join(s for s in ev.order if s in unresolved)
+    if results and not any(results):
+        return "skipped", "not_taken"
+    if not ev.run_when_applies(step_id):
+        return "skipped", "run_when"
+    return "run", None

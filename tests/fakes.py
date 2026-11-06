@@ -65,17 +65,22 @@ class FakeGateway:
         self.api_handler = None  # (method, path, body) -> (status, payload)
         self.search_handler = None  # (owner, query) -> rows
         self.search_log = []
+        self.preview_log = []  # preview_dispatch calls, oldest first
 
     # Scripting.
 
     def script_job(self, name, states, result_count=0, first=None, error="scripted failure",
-                   truncated=None):
+                   truncated=None, rows=None, run_duration=None):
         """Each dispatch of ``name`` makes a job whose status steps through ``states``
         ("running", "done", "failed", "missing", "finalized"); the last state sticks.
         "finalized" is a job stopped early outside the app (done with isFinalized).
-        ``truncated``: the subsearch truncation message its status reports."""
+        ``truncated``: the subsearch truncation message its status reports.
+        Previews: ``preview_dispatch`` uses the script whose name is the sid, else the
+        longest name the sid starts with (``"so_preview_"`` scripts every preview).
+        ``rows`` are its ``preview_results``, ``run_duration`` its ``preview_info``'s."""
         self._scripts[name] = {"states": list(states), "result_count": result_count,
-                               "first": first, "error": error, "truncated": truncated}
+                               "first": first, "error": error, "truncated": truncated,
+                               "rows": list(rows or []), "run_duration": run_duration}
 
     def fail_dispatch(self, name, transient, times=1):
         self._dispatch_errors[name] = [transient] * times
@@ -122,6 +127,38 @@ class FakeGateway:
                 "error": job["error"] if state == "failed" else None,
                 "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
                 "truncated": job.get("truncated")}
+
+    def preview_dispatch(self, user, spl, earliest, latest, now_epoch, sid):
+        script = self._scripts.get(sid)
+        if script is None:
+            names = sorted((n for n in self._scripts if sid.startswith(n)), key=len)
+            script = self._scripts[names[-1]] if names else None
+        script = script or {"states": ["done"], "result_count": 0, "first": None,
+                            "error": None, "truncated": None, "rows": [], "run_duration": 0.1}
+        self.jobs[sid] = dict(copy.deepcopy(script), idx=0, owner=user)
+        self.preview_log.append({"sid": sid, "user": user, "spl": spl, "earliest": earliest,
+                                 "latest": latest, "now": now_epoch})
+        return sid
+
+    def preview_info(self, sid):
+        status = self.job_status(sid)
+        job = self.jobs.get(sid) or {}
+        missing = status["state"] == "missing"
+        return {"owner": None if missing else job.get("owner"), "state": status["state"],
+                "result_count": status["result_count"], "error": status["error"],
+                "truncated": status["truncated"],
+                "run_duration": None if missing else job.get("run_duration"),
+                "messages": [] if missing else copy.deepcopy(job.get("messages") or [])}
+
+    def preview_results(self, sid, count):
+        job = self.jobs.get(sid)
+        if job is None or job.get("cancelled"):
+            raise GatewayError("HTTP 404 Not Found: no such job", status=404)
+        rows = copy.deepcopy((job.get("rows") or [])[:count])
+        fields = []
+        for row in rows:
+            fields.extend(k for k in row if k not in fields)
+        return {"fields": fields, "rows": rows}
 
     def first_row(self, sid):
         job = self.jobs.get(sid)

@@ -391,3 +391,82 @@ def test_status_unrelated_info_message_is_not_truncation():
     st = g.parse_job_status(_status_body(dispatchState="DONE", isDone="1", messages=[
         {"type": "INFO", "text": "Your timerange was substituted based on your search string"}]))
     assert st["state"] == "done" and st["truncated"] is None
+
+
+def _preview_job_body():
+    return json.dumps({"entry": [{
+        "name": "so_preview_x", "acl": {"owner": "alice", "app": "search_orchestrator"},
+        "content": {"dispatchState": "DONE", "isDone": True, "resultCount": 3,
+                    "runDuration": 0.42, "ttl": 1800,
+                    "messages": [{"type": "INFO", "text": "hello"},
+                                 {"type": "WARN", "text": "careful"}]}}]})
+
+
+def test_parse_preview_info():
+    info = g.parse_preview_info(_preview_job_body())
+    assert info == {"owner": "alice", "state": "done", "result_count": 3, "error": None,
+                    "truncated": None, "run_duration": 0.42,
+                    "messages": [{"type": "INFO", "text": "hello"},
+                                 {"type": "WARN", "text": "careful"}]}
+    running = g.parse_preview_info(json.dumps({"entry": [{"content": {
+        "dispatchState": "RUNNING", "eai:acl": {"owner": "bob"}}}]}))
+    assert (running["owner"], running["state"], running["run_duration"]) == ("bob", "running", None)
+    assert running["messages"] == []
+
+
+def test_preview_info_request_and_404():
+    svc = StubService(lambda m, p, kw: Resp(_preview_job_body()))
+    info = g.SplunkGateway(svc).preview_info("so_preview_x")
+    assert info["owner"] == "alice"
+    method, path, kw = svc.calls[0]
+    assert (method, str(path)) == ("get", "search/jobs/so_preview_x")
+
+    def handler(method, path, kw):
+        raise FakeHTTPError(404)
+    missing = g.SplunkGateway(StubService(handler)).preview_info("gone")
+    assert missing["state"] == "missing" and missing["owner"] is None
+    assert missing["messages"] == [] and missing["truncated"] is None
+
+
+def test_parse_preview_results():
+    out = g.parse_preview_results(fx("results_one.json"))
+    assert out == {"fields": ["host", "count"], "rows": [{"host": "web01", "count": "7"}]}
+    named = g.parse_preview_results(json.dumps({"fields": [{"name": "a"}, {"name": "b"}],
+                                                "results": [{"a": "1"}]}))
+    assert named == {"fields": ["a", "b"], "rows": [{"a": "1"}]}
+    assert g.parse_preview_results(fx("results_zero.json"))["rows"] == []
+
+
+def test_preview_results_request():
+    svc = StubService(lambda m, p, kw: Resp(fx("results_one.json")))
+    out = g.SplunkGateway(svc).preview_results("so_preview_x", 100)
+    assert out["rows"][0]["host"] == "web01"
+    method, path, kw = svc.calls[0]
+    assert (method, str(path), kw["count"]) == ("get", "search/jobs/so_preview_x/results", 100)
+
+
+def test_preview_dispatch_request_shape():
+    svc = StubService(lambda m, p, kw: Resp('{"sid": "so_preview_abc"}'))
+    gw = g.SplunkGateway(svc)
+    sid = gw.preview_dispatch("alice", "| makeresults", "-1d@d", "@d", 1794272400.7,
+                              "so_preview_abc")
+    assert sid == "so_preview_abc"
+    method, path, kw = svc.calls[0]
+    assert (method, str(path), kw["owner"], kw["app"]) == ("post", "search/jobs", "alice",
+                                                           "search_orchestrator")
+    assert kw["search"] == "| makeresults" and kw["id"] == "so_preview_abc"
+    assert kw["now"] == 1794272400 and kw["exec_mode"] == "normal"
+    assert (kw["auto_cancel"], kw["timeout"]) == (60, 1800)
+    assert (kw["earliest_time"], kw["latest_time"]) == ("-1d@d", "@d")
+    svc.calls.clear()
+    gw.preview_dispatch("alice", "| x", "", None, 1, "so_preview_abc")
+    kw = svc.calls[0][2]
+    assert "earliest_time" not in kw and "latest_time" not in kw
+
+
+def test_preview_dispatch_errors_are_dispatch_errors():
+    def handler(method, path, kw):
+        raise FakeHTTPError(400)
+    with pytest.raises(g.DispatchError) as info:
+        g.SplunkGateway(StubService(handler)).preview_dispatch("u", "x", "", "", 1, "so_preview_a")
+    assert info.value.transient is False and info.value.status == 400

@@ -44,3 +44,21 @@ def test_fake_missing_collection_is_kv_error():
     with pytest.raises(g.KvError):
         fake.kv_query("so_runs")
     assert fake.kv_insert("so_jobs", {"_key": "a"})
+
+
+def test_fake_preview_jobs():
+    fake = FakeGateway()
+    fake.script_job("so_preview_", ["running", "done"], result_count=2,
+                    rows=[{"a": "1"}, {"a": "2"}], run_duration=0.5)
+    sid = fake.preview_dispatch("alice", "| x", "-1d", "now", 123, "so_preview_h_j_s_r")
+    assert sid == "so_preview_h_j_s_r"
+    assert fake.preview_log == [{"sid": sid, "user": "alice", "spl": "| x", "earliest": "-1d",
+                                 "latest": "now", "now": 123}]
+    assert fake.preview_info(sid)["state"] == "running"
+    info = fake.preview_info(sid)
+    assert (info["owner"], info["state"], info["result_count"], info["run_duration"]) == \
+        ("alice", "done", 2, 0.5)
+    assert fake.preview_results(sid, 1) == {"fields": ["a"], "rows": [{"a": "1"}]}
+    assert fake.preview_info("nope")["state"] == "missing"
+    fake.control(sid, "cancel")
+    assert fake.preview_info(sid)["state"] == "missing"
