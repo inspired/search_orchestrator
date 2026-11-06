@@ -53,6 +53,8 @@ def test_selftest_definition_is_valid():
             assert "so_selftest_missing.csv" in daily["spl"]
         else:
             assert "mvrange(0,1234)" in daily["spl"]
+            # mvexpand truncates at its memory limit on a real server: hashes stay per row.
+            assert "mvexpand" not in daily["spl"] and "mvmap(r, sha512(" in daily["spl"]
         assert all("addinfo" in st["spl"] for st in rollup["steps"])
     assert selftest.rollup_definition(False)["steps"][0]["spl"].startswith(
         "| makeresults count=50000 | eval r=mvrange(0,%d)" % selftest.DEFAULT_SLOW_N)
@@ -199,7 +201,7 @@ def test_rollup_scenarios_take_tuning_arguments():
     assert w.store.get_run(out["run_id"])["scheduled_time"] == 1700000000
 
 
-@pytest.mark.parametrize("bad", [{"slow_n": "x"}, {"delayed_after": 0},
+@pytest.mark.parametrize("bad", [{"slow_n": "x"}, {"slow_n": 100001}, {"delayed_after": 0},
                                  {"delayed_after": 999999}])
 def test_rollup_tuning_arguments_validated(bad):
     w = World()

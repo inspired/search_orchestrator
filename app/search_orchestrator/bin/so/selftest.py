@@ -11,8 +11,8 @@
 * ``rollup_late`` / ``rollup_fail``: ``rollup_definition(fail_first)``,
   daily -> weekly -> monthly, every step ending in ``addinfo`` so its
   ``info_min_time`` / ``info_max_time`` show the window it summarised. The late
-  daily expands 50,000 rows by ``slow_n`` (tuned
-  on the server to take over 30 seconds) with ``delayed_after`` 10 seconds by
+  daily hashes ``slow_n`` values on each of 50,000 rows (the default 600 took
+  38 seconds on the test server) with ``delayed_after`` 10 seconds by
   default. The failing daily fails its first attempt and passes on a re-run
   with the original definition. Rollups default to yesterday 01:00 UTC as the
   scheduled time, so a window taken from the start time would show.
@@ -42,9 +42,9 @@ AUDIT_INDEX = "orchestrator"
 JOB_IDS = {"basic": "so_selftest", "rollup_late": "so_selftest_rollup_late",
            "rollup_fail": "so_selftest_rollup_fail"}
 SCENARIOS = ("basic", "rollup_late", "rollup_fail", "probe")
-DEFAULT_SLOW_N = 40
+DEFAULT_SLOW_N = 600
 DEFAULT_DELAYED_AFTER = 10
-SLOW_N_MAX = 2000000000
+SLOW_N_MAX = 100000
 DELAYED_AFTER_MAX = 86400
 OK_LOOKUP = "so_selftest.csv"
 MISSING_LOOKUP = "so_selftest_missing.csv"
@@ -114,9 +114,11 @@ def rollup_definition(fail_first, slow_n=DEFAULT_SLOW_N, delayed_after=DEFAULT_D
         daily = _fail_first("daily") + ' | stats count | addinfo | eval step="daily"'
         name = "Search Orchestrator self-test (rollup, failing daily)"
     else:
-        # makeresults caps count at maxresultrows (50000), so slow_n multiplies rows instead.
-        daily = ('| makeresults count=50000 | eval r=mvrange(0,%d) | mvexpand r '
-                 '| eval h=sha512(tostring(random())) | stats count | addinfo '
+        # makeresults caps count at 50000 and mvexpand truncates at its memory limit, so
+        # the work is slow_n hashes per row inside one eval, which holds one row at a time.
+        daily = ('| makeresults count=50000 | eval r=mvrange(0,%d) '
+                 '| eval h=mvcount(mvmap(r, sha512(tostring(random())))) | fields - r '
+                 '| stats count | addinfo '
                  '| eval step="daily"' % int(slow_n))
         name = "Search Orchestrator self-test (rollup, late daily)"
     return {

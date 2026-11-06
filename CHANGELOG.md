@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 (2026-11-06)
+
+- The late-rollup self-test's slow daily hashes `slow_n` values on each of 50,000 rows (default 600, about 40 seconds). The earlier forms were capped by `makeresults` and `mvexpand` limits and finished in about a second. `slow_n` is capped at 100000.
+
 ## 1.0.2 (2026-11-06)
 
 Fixes from the first check on a real Splunk server (Enterprise 10.6.1.1).

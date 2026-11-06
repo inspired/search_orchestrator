@@ -138,7 +138,7 @@ If a job owner's Splunk account is removed, that job's runs fail with a clear er
 | Command | What it does |
 |---|---|
 | `\| orchestrate selftest` | Saves and runs job `so_selftest`: serial and parallel steps, tokens, `loadjob`, a skipped step and a retry. |
-| `\| orchestrate selftest scenario=rollup_late` | Daily, weekly and monthly rollup with a slow daily, to show waiting, the delay alert and a late start. Optional `slow_n=<multiplier>` (50,000 × slow_n rows, default 40) and `delayed_after=<seconds>`. |
+| `\| orchestrate selftest scenario=rollup_late` | Daily, weekly and monthly rollup with a slow daily, to show waiting, the delay alert and a late start. Optional `slow_n=<number>` (50,000 × slow_n hashes, default 600, about 40 seconds on a test server; at most 100000) and `delayed_after=<seconds>`. |
 | `\| orchestrate selftest scenario=rollup_fail` | The same rollup with a daily that fails once, to try re-run from a step. |
 | `\| orchestrate selftest scenario=probe` | Checks the server calls the app depends on (search history, job control, KV Store, users, saved searches, index checks, audit writes, the REST endpoint) and returns one row per check with `ok` and `detail`. It never prints secrets. |
 
