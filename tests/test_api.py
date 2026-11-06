@@ -1472,3 +1472,15 @@ def test_preview_live_skipped_claim_for_a_step_that_runs_needs_a_preview(w):
     status, out = preview(w, job=job, step_id="c",
                           input=live(a={"sid": out["sid"]}, b={"skipped": "run_when"}))
     assert status == 409 and error(out) == "needs_preview" and out["error"]["steps"] == ["b"], out
+
+
+@pytest.mark.parametrize("sid", ["x", "so_preview_x", "so_preview_0123abcd.daily.a", ""])
+def test_malformed_preview_sid_is_404_not_500(w, sid):
+    # The route checks the sid too; the helper never unpacks a None.
+    ctx = api._Ctx("alice", w.deps("alice"))
+    with pytest.raises(api.ApiError) as err:
+        api._own_preview(ctx, sid)
+    assert err.value.status == 404 and err.value.code == "not_found"
+    for method, suffix in (("GET", ""), ("GET", "/results"), ("POST", "/cancel")):
+        if sid:
+            assert w.call("alice", method, "/orchestrator/preview/" + sid + suffix)[0] == 404

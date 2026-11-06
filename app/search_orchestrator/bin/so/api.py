@@ -1244,7 +1244,10 @@ def _own_preview(ctx, sid, gone_ok=False):
     """``preview_info`` of the caller's own preview ``sid``; anything else is 404. With
     ``gone_ok``, a sid that passes ``own_sid`` but that splunkd no longer has returns its
     ``missing`` info instead (the sid names the caller, so this reveals nothing)."""
-    _, job_ref, step_id, _ = preview.parts(sid)
+    parts = preview.parts(sid)
+    if parts is None:  # a malformed sid (the route checks it too) is not the caller's
+        raise ApiError(404, "not_found", "no preview %r" % sid)
+    _, job_ref, step_id, _ = parts
     if not preview.own_sid(sid, ctx.user, job_ref, step_id):
         raise ApiError(404, "not_found", "no preview %r" % sid)
     info = ctx.user_gw.preview_info(sid)
