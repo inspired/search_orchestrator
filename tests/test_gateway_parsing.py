@@ -376,3 +376,18 @@ def test_status_truncated_other_subsearch_limits_and_none():
     assert st["truncated"] is None
     assert g.parse_job_status(fx("job_done_rows.json"))["truncated"] is None
     assert g.MISSING_STATUS["truncated"] is None
+
+
+def test_status_reports_subsearch_time_limit_from_real_messages():
+    # Real server, 10.6: append maxtime=1 [...] that hit its limit.
+    first = ("[subsearch]: The search auto-finalized after it reached its time limit: "
+             "1 seconds.")
+    st = g.parse_job_status(_status_body(dispatchState="DONE", isDone="1", messages=[
+        {"type": "INFO", "text": first}, {"type": "INFO", "text": "[subsearch]: Search finalized."}]))
+    assert st["state"] == "done" and st["truncated"] == first
+
+
+def test_status_unrelated_info_message_is_not_truncation():
+    st = g.parse_job_status(_status_body(dispatchState="DONE", isDone="1", messages=[
+        {"type": "INFO", "text": "Your timerange was substituted based on your search string"}]))
+    assert st["state"] == "done" and st["truncated"] is None

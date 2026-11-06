@@ -102,9 +102,9 @@ def parse_job_status(body):
     job with an ERROR or FATAL message (for example a missing lookup, which splunkd
     reports as DONE with isFailed=0) counts as failed: its results are incomplete.
 
-    ``truncated`` is the first message (of any type) saying a subsearch was cut short:
-    one containing ``truncating to maxout``, or ``Subsearch`` with ``timed out`` or
-    ``auto-finalized``; else None. splunkd reports a truncated ``append`` only as an
+    ``truncated`` is the first message (of any type) saying a subsearch was cut short,
+    matched without case: one containing ``truncating to maxout``, or ``subsearch``
+    with ``auto-finalized``, ``time limit`` or ``timed out``; else None. splunkd reports a truncated ``append`` only as an
     INFO message, so the state stays as it was; the caller decides what it means.
     """
     entry = json.loads(body)["entry"][0]
@@ -140,8 +140,9 @@ def parse_job_status(body):
 
 def _truncation(texts):
     for _, t in texts:
-        if "truncating to maxout" in t or ("Subsearch" in t and ("timed out" in t
-                                                                 or "auto-finalized" in t)):
+        low = t.lower()
+        if "truncating to maxout" in low or ("subsearch" in low and any(
+                w in low for w in ("auto-finalized", "time limit", "timed out"))):
             return t
     return None
 
