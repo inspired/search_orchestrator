@@ -42,4 +42,24 @@ describe('graphLogic', () => {
         expect(runWhenPreset('mondays')).toEqual({ kind: 'cron', value: '* * * * 1' });
         expect(runWhenPreset('first_of_month')).toEqual({ kind: 'cron', value: '* * 1 * *' });
     });
+    test('findIssues flags From previous steps problems with the server messages', () => {
+        const job: JobDefinition = {
+            name: 'j',
+            enabled: true,
+            steps: [
+                { id: 'a', type: 'inline', spl: '| makeresults' },
+                { id: 'nopipe', type: 'previous', spl: 'stats count' },
+                { id: 'empty', type: 'previous', spl: '   ' },
+                { id: 'alone', type: 'previous', spl: '| stats count' },
+                { id: 'ok', type: 'previous', spl: '  | stats count' },
+            ],
+            edges: ['nopipe', 'empty', 'ok'].map((to) => ({ from: 'a', to, condition: 'on_success' as const })),
+        };
+        const found = findIssues(job).map((i) => [i.step, i.code, i.message]);
+        expect(found).toEqual([
+            ['nopipe', 'previous_needs_pipe', 'A From previous steps search must start with |'],
+            ['empty', 'previous_needs_pipe', 'A From previous steps search must start with |'],
+            ['alone', 'previous_needs_dependency', 'A From previous steps step must depend on at least one step'],
+        ]);
+    });
 });

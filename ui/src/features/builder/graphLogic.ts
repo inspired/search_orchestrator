@@ -125,6 +125,15 @@ export function findIssues(job: JobDefinition): Issue[] {
         if (s.type === 'inline' && !(s.spl || '').trim()) {
             out.push(issue('error', 'bad_step', 'the search is empty', s.id));
         }
+        if (s.type === 'previous') {
+            // model.py's checks and messages (an empty search fails the first one there too).
+            if (!(s.spl || '').trimStart().startsWith('|')) {
+                out.push(issue('error', 'previous_needs_pipe', 'A From previous steps search must start with |', s.id));
+            }
+            if (!(job.edges || []).some((e) => e.to === s.id)) {
+                out.push(issue('error', 'previous_needs_dependency', 'A From previous steps step must depend on at least one step', s.id));
+            }
+        }
         if (s.run_when && s.run_when.kind && !(s.run_when.value || '').trim()) {
             out.push(issue('error', 'bad_run_when', 'run when is empty', s.id));
         }
