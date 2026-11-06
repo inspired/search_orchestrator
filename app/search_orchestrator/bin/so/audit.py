@@ -28,7 +28,7 @@ class Audit:
         """Write one audit event. Never raises: a lost event is logged."""
         from splunklib.modularinput import Event
 
-        doc = dict(event)
+        doc = {k: v for k, v in dict(event).items() if v is not None}
         doc["_time"] = int(doc.get("_time") if doc.get("_time") is not None else self.clock())
         try:
             data = json.dumps(doc, sort_keys=True, default=str)

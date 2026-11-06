@@ -724,7 +724,8 @@ def test_every_state_change_is_audited():
         assert steps == [("waiting", "ready"), ("ready", "starting"), ("starting", "running"),
                          ("running", "succeeded")], sid
         assert w.audit.of("step_dispatched", run_id=run_id, step_id=sid)
-    assert w.audit.of("action_submitted", run_id=run_id, hook="on_success", scope="job")
+    # This job has no actions, so no hook is audited as "action_submitted" (server-check noise).
+    assert not w.audit.of("action_submitted", run_id=run_id)
     assert all(isinstance(e["_time"], int) for e in w.audit.events)
     assert all(e.get("job_id") == "j" for e in w.audit.events if e.get("run_id"))
 
@@ -1368,3 +1369,16 @@ def test_direct_mode_dispatches_when_still_private():
     run_id = cron_run(w, j)
     assert len(w.gw.dispatch_log) == 1 and w.gw.dispatch_log[0]["name"] == "mine"
     assert w.step(run_id, "a")["state"] in ("running", "succeeded")
+
+
+def test_action_submitted_audited_only_with_actions():
+    w = World()
+    j = w.add_job(make_job(steps=["a"], actions=[
+        {"hook": "on_success", "type": "event", "index": "main", "payload": "done",
+         "hidden_search": "_so_j_action_0_0123abcd"}]))
+    run_id = cron_run(w, j)
+    for _ in range(3):
+        w.tick(advance=5)
+    assert w.run(run_id)["state"] == "succeeded"
+    assert w.audit.of("action_submitted", run_id=run_id, hook="on_success", scope="job")
+    assert not w.audit.of("action_submitted", run_id=run_id, hook="on_start")

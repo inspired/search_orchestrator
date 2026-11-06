@@ -52,10 +52,10 @@ def test_selftest_definition_is_valid():
         if fail_first:
             assert "so_selftest_missing.csv" in daily["spl"]
         else:
-            assert daily["spl"].startswith("| makeresults count=1234 | stats count")
+            assert "mvrange(0,1234)" in daily["spl"]
         assert all("addinfo" in st["spl"] for st in rollup["steps"])
     assert selftest.rollup_definition(False)["steps"][0]["spl"].startswith(
-        "| makeresults count=%d | stats count" % selftest.DEFAULT_SLOW_N)
+        "| makeresults count=50000 | eval r=mvrange(0,%d)" % selftest.DEFAULT_SLOW_N)
 
 
 def test_selftest_admin_only():
@@ -189,7 +189,7 @@ def test_rollup_scenarios_take_tuning_arguments():
     run = w.store.get_run(out["run_id"])
     definition = run["definition"]
     assert definition["defaults"]["delayed_after"] == 15
-    assert steps(definition)["daily"]["spl"].startswith("| makeresults count=5000 ")
+    assert "mvrange(0,5000)" in steps(definition)["daily"]["spl"]
     assert run["scheduled_time"] == selftest.default_scheduled_time("rollup_late", w.now)
     assert run["scheduled_time"] < w.now - 3600
     status, out = w.call("root", "POST", "/orchestrator/selftest", {"scenario": "rollup_fail"})

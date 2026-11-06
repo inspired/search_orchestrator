@@ -174,7 +174,8 @@ class ActionRunner:
     # -- submit ---------------------------------------------------------------
 
     def submit(self, run, hook, scope, step_id, occurrence=None):
-        """Record one hook firing. True if new, False if already submitted.
+        """Record one hook firing. True if new and it has actions to send (callers audit
+        ``action_submitted`` on True); False if already submitted or nothing matched.
 
         ``occurrence`` defaults to the run's ``rerun_count``: a hook fires once
         per run and once more per re-run.
@@ -201,7 +202,7 @@ class ActionRunner:
                  "on_delayed": _needs_delay_fallback}.get(hook)
         if scope == "job" and needs and needs(run, definition):
             self._ensure_fallback(doc)  # also on replay: the insert is idempotent
-        return new
+        return new and bool(matching)
 
     @staticmethod
     def _ctx(run, hook, scope, step_id):

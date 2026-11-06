@@ -315,3 +315,39 @@ def test_parse_history_details_reads_dispatch_now():
     assert [d["sid"] for d in out] == ["s2", "s3", "s1"]
     assert out[0]["dispatch_now"] == 1796086000 and out[1]["dispatch_now"] is None
     assert out[2]["dispatch_now"] == 1796086800 and out[1]["published"] == 1796086807
+
+
+def test_done_job_with_error_message_is_failed():
+    # Real server, 10.6.1.1: a missing lookup ends DONE with isFailed=0 and an ERROR message.
+    body = json.dumps({"entry": [{"content": {
+        "dispatchState": "DONE", "isDone": True, "isFailed": False, "resultCount": 1,
+        "messages": [{"type": "ERROR", "text": "The lookup table 'x.csv' requires a .csv or KV store lookup definition."},
+                     {"type": "WARN", "text": "[subsearch]: something"}]}}]})
+    st = g.parse_job_status(body)
+    assert st["state"] == "failed"
+    assert "x.csv" in st["error"] and "subsearch" not in st["error"]
+
+
+def test_done_job_with_only_warnings_is_done():
+    body = json.dumps({"entry": [{"content": {
+        "dispatchState": "DONE", "isDone": True, "resultCount": 0,
+        "messages": [{"type": "WARN", "text": "truncated"}]}}]})
+    assert g.parse_job_status(body)["state"] == "done"
+
+
+def test_search_oneshot_uses_search_jobs_exec_mode():
+    calls = []
+
+    class Svc:
+        def post(self, path, **kw):
+            calls.append((path, kw))
+
+            class R:  # noqa: D401
+                body = type("B", (), {"read": lambda self: b'{"results": [{"a": "1"}]}'})()
+                status = 200
+            return R()
+    gw = g.SplunkGateway(Svc())
+    rows = gw.search_oneshot("bob", "search x")
+    assert rows == [{"a": "1"}]
+    path, kw = calls[0]
+    assert str(path).endswith("search/jobs") and kw.get("exec_mode") == "oneshot"

@@ -11,7 +11,7 @@
 * ``rollup_late`` / ``rollup_fail``: ``rollup_definition(fail_first)``,
   daily -> weekly -> monthly, every step ending in ``addinfo`` so its
   ``info_min_time`` / ``info_max_time`` show the window it summarised. The late
-  daily is ``| makeresults count=<slow_n> | stats count`` (``slow_n`` is tuned
+  daily expands 50,000 rows by ``slow_n`` (tuned
   on the server to take over 30 seconds) with ``delayed_after`` 10 seconds by
   default. The failing daily fails its first attempt and passes on a re-run
   with the original definition. Rollups default to yesterday 01:00 UTC as the
@@ -42,7 +42,7 @@ AUDIT_INDEX = "orchestrator"
 JOB_IDS = {"basic": "so_selftest", "rollup_late": "so_selftest_rollup_late",
            "rollup_fail": "so_selftest_rollup_fail"}
 SCENARIOS = ("basic", "rollup_late", "rollup_fail", "probe")
-DEFAULT_SLOW_N = 50000000
+DEFAULT_SLOW_N = 40
 DEFAULT_DELAYED_AFTER = 10
 SLOW_N_MAX = 2000000000
 DELAYED_AFTER_MAX = 86400
@@ -114,7 +114,10 @@ def rollup_definition(fail_first, slow_n=DEFAULT_SLOW_N, delayed_after=DEFAULT_D
         daily = _fail_first("daily") + ' | stats count | addinfo | eval step="daily"'
         name = "Search Orchestrator self-test (rollup, failing daily)"
     else:
-        daily = '| makeresults count=%d | stats count | addinfo | eval step="daily"' % int(slow_n)
+        # makeresults caps count at maxresultrows (50000), so slow_n multiplies rows instead.
+        daily = ('| makeresults count=50000 | eval r=mvrange(0,%d) | mvexpand r '
+                 '| eval h=sha512(tostring(random())) | stats count | addinfo '
+                 '| eval step="daily"' % int(slow_n))
         name = "Search Orchestrator self-test (rollup, late daily)"
     return {
         "name": name, "description": "Built by | orchestrate selftest. Safe to delete.",

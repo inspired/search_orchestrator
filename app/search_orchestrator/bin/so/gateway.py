@@ -98,7 +98,9 @@ def _message_texts(messages):
 def parse_job_status(body):
     """Job status JSON -> the gateway's job_status dict.
 
-    Zombie jobs count as failed. A DONE job with zero results is a success.
+    Zombie jobs count as failed. A DONE job with zero results is a success. A DONE
+    job with an ERROR or FATAL message (for example a missing lookup, which splunkd
+    reports as DONE with isFailed=0) counts as failed: its results are incomplete.
     """
     entry = json.loads(body)["entry"][0]
     c = entry.get("content", {})
@@ -112,7 +114,10 @@ def parse_job_status(body):
     elif failed:
         state, error = "failed", detail or "search job failed"
     elif _truthy(c.get("isDone")) or c.get("dispatchState") == "DONE":
-        state, error = "done", None
+        if errors:
+            state, error = "failed", "; ".join(errors)
+        else:
+            state, error = "done", None
     else:
         state, error = "running", None
     try:
@@ -610,8 +615,9 @@ class SplunkGateway:
     def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
         """Result rows of a blocking read-only search run as ``owner`` in this app."""
         try:
-            body = self._call("post", "search/jobs/oneshot", owner, search=query,
-                              earliest_time=earliest, latest_time=latest, count=count)
+            body = self._call("post", "search/jobs", owner, search=query, exec_mode="oneshot",
+                              earliest_time=earliest, latest_time=latest,
+                              count=count)
         except GatewayError:
             raise
         except Exception as err:

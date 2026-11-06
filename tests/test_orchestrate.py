@@ -289,3 +289,19 @@ def test_alert_action_refuses_when_session_cannot_be_verified(w):
     assert "could not verify alert session (HTTP 401)" in message
     assert "None" not in message and "tok-alice" not in message
     assert not w.gw.kv.get("so_runs")
+
+
+def test_rest_audit_posts_absolute_receivers_path_and_drops_nulls():
+    import orchestrator_rest as rest
+    posted = []
+
+    class Svc:
+        def post(self, path, **kw):
+            posted.append((path, kw))
+
+    class Gw:
+        service = Svc()
+    rest.RestAudit(Gw()).write({"type": "job_saved", "step_id": None, "_time": 5})
+    path, kw = posted[0]
+    assert path == "/services/receivers/simple"
+    assert '"step_id"' not in kw["body"] and '"type": "job_saved"' in kw["body"]

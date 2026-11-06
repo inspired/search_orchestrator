@@ -8,7 +8,7 @@
                         [restart_downstream_jobs=true|false]
     | orchestrate jobs
     | orchestrate selftest [scenario=basic|rollup_late|rollup_fail|probe]
-                           [slow_n=<rows>] [delayed_after=<seconds>] [scheduled_time=<epoch>]
+                           [slow_n=<multiplier>] [delayed_after=<seconds>] [scheduled_time=<epoch>]
 
 Every action calls the app's REST endpoint (``/services/orchestrator/...``)
 over loopback with the caller's own session, so ``api.py`` does all checks

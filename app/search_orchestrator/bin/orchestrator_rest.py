@@ -47,7 +47,9 @@ class RestAudit:
     def write(self, event):
         doc = dict(event)
         doc["_time"] = int(doc.get("_time") if doc.get("_time") is not None else time.time())
-        self.gw.service.post("receivers/simple", index=self.index, sourcetype=SOURCETYPE,
+        # An absolute path: receivers/simple has no /servicesNS/<owner>/<app>/ form (404).
+        doc = {k: v for k, v in doc.items() if v is not None}
+        self.gw.service.post("/services/receivers/simple", index=self.index, sourcetype=SOURCETYPE,
                              source=AUDIT_SOURCE,
                              body=json.dumps(doc, sort_keys=True, default=str))
         return doc

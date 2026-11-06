@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2 (2026-11-06)
+
+Fixes from the first check on a real Splunk server (Enterprise 10.6.1.1).
+
+- A search that finishes with an ERROR message, such as a missing lookup, now fails its step. Splunk reports these as done and not failed, so before this fix the step counted as a success and later steps built on incomplete results.
+- Audit events from the REST API (saves, ownership changes, denied requests, commands) were lost because of a wrong endpoint path. They now reach the `orchestrator` index.
+- The self-test probe's search check used a wrong endpoint; it now runs.
+- Audit events no longer carry empty fields as the text "null", and "action submitted" is audited only for hooks that have actions.
+- `slow_n` for the late-rollup self-test now multiplies 50,000 rows (Splunk caps `makeresults` at 50,000); the default is 40.
+
 ## 1.0.1 (2026-11-06)
 
 Fixes from the final review.
