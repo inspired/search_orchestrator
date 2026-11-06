@@ -599,4 +599,65 @@ describe('usePreviews', () => {
         ]);
         expect(input && input.mode === 'live' && input.steps[0].at).toBe(result.current.previews.a.startedAt);
     });
+
+    test('cancel also cancels the running upstream previews its chain started', async () => {
+        const api = slowA(100);
+        const { result } = renderHook(() => usePreviews(diamond, ctx, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle(2);
+        expect(result.current.previews.a.state).toBe('running');
+        act(() => {
+            result.current.cancel('b');
+        });
+        await settle(2);
+        expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
+        expect(result.current.previews.a.state).toBe('failed');
+        expect(result.current.previews.a.error).toBe('Preview cancelled.');
+        expect(result.current.previews.b.error).toBe('Preview cancelled.');
+        expect(startsOf(api, 'b')).toHaveLength(0);
+    });
+
+    test('cancel leaves an upstream preview another chain is waiting on', async () => {
+        const api = slowA(6);
+        const { result } = renderHook(() => usePreviews(diamond, ctx, api));
+        act(() => {
+            result.current.preview('c');
+        });
+        await settle(1);
+        act(() => {
+            result.current.preview('d');
+        });
+        await flush();
+        act(() => {
+            result.current.cancel('c');
+        });
+        await settle(10);
+        expect(api.cancelPreview).not.toHaveBeenCalledWith('sid-a-1');
+        expect(result.current.previews.c.error).toBe('Preview cancelled.');
+        expect(result.current.previews.a.state).toBe('done');
+        expect(result.current.previews.b.state).toBe('done');
+        expect(result.current.previews.d.state).toBe('done');
+        expect(startsOf(api, 'a')).toHaveLength(1);
+    });
+
+    test('cancel never touches an upstream preview it followed but did not start', async () => {
+        const api = slowA(6);
+        const { result } = renderHook(() => usePreviews(diamond, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await flush();
+        act(() => {
+            result.current.preview('b');
+        });
+        await flush();
+        act(() => {
+            result.current.cancel('b');
+        });
+        await settle(10);
+        expect(api.cancelPreview).not.toHaveBeenCalled();
+        expect(result.current.previews.a.state).toBe('done');
+    });
 });

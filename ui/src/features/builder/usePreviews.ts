@@ -1,8 +1,10 @@
 /* Live step previews for the editor. Previewing a step first previews the upstream steps
  * whose previews are missing or stale (previewLogic.toBeRun), one at a time: start, poll
  * every 2 s until it ends, then the next. Done previews are polled every 5 minutes so the
- * server keeps them. Everything lives in this hook: unmounting discards it and cancels
- * running previews, best effort. Nothing here blocks editing. */
+ * server keeps them. Cancelling a step also cancels the running upstream previews its
+ * chain started, unless another chain is waiting on them. Everything lives in this hook:
+ * unmounting discards it and cancels running previews, best effort. Nothing here blocks
+ * editing. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../../api/client';
 import type { JobDefinition, PreviewInput, PreviewInputRead, PreviewRequest, PreviewResults, PreviewStatus, SkipKind } from '../../api/types';
@@ -99,6 +101,19 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
     const tokens = useRef<Record<string, number>>({});
     const pending = useRef<Record<string, Promise<Outcome> | undefined>>({});
     const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+    /** Each step's current preview chain; the chain that started each upstream preview; and
+     * the chains waiting on each step's preview (for cancel). */
+    const chains = useRef<Record<string, string>>({});
+    const owners = useRef<Record<string, string>>({});
+    const waiters = useRef<Record<string, Set<string>>>({});
+    const wait = (id: string, chain: string) => {
+        (waiters.current[id] = waiters.current[id] || new Set()).add(chain);
+    };
+    const unwait = (id: string, chain: string) => {
+        if (waiters.current[id]) {
+            waiters.current[id].delete(chain);
+        }
+    };
     const latest = useRef({ job, ctx, api });
     latest.current = { job, ctx, api };
 
@@ -168,7 +183,15 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
 
     /** Start the step's preview and poll it to the end. A 409 needs_preview re-runs the
      * named steps once (never a current failed one), then retries. */
-    const execute = async (id: string, token: number, jobSnap: JobDefinition, ctxSnap: PreviewContext, anyway: boolean, retry: boolean): Promise<Outcome> => {
+    const execute = async (
+        id: string,
+        token: number,
+        jobSnap: JobDefinition,
+        ctxSnap: PreviewContext,
+        anyway: boolean,
+        retry: boolean,
+        chain: string
+    ): Promise<Outcome> => {
         const { api: a } = latest.current;
         const { request, info } = input(jobSnap, ctxSnap, id);
         patch(id, token, { key: previewKeys(jobSnap, ctxSnap, store.current)[id] || '', input: info, startedAt: Date.now() });
@@ -192,7 +215,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                         return 'failed';
                     }
                     // eslint-disable-next-line no-await-in-loop
-                    const o = await reuse(s, jobSnap, ctxSnap);
+                    const o = await reuse(s, jobSnap, ctxSnap, chain);
                     if (!current(id, token)) {
                         return ended(id, token);
                     }
@@ -201,7 +224,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                         return 'failed';
                     }
                 }
-                return execute(id, token, jobSnap, ctxSnap, anyway, false);
+                return execute(id, token, jobSnap, ctxSnap, anyway, false, chain);
             }
             patch(id, token, { state: 'failed', error: previewErrorText(err) });
             return 'failed';
@@ -274,9 +297,10 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         }
     };
 
-    function run(id: string, jobSnap: JobDefinition, ctxSnap: PreviewContext, anyway: boolean): Promise<Outcome> {
+    function run(id: string, jobSnap: JobDefinition, ctxSnap: PreviewContext, chain: string): Promise<Outcome> {
         const token = claim(id, jobSnap, ctxSnap);
-        const p = execute(id, token, jobSnap, ctxSnap, anyway, true);
+        owners.current[id] = chain;
+        const p = execute(id, token, jobSnap, ctxSnap, false, true, chain);
         pending.current[id] = p;
         return p;
     }
@@ -289,13 +313,19 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         );
     };
 
-    /** The step's outcome: a running current preview is followed, otherwise it is previewed. */
-    function reuse(id: string, jobSnap: JobDefinition, ctxSnap: PreviewContext): Promise<Outcome> {
-        const p = pending.current[id];
-        if (p && runningNow(id, jobSnap, ctxSnap)) {
-            return follow(id, p);
+    /** The step's outcome for `chain`: a running current preview is followed, otherwise
+     * the chain previews it. */
+    async function reuse(id: string, jobSnap: JobDefinition, ctxSnap: PreviewContext, chain: string): Promise<Outcome> {
+        wait(id, chain);
+        try {
+            const p = pending.current[id];
+            if (p && runningNow(id, jobSnap, ctxSnap)) {
+                return await follow(id, p);
+            }
+            return await follow(id, run(id, jobSnap, ctxSnap, chain));
+        } finally {
+            unwait(id, chain);
         }
-        return follow(id, run(id, jobSnap, ctxSnap, false));
     }
 
     /** Previews missing or stale upstream steps first (and waits for running ones), then
@@ -309,10 +339,14 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         const toRun = order.slice(0, -1);
         const before = live ? upstreamOf(jobSnap, stepId).filter((u) => toRun.includes(u) || runningNow(u, jobSnap, ctxSnap)) : [];
         const token = claim(stepId, jobSnap, ctxSnap);
+        const chainId = `${stepId}#${token}`;
+        chains.current[stepId] = chainId;
+        // Waiting on all of them from the start: cancelling another chain leaves them be.
+        before.forEach((up) => wait(up, chainId));
         const chain = (async (): Promise<Outcome> => {
             for (const up of before) {
                 // eslint-disable-next-line no-await-in-loop
-                const o = await reuse(up, jobSnap, ctxSnap);
+                const o = await reuse(up, jobSnap, ctxSnap, chainId);
                 if (!current(stepId, token)) {
                     return ended(stepId, token);
                 }
@@ -324,13 +358,13 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                     return 'failed';
                 }
             }
-            return execute(stepId, token, jobSnap, ctxSnap, anyway, true);
-        })();
+            return execute(stepId, token, jobSnap, ctxSnap, anyway, true, chainId);
+        })().finally(() => before.forEach((up) => unwait(up, chainId)));
         pending.current[stepId] = chain;
         return chain.then(() => undefined);
     };
 
-    const cancel = (stepId: string) => {
+    const stop = (stepId: string) => {
         tokens.current[stepId] = (tokens.current[stepId] || 0) + 1;
         delete pending.current[stepId];
         const p = store.current[stepId];
@@ -340,6 +374,27 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
             }
             put(stepId, { ...p, state: 'failed', error: 'Preview cancelled.' });
         }
+    };
+
+    /** Cancel the step's preview and the upstream previews its chain started that are
+     * still running, except those another chain is waiting on. */
+    const cancel = (stepId: string) => {
+        const chainId = chains.current[stepId];
+        stop(stepId);
+        if (!chainId) {
+            return;
+        }
+        Object.keys(owners.current).forEach((up) => {
+            if (owners.current[up] !== chainId) {
+                return;
+            }
+            delete owners.current[up];
+            const others = Array.from(waiters.current[up] || []).filter((c) => c !== chainId);
+            const p = store.current[up];
+            if (p && p.state === 'running' && !others.length) {
+                stop(up);
+            }
+        });
     };
 
     // Keep done previews alive on the server, and notice ones it no longer has.
@@ -384,6 +439,9 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
             store.current = {};
             tokens.current = {};
             pending.current = {};
+            chains.current = {};
+            owners.current = {};
+            waiters.current = {};
         };
     }, []);
 
