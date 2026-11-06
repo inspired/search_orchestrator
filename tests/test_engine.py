@@ -1486,3 +1486,23 @@ def test_previous_no_input_crash_after_dispatch_adopts_empty_search():
     assert len(w.dispatched("p")) == 1
     assert w.dispatched("p")[0]["name"] == j["steps"][2]["hidden_search_empty"]
     assert w.audit.of("step_adopted", run_id=run_id, step_id="p")
+
+
+def test_previous_old_definition_without_empty_search_fails_with_resave_message():
+    # Stored before hidden_search_empty existed: with every input skipped there is no
+    # search to dispatch, so the attempt fails and says to re-save the job.
+    w = World()
+    job = make_job(steps=["a", {"id": "s", "run_when": NEVER},
+                          {"id": "p", "type": "previous", "spl": "| stats count"}],
+                   edges=[("a", "s"), ("s", "p")])
+    del job["steps"][2]["hidden_search_empty"]
+    j = w.add_job(job)
+    run_id = cron_run(w, j)
+    for _ in range(3):
+        w.tick(advance=5)
+    p = w.step(run_id, "p")
+    assert p["state"] == "failed"
+    assert p["error"] == ("step 'p' has no hidden saved search in its definition; re-save the "
+                          "job to create it")
+    assert not w.dispatched("p")
+    assert w.run(run_id)["state"] in ("failed", "blocked")
