@@ -15,12 +15,12 @@ def test_literal_dollar_untouched():
 
 
 def test_known_token_compiled():
-    assert compile_spl('| loadjob $daily.sid$', {"daily"}) == ('| loadjob $args.daily__sid$', ["daily__sid"])
+    assert compile_spl("| loadjob $daily.sid$", {"daily"}) == ('| loadjob "$args.daily__sid$"', ["daily__sid"])
 
 
 def test_default_stripped_and_extracted():
     spl, names = compile_spl('$a.sid|x$ $a.sid$', {"a"})
-    assert spl == "$args.a__sid$ $args.a__sid$" and names == ["a__sid"]
+    assert spl == '"$args.a__sid$" "$args.a__sid$"' and names == ["a__sid"]
     assert token_defaults("$a.sid|x y$ $a.status$", {"a"}) == {"a__sid": "x y"}
     assert token_defaults("$a.sid|$", {"a"}) == {"a__sid": ""}
 
@@ -123,3 +123,50 @@ def test_time_param_fullmatch_ascii():
     for bad in ("now\n", "-1d\n", "١d", "-1d@d\n"):
         with pytest.raises(TokenError):
             validate_param(t, bad)
+
+
+def _substitute(compiled, args):
+    """Do what splunkd does with $args.x$ at dispatch: plain text replacement."""
+    for k, v in args.items():
+        compiled = compiled.replace("$args.%s$" % k, v)
+    return compiled
+
+
+def test_unquoted_param_compiles_to_one_quoted_literal():
+    spl, names = compile_spl("index=$run.param.idx$ | stats count", set())
+    assert spl == 'index="$args.run__param__idx$" | stats count'
+    ctx = {"run": {"params": {"idx": "main | outputlookup x.csv"}}, "steps": {}}
+    final = _substitute(spl, render_args(names, ctx))
+    assert final == 'index="main | outputlookup x.csv" | stats count'
+
+
+def test_injection_probe_value_cannot_escape_quotes():
+    # Final review C1 probe: the value must stay one SPL string, even with quotes,
+    # a subsearch or a macro in it.
+    spl, names = compile_spl("index=$run.param.idx$ | stats count", set())
+    for bad, want in (('main" | delete "', 'index="main\\" | delete \\"" | stats count'),
+                      ("[| inputlookup x.csv]", 'index="[| inputlookup x.csv]" | stats count'),
+                      ("`mymacro`", 'index="`mymacro`" | stats count'),
+                      ('x\\" | delete', 'index="x\\\\\\" | delete" | stats count')):
+        ctx = {"run": {"params": {"idx": bad}}, "steps": {}}
+        assert _substitute(spl, render_args(names, ctx)) == want
+    assert "$args.run__param__idx$ |" not in spl
+
+
+def test_quoted_token_left_as_is():
+    s = '| eval p="pre $run.param.p$ post" | search host="$d.first.host$"'
+    assert compile_spl(s, {"d"})[0] == '| eval p="pre $args.run__param__p$ post" | search host="$args.d__first__host$"'
+
+
+def test_first_field_token_quoted_when_bare():
+    spl, names = compile_spl("search host=$d.first.host$ | head 1", {"d"})
+    assert spl == 'search host="$args.d__first__host$" | head 1'
+    ctx = {"run": {}, "steps": {"d": {"status": "succeeded", "first": {"host": "a | delete"}}}}
+    assert _substitute(spl, render_args(names, ctx)) == 'search host="a | delete" | head 1'
+
+
+def test_quote_scanner_handles_escapes_and_literal_dollars():
+    s = r'| eval a="x\" $run.id$" | rex "foo$" | eval b=$run.id$ c="\\" d=$d.sid|none$'
+    assert compile_spl(s, {"d"})[0] == (
+        r'| eval a="x\" $args.run__id$" | rex "foo$" | eval b="$args.run__id$" c="\\" d="$args.d__sid$"')
+    assert compile_spl("| loadjob $daily.sid$", {"daily"})[0] == '| loadjob "$args.daily__sid$"'

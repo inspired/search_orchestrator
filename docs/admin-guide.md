@@ -49,7 +49,7 @@ The engine is a modular input, `orchestrator_engine://main`, enabled by default.
 ## How steps run (security)
 
 - **Steps run as the job owner.** Each step is a hidden private saved search owned by the job owner (named `_so_<job>_<step>_<hash>`), so it gets exactly the owner's roles and index access, never more.
-- **"Who may run" lends the owner's access.** A job can list roles that may start it. Members of those roles (who also hold `orchestrator_run`) start searches that run **as the owner**, with the owner's access. They can only run the SPL the owner saved, and run parameters are type-checked and escaped. The builder says this next to the setting.
+- **"Who may run" lends the owner's access.** A job can list roles that may start it. Members of those roles (who also hold `orchestrator_run`) start searches that run **as the owner**, with the owner's access. They can only run the SPL the owner saved, and run parameters are type-checked. Every token, including values taken from search results, is substituted as one escaped, quoted SPL string, so it can't inject SPL commands or field names. The builder says this next to the setting.
 - **Role names typed into "who may run" are not checked.** The picker offers the builder's own roles and accepts typed names. A typo saves fine and simply matches nobody.
 - **An admin who saves someone else's job becomes its owner.** This is audited, and the builder asks first. It stops anyone changing SPL that runs under another person's identity.
 - **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10.

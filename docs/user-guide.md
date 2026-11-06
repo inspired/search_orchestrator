@@ -41,11 +41,11 @@ Use these in SPL, expressions and action messages:
 - `$<step>.sid$`, `$<step>.resultCount$`, `$<step>.status$`
 - `$<step>.first.<field>$`: a field from the step's first result row
 
-Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
+**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
 
 ### Parameters
 
-Declare each parameter with a type (string, number, enum or time) and an optional pattern. Values are checked when a run starts, and string values are escaped before they go into SPL.
+Declare each parameter with a type (string, number, enum or time) and an optional pattern. Values are checked when a run starts, and every value goes into SPL as one escaped, quoted string.
 
 ### Triggers
 

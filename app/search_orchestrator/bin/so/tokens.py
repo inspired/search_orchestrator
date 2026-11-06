@@ -6,8 +6,11 @@ Token grammar (optionally ``|default`` before the closing ``$``)::
     $<step>.sid$  $<step>.resultCount$  $<step>.status$  $<step>.first.<field>$
 
 ``compile_spl`` rewrites known tokens into Splunk saved-search arguments
-(``$daily.sid$`` -> ``$args.daily__sid$``; ``.`` becomes ``__``). Anything else,
-including a literal ``$`` or an unknown ``$foo$``, is left untouched.
+(``$daily.sid$`` -> ``"$args.daily__sid$"``; ``.`` becomes ``__``). Every token
+is placed as one quoted SPL string value: a token outside a double-quoted
+string gets the quotes added, one inside a string is left in it. Values are
+escaped, so a token can never inject SPL commands or field names. Anything
+else, including a literal ``$`` or an unknown ``$foo$``, is left untouched.
 
 render_args ctx shape::
 
@@ -61,16 +64,39 @@ def arg_name(name):
     return name.replace(".", "__")
 
 
-def compile_spl(spl, step_ids):
-    names = []
+def _scan_quotes(spl, i, end, in_q):
+    """Advance the double-quote state from index i to end. A backslash escapes
+    the next character, so ``\\"`` neither opens nor closes a string."""
+    while i < end:
+        c = spl[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == '"':
+            in_q = not in_q
+        i += 1
+    return i, in_q
 
-    def sub(m):
+
+def compile_spl(spl, step_ids):
+    """Rewrite known tokens to ``$args.x$``. A token inside a double-quoted SPL
+    string stays ``$args.x$``; a token outside one becomes ``"$args.x$"``, so
+    every value lands in SPL as one quoted string, never as raw SPL."""
+    names = []
+    out = []
+    pos, i, in_q = 0, 0, False
+    for m in _regex(step_ids).finditer(spl):
+        i, in_q = _scan_quotes(spl, i, m.start(), in_q)
         a = arg_name(m.group("name"))
         if a not in names:
             names.append(a)
-        return "$args.%s$" % a
-
-    return _regex(step_ids).sub(sub, spl), names
+        tok = "$args.%s$" % a
+        out.append(spl[pos:m.start()])
+        out.append(tok if in_q else '"%s"' % tok)
+        pos = m.end()
+        i = max(i, m.end())
+    out.append(spl[pos:])
+    return "".join(out), names
 
 
 def token_defaults(spl, step_ids):
