@@ -1,6 +1,6 @@
 # Search Orchestrator: admin guide
 
-Version 1.0.1. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
+Version 1.1.0. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
 
 ## Supported platforms
 
@@ -19,7 +19,7 @@ The app's pages use custom Mako page templates so they work on Splunk Enterprise
 
 ## Install
 
-1. Install `search_orchestrator-1.0.1.tgz` through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
+1. Install `search_orchestrator-1.1.0.tgz` through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
 2. Restart Splunk if asked.
 3. Create the audit index if it doesn't exist (see [Audit index](#audit-index)).
 4. Give people roles (see [Roles and capabilities](#roles-and-capabilities)).
@@ -119,6 +119,28 @@ The engine writes every state change as JSON to the `orchestrator` index (source
 
 Run records are pruned from KV Store after the retention period; audit events stay for the index's own retention.
 
+## Step previews
+
+The job editor can run a step and show its rows. See [Previewing steps](user-guide.md#previewing-steps).
+
+- **Who:** `orchestrator_build` or `orchestrator_admin`, plus the right to edit the job. The REST handler checks this on every request.
+- **Runs as the caller.** A preview is an ad-hoc search dispatched as the user, in the Search Orchestrator app namespace (`servicesNS/<user>/search_orchestrator`). It is never run as the job owner or the system user, and it sees only what that user can see. Search job ids start with `so_preview_`.
+- **Auto-cancel:** 60 seconds. A preview that nobody polls, such as after a closed tab, is cancelled.
+- **TTL:** 1800 seconds (30 minutes) once finished. The editor keeps it alive while it uses the preview.
+- **Runtime cap:** the smaller of the step's max runtime and 600 seconds.
+- **Rows:** the search isn't row-capped, so later previews read all rows. The table shows 100.
+- **No actions.** A preview never sends actions. A saved-search step runs through the `| savedsearch` wrapper, so its own alert actions and summary indexing don't run.
+- **Audit:** every preview writes `type=preview_dispatched` to `index=orchestrator`, with the job, step and sid.
+- **Past runs as input:** a preview reads the run's step results with `loadjob`. They expire after the run's result retention (24 hours by default).
+
+To see current previews:
+
+```
+| rest /services/search/jobs splunk_server=local count=0
+| search sid="so_preview_*"
+| table sid eai:acl.owner ttl
+```
+
 ## Search head clusters
 
 The engine runs on every member, and a KV Store lease (90 seconds, renewed about every 10 seconds and right before each search dispatch and action send; every engine call to splunkd times out after 15 seconds, so no call outlives the lease) makes sure only one member advances runs at a time. This was tested against a fake KV Store only; no real cluster was available. Watch the first runs after installing on a cluster.
@@ -171,7 +193,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `health`, `me` | GET |
 | `selftest` | POST (admin) |
 
-## Known limits in 1.0.1
+## Known limits
 
 - Not tested on a real search head cluster or a real Splunk Cloud stack.
 - Classic Experience Cloud stacks are not supported.

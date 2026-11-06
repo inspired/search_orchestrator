@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.0.1. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.1.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -96,6 +96,22 @@ On the job Settings tab:
 - **Continue with later runs:** later runs go ahead, so a weekly rollup may run with a day missing.
 
 This setting is read from the job **as it is now**, not from the run's copy. Changing it affects runs already waiting.
+
+### Previewing steps
+
+**Preview step** runs one step in the editor and shows its rows. You don't need to save the job first. Nothing is stored in the run history, and previews never run actions.
+
+- **Who:** you need `orchestrator_build` or `orchestrator_admin`, and the right to edit the job.
+- **Your access:** a preview runs as you, as an ordinary search. A real run uses the job owner's access, which can differ. The step panel says so.
+- **Preview as if scheduled at:** the time the step's Earliest, Latest and `run when` are worked out from. It starts as the last time the schedule would have fired, or now if the job has no schedule. Change it to try another day.
+- **Parameters:** one input per job parameter, filled with its default.
+- **Input from:** where earlier steps' results come from.
+  - **Live previews** (default): the previews you made in this editor. If a step before this one has no current preview, it is previewed first, in order. A step whose preview failed stops the preview, and you fix that step first. Live previews are kept only in your browser tab; leaving the editor drops them.
+  - **A past run:** the results that run saved for the earlier steps. Choosing a run also sets the time and parameters to that run's. If the run's step results have expired (24 hours by default) or the step isn't in the run, the preview fails and says so. It never falls back to a live preview.
+- **Result:** a line with the row count, time and input, then a table of the first 100 rows. Search errors and warnings show above the table. An ERROR message fails the preview, as in a run.
+- **Skipped steps:** if a run at that time would skip the step, you see "Would be skipped" and why. Steps after it treat it as skipped. **Preview anyway** runs it once with its inputs.
+- **Out of date:** changing a step, the time, the parameters or the input marks that step's preview and the ones after it "Out of date". The old table stays greyed until you preview again.
+- **Limits:** a preview is cancelled after the step's max runtime, or 10 minutes if that is shorter. A preview you stop watching is cancelled after about a minute. Finished previews are kept for 30 minutes while you use them. **Cancel** stops one early. The table shows 100 rows, but the search keeps all of them, so a later preview reads the full input.
 
 ## Follow runs
 

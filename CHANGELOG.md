@@ -1,8 +1,12 @@
 # Changelog
 
-## 1.1.0-beta.3 (2026-11-06)
+## 1.1.0 (2026-11-06)
 
-- New step type **From previous steps**: write only the part after the pipe; the step reads the results of every step before it that succeeded. Skipped and failed inputs add no rows. The step fails, rather than passing on fewer rows, when Splunk cuts an input short (subsearch row or time limit).
+- **Step preview.** The job editor has a **Preview step** button for every step type. It runs the step, as you and without saving the job, and shows the first 100 rows. Nothing goes in the run history, and previews never run actions.
+- A preview works out times and `run when` from **Preview as if scheduled at**, which starts as the last scheduled time. A step a run would skip shows "Would be skipped" and why, with **Preview anyway**.
+- Earlier steps' results come from **Live previews** or from **a past run** of the job. A step with no current live preview is previewed first. Changing a step marks its preview and later ones "Out of date". A past run whose step results have expired, or that lacks the step, fails with a readable error.
+- Previews are ad-hoc searches run as the caller (`so_preview_` sids). They are cancelled after 60 seconds without polling, kept 30 minutes, and capped at the step's max runtime or 10 minutes. Each one writes a `preview_dispatched` audit event. They need `orchestrator_build` or `orchestrator_admin` and the right to edit the job.
+- New step type **From previous steps**: write only the part after the pipe; the step reads the results of every step before it that succeeded, as `| loadjob`, with later ones appended. Skipped and failed inputs add no rows. With none succeeded, the step runs on no rows. The step fails, rather than passing on fewer rows, when an appended input is cut short by Splunk's 50,000-row subsearch limit.
 - `| orchestrate selftest` has a new step `merged` that reads two branches and a skipped step.
 
 ## 1.0.5 (2026-11-06)
