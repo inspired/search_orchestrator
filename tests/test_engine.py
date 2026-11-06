@@ -1464,7 +1464,7 @@ def test_previous_step_fails_on_subsearch_truncation():
         w.tick(advance=5)
     p = w.step(run_id, "p")
     assert p["state"] == "failed"
-    assert p["error"] == "input was cut short: " + TRUNC
+    assert p["error"] == "a subsearch was cut short: " + TRUNC
     assert w.step(run_id, "i")["state"] == "succeeded"
 
 

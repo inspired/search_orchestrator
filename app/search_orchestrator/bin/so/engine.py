@@ -850,7 +850,7 @@ class Engine:
         else:
             if state == "done" and not status.get("finalized"):
                 # A From previous steps search whose appended input was cut short.
-                error = "input was cut short: " + status["truncated"]
+                error = "a subsearch was cut short: " + status["truncated"]
             elif state == "done":
                 error = ("search %s was finalized (stopped early) outside the orchestrator, so "
                          "its results may be incomplete" % st["sid"])

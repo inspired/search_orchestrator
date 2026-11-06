@@ -41,7 +41,7 @@ A **From previous steps** step searches the results of the steps it depends on, 
 - **Its SPL must start with `|`**, such as `| stats sum(count) by host`. Saving fails otherwise, and it fails if the step has no step before it.
 - **It has no time range of its own.** It works on rows the earlier steps already found.
 - **Skipped and failed inputs add nothing.** Only dependencies that succeeded are loaded. A step that runs after an `on_failure` connection still runs, without the failed step's rows. If no dependency succeeded, it runs on no rows.
-- **The second and later inputs are limited to 50,000 rows each.** They are appended through a subsearch, and Splunk cuts a subsearch short at that limit. When that happens the step fails with "input was cut short: ..." and Splunk's message, never with silently partial results. The first input has no such limit, so connect the largest dependency first, or summarise the inputs before they reach this step.
+- **The second and later inputs are limited to 50,000 rows each.** They are appended through a subsearch, and Splunk cuts a subsearch short at that limit. When that happens the step fails with "a subsearch was cut short: ..." and Splunk's message, never with silently partial results. The first input has no such limit, so connect the largest dependency first, or summarise the inputs before they reach this step.
 
 ### Tokens
 

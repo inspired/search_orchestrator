@@ -228,7 +228,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
             const kind = ((jobSnap.steps || []).find((s) => s.id === id) || {}).type;
             if (st.state === 'done' && st.truncated && kind === 'previous') {
                 // As a run decides (engine.py): a cut-down input is a failed step.
-                patch(id, token, { state: 'failed', status: st, error: `input was cut short: ${st.truncated}` });
+                patch(id, token, { state: 'failed', status: st, error: `a subsearch was cut short: ${st.truncated}` });
                 return 'failed';
             }
             if (st.state === 'done') {

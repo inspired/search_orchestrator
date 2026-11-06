@@ -418,7 +418,7 @@ describe('usePreviews', () => {
         await settle();
         expect(result.current.previews.a.state).toBe('done');
         expect(result.current.previews.b.state).toBe('failed');
-        expect(result.current.previews.b.error).toBe('input was cut short: append stopped at 50000 rows');
+        expect(result.current.previews.b.error).toBe('a subsearch was cut short: append stopped at 50000 rows');
     });
 
     test('two chains sharing a running upstream step dispatch it once', async () => {
