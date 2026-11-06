@@ -67,7 +67,8 @@ export interface Action {
 export interface StepDef {
     id: string;
     name?: string;
-    type: 'inline' | 'saved_search';
+    /** `previous`: SPL that starts with |, run on the results of the steps it depends on. */
+    type: 'inline' | 'saved_search' | 'previous';
     spl?: string;
     saved_search_ref?: string;
     earliest?: string;
@@ -303,4 +304,41 @@ export interface RunFilters {
     job_id?: string;
     state?: RunState;
     limit?: number;
+}
+
+// Step previews (POST preview, GET preview/<sid>, ...).
+
+/** Where a preview's upstream steps come from: the caller's live previews in this tab, or
+ * a past run. */
+export type PreviewInput =
+    | { mode: 'live'; previews: Record<string, { sid?: string; skipped?: SkipKind }> }
+    | { mode: 'run'; run_id: string };
+
+export interface PreviewRequest {
+    job: JobDefinition | Job;
+    step_id: string;
+    scheduled_time: number;
+    params: Record<string, string>;
+    input: PreviewInput;
+    /** Preview a step that would be skipped anyway. */
+    anyway?: boolean;
+}
+
+export type PreviewStart =
+    | { status: 'started'; sid: string; spl: string; anyway?: boolean }
+    | { status: 'skipped'; skip_kind: SkipKind; reason: string };
+
+export interface PreviewStatus {
+    state: 'running' | 'done' | 'failed' | 'missing';
+    result_count: number;
+    error?: string | null;
+    truncated?: string | null;
+    run_duration?: number;
+    messages: { type: string; text: string }[];
+}
+
+export interface PreviewResults {
+    fields: string[];
+    rows: Record<string, unknown>[];
+    total: number;
 }

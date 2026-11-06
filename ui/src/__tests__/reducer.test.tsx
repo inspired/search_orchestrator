@@ -85,4 +85,41 @@ describe('builder reducer', () => {
         }
         expect(s.positions.daily).toEqual({ x: 19, y: 19 });
     });
+    test('switching previous → inline writes loadjob tokens in edge order', () => {
+        const prev: JobDefinition = {
+            name: 'P',
+            enabled: true,
+            steps: [
+                { id: 'a', type: 'inline', spl: '| makeresults' },
+                { id: 'b', type: 'inline', spl: '| makeresults' },
+                { id: 'p', name: 'Combined', type: 'previous', spl: '| stats count', retries: 1 },
+            ],
+            edges: [
+                { from: 'b', to: 'p', condition: 'on_success' },
+                { from: 'a', to: 'p', condition: 'on_success' },
+            ],
+        };
+        const s = reducer(initialState(prev), { type: 'updateStep', id: 'p', changes: { type: 'inline' } });
+        expect(s.job.steps[2]).toEqual({
+            id: 'p',
+            name: 'Combined',
+            type: 'inline',
+            spl: '| loadjob $b.sid$ | append [| loadjob $a.sid$] | stats count',
+            retries: 1,
+        });
+        expect(s.job.edges).toEqual(prev.edges);
+        // Undo is one step.
+        expect(reducer(s, { type: 'undo' }).job).toEqual(prev);
+    });
+
+    test('switching inline → previous keeps the search', () => {
+        const s = reducer(initialState(job), { type: 'updateStep', id: 'weekly', changes: { type: 'previous' } });
+        expect(s.job.steps[1]).toEqual({ id: 'weekly', type: 'previous', spl: '| loadjob $daily.sid$' });
+    });
+
+    test('switching previous → inline with no dependencies keeps the search', () => {
+        const lone: JobDefinition = { name: 'L', enabled: true, steps: [{ id: 'p', type: 'previous', spl: '| stats count' }], edges: [] };
+        const s = reducer(initialState(lone), { type: 'updateStep', id: 'p', changes: { type: 'inline' } });
+        expect(s.job.steps[0]).toEqual({ id: 'p', type: 'inline', spl: '| stats count' });
+    });
 });

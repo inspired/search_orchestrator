@@ -12,6 +12,10 @@ import type {
     Job,
     JobDefinition,
     Me,
+    PreviewRequest,
+    PreviewResults,
+    PreviewStart,
+    PreviewStatus,
     RerunRequest,
     RunDetailResponse,
     RunFilters,
@@ -205,6 +209,31 @@ export const dismissRun = (runId: string) => control(runId, 'dismiss');
  * definition was chosen. */
 export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: string; definition: string }> {
     return request('POST', `runs/${enc(runId)}/rerun`, { body });
+}
+
+// Step previews. Errors: needs_preview (`extra.steps`), upstream_failed, run_step_missing
+// and run_results_expired (`extra.step`), invalid (`issues`), bad_param, forbidden.
+
+/** The time a preview defaults to: the job's latest cron slot, or now. */
+export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_time: number }> {
+    return request('POST', 'preview/defaults', { body: { job: toDefinition(job) } });
+}
+
+export function startPreview(req: PreviewRequest): Promise<PreviewStart> {
+    return request<PreviewStart>('POST', 'preview', { body: { ...req, job: toDefinition(req.job) } });
+}
+
+/** `limit`: seconds the preview may run before the server cancels it. */
+export function previewStatus(sid: string, limit?: number): Promise<PreviewStatus> {
+    return request<PreviewStatus>('GET', `preview/${enc(sid)}`, { query: { limit } });
+}
+
+export function previewResults(sid: string): Promise<PreviewResults> {
+    return request<PreviewResults>('GET', `preview/${enc(sid)}/results`);
+}
+
+export function cancelPreview(sid: string): Promise<{ cancelled: boolean }> {
+    return request('POST', `preview/${enc(sid)}/cancel`, { body: {} });
 }
 
 // Settings, destinations, health and the caller.

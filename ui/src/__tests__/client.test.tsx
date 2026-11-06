@@ -1,4 +1,17 @@
-import { ApiError, listRuns, me, setJobEnabled, startRun, updateJob, validateJob } from '../api/client';
+import {
+    ApiError,
+    cancelPreview,
+    listRuns,
+    me,
+    previewDefaults,
+    previewResults,
+    previewStatus,
+    setJobEnabled,
+    startPreview,
+    startRun,
+    updateJob,
+    validateJob,
+} from '../api/client';
 import { job } from './fixtures';
 
 type FetchCall = [string, RequestInit];
@@ -145,5 +158,68 @@ describe('client', () => {
         } finally {
             jest.useRealTimers();
         }
+    });
+    test('preview defaults posts the job without server fields', async () => {
+        const fetch = mockFetch(200, { scheduled_time: 1700000000 });
+        await expect(previewDefaults(job())).resolves.toEqual({ scheduled_time: 1700000000 });
+        const [url, init] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe('/en-US/splunkd/__raw/services/orchestrator/preview/defaults?output_mode=json');
+        expect(init.method).toBe('POST');
+        const sent = JSON.parse(init.body as string);
+        expect(sent.job.name).toBe('Daily summary');
+        expect(sent.job).not.toHaveProperty('permissions');
+    });
+
+    test('start preview sends the request and returns started or skipped', async () => {
+        const fetch = mockFetch(201, { status: 'started', sid: 'so_preview_x', spl: '| makeresults' });
+        const input = { mode: 'live' as const, previews: { a: { sid: 's1' }, b: { skipped: 'run_when' as const } } };
+        await expect(
+            startPreview({ job: job(), step_id: 'daily', scheduled_time: 100, params: { p: '1' }, input, anyway: true })
+        ).resolves.toEqual({ status: 'started', sid: 'so_preview_x', spl: '| makeresults' });
+        const [url, init] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe('/en-US/splunkd/__raw/services/orchestrator/preview?output_mode=json');
+        expect(init.method).toBe('POST');
+        const sent = JSON.parse(init.body as string);
+        expect(sent).toMatchObject({ step_id: 'daily', scheduled_time: 100, params: { p: '1' }, input, anyway: true });
+        expect(sent.job).not.toHaveProperty('owner');
+
+        mockFetch(200, { status: 'skipped', skip_kind: 'run_when', reason: 'r' });
+        await expect(
+            startPreview({ job: job(), step_id: 'daily', scheduled_time: 100, params: {}, input: { mode: 'run', run_id: 'r1' } })
+        ).resolves.toEqual({ status: 'skipped', skip_kind: 'run_when', reason: 'r' });
+    });
+
+    test('preview errors carry steps and step', async () => {
+        mockFetch(409, { error: { code: 'needs_preview', message: 'preview a, b first', issues: [], steps: ['a', 'b'] } });
+        const req = { job: job(), step_id: 'c', scheduled_time: 1, params: {}, input: { mode: 'live' as const, previews: {} } };
+        const first = await startPreview(req).catch((e) => e);
+        expect(first).toBeInstanceOf(ApiError);
+        expect(first.code).toBe('needs_preview');
+        expect(first.extra.steps).toEqual(['a', 'b']);
+
+        mockFetch(410, { error: { code: 'run_results_expired', message: 'gone', issues: [], step: 'a' } });
+        const second = await startPreview(req).catch((e) => e);
+        expect(second.status).toBe(410);
+        expect(second.extra.step).toBe('a');
+    });
+
+    test('preview status, results and cancel use the sid', async () => {
+        const sid = 'so_preview_abcdef12.new.daily.r1';
+        let fetch = mockFetch(200, { state: 'done', result_count: 3, error: null, truncated: null, run_duration: 0.4, messages: [] });
+        await expect(previewStatus(sid, 120)).resolves.toMatchObject({ state: 'done', result_count: 3 });
+        let [url, init] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe(`/en-US/splunkd/__raw/services/orchestrator/preview/${sid}?limit=120&output_mode=json`);
+        expect(init.method).toBe('GET');
+
+        fetch = mockFetch(200, { fields: ['n'], rows: [{ n: '1' }], total: 1 });
+        await expect(previewResults(sid)).resolves.toEqual({ fields: ['n'], rows: [{ n: '1' }], total: 1 });
+        [url] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe(`/en-US/splunkd/__raw/services/orchestrator/preview/${sid}/results?output_mode=json`);
+
+        fetch = mockFetch(200, { cancelled: true });
+        await expect(cancelPreview(sid)).resolves.toEqual({ cancelled: true });
+        [url, init] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe(`/en-US/splunkd/__raw/services/orchestrator/preview/${sid}/cancel?output_mode=json`);
+        expect(init.method).toBe('POST');
     });
 });

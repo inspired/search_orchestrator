@@ -73,6 +73,38 @@ describe('StepPanel', () => {
         expect(state().job.steps[0].give_up_after).toBeNull();
     });
 
+    test('From previous steps shows the read-only input and hides time fields', () => {
+        const job = threeSteps([{ from: 'b', to: 'c' }, { from: 'a', to: 'c' }]);
+        job.steps[2] = { id: 'c', type: 'previous', spl: '| stats count' };
+        renderPanel(job, 'c');
+        expect(screen.getByText('Input (added for you)')).toBeInTheDocument();
+        expect(screen.getByText('| loadjob ‹b› | append [| loadjob ‹a›]')).toBeInTheDocument();
+        expect(screen.getByText('Starts with |. Results of the steps before this one come first.')).toBeInTheDocument();
+        expect(screen.getByLabelText('Search')).toHaveValue('| stats count');
+        expect(screen.queryByLabelText('Earliest')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Latest')).not.toBeInTheDocument();
+    });
+
+    test('a Search step has no generated input and keeps its time fields', () => {
+        renderPanel(threeSteps([{ from: 'a', to: 'b' }]), 'b');
+        expect(screen.queryByText('Input (added for you)')).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Earliest')).toBeInTheDocument();
+        expect(screen.getByLabelText('Latest')).toBeInTheDocument();
+    });
+
+    test('the type list offers From previous steps, third', () => {
+        const state = renderPanel(threeSteps([{ from: 'a', to: 'b' }]), 'b');
+        fireEvent.click(screen.getByTestId('type-select'));
+        const types = screen
+            .getAllByRole('option')
+            .map((o) => o.textContent)
+            .filter((t) => !(t || '').startsWith('Remove')); // the Depends on chips
+        expect(types).toEqual(['Search', 'Saved search', 'From previous steps']);
+        fireEvent.click(screen.getByRole('option', { name: 'From previous steps' }));
+        expect(state().job.steps[1]).toMatchObject({ type: 'previous', spl: '| makeresults' });
+        expect(screen.getByText('| loadjob ‹a›')).toBeInTheDocument();
+    });
+
     test('retries above 0 shows the duplicate warning', () => {
         const job = threeSteps([]);
         job.steps[0].retries = 2;

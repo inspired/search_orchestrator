@@ -10,9 +10,12 @@ import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
 import Heading from '@splunk/react-ui/Heading';
+import StaticContent from '@splunk/react-ui/StaticContent';
+import Typography from '@splunk/react-ui/Typography';
 import type { Destination, Issue, JobDefinition, StepDef } from '../../api/types';
 import ActionsEditor from './ActionsEditor';
 import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
+import { generatedInput } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
 
@@ -186,11 +189,13 @@ export default function StepPanel({ job, stepId, issues, dispatch, destinations,
             <ControlGroup label="Type" labelFor={`${p}-type`} labelPosition="top">
                 <Select
                     inputId={`${p}-type`}
+                    data-testid="type-select"
                     value={step.type}
                     onChange={(_e: unknown, { value }: { value: unknown }) => set({ type: value as StepDef['type'] })}
                 >
                     <Select.Option label="Search" value="inline" />
                     <Select.Option label="Saved search" value="saved_search" />
+                    <Select.Option label="From previous steps" value="previous" />
                 </Select>
             </ControlGroup>
             {step.type === 'saved_search' ? (
@@ -202,17 +207,39 @@ export default function StepPanel({ job, stepId, issues, dispatch, destinations,
                 >
                     <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
                 </ControlGroup>
+            ) : step.type === 'previous' ? (
+                <>
+                    <ControlGroup label="Input (added for you)" labelPosition="top">
+                        <StaticContent>
+                            <Typography as="span" variant="monoBody">
+                                {generatedInput(job, stepId)}
+                            </Typography>
+                        </StaticContent>
+                    </ControlGroup>
+                    <ControlGroup
+                        label="Search"
+                        labelFor={`${p}-spl`}
+                        labelPosition="top"
+                        help="Starts with |. Results of the steps before this one come first."
+                    >
+                        <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
+                    </ControlGroup>
+                </>
             ) : (
                 <ControlGroup label="Search" labelFor={`${p}-spl`} labelPosition="top">
                     <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
                 </ControlGroup>
             )}
-            <ControlGroup label="Earliest" labelFor={`${p}-earliest`} labelPosition="top" help="Relative to the run's scheduled time.">
-                <Text inputId={`${p}-earliest`} value={step.earliest || ''} placeholder="-1d@d" onChange={onValue('earliest')} />
-            </ControlGroup>
-            <ControlGroup label="Latest" labelFor={`${p}-latest`} labelPosition="top">
-                <Text inputId={`${p}-latest`} value={step.latest || ''} placeholder="@d" onChange={onValue('latest')} />
-            </ControlGroup>
+            {step.type !== 'previous' && (
+                <>
+                    <ControlGroup label="Earliest" labelFor={`${p}-earliest`} labelPosition="top" help="Relative to the run's scheduled time.">
+                        <Text inputId={`${p}-earliest`} value={step.earliest || ''} placeholder="-1d@d" onChange={onValue('earliest')} />
+                    </ControlGroup>
+                    <ControlGroup label="Latest" labelFor={`${p}-latest`} labelPosition="top">
+                        <Text inputId={`${p}-latest`} value={step.latest || ''} placeholder="@d" onChange={onValue('latest')} />
+                    </ControlGroup>
+                </>
+            )}
             <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Runs after these steps succeed. Steps that would make a loop are not listed.">
                 <Multiselect inputId={`${p}-depends`} values={parents} onChange={onDepends} noOptionsMessage="No other steps can come before this one.">
                     {candidates.map((s) => (

@@ -2,6 +2,7 @@
  * undo/redo history. Positions are layout only and are not saved with the job. */
 import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
 import { autoLayout, NODE_H, Pos, Positions, wouldCycle } from './graphLogic';
+import { generatedInputSpl } from './previewLogic';
 
 interface Snapshot {
     job: JobDefinition;
@@ -118,6 +119,20 @@ function renameStepTokens(step: StepDef, from: string, to: string): StepDef {
     return out;
 }
 
+/** Switching a "From previous steps" step to Search writes its generated input into the
+ * SPL as `$step.sid$` tokens, so it keeps working. Other type switches change nothing else. */
+function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepDef {
+    if (before.type !== 'previous' || after.type !== 'inline') {
+        return after;
+    }
+    const input = generatedInputSpl(job, before.id);
+    if (!input) {
+        return after;
+    }
+    const tail = (after.spl || '').trimStart();
+    return { ...after, spl: tail ? `${input} ${tail}` : input };
+}
+
 const same = (e: Pick<Edge, 'from' | 'to'>, from: string, to: string) => e.from === from && e.to === to;
 
 export function reducer(state: BuilderState, action: BuilderAction): BuilderState {
@@ -157,7 +172,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (renamed && steps.some((s) => s.id === newId)) {
                 return state;
             }
-            const nextSteps = steps.map((s) => (s.id === action.id ? { ...s, ...action.changes } : s));
+            const nextSteps = steps.map((s) => (s.id === action.id ? convertType(job, s, { ...s, ...action.changes }) : s));
             if (!renamed) {
                 const key = fieldKey('step', action.id, ...Object.keys(action.changes).sort());
                 return edits(state, { ...job, steps: nextSteps }, positions, key);
