@@ -127,6 +127,14 @@ describe('previewLogic', () => {
         expect(toBeRun(j, 'c', previews, keysOf(j, later, previews))).toEqual(['a', 'b', 'c']);
     });
 
+    test('the job ref is in the key: previews made before the first save are out of date after it', () => {
+        const unsaved = chain();
+        const saved = { ...unsaved, id: 'daily' };
+        expect(previewKey(saved, 'a', ctx, {})).not.toBe(previewKey(unsaved, 'a', ctx, {}));
+        expect(previewKey({ ...unsaved, id: '' }, 'a', ctx, {})).toBe(previewKey(unsaved, 'a', ctx, {}));
+        expect(previewKey({ ...unsaved, id: 'other' }, 'a', ctx, {})).not.toBe(previewKey(saved, 'a', ctx, {}));
+    });
+
     test('changing an unrelated step or the schedule keeps keys', () => {
         const j = chain();
         const before = keysOf(j, ctx, {});

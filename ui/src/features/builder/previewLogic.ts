@@ -177,7 +177,8 @@ function stable(value: unknown): unknown {
 }
 
 /** What a step's preview depends on, as text: the step (without its display name and its
- * actions, which don't change what a preview shows; with inherited defaults resolved), the edges into it, the time zone, "as if scheduled at",
+ * actions, which don't change what a preview shows; with inherited defaults resolved), the
+ * job ref (its id, or "new" before the first save), the edges into it, the time zone, "as if scheduled at",
  * the params it references, where the inputs come from, and (live previews only) each
  * upstream step's key and sid. A live preview is valid while this is unchanged. */
 export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewContext, upstreamKeys: UpstreamKeys): string {
@@ -222,6 +223,8 @@ export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewConte
     }
     return JSON.stringify(
         stable({
+            // The server names preview sids after the job id, or "new" before the first save.
+            job: job.id || 'new',
             step: resolved,
             edges: incoming.map((e) => ({ from: e.from, condition: e.condition || 'on_success', expression: e.expression })),
             timezone: job.timezone || null,
