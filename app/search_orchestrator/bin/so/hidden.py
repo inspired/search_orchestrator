@@ -187,7 +187,8 @@ def plan(gw, job):
     """``(job, searches, issues)`` without writing anything.
 
     ``job`` is a copy with ``steps[i].hidden_search`` and ``mode`` (and, for
-    ``previous`` steps, ``hidden_search_empty``) filled in;
+    ``previous`` steps, ``hidden_search_empty``) filled in, and without ``earliest`` or
+    ``latest`` on ``previous`` steps;
     ``searches`` lists the saved searches to create, as
     ``{"owner", "name", "search", "earliest", "latest", "description"}``.
     """
@@ -200,6 +201,11 @@ def plan(gw, job):
     for step in steps:
         sid = step.get("id")
         step.pop("hidden_search_empty", None)  # only ever set here, never from the request
+        if step.get("type") == "previous":
+            # It reads its inputs with loadjob: a time range (say, left from an earlier
+            # type) would only reach the dispatch.
+            step.pop("earliest", None)
+            step.pop("latest", None)
         earliest, latest = step.get("earliest") or "", step.get("latest") or ""
         if step.get("type") == "saved_search":
             spl, direct, found = _saved_search(gw, owner, step)

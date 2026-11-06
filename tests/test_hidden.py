@@ -295,3 +295,24 @@ def test_gc_keeps_empty_variant_while_used():
     two = hidden.sync(gw, job(steps=steps[:1]), one)
     assert {"owner": "alice", "name": empty} not in hidden.gc(two, [_run(one)])
     assert {"owner": "alice", "name": empty} in hidden.gc(two, [])
+
+
+def test_previous_step_drops_earliest_and_latest():
+    # A From previous steps step reads its inputs with loadjob: a time range from an earlier
+    # type must not reach the saved search, the stored step or the engine's dispatch.
+    gw = FakeGateway()
+    j = job(steps=[{"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d@d",
+                    "latest": "@d"},
+                   {"id": "b", "type": "previous", "spl": "| stats count", "earliest": "-7d",
+                    "latest": "now"}],
+            edges=[{"from": "a", "to": "b", "condition": "on_success"}])
+    planned, searches, _ = hidden.plan(gw, j)
+    b = planned["steps"][1]
+    assert "earliest" not in b and "latest" not in b
+    for s in searches:
+        if s["name"] in (b["hidden_search"], b["hidden_search_empty"]):
+            assert (s["earliest"], s["latest"]) == ("", "")
+    assert planned["steps"][0]["earliest"] == "-1d@d"
+    same = job(steps=[j["steps"][0], {"id": "b", "type": "previous", "spl": "| stats count"}],
+               edges=j["edges"])
+    assert hidden.plan(gw, same)[0]["steps"][1]["hidden_search"] == b["hidden_search"]

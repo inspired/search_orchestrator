@@ -1440,3 +1440,21 @@ def test_preview_poll_gone_job_is_missing(w):
     seen = _info_log(w)
     status, out = w.call("bob", "GET", "/orchestrator/preview/" + sid)
     assert status == 404 and error(out) == "not_found" and seen == []
+
+
+def test_previous_step_dispatch_has_no_time_range(w):
+    body = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults",
+                            "earliest": "-1d", "latest": "now"},
+                           {"id": "b", "type": "previous", "spl": "| stats count",
+                            "earliest": "-7d", "latest": "now"}])
+    saved(w, body=body)
+    stored = next(s for s in w.store.get_job("daily")["steps"] if s["id"] == "b")
+    assert "earliest" not in stored and "latest" not in stored
+    run_id = start(w)
+    for _ in range(10):
+        w.engine_tick()
+        w.now += 5
+    b_name = stored["hidden_search"]
+    sent = [d for d in w.gw.dispatch_log if d["name"] == b_name]
+    assert sent and all((d["earliest"], d["latest"]) == (None, None) for d in sent), sent
+    assert w.store.get_run(run_id)["steps"]["b"]["state"] == "succeeded"

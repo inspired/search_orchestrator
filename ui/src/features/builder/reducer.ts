@@ -120,8 +120,15 @@ function renameStepTokens(step: StepDef, from: string, to: string): StepDef {
 }
 
 /** Switching a "From previous steps" step to Search writes its generated input into the
- * SPL as `$step.sid$` tokens, so it keeps working. Other type switches change nothing else. */
+ * SPL as `$step.sid$` tokens, so it keeps working. Switching to From previous steps drops
+ * the time range, which it never uses. Other type switches change nothing else. */
 function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepDef {
+    if (after.type === 'previous' && before.type !== 'previous') {
+        const out = { ...after };
+        delete out.earliest;
+        delete out.latest;
+        return out;
+    }
     if (before.type !== 'previous' || after.type !== 'inline') {
         return after;
     }

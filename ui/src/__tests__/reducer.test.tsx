@@ -117,6 +117,17 @@ describe('builder reducer', () => {
         expect(s.job.steps[1]).toEqual({ id: 'weekly', type: 'previous', spl: '| loadjob $daily.sid$' });
     });
 
+    test('switching to previous drops the time range', () => {
+        const timed: JobDefinition = {
+            name: 'T',
+            enabled: true,
+            steps: [{ id: 'w', type: 'inline', spl: '| stats count', earliest: '-7d', latest: 'now', retries: 2 }],
+            edges: [],
+        };
+        const s = reducer(initialState(timed), { type: 'updateStep', id: 'w', changes: { type: 'previous' } });
+        expect(s.job.steps[0]).toEqual({ id: 'w', type: 'previous', spl: '| stats count', retries: 2 });
+    });
+
     test('switching previous → inline with no dependencies keeps the search', () => {
         const lone: JobDefinition = { name: 'L', enabled: true, steps: [{ id: 'p', type: 'previous', spl: '| stats count' }], edges: [] };
         const s = reducer(initialState(lone), { type: 'updateStep', id: 'p', changes: { type: 'inline' } });
