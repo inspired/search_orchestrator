@@ -831,8 +831,10 @@ class Engine:
         state = status.get("state")
         if state == "running":
             return
-        if state == "done" and not status.get("finalized") \
-                and not (sdef.get("type") == "previous" and status.get("truncated")):
+        finished = state == "done" and not status.get("finalized")
+        # A From previous steps search whose appended input was truncated.
+        cut_short = finished and sdef.get("type") == "previous" and bool(status.get("truncated"))
+        if finished and not cut_short:
             count = int(status.get("result_count") or 0)
             first = None
             wanted = first_fields(run.get("definition") or {}).get(sid)
@@ -848,8 +850,7 @@ class Engine:
             st.update(outcome="succeeded", result_count=count, first=first, ended_at=now,
                       error=None)
         else:
-            if state == "done" and not status.get("finalized"):
-                # A From previous steps search whose appended input was cut short.
+            if cut_short:
                 error = "a subsearch was cut short: " + status["truncated"]
             elif state == "done":
                 error = ("search %s was finalized (stopped early) outside the orchestrator, so "
