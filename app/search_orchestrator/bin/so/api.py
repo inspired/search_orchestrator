@@ -20,6 +20,26 @@ starts a run (``{"job_id", "run_id", ...}``); ``"probe"`` returns
 ``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
 ``write(event)``, which raises on failure, for the probe's audit check.
 
+Step previews (``preview.py``; callers who may edit the job: the stored job if its id
+exists and they may see it, else ``can_edit(None)``). A preview is an ad hoc search
+started with ``user_gateway`` as the caller, never the owner or the system session;
+nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``new``.
+
+* ``POST preview/defaults`` ``{"job"}``: ``{"scheduled_time"}``, the latest cron slot.
+* ``POST preview`` ``{"job", "step_id", "scheduled_time", "params", "input", "anyway"}``,
+  ``input`` ``{"mode": "live", "previews": {step: {"sid"} | {"skipped": kind}}}`` or
+  ``{"mode": "run", "run_id"}``: 201 ``{"status": "started", "sid", "spl"}`` (plus
+  ``"anyway": true`` when it bypassed a skip), 200 ``{"status": "skipped", "skip_kind",
+  "reason"}``, 409 ``needs_preview`` (``steps``) or ``upstream_failed`` (``step``), 410
+  ``run_results_expired`` (``step``), 400 ``invalid`` (errors in the step or the steps it
+  reads) or ``bad_param``. Audited as ``preview_dispatched``.
+* ``GET preview/<sid>`` (query ``limit``, seconds, capped at ``preview.MAX_RUNTIME``):
+  ``{"state", "result_count", "error", "truncated", "run_duration", "messages"}``; a
+  running search past the limit is cancelled and reported failed, otherwise touched.
+* ``GET preview/<sid>/results``: ``{"fields", "rows", "total"}``, at most
+  ``preview.TABLE_ROWS`` rows. ``POST preview/<sid>/cancel``: ``{"cancelled": true}``.
+  A sid that is not the caller's own preview is 404.
+
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
 the caller may not see is reported as 404, never 403, so its existence does
@@ -42,9 +62,10 @@ import time
 import uuid
 from urllib.parse import unquote, urlsplit
 
-from . import authz, hidden, model, scheduler, selftest, tokens
+from . import authz, hidden, model, preview, scheduler, selftest, tokens
 from . import cron as cronmod
-from .engine import DEFAULT_SETTINGS
+from . import state as statemod
+from .engine import DEFAULT_SETTINGS, first_fields
 from .gateway import GatewayError, check_webhook_url
 from .lease import COLLECTION as LOCKS
 from .lease import KEY as LEASE_KEY
@@ -154,6 +175,11 @@ def _routes():
         (r"health", {"GET": health}),
         (r"me", {"GET": me}),
         (r"selftest", {"POST": run_selftest}),
+        (r"preview", {"POST": start_preview}),
+        (r"preview/defaults", {"POST": preview_defaults}),
+        (r"preview/(?P<sid>[^/]+)", {"GET": poll_preview}),
+        (r"preview/(?P<sid>[^/]+)/results", {"GET": preview_rows}),
+        (r"preview/(?P<sid>[^/]+)/cancel", {"POST": cancel_preview}),
     ]
 
 
@@ -162,7 +188,8 @@ def _is_job_id(value):
 
 
 _ID_CHECKS = {"job_id": _is_job_id, "run_id": scheduler.is_run_id,
-              "name": lambda v: bool(DEST_NAME_RE.fullmatch(v))}
+              "name": lambda v: bool(DEST_NAME_RE.fullmatch(v)),
+              "sid": lambda v: preview.parts(v) is not None}
 
 
 def _relative(path):
@@ -958,6 +985,277 @@ def me(ctx, body):
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
                  "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None)}
+
+
+# Preview.
+
+SKIP_REASONS = {
+    "run_when": "A run at this time would skip this step: its run when condition does not "
+                "match.",
+    "not_taken": "A run would skip this step: none of the edges into it would be taken."}
+POLL_FIELDS = ("state", "result_count", "error", "truncated", "run_duration", "messages")
+_UPSTREAM = ("state", "skip_kind", "sid", "result_count", "first")
+
+
+def _preview_target(ctx, body):
+    """``(job, job_ref)`` for a preview request once the caller may edit the job:
+    the stored job if its id exists and the caller may see it, else as a new job."""
+    definition = body.get("job")
+    if not isinstance(definition, dict):
+        raise ApiError(400, "bad_request", "job must be a job definition object")
+    job_id = definition.get("id")
+    job_ref = job_id if isinstance(job_id, str) and _is_job_id(job_id) else "new"
+    stored = ctx.store.get_job(job_id) if job_ref == job_id else None
+    if stored is not None and not ctx.allowed(authz.can_view, stored):
+        stored = None  # as if new: never reveal that the id is taken
+    if not ctx.allowed(authz.can_edit, stored):
+        raise ctx.deny("preview_job", job_id=job_ref)
+    return _prepare(definition, job_ref, ctx.user), job_ref
+
+
+def _invalid(issues):
+    return ApiError(400, "invalid", "the step or a step it depends on has errors", issues)
+
+
+def _preview_scope(job, step_id):
+    """The steps ``step_id`` reads, after checking that it and they are valid. Errors in
+    other steps, and in the job's schedule, don't block a preview."""
+    errors = _errors(model.validate_job(job))
+    general = [i for i in errors if i.get("step") is None and i.get("code") != "bad_cron"]
+    if general:
+        raise _invalid(general)
+    if step_id not in [s.get("id") for s in job.get("steps") or []]:
+        raise ApiError(400, "unknown_step", "the job has no step %r" % (step_id,))
+    scope = preview.closure(job, step_id)
+    found = [i for i in errors if i.get("step") in set(scope) | {step_id}]
+    if found:
+        raise _invalid(found)
+    return scope
+
+
+def _preview_params(job, body):
+    params = body.get("params") or {}
+    if not isinstance(params, dict):
+        raise ApiError(400, "bad_request", "params must be an object")
+    try:
+        return scheduler.validate_params(job, params)
+    except tokens.TokenError as err:
+        message = "parameter %s: %s" % (err.token, err.reason)
+        raise ApiError(400, "bad_param", message, [_issue("error", "bad_param", message)])
+
+
+def _touch(ctx, sid):
+    try:
+        ctx.user_gw.control(sid, "touch")
+    except GatewayError:  # the TTL is only extended; the next poll reports a gone job
+        pass
+
+
+def _live_state(ctx, job, job_ref, up, entry, fields):
+    """One upstream step's state from the caller's live preview, or None (needs one)."""
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("skipped") in SKIP_REASONS:
+        return {"state": "skipped", "skip_kind": entry["skipped"]}
+    sid = entry.get("sid")
+    if preview.parts(sid) is None:
+        return None
+    info = ctx.user_gw.preview_info(sid)
+    if not preview.own_preview(info, sid, ctx.user, job_ref, up):
+        return None
+    kind = next((s.get("type") for s in job["steps"] if s.get("id") == up), None)
+    if info.get("state") == "failed" or (info.get("state") == "done" and kind == "previous"
+                                         and info.get("truncated")):
+        return {"state": "failed", "sid": sid}
+    if info.get("state") != "done":
+        return None
+    count = int(info.get("result_count") or 0)
+    first = None
+    if fields and count > 0:
+        row = ctx.user_gw.first_row(sid)
+        if row:
+            first = {f: _scalar(row.get(f)) for f in sorted(fields)}
+    _touch(ctx, sid)
+    return {"state": "succeeded", "sid": sid, "result_count": count, "first": first}
+
+
+def _scalar(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _live_upstream(ctx, job, job_ref, scope, previews):
+    if not isinstance(previews, dict):
+        raise ApiError(400, "bad_request", "input previews must be an object")
+    wanted = first_fields(job)
+    upstream, needs = {}, []
+    for up in scope:
+        st = _live_state(ctx, job, job_ref, up, previews.get(up), wanted.get(up))
+        if st is None:
+            needs.append(up)
+        else:
+            upstream[up] = st
+    if needs:
+        raise ApiError(409, "needs_preview", "preview %s first" % ", ".join(needs), steps=needs)
+    for up in scope:
+        if upstream[up]["state"] == "failed":
+            raise ApiError(409, "upstream_failed", "%s's preview failed; fix it or preview it "
+                           "again" % up, step=up)
+    return upstream
+
+
+def _run_upstream(ctx, job, step_id, scope, run_id):
+    """Upstream states recorded by a past run of the job, whose results the step reads
+    must still exist."""
+    if not scheduler.is_run_id(run_id):
+        raise ApiError(404, "not_found", "no run %r" % (run_id,))
+    run = _visible_run(ctx, run_id)
+    if run.get("job_id") != job["id"]:
+        raise ApiError(404, "not_found", "no run %r" % run_id)
+    if not ctx.allowed(authz.can_edit, _run_job(ctx, run)):
+        raise ctx.deny("preview_job", job_id=job["id"], run_id=run_id)
+    steps = run.get("steps") or {}
+    upstream = {up: {k: (steps.get(up) or {}).get(k) for k in _UPSTREAM}
+                for up in scope if steps.get(up)}
+    for up in preview.reads(job, step_id):
+        st = upstream.get(up) or {}
+        if st.get("state") == "succeeded" and st.get("sid") \
+                and ctx.user_gw.preview_info(st["sid"]).get("state") == "missing":
+            raise ApiError(410, "run_results_expired", "%s's results from that run have "
+                           "expired; switch to live previews or pick a newer run" % up, step=up)
+    return upstream
+
+
+def _preview_upstream(ctx, job, job_ref, step_id, scope, source):
+    source = source or {"mode": "live"}
+    if not isinstance(source, dict) or source.get("mode") not in ("live", "run"):
+        raise ApiError(400, "bad_request", "input mode must be \"live\" or \"run\"")
+    if source["mode"] == "run":
+        return _run_upstream(ctx, job, step_id, scope, source.get("run_id"))
+    return _live_upstream(ctx, job, job_ref, scope, source.get("previews") or {})
+
+
+def _decide(job, step_id, scheduled, params, upstream):
+    try:
+        return statemod.preview_decision(job, step_id, scheduled, params, upstream)
+    except (ValueError, TypeError) as err:  # a run would fail the step the same way
+        raise _invalid([_issue("error", "bad_run_when", "run_when: %s" % err, step_id)])
+
+
+def _needs(upstream, steps):
+    failed = [s for s in steps if (upstream.get(s) or {}).get("state") == "failed"]
+    if failed:
+        return ApiError(409, "upstream_failed", "%s failed, so a run would not reach this step"
+                        % failed[0], step=failed[0])
+    return ApiError(409, "needs_preview", "preview %s first" % ", ".join(steps), steps=steps)
+
+
+def _preview_search(ctx, job, step, scheduled, params, upstream):
+    """``(spl, earliest, latest)``: the search a run of ``step`` would run, as the caller."""
+    if step.get("type") == "saved_search":
+        spl, issues = hidden.saved_search_spl(ctx.user_gw, ctx.user, step)
+        if spl is None:
+            raise _invalid(issues)
+        return spl, step.get("earliest") or None, step.get("latest") or None
+    ids = [s.get("id") for s in job.get("steps") or []]
+    try:
+        spl = preview.step_search(step, ids,
+                                  preview.token_context(job, scheduled, params, upstream),
+                                  preview.input_sids(job, step["id"], upstream))
+    except tokens.TokenError as err:
+        raise _invalid([_issue("error", "bad_token", "token %s: %s" % (err.token, err.reason),
+                               step["id"])])
+    if step.get("type") == "previous":
+        return spl, None, None
+    return spl, step.get("earliest") or None, step.get("latest") or None
+
+
+def preview_defaults(ctx, body):
+    job, _ = _preview_target(ctx, body)
+    try:
+        scheduled = preview.default_time(job, ctx.now)
+    except (ValueError, TypeError):
+        scheduled = ctx.now
+    return 200, {"scheduled_time": int(scheduled)}
+
+
+def start_preview(ctx, body):
+    job, job_ref = _preview_target(ctx, body)
+    step_id = body.get("step_id")
+    scope = _preview_scope(job, step_id)
+    params = _preview_params(job, body)
+    scheduled = _scheduled_time(ctx, body)
+    upstream = _preview_upstream(ctx, job, job_ref, step_id, scope, body.get("input"))
+    decision, detail = _decide(job, step_id, scheduled, params, upstream)
+    if decision == "needs":
+        raise _needs(upstream, detail.split(","))
+    anyway = decision == "skipped" and body.get("anyway") is True
+    if decision == "skipped" and not anyway:
+        return 200, {"status": "skipped", "skip_kind": detail, "reason": SKIP_REASONS[detail]}
+    step = next(s for s in job["steps"] if s.get("id") == step_id)
+    spl, earliest, latest = _preview_search(ctx, job, step, scheduled, params, upstream)
+    sid = preview.make_sid(ctx.user, job_ref, step_id, uuid.uuid4().hex[:16])
+    sid = ctx.user_gw.preview_dispatch(ctx.user, spl, earliest, latest, scheduled, sid)
+    ctx.emit({"type": "preview_dispatched", "job_id": job_ref, "step_id": step_id, "sid": sid})
+    out = {"status": "started", "sid": sid, "spl": spl}
+    if anyway:
+        out["anyway"] = True
+    return 201, out
+
+
+def _own_preview(ctx, sid):
+    """``preview_info`` of the caller's own preview ``sid``; anything else is 404."""
+    _, job_ref, step_id, _ = preview.parts(sid)
+    info = ctx.user_gw.preview_info(sid)
+    if not preview.own_preview(info, sid, ctx.user, job_ref, step_id):
+        raise ApiError(404, "not_found", "no preview %r" % sid)
+    return info
+
+
+def _preview_limit(body):
+    """Seconds a preview may run: the step's ``limit``, at most ``preview.MAX_RUNTIME``."""
+    value = body.get("limit")
+    if value is None or value == "":
+        return preview.MAX_RUNTIME
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        limit = int(float(value))
+    except (TypeError, ValueError):
+        raise ApiError(400, "bad_request", "limit must be a number of seconds")
+    if limit < 1:
+        raise ApiError(400, "bad_request", "limit must be a number of seconds")
+    return min(limit, preview.MAX_RUNTIME)
+
+
+def poll_preview(ctx, body, sid):
+    info = _own_preview(ctx, sid)
+    limit = _preview_limit(body)
+    out = {k: info.get(k) for k in POLL_FIELDS}
+    duration = info.get("run_duration")
+    if info.get("state") == "running" and duration is not None and float(duration) > limit:
+        ctx.user_gw.control(sid, "cancel")
+        minutes = "%g" % (limit / 60.0)
+        out.update(state="failed", error="Preview stopped after %s minute%s"
+                   % (minutes, "" if minutes == "1" else "s"))
+    else:
+        _touch(ctx, sid)
+    return 200, out
+
+
+def preview_rows(ctx, body, sid):
+    info = _own_preview(ctx, sid)
+    found = ctx.user_gw.preview_results(sid, preview.TABLE_ROWS)
+    return 200, {"fields": list(found.get("fields") or []),
+                 "rows": list(found.get("rows") or [])[:preview.TABLE_ROWS],
+                 "total": int(info.get("result_count") or 0)}
+
+
+def cancel_preview(ctx, body, sid):
+    _own_preview(ctx, sid)
+    ctx.user_gw.control(sid, "cancel")
+    return 200, {"cancelled": True}
 
 
 # Self-test.

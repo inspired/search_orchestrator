@@ -39,7 +39,7 @@ import re
 import time
 import uuid
 
-from . import tokens
+from . import preview, tokens
 
 AUDIT_INDEX = "orchestrator"
 JOB_IDS = {"basic": "so_selftest", "rollup_late": "so_selftest_rollup_late",
@@ -53,6 +53,7 @@ OK_LOOKUP = "so_selftest.csv"
 MISSING_LOOKUP = "so_selftest_missing.csv"
 PROBE_RUN_ID = "selftest-probe"
 PROBE_ROWS = 3
+PREVIEW_ROWS = 2  # rows of the preview_as_caller probe search
 NO_SUCH_USER = "so_selftest_no_such_user"
 NO_SUCH_INDEX = "so_selftest_no_such_index"
 FALLBACK_SEARCH = "_so_fallback_email"
@@ -224,7 +225,9 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
     ``job`` is the saved basic self-test job: its step ``a`` hidden search is
     dispatched in ``user``'s namespace as the engine does (system session). The
     caller's own access is read with ``user_gw``, as the REST API does.
-    ``write_audit(event)`` must raise if the write fails.
+    ``write_audit(event)`` must raise if the write fails. The last check,
+    ``preview_as_caller``, starts a step preview search with ``user_gw`` as the REST
+    preview route does and checks that splunkd reports the caller as its owner.
     """
     checks = []
     found = {}
@@ -356,11 +359,28 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
         return True, "wrote %s; found by a search after %ds (sourcetype=%s)" % (
             probe_id, int(clock() - started), rows[0].get("sourcetype"))
 
+    def preview_as_caller():
+        sid = preview.make_sid(user, "new", "probe", uuid.uuid4().hex[:16])
+        sid = user_gw.preview_dispatch(user, "| makeresults count=%d" % PREVIEW_ROWS, None, None,
+                                       int(clock()), sid)
+        try:
+            info = _poll(lambda: user_gw.preview_info(sid),
+                         lambda v: v.get("state") != "running", sleep)
+            rows = user_gw.preview_results(sid, preview.TABLE_ROWS).get("rows") or []
+        finally:
+            user_gw.control(sid, "cancel")
+        ok = (info.get("state") == "done" and info.get("owner") == user
+              and info.get("result_count") == PREVIEW_ROWS and len(rows) == PREVIEW_ROWS)
+        return ok, "sid %s state=%s owner=%s (want %s) result_count=%s rows=%d (want %d)" % (
+            sid, info.get("state"), info.get("owner"), user, info.get("result_count"), len(rows),
+            PREVIEW_ROWS)
+
     for name, fn in (("dispatch_as_owner", dispatch), ("history_json", history),
                      ("job_status_system", status), ("job_results_system", results),
                      ("job_setttl_system", setttl), ("job_cancel_system", cancel),
                      ("kv_delete_query", kv_delete_query), ("user_exists", user_exists),
                      ("user_access", user_access), ("saved_search_info", saved_search_info),
-                     ("index_exists", index_exists), ("audit_receivers_simple", audit)):
+                     ("index_exists", index_exists), ("audit_receivers_simple", audit),
+                     ("preview_as_caller", preview_as_caller)):
         check(name, fn)
     return checks

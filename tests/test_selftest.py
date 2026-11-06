@@ -9,7 +9,8 @@ from test_orchestrate import Splunkd, run_cmd
 
 PROBE_CHECKS = ["dispatch_as_owner", "history_json", "job_status_system", "job_results_system",
                 "job_setttl_system", "job_cancel_system", "kv_delete_query", "user_exists",
-                "user_access", "saved_search_info", "index_exists", "audit_receivers_simple"]
+                "user_access", "saved_search_info", "index_exists", "audit_receivers_simple",
+                "preview_as_caller"]
 
 
 def errors(job):
@@ -144,6 +145,8 @@ def test_probe_runs_every_check_on_fake():
         return real_dispatch(owner, name, *a, **kw)
 
     w.gw.dispatch = dispatch
+    w.gw.script_job("so_preview_", ["running", "done"], result_count=2,
+                    rows=[{"n": "1"}, {"n": "2"}])
     w.gw.kv.setdefault("so_locks", {})["engine"] = {"_key": "engine", "holder": "h"}
     touched = []
     for name in ("kv_insert", "kv_delete", "kv_delete_query", "kv_update"):
@@ -167,6 +170,10 @@ def test_probe_runs_every_check_on_fake():
     assert any(e.get("type") == "selftest_probe" for e in w.audit.events)
     for row in rows:
         assert "tok-" not in row["detail"]
+    (entry,) = w.gw.preview_log
+    assert entry["user"] == "root" and entry["spl"] == "| makeresults count=2"
+    assert ".new.probe." in entry["sid"]
+    assert (entry["sid"], "cancel", {}) in w.gw.control_log
 
 
 def test_probe_check_errors_are_scrubbed_and_isolated():
@@ -218,3 +225,18 @@ def test_rollup_tuning_arguments_validated(bad):
     w = World()
     status, _ = w.call("root", "POST", "/orchestrator/selftest", dict(bad, scenario="rollup_late"))
     assert status == 400
+
+
+def test_probe_preview_as_caller_checks_owner():
+    gw = FakeGateway()
+    gw.users = {"root": {"roles": ["admin"], "capabilities": ["orchestrator_admin"]}}
+    gw.script_job("so_preview_", ["done"], result_count=2, rows=[{"n": "1"}, {"n": "2"}])
+    job = {"id": "so_selftest", "steps": []}
+    run = lambda: {c["check"]: c for c in selftest.probe(  # noqa: E731
+        "root", gw, gw, Audit().emit, job, clock=lambda: 1000, sleep=lambda s: None)}
+    assert run()["preview_as_caller"]["ok"] == 1
+    real = gw.preview_info
+    gw.preview_info = lambda sid: dict(real(sid), owner="nobody")
+    check = run()["preview_as_caller"]
+    assert check["ok"] == 0 and "owner=nobody" in check["detail"]
+    assert all(action == "cancel" for _, action, _ in gw.control_log)

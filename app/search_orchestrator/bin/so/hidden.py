@@ -153,6 +153,36 @@ def _wrapped_warning(ref, owner, step):
                   "and actions won't run" % (ref, owner, owner), step)
 
 
+def _saved_search(gw, owner, step):
+    """``(wrapper spl or None, direct, issues)`` for a ``saved_search`` step run as
+    ``owner``. ``direct``: the owner's private search with dispatchAs = owner, which a
+    run dispatches itself; otherwise the issues include the wrapped warning. On an error
+    the spl is None."""
+    sid = step.get("id")
+    ref = step.get("saved_search_ref") or ""
+    info = gw.saved_search_info(owner, ref)
+    if not info.get("exists"):
+        return None, False, [_issue("error", "unknown_saved_search", "saved search %r was not "
+                                    "found, or %s cannot read it" % (ref, owner), sid)]
+    if not info.get("visible", True):
+        return None, False, [_issue("error", "saved_search_not_visible",
+                                    not_visible_message(ref), sid)]
+    spl = '| savedsearch "%s"' % tokens.escape_spl_string(ref)
+    if (info.get("owner") == owner and info.get("sharing") == "user"
+            and info.get("dispatch_as") == "owner"):
+        return spl, True, []
+    return spl, False, [_wrapped_warning(ref, owner, sid)]
+
+
+def saved_search_spl(gw, owner, step):
+    """``(spl, issues)``: the ``| savedsearch "<ref>"`` wrapper a ``saved_search`` step
+    runs through as ``owner`` (previews use it even for a search a run dispatches
+    directly), or ``(None, errors)`` if ``owner`` can't use the search. Shares ``plan``'s
+    checks."""
+    spl, _, issues = _saved_search(gw, owner, step)
+    return spl, issues
+
+
 def plan(gw, job):
     """``(job, searches, issues)`` without writing anything.
 
@@ -172,23 +202,14 @@ def plan(gw, job):
         step.pop("hidden_search_empty", None)  # only ever set here, never from the request
         earliest, latest = step.get("earliest") or "", step.get("latest") or ""
         if step.get("type") == "saved_search":
-            ref = step.get("saved_search_ref") or ""
-            info = gw.saved_search_info(owner, ref)
-            if not info.get("exists"):
-                issues.append(_issue("error", "unknown_saved_search", "saved search %r was not "
-                                     "found, or %s cannot read it" % (ref, owner), sid))
+            spl, direct, found = _saved_search(gw, owner, step)
+            issues.extend(found)
+            if spl is None:
                 continue
-            if not info.get("visible", True):
-                issues.append(_issue("error", "saved_search_not_visible",
-                                     not_visible_message(ref), sid))
+            if direct:
+                step.update(mode="direct", hidden_search=step.get("saved_search_ref") or "")
                 continue
-            if (info.get("owner") == owner and info.get("sharing") == "user"
-                    and info.get("dispatch_as") == "owner"):
-                step.update(mode="direct", hidden_search=ref)
-                continue
-            spl = '| savedsearch "%s"' % tokens.escape_spl_string(ref)
             mode = "wrapped"
-            issues.append(_wrapped_warning(ref, owner, sid))
         else:
             spl, _ = tokens.step_spl(step, ids)
             mode = "previous" if step.get("type") == "previous" else "inline"

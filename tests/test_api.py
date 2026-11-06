@@ -992,3 +992,291 @@ def test_gc_keeps_previous_empty_variant_while_used(w):
     assert status == 200, out
     assert ("alice", empty) not in w.gw.saved_searches
     assert ("alice", main) not in w.gw.saved_searches
+
+
+# Previews.
+
+def preview_body(job=None, step_id="a", **over):
+    body = {"job": job or job_body(), "step_id": step_id, "scheduled_time": T0, "params": {},
+            "input": {"mode": "live", "previews": {}}}
+    body.update(over)
+    return body
+
+
+def preview(w, user="alice", **kw):
+    return w.call(user, "POST", "/orchestrator/preview", preview_body(**kw))
+
+
+def live(**previews):
+    return {"mode": "live", "previews": previews}
+
+
+def chain_job(**over):
+    """a -> b, where b reads a's sid and first host."""
+    return job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d",
+                            "latest": "now"},
+                           {"id": "b", "type": "inline",
+                            "spl": '| loadjob $a.sid$ | eval h="$a.first.host|none$"'}], **over)
+
+
+def run_with(w, job, steps):
+    """A stored run of ``job`` (saved by alice) whose steps ended as ``steps``."""
+    saved(w, body=job)
+    run_id = start(w, job_id=job["id"])
+    run = w.store.get_run(run_id)
+    run["state"] = "succeeded"
+    run["steps"].update(steps)
+    w.store.save_run(run)
+    return run_id
+
+
+def kept(w, *sids):
+    for sid in sids:
+        w.gw.jobs[sid] = {"states": ["done"], "idx": 0, "result_count": 1, "first": None,
+                          "error": None}
+
+
+def test_preview_runs_as_caller_with_scheduled_now(w):
+    status, out = preview(w)
+    assert status == 201, out
+    assert out["status"] == "started"
+    log = w.gw.preview_log
+    assert len(log) == 1
+    assert log[0]["user"] == "alice" and log[0]["now"] == T0
+    assert log[0]["sid"] == out["sid"] and out["sid"].startswith("so_preview_")
+    assert ".daily.a." in out["sid"]
+    assert out["spl"] == log[0]["spl"] == '| makeresults | eval p="1"'
+    assert ("user:alice", "preview_dispatch") in w.calls
+    assert not [c for c in w.calls if c[0] == "system" and c[1].startswith("preview")]
+    assert not w.gw.dispatch_log
+    events = w.audit.of("preview_dispatched")
+    assert len(events) == 1
+    assert {k: events[0][k] for k in ("job_id", "step_id", "sid", "user")} == \
+        {"job_id": "daily", "step_id": "a", "sid": out["sid"], "user": "alice"}
+
+
+def test_preview_time_window_and_params(w):
+    status, out = preview(w, job=chain_job())
+    assert status == 201, out
+    assert (w.gw.preview_log[0]["earliest"], w.gw.preview_log[0]["latest"]) == ("-1d", "now")
+    status, out = preview(w, params={"p": "x"})
+    assert status == 400 and error(out) == "bad_param"
+    status, out = preview(w, params={"p": "7"})
+    assert status == 201 and out["spl"] == '| makeresults | eval p="7"'
+
+
+def test_preview_defaults_route(w):
+    job = job_body(triggers=[{"type": "cron", "cron": "0 2 * * *"}])
+    status, out = w.call("alice", "POST", "/orchestrator/preview/defaults", {"job": job})
+    assert status == 200 and out == {"scheduled_time": T0 - 23 * 3600}
+    status, out = w.call("alice", "POST", "/orchestrator/preview/defaults", {"job": job_body()})
+    assert out == {"scheduled_time": T0}
+    assert w.call("carol", "POST", "/orchestrator/preview/defaults", {"job": job})[0] == 403
+
+
+def test_preview_requires_edit(w):
+    assert preview(w, "carol")[0] == 403
+    assert preview(w, "dave")[0] == 403
+    assert w.audit.of("permission_denied")
+    saved(w)
+    assert preview(w, "carol")[0] == 403  # carol may run the stored job, not edit it
+    status, out = preview(w, "bob")  # alice's job is hidden from bob: as if new
+    assert status == 201, out
+    status, out = preview(w, job=job_body("nosuch"))
+    assert status == 201 and ".nosuch.a." in out["sid"]
+    status, out = preview(w, job=job_body("bad id!"))
+    assert status == 201 and ".new.a." in out["sid"]
+    assert preview(w, "root")[0] == 201
+    status, out = preview(w, step_id="zz")
+    assert status == 400
+
+
+def test_preview_downstream_uses_live_upstream_sid(w):
+    w.gw.script_job("so_preview_", ["done"], result_count=3, first={"host": "h1"})
+    status, out = preview(w, job=chain_job())
+    a_sid = out["sid"]
+    status, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": a_sid}))
+    assert status == 201, out
+    assert out["spl"] == '| loadjob "%s" | eval h="h1"' % a_sid
+    assert w.gw.preview_log[-1]["spl"] == out["spl"]
+    assert (w.gw.preview_log[-1]["earliest"], w.gw.preview_log[-1]["latest"]) == (None, None)
+    assert (a_sid, "touch", {}) in w.gw.control_log
+    status, out = preview(w, job=chain_job(), step_id="b", input=live())
+    assert status == 409 and error(out) == "needs_preview" and out["error"]["steps"] == ["a"]
+
+
+def test_preview_live_running_upstream_needs_preview(w):
+    w.gw.script_job("so_preview_", ["running"])
+    _, out = preview(w, job=chain_job())
+    status, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": out["sid"]}))
+    assert status == 409 and error(out) == "needs_preview"
+
+
+def test_preview_live_skipped_upstream(w):
+    # A run_when skip still takes an on_success edge, as in a run: $a.sid$ has no default.
+    status, out = preview(w, job=chain_job(), step_id="b",
+                          input=live(a={"skipped": "run_when"}))
+    assert status == 400 and error(out) == "invalid"
+    assert out["error"]["issues"][0]["step"] == "b" and "$a.sid$" in out["error"]["issues"][0][
+        "message"]
+    status, out = preview(w, job=chain_job(), step_id="b",
+                          input=live(a={"skipped": "not_taken"}))
+    assert status == 200 and out["status"] == "skipped" and out["skip_kind"] == "not_taken"
+    job = chain_job()
+    job["steps"][1]["spl"] = '| makeresults | eval s="$a.sid|none$"'
+    status, out = preview(w, job=job, step_id="b", anyway=True,
+                          input=live(a={"skipped": "not_taken"}))
+    assert status == 201 and out["anyway"] is True and out["spl"].endswith('s="none"')
+
+
+def _previous_job():
+    steps = [{"id": "a", "type": "inline", "spl": "| makeresults"},
+             {"id": "b", "type": "inline", "spl": "| makeresults"},
+             {"id": "c", "type": "inline", "spl": "| makeresults"},
+             {"id": "s", "type": "inline", "spl": "| makeresults",
+              "run_when": {"kind": "cron", "value": "* * * * 1"}},
+             {"id": "p", "type": "previous", "spl": "| stats count"}]
+    edges = [{"from": "a", "to": x} for x in ("b", "c", "s")] + \
+        [{"from": x, "to": "p", "condition": "always"} for x in ("b", "s", "c")]
+    return job_body(steps=steps, edges=edges)
+
+
+def test_preview_previous_type_from_run_input(w):
+    job = _previous_job()
+    run_id = run_with(w, job, {
+        "a": {"state": "succeeded", "sid": "run_a", "result_count": 1},
+        "b": {"state": "succeeded", "sid": "run_b", "result_count": 1},
+        "c": {"state": "succeeded", "sid": "run_c", "result_count": 1},
+        "s": {"state": "skipped", "skip_kind": "run_when"}})
+    kept(w, "run_a", "run_b", "run_c")
+    status, out = preview(w, job=job, step_id="p", input={"mode": "run", "run_id": run_id})
+    assert status == 201, out
+    assert out["spl"] == '| loadjob "run_b" | append [| loadjob "run_c"] | stats count'
+    entry = w.gw.preview_log[-1]
+    assert entry["user"] == "alice" and (entry["earliest"], entry["latest"]) == (None, None)
+    # Nothing succeeded: the empty input.
+    run_id = run_with(w, job_body("other", steps=job["steps"], edges=job["edges"]), {
+        "a": {"state": "succeeded", "sid": "run_a", "result_count": 1},
+        "b": {"state": "failed", "sid": "run_b2"},
+        "c": {"state": "skipped", "skip_kind": "not_taken"},
+        "s": {"state": "skipped", "skip_kind": "run_when"}})
+    status, out = preview(w, job=job_body("other", steps=job["steps"], edges=job["edges"]),
+                          step_id="p", input={"mode": "run", "run_id": run_id})
+    assert status == 201, out
+    assert out["spl"] == "| makeresults | where 1=0 | stats count"
+
+
+def test_preview_run_input_access(w):
+    job = chain_job()
+    run_id = run_with(w, job, {"a": {"state": "succeeded", "sid": "run_a", "result_count": 1}})
+    kept(w, "run_a")
+    body = {"step_id": "b", "input": {"mode": "run", "run_id": run_id}}
+    assert preview(w, "bob", job=job, **body)[0] == 404  # bob cannot see the run
+    status, out = preview(w, "root", job=job, **body)
+    assert status == 201 and out["spl"].startswith('| loadjob "run_a"')
+    assert preview(w, job=job, step_id="b", input={"mode": "run", "run_id": "nope"})[0] == 404
+    assert preview(w, job=job, step_id="b", input={"mode": "x"})[0] == 400
+
+
+def test_preview_rejects_foreign_sids(w):
+    _, out = preview(w, "bob", job=chain_job())
+    bob_sid = out["sid"]
+    _, out = preview(w, job=chain_job(), step_id="a")
+    alice_a = out["sid"]
+    _, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": alice_a}))
+    alice_b = out["sid"]
+    for sid in (bob_sid, "fake.1", "x", alice_b):
+        status, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": sid}))
+        assert (status, error(out)) in ((409, "needs_preview"), (404, "not_found")), (sid, out)
+    for path in ("", "/results"):
+        status, out = w.call("alice", "GET", "/orchestrator/preview/" + bob_sid + path)
+        assert status == 404 and error(out) == "not_found"
+    assert w.call("alice", "POST", "/orchestrator/preview/%s/cancel" % bob_sid)[0] == 404
+    assert (bob_sid, "cancel", {}) not in w.gw.control_log
+    assert w.call("bob", "GET", "/orchestrator/preview/" + bob_sid)[0] == 200
+    assert w.call("alice", "GET", "/orchestrator/preview/so_preview_x$y")[0] == 404
+
+
+def test_preview_skip_and_anyway(w):
+    job = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults",
+                           "run_when": {"kind": "cron", "value": "* * * * 1"}}], edges=[])
+    status, out = preview(w, job=job)  # T0 is a Tuesday
+    assert status == 200 and out["status"] == "skipped" and out["skip_kind"] == "run_when"
+    assert out["reason"]
+    assert not w.gw.preview_log
+    status, out = preview(w, job=job, anyway=True)
+    assert status == 201 and out["status"] == "started" and out["anyway"] is True
+    bad = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults",
+                           "run_when": {"kind": "expression", "value": "1 +"}}], edges=[])
+    status, out = preview(w, job=bad)
+    assert status == 400 and error(out) == "invalid"
+
+
+def test_preview_upstream_failed_and_expired(w):
+    w.gw.script_job("so_preview_", ["failed"])
+    _, out = preview(w, job=chain_job())
+    status, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": out["sid"]}))
+    assert status == 409 and error(out) == "upstream_failed" and out["error"]["step"] == "a"
+    run_id = run_with(w, chain_job(), {"a": {"state": "succeeded", "sid": "gone",
+                                             "result_count": 1}})
+    status, out = preview(w, job=chain_job(), step_id="b",
+                          input={"mode": "run", "run_id": run_id})
+    assert status == 410 and error(out) == "run_results_expired" and out["error"]["step"] == "a"
+
+
+def test_preview_poll_enforces_limit_and_touches(w):
+    w.gw.script_job("so_preview_", ["running"], run_duration=601)
+    _, out = preview(w)
+    sid = out["sid"]
+    status, out = w.call("alice", "GET", "/orchestrator/preview/" + sid)
+    assert status == 200
+    assert out["state"] == "failed" and out["error"] == "Preview stopped after 10 minutes"
+    assert (sid, "cancel", {}) in w.gw.control_log
+    w.gw.script_job("so_preview_", ["running"], run_duration=100)
+    _, out = preview(w)
+    sid = out["sid"]
+    status, out = w.call("alice", "GET", "/orchestrator/preview/" + sid, {"limit": "90"})
+    assert out["state"] == "failed" and out["error"] == "Preview stopped after 1.5 minutes"
+    w.gw.script_job("so_preview_", ["running"], run_duration=50)
+    _, out = preview(w)
+    sid = out["sid"]
+    status, out = w.call("alice", "GET", "/orchestrator/preview/" + sid, {"limit": "99999"})
+    assert status == 200 and out["state"] == "running" and out["error"] is None
+    assert set(out) == {"state", "result_count", "error", "truncated", "run_duration", "messages"}
+    assert (sid, "touch", {}) in w.gw.control_log
+    assert (sid, "cancel", {}) not in w.gw.control_log
+    assert w.call("alice", "GET", "/orchestrator/preview/" + sid, {"limit": "x"})[0] == 400
+    status, out = w.call("alice", "POST", "/orchestrator/preview/%s/cancel" % sid)
+    assert status == 200 and out == {"cancelled": True}
+    assert (sid, "cancel", {}) in w.gw.control_log
+
+
+def test_preview_results_capped(w):
+    w.gw.script_job("so_preview_", ["done"], result_count=150,
+                    rows=[{"n": str(i)} for i in range(150)])
+    _, out = preview(w)
+    status, out = w.call("alice", "GET", "/orchestrator/preview/%s/results" % out["sid"])
+    assert status == 200
+    assert len(out["rows"]) == 100 and out["total"] == 150 and out["fields"] == ["n"]
+
+
+def test_preview_saved_search_step_uses_wrapper(w):
+    w.gw.saved_searches[("alice", "my search")] = {"search": "| makeresults"}  # direct for a run
+    job = job_body(steps=[{"id": "a", "type": "saved_search", "saved_search_ref": "my search"}],
+                   edges=[])
+    status, out = preview(w, job=job)
+    assert status == 201 and out["spl"] == '| savedsearch "my search"'
+    job["steps"][0]["saved_search_ref"] = "missing"
+    status, out = preview(w, job=job)
+    assert status == 400 and out["error"]["issues"][0]["code"] == "unknown_saved_search"
+
+
+def test_preview_errors_only_in_closure_block(w):
+    job = chain_job()
+    job["steps"].append({"id": "z", "type": "inline", "spl": ""})  # invalid, unrelated
+    status, out = preview(w, job=job)
+    assert status == 201, out
+    job["steps"][0]["spl"] = "| makeresults | orchestrate selftest"
+    status, out = preview(w, job=job, step_id="b", input=live(a={"skipped": "run_when"}))
+    assert status == 400 and error(out) == "invalid"
+    assert {i["step"] for i in out["error"]["issues"]} == {"a"}

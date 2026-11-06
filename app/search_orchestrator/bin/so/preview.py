@@ -49,6 +49,11 @@ def _parts(sid):
     return h, job_ref, step_id, rand
 
 
+def parts(sid):
+    """``(hash, job_ref, step_id, rand)`` of a well-formed preview sid, else None."""
+    return _parts(sid)
+
+
 def make_sid(user, job_ref, step_id, rand):
     """``so_preview_<sha1(user)[:8]>.<job_ref>.<step_id>.<rand>``. ``job_ref`` is the job
     id, or ``new`` for an unsaved job. Raises ValueError for a malformed part."""
@@ -130,3 +135,50 @@ def default_time(job, now):
         if slot is not None and (best is None or slot > best):
             best = slot
     return now if best is None else best
+
+
+def reads(definition, step_id):
+    """The steps ``step_id`` reads directly: its edge sources and the steps its SPL names
+    in tokens (``Engine._expired_upstream``'s rule), in topological order."""
+    steps = {s.get("id"): s for s in definition.get("steps") or []}
+    used = {e.get("from") for e in definition.get("edges") or [] if e.get("to") == step_id}
+    used |= _step_refs(steps.get(step_id) or {}, list(steps))
+    used.discard(step_id)
+    return [s for s in closure(definition, step_id) if s in used]
+
+
+def input_sids(definition, step_id, upstream):
+    """A ``previous`` step's input sids: its dependencies that succeeded, in edge order
+    (``Engine._input_sids``'s rule). ``upstream`` is ``{step_id: {"state", "sid"}}``."""
+    return [(upstream.get(up) or {}).get("sid")
+            for up in tokens.previous_inputs(definition, step_id)
+            if (upstream.get(up) or {}).get("state") == "succeeded"]
+
+
+def token_context(definition, scheduled_time, params, upstream):
+    """The ``render_args`` ctx for a preview, shaped like ``tokens.run_context``: run id
+    ``preview``, the given params, and each step's state from ``upstream``."""
+    steps = {}
+    for s in definition.get("steps") or []:
+        st = upstream.get(s.get("id")) or {}
+        steps[s.get("id")] = {"status": st.get("state"), "sid": st.get("sid"),
+                              "resultCount": st.get("result_count"), "first": st.get("first")}
+    return {"run": {"id": "preview", "scheduled_time": str(int(scheduled_time)),
+                    "params": dict(params or {})},
+            "steps": steps}
+
+
+def step_search(step, step_ids, ctx, sids=None):
+    """The full SPL a preview of an ``inline`` or ``previous`` step sends: the saved
+    search text a run would use (``tokens.step_spl``, or ``tokens.empty_step_spl`` for a
+    ``previous`` step with no ``sids``), its args rendered from ``ctx`` and ``so_input``
+    from ``tokens.input_spl(sids)``, filled in. Raises TokenError."""
+    previous = step.get("type") == "previous"
+    if previous and not sids:
+        compiled, names = tokens.empty_step_spl(step, step_ids)
+    else:
+        compiled, names = tokens.step_spl(step, step_ids)
+    args = tokens.render_args(names, ctx, tokens.token_defaults(step.get("spl") or "", step_ids))
+    if previous and sids:
+        args[tokens.INPUT_ARG] = tokens.input_spl(sids)
+    return tokens.fill(compiled, args)
