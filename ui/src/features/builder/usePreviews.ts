@@ -70,6 +70,10 @@ export function previewErrorText(err: unknown): string {
     return (err as Error)?.message || 'The preview could not be started.';
 }
 
+/** The poll route says 404 for a sid it can't vouch for, such as a gone preview: the
+ * preview is missing, as when the server reports `missing`. */
+const gone = (err: unknown) => err instanceof client.ApiError && err.status === 404;
+
 const failedUpstream = (id: string) => `${id}'s preview failed; fix it or preview it again`;
 
 export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api: PreviewApi = defaultApi) {
@@ -205,6 +209,10 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                 // eslint-disable-next-line no-await-in-loop
                 st = await a.previewStatus(sid, limit);
             } catch (err) {
+                if (gone(err)) {
+                    patch(id, token, { state: 'missing' });
+                    return current(id, token) ? 'missing' : ended(id, token);
+                }
                 patch(id, token, { state: 'failed', error: previewErrorText(err) });
                 return current(id, token) ? 'failed' : ended(id, token);
             }
@@ -327,7 +335,11 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                                 put(id, { ...p, state: 'missing', status: st });
                             }
                         })
-                        .catch(() => undefined);
+                        .catch((err) => {
+                            if (gone(err) && store.current[id] === p) {
+                                put(id, { ...p, state: 'missing' });
+                            }
+                        });
                 }
             });
         }, KEEP_ALIVE_MS);

@@ -257,6 +257,41 @@ describe('usePreviews', () => {
         expect(result.current.previews.a.state).toBe('missing');
     });
 
+    test('a 404 from a running poll marks the preview missing, never the raw error', async () => {
+        const api = fakeApi({
+            previewStatus: jest.fn(() => Promise.reject(new ApiError(404, 'not_found', "no preview 'so_preview_x'"))),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle();
+        expect(result.current.previews.a.state).toBe('missing');
+        expect(result.current.previews.a.error).toBeUndefined();
+    });
+
+    test('a 404 from a keep-alive poll marks the preview missing', async () => {
+        let gone = false;
+        const api = fakeApi({
+            previewStatus: jest.fn(() =>
+                gone
+                    ? Promise.reject(new ApiError(404, 'not_found', "no preview 'so_preview_x'"))
+                    : Promise.resolve({ state: 'done' as const, result_count: 3, messages: [] })
+            ),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle();
+        expect(result.current.previews.a.state).toBe('done');
+        gone = true;
+        act(() => jest.advanceTimersByTime(5 * 60 * 1000));
+        await flush();
+        expect(result.current.previews.a.state).toBe('missing');
+        expect(result.current.previews.a.error).toBeUndefined();
+    });
+
     test('unmount cancels running previews', async () => {
         const api = fakeApi({
             previewStatus: jest.fn(() => Promise.resolve({ state: 'running' as const, result_count: 0, messages: [] })),

@@ -38,9 +38,11 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
 * ``GET preview/<sid>`` (query ``limit``, seconds, capped at ``preview.MAX_RUNTIME``):
   ``{"state", "result_count", "error", "truncated", "run_duration", "messages"}``; a
   running search past the limit is cancelled and reported failed, otherwise touched.
+  The caller's own sid that splunkd no longer has (expired, deleted) is 200 with
+  ``"state": "missing"``.
 * ``GET preview/<sid>/results``: ``{"fields", "rows", "total"}``, at most
   ``preview.TABLE_ROWS`` rows. ``POST preview/<sid>/cancel``: ``{"cancelled": true}``.
-  A sid that is not the caller's own preview is 404.
+  A sid that is not the caller's own preview is 404 (results and cancel: also a gone one).
 
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
@@ -1234,12 +1236,16 @@ def start_preview(ctx, body):
     return 201, out
 
 
-def _own_preview(ctx, sid):
-    """``preview_info`` of the caller's own preview ``sid``; anything else is 404."""
+def _own_preview(ctx, sid, gone_ok=False):
+    """``preview_info`` of the caller's own preview ``sid``; anything else is 404. With
+    ``gone_ok``, a sid that passes ``own_sid`` but that splunkd no longer has returns its
+    ``missing`` info instead (the sid names the caller, so this reveals nothing)."""
     _, job_ref, step_id, _ = preview.parts(sid)
     if not preview.own_sid(sid, ctx.user, job_ref, step_id):
         raise ApiError(404, "not_found", "no preview %r" % sid)
     info = ctx.user_gw.preview_info(sid)
+    if gone_ok and (info or {}).get("state") == "missing":
+        return info
     if not preview.own_preview(info, sid, ctx.user, job_ref, step_id):
         raise ApiError(404, "not_found", "no preview %r" % sid)
     return info
@@ -1262,8 +1268,10 @@ def _preview_limit(body):
 
 
 def poll_preview(ctx, body, sid):
-    info = _own_preview(ctx, sid)
+    info = _own_preview(ctx, sid, gone_ok=True)
     limit = _preview_limit(body)
+    if info.get("state") == "missing":
+        return 200, {k: info.get(k) for k in POLL_FIELDS}
     out = {k: info.get(k) for k in POLL_FIELDS}
     duration = info.get("run_duration")
     if info.get("state") == "running" and duration is not None and float(duration) > limit:

@@ -1423,3 +1423,20 @@ def test_preview_live_failed_grandparent_is_upstream_failed(w):
     # a run never reaches b (a failed behind an on_success edge), so it never reaches c.
     status, out = preview(w, job=job, step_id="c", input=live(a={"sid": a_sid}, b={"sid": b_sid}))
     assert status == 409 and error(out) == "upstream_failed" and out["error"]["step"] == "a", out
+
+
+def test_preview_poll_gone_job_is_missing(w):
+    _, out = preview(w)
+    sid = out["sid"]
+    del w.gw.jobs[sid]  # expired or deleted in splunkd
+    status, out = w.call("alice", "GET", "/orchestrator/preview/" + sid)
+    assert status == 200 and out["state"] == "missing" and out["result_count"] == 0
+    assert set(out) == {"state", "result_count", "error", "truncated", "run_duration", "messages"}
+    assert (sid, "touch", {}) not in w.gw.control_log
+    # Results and cancel still need the job.
+    assert w.call("alice", "GET", "/orchestrator/preview/%s/results" % sid)[0] == 404
+    assert w.call("alice", "POST", "/orchestrator/preview/%s/cancel" % sid)[0] == 404
+    # Another user's sid is still 404 and never reaches splunkd, gone or not.
+    seen = _info_log(w)
+    status, out = w.call("bob", "GET", "/orchestrator/preview/" + sid)
+    assert status == 404 and error(out) == "not_found" and seen == []
