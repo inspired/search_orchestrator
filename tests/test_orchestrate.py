@@ -305,3 +305,9 @@ def test_rest_audit_posts_absolute_receivers_path_and_drops_nulls():
     path, kw = posted[0]
     assert path == "/services/receivers/simple"
     assert '"step_id"' not in kw["body"] and '"type": "job_saved"' in kw["body"]
+
+
+def test_error_text_with_braces_survives_splunklib_format():
+    raw = 'HTTP 503: {"messages": [{"type": "ERROR", "text": "x"}]}'
+    # splunklib's write_message calls message_text.format(); braces must come back literal.
+    assert orchestrate._literal(raw).format() == raw

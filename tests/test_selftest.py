@@ -55,6 +55,7 @@ def test_selftest_definition_is_valid():
             assert "mvrange(0,1234)" in daily["spl"]
             # mvexpand truncates at its memory limit on a real server: hashes stay per row.
             assert "mvexpand" not in daily["spl"] and "mvmap(r, sha512(" in daily["spl"]
+            assert "sum(h)" in daily["spl"]  # else the optimizer removes the hashing
         assert all("addinfo" in st["spl"] for st in rollup["steps"])
     assert selftest.rollup_definition(False)["steps"][0]["spl"].startswith(
         "| makeresults count=50000 | eval r=mvrange(0,%d)" % selftest.DEFAULT_SLOW_N)

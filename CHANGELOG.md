@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4 (2026-11-06)
+
+- The late-rollup self-test's slow daily now really runs about 40 seconds: Splunk's optimizer removed the hashing in 1.0.3 because nothing read its result.
+- `| orchestrate` errors whose text contains `{` or `}` (such as a JSON error body from splunkd) showed a `KeyError` from splunklib instead of the error.
+
 ## 1.0.3 (2026-11-06)
 
 - The late-rollup self-test's slow daily hashes `slow_n` values on each of 50,000 rows (default 600, about 40 seconds). The earlier forms were capped by `makeresults` and `mvexpand` limits and finished in about a second. `slow_n` is capped at 100000.

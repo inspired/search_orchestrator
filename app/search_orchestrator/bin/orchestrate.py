@@ -208,6 +208,11 @@ def execute(argv, gateway):
     return _selftest(call, options)
 
 
+def _literal(text):
+    """splunklib's write_error runs str.format on its text; a JSON error body has braces."""
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 @Configuration(type="reporting")
 class OrchestrateCommand(GeneratingCommand):
     """Start, inspect and control Search Orchestrator runs."""
@@ -221,11 +226,11 @@ class OrchestrateCommand(GeneratingCommand):
             gateway = SplunkGateway.from_session(info.splunkd_uri, info.session_key)
             rows = execute(list(self.fieldnames or []), gateway)
         except CommandError as err:
-            self.write_error(str(err))
+            self.write_error(_literal(str(err)))
             return
         except Exception as err:  # no traceback, and never a session key
-            self.write_error(selftest.scrub("orchestrate failed: %s: %s" % (
-                type(err).__name__, err), [getattr(info, "session_key", None)]))
+            self.write_error(_literal(selftest.scrub("orchestrate failed: %s: %s" % (
+                type(err).__name__, err), [getattr(info, "session_key", None)])))
             return
         for row in rows:
             yield row

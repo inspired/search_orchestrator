@@ -116,9 +116,10 @@ def rollup_definition(fail_first, slow_n=DEFAULT_SLOW_N, delayed_after=DEFAULT_D
     else:
         # makeresults caps count at 50000 and mvexpand truncates at its memory limit, so
         # the work is slow_n hashes per row inside one eval, which holds one row at a time.
+        # stats must use h: the optimizer drops an eval whose field nothing reads.
         daily = ('| makeresults count=50000 | eval r=mvrange(0,%d) '
                  '| eval h=mvcount(mvmap(r, sha512(tostring(random())))) | fields - r '
-                 '| stats count | addinfo '
+                 '| stats count sum(h) as hashes | addinfo '
                  '| eval step="daily"' % int(slow_n))
         name = "Search Orchestrator self-test (rollup, late daily)"
     return {
