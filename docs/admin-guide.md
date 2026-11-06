@@ -6,7 +6,7 @@ Version 1.0.0. This guide covers installing, securing and running the app. The [
 
 | Platform | Status |
 |---|---|
-| Splunk Enterprise 9.4 and later, standalone search head | Supported. Tested on 10.6.1.1. |
+| Splunk Enterprise 9.4 and later, standalone search head | Supported. Verified on Splunk Enterprise 10.6.1.1 (pending owner check). |
 | Splunk Cloud Platform, Victoria Experience | Supported. Checked with AppInspect's Cloud checks only; not run on a real Cloud stack. |
 | Splunk Cloud Platform, Classic Experience | **Not supported.** |
 | Search head cluster | Designed for it but **unit-tested only**. See [Search head clusters](#search-head-clusters). |
@@ -54,7 +54,7 @@ The engine is a modular input, `orchestrator_engine://main`, enabled by default.
 - **An admin who saves someone else's job becomes its owner.** This is audited, and the builder asks first. It stops anyone changing SPL that runs under another person's identity.
 - **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10.
 - **Secrets.** Webhook URLs and headers are kept in Splunk's credential store (`storage/passwords`). The Settings page never shows them again after saving.
-- **KV Store.** The `so_*` collections are readable and writable only by `admin`. All changes go through the REST handler.
+- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler.
 - **TLS.** Outbound webhooks always verify TLS. Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
 
 ### Saved-search steps and the `| savedsearch` wrapper
@@ -119,6 +119,10 @@ Run records are pruned from KV Store after the retention period; audit events st
 
 The engine runs on every member, and a KV Store lease (30 seconds, renewed every tick) makes sure only one member advances runs at a time. This was tested against a fake KV Store only; no real cluster was available. Watch the first runs after installing on a cluster.
 
+## Deleting jobs
+
+The Jobs page shows **Delete** to users who may edit the job: its owner (with `orchestrator_build`) and admins. It asks for confirmation, naming the job, then deletes the job and its hidden saved searches. A job with active or queued runs can't be deleted until those runs are cancelled; the dialog says so. Past runs stay in the Runs list until run-record retention prunes them.
+
 ## Orphaned owners
 
 If a job owner's Splunk account is removed, that job's runs fail with a clear error. To recover, an admin opens the job in the builder and saves it. The admin becomes the owner (the builder asks first, and the change is audited), and the job's searches run as the admin from then on. The admin can then hand the job to someone else by having that person save it, if they hold `orchestrator_admin`, or by rebuilding it under their account.
@@ -143,11 +147,7 @@ Follow a run with `| orchestrate status run="<run id>"`, or on the Runs page.
 - audit events and `collect`ed test events in the `orchestrator` index;
 - the probe's scratch documents are written to the `so_selftest` KV Store collection and deleted straight away.
 
-To remove the jobs, delete them through the REST API. Deleting a job also deletes its hidden saved searches. A job with active runs must have them cancelled first.
-
-```
-curl -u <admin> -X DELETE https://<search-head>:8089/services/orchestrator/jobs/so_selftest
-```
+To remove them, use **Delete** on the Jobs page for each `so_selftest*` job. Deleting a job also deletes its hidden saved searches. A job with active or queued runs can't be deleted; cancel those runs first. The REST equivalent is `DELETE /services/orchestrator/jobs/<id>`.
 
 Run records are pruned with the normal retention.
 
@@ -172,6 +172,5 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 - Not tested on a real search head cluster or a real Splunk Cloud stack.
 - Classic Experience Cloud stacks are not supported.
 - Custom page templates are deprecated from Splunk 10.4; migration is planned.
-- There is no delete button for jobs; use the REST API.
 - Node positions in the builder are not saved.
 - No per-step workload pool: the dispatch endpoint rejected it.

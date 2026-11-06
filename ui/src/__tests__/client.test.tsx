@@ -79,6 +79,17 @@ describe('client', () => {
         await expect(me()).rejects.toMatchObject({ code: 'http_502', status: 502 });
     });
 
+    test('the timeout timer is cleared on a normal response', async () => {
+        jest.useFakeTimers();
+        try {
+            mockFetch(200, { user: 'alice' });
+            await me();
+            expect(jest.getTimerCount()).toBe(0);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
     test('a request that never settles times out after 30 seconds', async () => {
         jest.useFakeTimers();
         try {

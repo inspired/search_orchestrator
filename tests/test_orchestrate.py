@@ -267,3 +267,25 @@ def test_alert_action_refuses_when_session_user_differs_from_owner(w):
         ["x", "--execute"], io.StringIO(json.dumps(alert_payload(session_key="tok-root"))), err,
         build=w.splunkd.gateway)
     assert code != 0 and err.getvalue().startswith("ERROR ") and "tok-root" not in err.getvalue()
+
+
+def test_alert_action_refuses_when_session_cannot_be_verified(w):
+    saved(w)
+
+    class NoMe:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def orchestrator_api(self, method, path, body=None):
+            if path == "me":
+                return 401, {"error": {"code": "unauthorized", "message": "no session"}}
+            return self.inner.orchestrator_api(method, path, body)
+
+    def build(uri, token):
+        return NoMe(w.splunkd.gateway(uri, token))
+
+    ok, message = start_orchestrator_job.run_alert(alert_payload(), build=build)
+    assert not ok
+    assert "could not verify alert session (HTTP 401)" in message
+    assert "None" not in message and "tok-alice" not in message
+    assert not w.gw.kv.get("so_runs")

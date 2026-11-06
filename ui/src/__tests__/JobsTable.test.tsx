@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import JobsTable from '../features/jobs/JobsTable';
+import JobsPage, { JobsApi } from '../features/jobs/JobsPage';
 import RunNowDialog from '../features/jobs/RunNowDialog';
 import { ApiError } from '../api/client';
 import { formatTime } from '../format';
@@ -116,5 +117,64 @@ describe('RunNowDialog', () => {
         renderThemed(<RunNowDialog job={job()} open onClose={jest.fn()} onStarted={jest.fn()} startRun={startRun} />);
         fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
         expect(await screen.findByText("job 'daily' has reached its queue cap")).toBeInTheDocument();
+    });
+});
+
+describe('Delete job', () => {
+    function jobsApi(jobs: ReturnType<typeof job>[], over: Partial<JobsApi> = {}): JobsApi {
+        let current = jobs;
+        return {
+            me: jest.fn(() => Promise.resolve(me)),
+            listJobs: jest.fn(() => Promise.resolve(current)),
+            updateJob: jest.fn(),
+            deleteJob: jest.fn((id: string) => {
+                current = current.filter((j) => j.id !== id);
+                return Promise.resolve({ deleted: id });
+            }),
+            ...over,
+        } as unknown as JobsApi;
+    }
+
+    test('delete is hidden without edit rights', () => {
+        const jobs = [
+            job(),
+            job({ id: 'weekly', name: 'Weekly rollup', owner: 'bob', permissions: { can_edit: false, can_run: true } }),
+        ];
+        renderThemed(<JobsTable jobs={jobs} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onDelete={jest.fn()} />);
+        const daily = screen.getByText('Daily summary').closest('tr') as HTMLElement;
+        expect(within(daily).getByRole('button', { name: 'Delete Daily summary' })).toBeInTheDocument();
+        const weekly = screen.getByText('Weekly rollup').closest('tr') as HTMLElement;
+        expect(within(weekly).queryByRole('button', { name: /Delete/ })).toBeNull();
+    });
+
+    test('confirm then delete then the table refreshes', async () => {
+        const api = jobsApi([job(), job({ id: 'weekly', name: 'Weekly rollup' })]);
+        renderThemed(<JobsPage api={api} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete Daily summary' }));
+        // The confirmation names the job; nothing is deleted yet.
+        expect(screen.getByText('Delete Daily summary?')).toBeInTheDocument();
+        expect(api.deleteJob).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Delete job' }));
+        await waitFor(() => expect(api.deleteJob).toHaveBeenCalledWith('daily'));
+        await waitFor(() => expect(screen.queryByText('Daily summary')).toBeNull());
+        expect(screen.getByText('Weekly rollup')).toBeInTheDocument();
+        expect(api.listJobs).toHaveBeenCalledTimes(2);
+    });
+
+    test('a job with active runs shows the 409 message', async () => {
+        const api = jobsApi([job()], {
+            deleteJob: jest.fn(() =>
+                Promise.reject(
+                    new ApiError(409, 'job_has_active_runs', "job 'daily' has 1 active or queued run(s); cancel them first")
+                )
+            ),
+        });
+        renderThemed(<JobsPage api={api} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete Daily summary' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Delete job' }));
+        expect(
+            await screen.findByText(/Daily summary has active or queued runs\. Cancel them on the Runs page, then delete it\./)
+        ).toBeInTheDocument();
+        expect(screen.getByText('Daily summary', { selector: 'td *, td' })).toBeInTheDocument();
     });
 });

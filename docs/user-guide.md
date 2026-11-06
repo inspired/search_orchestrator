@@ -86,7 +86,7 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 
 ## Follow runs
 
-- **Jobs** shows each job's next run and last outcome, with Run now and an enable switch.
+- **Jobs** shows each job's next run and last outcome, with Run now and an enable switch. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
 - **Runs** lists runs, filterable by job and state.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 

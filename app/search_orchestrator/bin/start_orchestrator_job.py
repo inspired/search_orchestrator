@@ -80,7 +80,11 @@ def run_alert(payload, build=SplunkGateway.from_session):
         gateway = build(payload.get("server_uri") or "https://127.0.0.1:8089",
                         payload.get("session_key"))
         me_status, me_out = gateway.orchestrator_api("GET", "me", None)
-        session_user = (me_out or {}).get("user") if me_status == 200 else None
+        if me_status != 200:
+            return False, ("start_orchestrator_job: could not verify alert session (HTTP %s) for "
+                           "alert %r; refusing to start job %s"
+                           % (me_status, payload.get("search_name"), job))
+        session_user = (me_out or {}).get("user")
         if session_user != owner:
             return False, ("start_orchestrator_job: the alert %r session belongs to %r, not to "
                            "the alert owner %r; refusing to start job %s"

@@ -1,4 +1,5 @@
-/* The Jobs table: name, owner, next run, last run outcome, enabled switch and Run now. */
+/* The Jobs table: name, owner, next run, last run outcome, enabled switch, Run now and
+ * Delete (only for users who may edit the job). */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import Link from '@splunk/react-ui/Link';
@@ -14,11 +15,13 @@ export interface JobsTableProps {
     me: Me | null | undefined;
     onRunNow: (job: Job) => void;
     onToggleEnabled: (job: Job, enabled: boolean) => void;
+    /** Shown only for jobs the user may edit. The event's target is the button, for focus. */
+    onDelete?: (job: Job, opener: HTMLElement) => void;
     /** Job ids with a save in flight: their switch is disabled. */
     busy?: Record<string, boolean>;
 }
 
-export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, busy = {} }: JobsTableProps) {
+export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
     if (!jobs.length) {
         return <p>No jobs yet.{me && me.can_build ? ' Use New job to build one.' : ''}</p>;
     }
@@ -77,15 +80,26 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, busy = 
                                 </Switch>
                             </Table.Cell>
                             <Table.Cell>
-                                {canRun && (
-                                    <Button
-                                        appearance="secondary"
-                                        label="Run now"
-                                        aria-label={`Run now: ${job.name}`}
-                                        disabled={!job.enabled}
-                                        onClick={() => onRunNow(job)}
-                                    />
-                                )}
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    {canRun && (
+                                        <Button
+                                            appearance="secondary"
+                                            label="Run now"
+                                            aria-label={`Run now: ${job.name}`}
+                                            disabled={!job.enabled}
+                                            onClick={() => onRunNow(job)}
+                                        />
+                                    )}
+                                    {canEdit && onDelete && (
+                                        <Button
+                                            appearance="secondary"
+                                            label="Delete"
+                                            aria-label={`Delete ${job.name}`}
+                                            disabled={Boolean(busy[job.id])}
+                                            onClick={(e: React.MouseEvent) => onDelete(job, e.currentTarget as HTMLElement)}
+                                        />
+                                    )}
+                                </div>
                             </Table.Cell>
                         </Table.Row>
                     );

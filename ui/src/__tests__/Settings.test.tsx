@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import SettingsPage, { SettingsApi } from '../features/settings/SettingsPage';
+import { changes, Draft } from '../features/settings/SettingsForm';
 import { ApiError } from '../api/client';
 import type { Destination, Health, Me, Settings } from '../api/types';
 import { me as builderMe, renderThemed } from './fixtures';
@@ -31,6 +32,7 @@ const HEALTHY: Health = {
     fallback_set: true,
     pending_commands: 0,
     messages: [],
+    audit_index: 'orchestrator',
 };
 
 const DESTS: Destination[] = [
@@ -67,13 +69,16 @@ describe('Settings', () => {
     test('health warns when audit index missing', async () => {
         const message = 'The orchestrator index is missing, so audit events are being lost.';
         const api = fakeApi({
-            health: jest.fn(() => Promise.resolve({ ...HEALTHY, index_present: false, messages: [message] })),
+            health: jest.fn(() =>
+                Promise.resolve({ ...HEALTHY, index_present: false, messages: [message], audit_index: 'so_audit' })
+            ),
         });
         renderThemed(<SettingsPage api={api} />);
         expect(await screen.findByText(message)).toBeInTheDocument();
         const audit = screen.getByTestId('health-index');
         expect(within(audit).getByText(/Missing/)).toBeInTheDocument();
-        expect(within(audit).getByText(/orchestrator/)).toBeInTheDocument();
+        // The index name comes from the server.
+        expect(within(audit).getByText(/so_audit/)).toBeInTheDocument();
     });
 
     test('health warns when fallback unset', async () => {
@@ -147,5 +152,20 @@ describe('Settings', () => {
         await waitFor(() =>
             expect(api.putSettings).toHaveBeenCalledWith({ fallback: { type: 'email', to: 'oncall@example.com' } })
         );
+    });
+
+    test('a webhook fallback keeps its preset when the destination changes', () => {
+        const original: Settings = { ...SETTINGS, fallback: { type: 'webhook', destination: 'slack_ops', preset: 'slack' } };
+        const draft: Draft = {
+            ints: { max_searches: '10', max_searches_per_job: '4', queue_cap: '20', result_retention: '24', run_retention_days: '90' },
+            fallbackType: 'webhook',
+            email: '',
+            destination: 'pager',
+            preset: 'slack',
+            baseUrl: '',
+        };
+        expect(changes(original, draft)).toEqual({ fallback: { type: 'webhook', destination: 'pager', preset: 'slack' } });
+        // Unchanged, the preset is not dropped either.
+        expect(changes(original, { ...draft, destination: 'slack_ops' })).toEqual({});
     });
 });

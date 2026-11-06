@@ -10,7 +10,6 @@ import RadioList from '@splunk/react-ui/RadioList';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import type { Destination, Settings } from '../../api/types';
-import { AUDIT_INDEX } from './HealthPanel';
 
 const HOUR = 3600;
 
@@ -69,11 +68,13 @@ export const INT_FIELDS: IntField[] = [
 
 type FallbackType = 'none' | 'email' | 'webhook';
 
-interface Draft {
+export interface Draft {
     ints: Record<string, string>;
     fallbackType: FallbackType;
     email: string;
     destination: string;
+    /** A webhook fallback's body preset; the page doesn't edit it, but keeps it. */
+    preset: string;
     baseUrl: string;
 }
 
@@ -89,6 +90,7 @@ function toDraft(s: Settings): Draft {
         fallbackType: fb ? fb.type : 'none',
         email: fb && fb.type === 'email' ? fb.to : '',
         destination: fb && fb.type === 'webhook' ? fb.destination : '',
+        preset: (fb && fb.type === 'webhook' && fb.preset) || '',
         baseUrl: s.base_url || '',
     };
 }
@@ -110,7 +112,9 @@ function fallbackOf(d: Draft): Settings['fallback'] {
         return { type: 'email', to: d.email.trim() };
     }
     if (d.fallbackType === 'webhook') {
-        return { type: 'webhook', destination: d.destination };
+        return d.preset
+            ? { type: 'webhook', destination: d.destination, preset: d.preset }
+            : { type: 'webhook', destination: d.destination };
     }
     return null;
 }
@@ -214,9 +218,6 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                     </ControlGroup>
                 );
             })}
-            <p>
-                {`Audit index: ${AUDIT_INDEX} (macro orchestrator_index). On Splunk Cloud an admin may need to create it.`}
-            </p>
 
             <Heading level={2}>Fallback notification</Heading>
             <p>

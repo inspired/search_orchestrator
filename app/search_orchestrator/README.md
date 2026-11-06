@@ -23,6 +23,7 @@ Makes dependent Splunk searches run as one unit. A job is a graph of search step
 - Steps run as the job owner, with the owner's access. Listing roles under "who may run" lets their members start the job with the owner's access.
 - Search steps with no time range run over all time.
 - Retries and re-runs can write duplicate summary data; keep retries at 0 for steps that write.
+- Delete a job from the Jobs page (owner or admin). Cancel its active runs first.
 - Outside the app, and on Splunk Cloud, search audit events with `index=orchestrator`.
 - Splunk Cloud may block outbound webhooks until an admin allows the host.
 - Custom page templates are deprecated from Splunk 10.4; migration is planned.

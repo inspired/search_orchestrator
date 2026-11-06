@@ -681,6 +681,7 @@ def test_health_reports_missing_index(w):
     w.gw.indexes.clear()
     out = w.call("alice", "GET", "/orchestrator/health")[1]["health"]
     assert out["index_present"] is False and any("index" in m for m in out["messages"])
+    assert out["audit_index"] == "orchestrator"  # the screens show the name from here
 
 
 def test_route_keyword_job_ids_reserved(w):

@@ -293,6 +293,8 @@ export interface Health {
     fallback_set: boolean;
     pending_commands: number;
     messages: string[];
+    /** The audit index name. */
+    audit_index: string;
 }
 
 export interface RunFilters {

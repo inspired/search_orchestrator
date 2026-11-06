@@ -897,7 +897,8 @@ def health(ctx, body):
     pending = len(ctx.sys_gw.kv_query(COMMANDS))
     return 200, {"health": {"index_present": index_present, "engine_alive": alive,
                             "engine_heartbeat": heartbeat, "fallback_set": fallback_set,
-                            "pending_commands": pending, "messages": messages}}
+                            "pending_commands": pending, "messages": messages,
+                            "audit_index": AUDIT_INDEX}}
 
 
 def me(ctx, body):

@@ -65,4 +65,5 @@ def test_every_collection_restricted_in_meta():
             k, v = line.split("=", 1)
             meta[current][k.strip()] = v.strip()
     for c in COLLECTIONS:
-        assert meta["collections/" + c]["access"] == "read : [ admin ], write : [ admin ]", c
+        assert meta["collections/" + c]["access"] == \
+            "read : [ admin, sc_admin ], write : [ admin, sc_admin ]", c

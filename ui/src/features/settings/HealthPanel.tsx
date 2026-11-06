@@ -9,8 +9,6 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Health } from '../../api/types';
 import { formatTime } from '../../format';
 
-export const AUDIT_INDEX = 'orchestrator';
-
 interface LineProps {
     ok: boolean;
     label: string;
@@ -77,7 +75,7 @@ export default function HealthPanel({ health, error }: HealthPanelProps) {
                         testId="health-index"
                         ok={health.index_present}
                         label="Audit index"
-                        value={`${AUDIT_INDEX}: ${health.index_present ? 'Present' : 'Missing'}`}
+                        value={`${health.audit_index}: ${health.index_present ? 'Present' : 'Missing'}`}
                     />
                     <HealthLine
                         testId="health-fallback"
