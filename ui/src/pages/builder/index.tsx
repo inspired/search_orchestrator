@@ -1,17 +1,6 @@
-/* Placeholder: the Job builder page is built in a later task. */
+/* Job builder: ?job_id=<id> edits that job; no id starts a new one. */
 import React from 'react';
-import Message from '@splunk/react-ui/Message';
-import PageShell, { queryParam, renderPage } from '../../components/PageShell';
+import { queryParam, renderPage } from '../../components/PageShell';
+import BuilderPage from '../../features/builder/BuilderPage';
 
-function Placeholder() {
-    const id = queryParam('job_id');
-    return (
-        <PageShell title="Job builder">
-            <Message type="info" appearance="default">
-                {`This page is coming in a later task.${id ? ` (${id})` : ''}`}
-            </Message>
-        </PageShell>
-    );
-}
-
-renderPage(<Placeholder />, 'Job builder');
+renderPage(<BuilderPage jobId={queryParam('job_id')} />, 'Job builder');

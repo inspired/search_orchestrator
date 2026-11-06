@@ -87,6 +87,11 @@ export function statusLabel(state: AnyState, delayed = false, skipKind?: SkipKin
     return LABELS[state] || state;
 }
 
+/** The icon StatusText shows for a state; also drawn on the step graph. */
+export function statusIcon(state: AnyState, delayed = false): Icon {
+    return delayed ? Clock : ICONS[state] || Circle;
+}
+
 export interface StatusTextProps {
     state: AnyState;
     delayed?: boolean;
@@ -95,7 +100,7 @@ export interface StatusTextProps {
 
 export default function StatusText({ state, delayed = false, skipKind }: StatusTextProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
-    const IconFor = delayed ? Clock : ICONS[state] || Circle;
+    const IconFor = statusIcon(state, delayed);
     let color: string | undefined;
     if (delayed) {
         color = theme.statusColorMedium;

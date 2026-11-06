@@ -13,6 +13,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@dagrejs/dagre": "1.1.5",
     "@splunk/react-icons": "^5.17.0",
     "@splunk/react-page": "^8.4.0",
     "@splunk/react-ui": "^5.18.0",

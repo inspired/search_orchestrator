@@ -120,6 +120,7 @@ function RunPage() {
                             edges={run.definition.edges || []}
                             states={run.steps}
                             onSelect={setSelected}
+                            selected={selected}
                         />
                     )}
                     {tab === 'logs' && <LogsTab attempts={detail.attempts || []} />}
