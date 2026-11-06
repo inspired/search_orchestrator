@@ -38,8 +38,9 @@ Node positions are not saved. The graph is laid out again each time the job open
 
 A **From previous steps** step searches the results of the steps it depends on, with no search of its own to repeat. Its SPL runs on their rows, as if each were loaded with `| loadjob`: the first dependency's results, then each later one appended, in the order the dependencies were connected.
 
-- **Its SPL must start with `|`**, such as `| stats sum(count) by host`. Saving fails otherwise, and it fails if the step has no step before it.
-- **It has no time range of its own.** It works on rows the earlier steps already found.
+- **Its SPL must start with `|`**, such as `| stats sum(count) by host`. Saving fails otherwise, and it fails unless the step depends on at least one step (a connection into it).
+- **It has no time range of its own.** It works on rows the earlier steps already found. Switching a step to this type drops its Earliest and Latest.
+- **Switching back to Search** writes the input into the SPL as `| loadjob $<step>.sid$` tokens. A token from a skipped or failed step fails the step, so if a dependency can be skipped or fail, give the token a default or keep the From previous steps type.
 - **Skipped and failed inputs add nothing.** Only dependencies that succeeded are loaded. A step that runs after an `on_failure` connection still runs, without the failed step's rows. If no dependency succeeded, it runs on no rows.
 - **The second and later inputs are limited to 50,000 rows each.** They are appended through a subsearch, and Splunk cuts a subsearch short at that limit. When that happens the step fails with "a subsearch was cut short: ..." and Splunk's message, never with silently partial results. The first input has no such limit, so connect the largest dependency first, or summarise the inputs before they reach this step.
 
@@ -104,14 +105,14 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 - **Who:** you need `orchestrator_build` or `orchestrator_admin`, and the right to edit the job.
 - **Your access:** a preview runs as you, as an ordinary search. A real run uses the job owner's access, which can differ. The step panel says so.
 - **Preview as if scheduled at:** the time the step's Earliest, Latest and `run when` are worked out from. It starts as the last time the schedule would have fired, or now if the job has no schedule. Change it to try another day.
-- **Parameters:** one input per job parameter, filled with its default.
+- **Parameters:** one input per job parameter. The input shows the parameter's default, and an empty value uses the default, as a run does. An empty value for a parameter with no default fails the preview with "value is required".
 - **Input from:** where earlier steps' results come from.
-  - **Live previews** (default): the previews you made in this editor. If a step before this one has no current preview, it is previewed first, in order. A step whose preview failed stops the preview, and you fix that step first. Live previews are kept only in your browser tab; leaving the editor drops them.
-  - **A past run:** the results that run saved for the earlier steps. Choosing a run also sets the time and parameters to that run's. If the run's step results have expired (24 hours by default) or the step isn't in the run, the preview fails and says so. It never falls back to a live preview.
+  - **Live previews** (default): the previews you made in this editor. If a step before this one has no current preview, it is previewed first, in order. A failed step is treated as a run would treat it: a step reached from it by an `on_success` connection isn't previewed ("... failed, so a run would not reach this step"), and you fix that step first; a step reached by an `on_failure` or `always` connection is previewed. Live previews are kept only in your browser tab; leaving the editor drops them.
+  - **A past run:** the results that run saved for the earlier steps. The list shows the job's 20 most recent runs, and is refreshed when you save and when you open it. Choosing a run also sets the time and parameters to that run's. If the run's step results have expired (24 hours by default) or the step isn't in the run, the preview fails and says so. It never falls back to a live preview. If you may not read a run's results, the preview fails with Splunk's own error.
 - **Result:** a line with the row count, time and input, then a table of the first 100 rows. Search errors and warnings show above the table. An ERROR message fails the preview, as in a run.
-- **Skipped steps:** if a run at that time would skip the step, you see "Would be skipped" and why. Steps after it treat it as skipped. **Preview anyway** runs it once with its inputs.
+- **Skipped steps:** if a run at that time would skip the step, you see "Would be skipped" and why. Steps after it treat it as skipped. **Preview anyway** runs it once with its inputs; steps after it still treat it as skipped, as a run would.
 - **Out of date:** changing a step, the time, the parameters or the input marks that step's preview and the ones after it "Out of date". The old table stays greyed until you preview again.
-- **Limits:** a preview is cancelled after the step's max runtime, or 10 minutes if that is shorter. A preview you stop watching is cancelled after about a minute. Finished previews are kept for 30 minutes while you use them. **Cancel** stops one early. The table shows 100 rows, but the search keeps all of them, so a later preview reads the full input.
+- **Limits:** a preview is cancelled after the step's max runtime, or 10 minutes if that is shorter. A preview you stop watching is cancelled after about three minutes. Finished previews are kept for 30 minutes while you use them. **Cancel** stops one early. Each step has one preview at a time: starting another cancels the first. The table shows 100 rows, but the search keeps all of them, so a later preview reads the full input.
 
 ## Follow runs
 
