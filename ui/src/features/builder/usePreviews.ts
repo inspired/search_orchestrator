@@ -74,6 +74,12 @@ export function previewErrorText(err: unknown): string {
  * preview is missing, as when the server reports `missing`. */
 const gone = (err: unknown) => err instanceof client.ApiError && err.status === 404;
 
+/** A preview whose search ran and failed (not one cancelled or never started): sent to
+ * the server by sid, which decides as a run would (an on_failure or always edge still
+ * reaches the step; an on_success edge is upstream_failed). */
+const ranAndFailed = (p: PreviewRecord | undefined): boolean =>
+    Boolean(p && p.state === 'failed' && p.sid && p.status && (p.status.state === 'failed' || p.status.state === 'done'));
+
 const failedUpstream = (id: string) => `${id}'s preview failed; fix it or preview it again`;
 
 export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api: PreviewApi = defaultApi) {
@@ -138,7 +144,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         const sent: Record<string, { sid?: string; skipped?: SkipKind }> = {};
         upstreamOf(jobSnap, id).forEach((u) => {
             const p = store.current[u];
-            if (p && p.state === 'done' && p.sid) {
+            if (p && p.sid && (p.state === 'done' || ranAndFailed(p))) {
                 sent[u] = { sid: p.sid };
             } else if (p && p.state === 'skipped' && p.skipped) {
                 sent[u] = { skipped: p.skipped };
@@ -180,7 +186,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                     if (!current(id, token)) {
                         return ended(id, token);
                     }
-                    if (o !== 'done' && o !== 'skipped') {
+                    if (o !== 'done' && o !== 'skipped' && !(o === 'failed' && ranAndFailed(store.current[s]))) {
                         patch(id, token, { state: 'failed', error: failedUpstream(s) });
                         return 'failed';
                     }
@@ -296,7 +302,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                 if (!current(stepId, token)) {
                     return ended(stepId, token);
                 }
-                if (o !== 'done' && o !== 'skipped') {
+                if (o !== 'done' && o !== 'skipped' && !(o === 'failed' && ranAndFailed(store.current[up]))) {
                     patch(stepId, token, {
                         state: 'failed',
                         error: o === 'cancelled' ? `${up}'s preview was cancelled; preview it again` : failedUpstream(up),

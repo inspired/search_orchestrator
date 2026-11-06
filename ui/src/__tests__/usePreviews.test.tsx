@@ -292,6 +292,65 @@ describe('usePreviews', () => {
         expect(result.current.previews.a.error).toBeUndefined();
     });
 
+    test('a failed upstream is sent by sid and the server decides: on_failure branch previews', async () => {
+        const branch: JobDefinition = {
+            name: 'j',
+            enabled: true,
+            steps: [
+                { id: 'a', type: 'inline', spl: '| makeresults' },
+                { id: 'h', type: 'inline', spl: '| makeresults' },
+            ],
+            edges: [{ from: 'a', to: 'h', condition: 'on_failure' }],
+        };
+        const api = fakeApi({
+            previewStatus: jest.fn((sid: string) =>
+                Promise.resolve(
+                    sid.startsWith('sid-a')
+                        ? { state: 'failed' as const, result_count: 0, error: 'boom', messages: [] }
+                        : { state: 'done' as const, result_count: 1, messages: [] }
+                )
+            ),
+        });
+        const { result } = renderHook(() => usePreviews(branch, ctx, api));
+        act(() => {
+            result.current.preview('h');
+        });
+        await settle(6);
+        const calls = api.startPreview.mock.calls.map((c) => c[0] as PreviewRequest);
+        expect(calls.map((c) => c.step_id)).toEqual(['a', 'h']);
+        expect(calls[1].input).toEqual({ mode: 'live', previews: { a: { sid: 'sid-a-1' } } });
+        expect(result.current.previews.a.state).toBe('failed');
+        expect(result.current.previews.h.state).toBe('done');
+        // Previewing h again reuses a's current failed preview.
+        act(() => {
+            result.current.preview('h');
+        });
+        await settle(4);
+        const again = api.startPreview.mock.calls.map((c) => c[0] as PreviewRequest);
+        expect(again.map((c) => c.step_id)).toEqual(['a', 'h', 'h']);
+        expect(again[2].input).toEqual({ mode: 'live', previews: { a: { sid: 'sid-a-1' } } });
+    });
+
+    test('a failed upstream behind on_success shows the server upstream_failed', async () => {
+        const msg = 'a failed, so a run would not reach this step; fix it or preview it again';
+        const api = fakeApi({
+            startPreview: jest.fn((req: PreviewRequest) =>
+                req.step_id === 'b'
+                    ? Promise.reject(new ApiError(409, 'upstream_failed', msg, [], { step: 'a' }))
+                    : Promise.resolve({ status: 'started' as const, sid: 'sid-a-1', spl: 'x' })
+            ),
+            previewStatus: jest.fn(() => Promise.resolve({ state: 'failed' as const, result_count: 0, error: 'boom', messages: [] })),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle(6);
+        expect((api.startPreview.mock.calls[1][0] as PreviewRequest).input).toEqual({ mode: 'live', previews: { a: { sid: 'sid-a-1' } } });
+        expect(result.current.previews.b.state).toBe('failed');
+        expect(result.current.previews.b.error).toBe(msg);
+    });
+
     test('unmount cancels running previews', async () => {
         const api = fakeApi({
             previewStatus: jest.fn(() => Promise.resolve({ state: 'running' as const, result_count: 0, messages: [] })),
