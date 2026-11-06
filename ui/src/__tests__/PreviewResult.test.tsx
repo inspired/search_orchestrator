@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import PreviewResult from '../features/builder/PreviewResult';
 import type { PreviewView } from '../features/builder/usePreviews';
 import { renderThemed } from './fixtures';
@@ -132,5 +132,30 @@ describe('PreviewResult', () => {
     test('missing: says the search job expired', () => {
         renderResult(view({ state: 'missing', sid: 's' }));
         expect(screen.getByText('This preview has expired on the server. Preview again to refresh.')).toBeInTheDocument();
+    });
+
+    test('the input line names skipped and failed inputs and ticks once a minute', () => {
+        jest.restoreAllMocks();
+        jest.useFakeTimers();
+        jest.setSystemTime(NOW_MS);
+        renderResult(
+            view({
+                status: { state: 'done', result_count: 1, run_duration: 0.4, messages: [] },
+                input: {
+                    mode: 'live',
+                    steps: [
+                        { id: 'a', at: NOW_MS - 30000 },
+                        { id: 'b', at: NOW_MS - 30000, skipped: 'run_when' },
+                        { id: 'f', at: NOW_MS - 30000, failed: true },
+                    ],
+                },
+            })
+        );
+        expect(screen.getByText('1 row · 0.4 s · input: a preview, just now; b skipped; f failed preview, just now')).toBeInTheDocument();
+        act(() => {
+            jest.advanceTimersByTime(60000);
+        });
+        expect(screen.getByText('1 row · 0.4 s · input: a preview, 1 min ago; b skipped; f failed preview, 1 min ago')).toBeInTheDocument();
+        jest.useRealTimers();
     });
 });

@@ -5,7 +5,7 @@
  * running previews, best effort. Nothing here blocks editing. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../../api/client';
-import type { JobDefinition, PreviewInput, PreviewRequest, PreviewResults, PreviewStatus, SkipKind } from '../../api/types';
+import type { JobDefinition, PreviewInput, PreviewInputRead, PreviewRequest, PreviewResults, PreviewStatus, SkipKind } from '../../api/types';
 import { BUILTIN_DEFAULTS, isStale, LivePreview, PreviewContext, previewKeys, previousInputs, toBeRun, upstreamOf } from './previewLogic';
 
 export interface PreviewApi {
@@ -27,7 +27,7 @@ export const KEEP_ALIVE_MS = 5 * 60 * 1000;
 
 /** What a preview read, for the "input: …" line. `at` is in milliseconds. */
 export type PreviewInputInfo =
-    | { mode: 'live'; steps: { id: string; at: number; skipped?: SkipKind }[] }
+    | { mode: 'live'; steps: { id: string; at: number; skipped?: SkipKind; failed?: boolean }[] }
     | { mode: 'run'; scheduledTime: number };
 
 export interface PreviewRecord extends LivePreview {
@@ -80,6 +80,15 @@ const gone = (err: unknown) => err instanceof client.ApiError && err.status === 
  * reaches the step; an on_success edge is upstream_failed). */
 const ranAndFailed = (p: PreviewRecord | undefined): boolean =>
     Boolean(p && p.state === 'failed' && p.sid && p.status && (p.status.state === 'failed' || p.status.state === 'done'));
+
+/** One input of the "input: …" line from the server's account of it. */
+function readStep(r: PreviewInputRead, p: PreviewRecord | undefined): { id: string; at: number; skipped?: SkipKind; failed?: boolean } {
+    const at = p ? p.startedAt : Date.now();
+    if (r.state === 'skipped') {
+        return { id: r.step, at, skipped: r.skip_kind || 'not_taken' };
+    }
+    return r.state === 'failed' ? { id: r.step, at, failed: true } : { id: r.step, at };
+}
 
 const failedUpstream = (id: string) => `${id}'s preview failed; fix it or preview it again`;
 
@@ -208,7 +217,11 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
             return 'skipped';
         }
         const { sid } = start;
-        patch(id, token, { sid, spl: start.spl, anyway: Boolean(start.anyway) });
+        const changes: Partial<PreviewRecord> = { sid, spl: start.spl, anyway: Boolean(start.anyway) };
+        if (info.mode === 'live' && start.input) {
+            changes.input = { mode: 'live', steps: start.input.map((r) => readStep(r, store.current[r.step])) };
+        }
+        patch(id, token, changes);
         const limit = effectiveMaxRuntime(jobSnap, id);
         for (;;) {
             let st: PreviewStatus;

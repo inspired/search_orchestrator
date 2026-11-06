@@ -549,4 +549,54 @@ describe('usePreviews', () => {
         [first, second].forEach((id) => expect(result.current.previews[id].state).toBe('done'));
         expect(result.current.previews.b.state).toBe('done');
     });
+
+    test('the input line lists what the server says the preview read, skipped ones as skipped', async () => {
+        const chain: JobDefinition = {
+            name: 'j',
+            enabled: true,
+            steps: [
+                { id: 'a', type: 'inline', spl: '| makeresults' },
+                { id: 'b', type: 'inline', spl: '| makeresults', run_when: { kind: 'cron', value: '* * * * 1' } },
+                { id: 'c', type: 'inline', spl: '| makeresults | eval n="$a.resultCount$" s="$b.sid|none$"' },
+            ],
+            edges: [
+                { from: 'a', to: 'b', condition: 'on_success' },
+                { from: 'b', to: 'c', condition: 'on_success' },
+            ],
+        };
+        let n = 0;
+        const api = fakeApi({
+            startPreview: jest.fn((req: PreviewRequest) => {
+                n += 1;
+                const sid = `sid-${req.step_id}-${n}`;
+                if (req.step_id === 'c') {
+                    return Promise.resolve({
+                        status: 'started' as const,
+                        sid,
+                        spl: 'x',
+                        input: [
+                            { step: 'a', state: 'succeeded' as const, sid: 'sid-a-1' },
+                            { step: 'b', state: 'skipped' as const, skip_kind: 'run_when' as const },
+                        ],
+                    });
+                }
+                return Promise.resolve({ status: 'started' as const, sid, spl: 'x' });
+            }),
+        });
+        const { result } = renderHook(() => usePreviews(chain, ctx, api));
+        act(() => {
+            result.current.preview('b', { anyway: true });
+        });
+        await settle();
+        act(() => {
+            result.current.preview('c');
+        });
+        await settle();
+        const { input } = result.current.previews.c;
+        expect(input && input.mode === 'live' && input.steps.map((s) => [s.id, s.skipped || null])).toEqual([
+            ['a', null],
+            ['b', 'run_when'],
+        ]);
+        expect(input && input.mode === 'live' && input.steps[0].at).toBe(result.current.previews.a.startedAt);
+    });
 });

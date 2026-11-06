@@ -324,8 +324,17 @@ export interface PreviewRequest {
     anyway?: boolean;
 }
 
+/** A step a preview read (an edge source, or a step its SPL names in a token), as the
+ * server resolved it: a step a run would skip is skipped whatever was sent. */
+export interface PreviewInputRead {
+    step: string;
+    state: 'succeeded' | 'failed' | 'skipped';
+    sid?: string;
+    skip_kind?: SkipKind;
+}
+
 export type PreviewStart =
-    | { status: 'started'; sid: string; spl: string; anyway?: boolean }
+    | { status: 'started'; sid: string; spl: string; anyway?: boolean; input?: PreviewInputRead[] }
     | { status: 'skipped'; skip_kind: SkipKind; reason: string };
 
 export interface PreviewStatus {

@@ -1,7 +1,7 @@
 /* A step's live preview in the step panel: running, done (summary line and up to 100
  * rows), failed, skipped (with Preview anyway), expired, or out of date (the last table,
  * dimmed). Statuses are plain text; errors and search messages are SUIT Messages. */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import CollapsiblePanel from '@splunk/react-ui/CollapsiblePanel';
 import Message from '@splunk/react-ui/Message';
@@ -40,7 +40,13 @@ function inputText(input: PreviewInputInfo | undefined): string {
     if (!input.steps.length) {
         return '';
     }
-    return `input: ${input.steps.map((s) => (s.skipped ? `${s.id} skipped` : `${s.id} preview, ${ago(s.at)}`)).join('; ')}`;
+    const one = (s: (typeof input.steps)[number]) => {
+        if (s.skipped) {
+            return `${s.id} skipped`;
+        }
+        return `${s.id} ${s.failed ? 'failed preview' : 'preview'}, ${ago(s.at)}`;
+    };
+    return `input: ${input.steps.map(one).join('; ')}`;
 }
 
 export function summaryLine(preview: PreviewView): string {
@@ -113,8 +119,21 @@ export interface PreviewResultProps {
     onAnyway: () => void;
 }
 
+/** Re-renders once a minute while `on`, so "2 min ago" stays true. */
+function useMinuteTick(on: boolean) {
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        if (!on) {
+            return undefined;
+        }
+        const timer = setInterval(() => setTick((n) => n + 1), 60000);
+        return () => clearInterval(timer);
+    }, [on]);
+}
+
 export default function PreviewResult({ preview, onCancel, onAnyway }: PreviewResultProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
+    useMinuteTick(Boolean(preview && preview.state === 'done' && preview.input && preview.input.mode === 'live' && preview.input.steps.length));
     const muted = { color: theme.contentColorMuted };
     const p = preview;
     const stale = Boolean(p && p.stale && p.state !== 'running');
