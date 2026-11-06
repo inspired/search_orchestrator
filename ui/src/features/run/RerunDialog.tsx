@@ -104,6 +104,7 @@ export default function RerunDialog({ run, open, initialStep, onClose, onStarted
                         onChange={(_e: unknown, { value }: { value: unknown }) => {
                             setStep(String(value));
                             setDefinition(undefined);
+                            setServerChoices(undefined);
                         }}
                     >
                         {(run.definition.steps || []).map((s) => (

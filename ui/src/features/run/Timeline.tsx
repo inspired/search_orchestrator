@@ -32,7 +32,7 @@ export default function Timeline({ run, now, selected, onSelect }: TimelineProps
         if (bar.kind === 'done') {
             return { backgroundColor: theme.contentColorMuted };
         }
-        return { backgroundColor: theme.accentColorPositive };
+        return { backgroundColor: theme.contentColorDefault };
     };
 
     const status = run.steps || {};

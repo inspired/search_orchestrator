@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, screen } from '@testing-library/react';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import Timeline from '../features/run/Timeline';
 import { bars } from '../features/run/bars';
 import StepDrawer from '../features/run/StepDrawer';
@@ -21,6 +22,27 @@ describe('Timeline', () => {
         expect(screen.getByTestId('bar-weekly')).toHaveAttribute('data-pattern', 'hatched');
         expect(screen.queryByTestId('bar-monthly')).toBeNull();
         expect(screen.getByText('Skipped (not taken)')).toBeInTheDocument();
+    });
+
+    test('running bar is neutral, not a status or positive colour', () => {
+        let t: Record<string, string> = {};
+        function Probe() {
+            t = useSplunkTheme() as unknown as Record<string, string>;
+            return null;
+        }
+        renderThemed(
+            <>
+                <Probe />
+                <Timeline run={run} now={NOW} onSelect={jest.fn()} />
+            </>
+        );
+        const color = screen.getByTestId('bar-daily').style.backgroundColor;
+        expect(color).not.toBe('');
+        [t.accentColorPositive, t.statusColorMedium, t.statusColorHigh].forEach((c) => {
+            const probe = document.createElement('div');
+            probe.style.backgroundColor = c;
+            expect(color).not.toBe(probe.style.backgroundColor);
+        });
     });
 
     test('step click opens drawer with sid link', () => {
@@ -76,5 +98,47 @@ describe('timeline.bars', () => {
         expect(out[0]).toMatchObject({ kind: 'done', startPct: 0 });
         expect(out[1]).toMatchObject({ kind: 'skipped', widthPct: 0, statusText: 'Skipped (run when)' });
         expect(out[2].statusText).toBe('Skipped (not taken)');
+    });
+});
+
+describe('bars edge cases', () => {
+    const sane = (r: ReturnType<typeof rollupRun>, now: number) =>
+        bars(r, now).forEach((b) => {
+            [b.startPct, b.widthPct].forEach((n) => {
+                expect(Number.isFinite(n)).toBe(true);
+                expect(n).toBeGreaterThanOrEqual(0);
+            });
+            expect(b.startPct + b.widthPct).toBeLessThanOrEqual(100.0001);
+        });
+
+    test('run not yet started', () => {
+        sane(rollupRun({ state: 'queued', started_at: null, ended_at: null, steps: { daily: { state: 'waiting' } } as never }), NOW);
+    });
+    test('now earlier than start', () => {
+        sane(rollupRun({ started_at: NOW + 500, steps: { daily: { state: 'running', started_at: NOW + 500 } } as never }), NOW);
+    });
+    test('zero-length run', () => {
+        sane(
+            rollupRun({
+                state: 'succeeded',
+                started_at: NOW,
+                ended_at: NOW,
+                steps: { daily: { state: 'succeeded', started_at: NOW, ended_at: NOW } } as never,
+            }),
+            NOW
+        );
+    });
+    test('missing timestamps', () => {
+        sane(
+            rollupRun({
+                state: 'failed',
+                started_at: null,
+                queued_at: undefined as never,
+                created_at: undefined as never,
+                ended_at: null,
+                steps: { daily: { state: 'succeeded' }, weekly: { state: 'failed' }, monthly: { state: 'cancelled' } } as never,
+            }),
+            NOW
+        );
     });
 });

@@ -3,6 +3,9 @@ import React from 'react';
 import Table from '@splunk/react-ui/Table';
 import type { RunDetail } from '../../api/types';
 
+const show = (v: unknown): string =>
+    v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+
 export default function ParamsTab({ run }: { run: RunDetail }) {
     const names = Object.keys(run.params || {});
     if (!names.length) {
@@ -18,7 +21,7 @@ export default function ParamsTab({ run }: { run: RunDetail }) {
                 {names.map((n) => (
                     <Table.Row key={n}>
                         <Table.Cell>{n}</Table.Cell>
-                        <Table.Cell>{run.params[n]}</Table.Cell>
+                        <Table.Cell>{show(run.params[n])}</Table.Cell>
                     </Table.Row>
                 ))}
             </Table.Body>
