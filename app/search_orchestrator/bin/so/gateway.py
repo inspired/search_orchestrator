@@ -101,6 +101,11 @@ def parse_job_status(body):
     Zombie jobs count as failed. A DONE job with zero results is a success. A DONE
     job with an ERROR or FATAL message (for example a missing lookup, which splunkd
     reports as DONE with isFailed=0) counts as failed: its results are incomplete.
+
+    ``truncated`` is the first message (of any type) saying a subsearch was cut short:
+    one containing ``truncating to maxout``, or ``Subsearch`` with ``timed out`` or
+    ``auto-finalized``; else None. splunkd reports a truncated ``append`` only as an
+    INFO message, so the state stays as it was; the caller decides what it means.
     """
     entry = json.loads(body)["entry"][0]
     c = entry.get("content", {})
@@ -129,11 +134,20 @@ def parse_job_status(body):
     except (TypeError, ValueError):
         ttl = 0
     return {"state": state, "result_count": count, "error": error,
-            "finalized": _truthy(c.get("isFinalized")), "zombie": zombie, "ttl": ttl}
+            "finalized": _truthy(c.get("isFinalized")), "zombie": zombie, "ttl": ttl,
+            "truncated": _truncation(texts)}
+
+
+def _truncation(texts):
+    for _, t in texts:
+        if "truncating to maxout" in t or ("Subsearch" in t and ("timed out" in t
+                                                                 or "auto-finalized" in t)):
+            return t
+    return None
 
 
 MISSING_STATUS = {"state": "missing", "result_count": 0, "error": "search job not found",
-                  "finalized": False, "zombie": False, "ttl": 0}
+                  "finalized": False, "zombie": False, "ttl": 0, "truncated": None}
 
 
 def parse_first_row(body):

@@ -235,3 +235,17 @@ def test_saved_search_outside_app_context_is_clear_error():
                                       "the Search Orchestrator app to be used as a step.")
     assert errors["s"]["message"].startswith("Saved search 'shared_in_search' must be shared")
     assert planned["steps"][2]["mode"] == "wrapped"
+
+
+def test_previous_step_saved_with_input_arg_first():
+    gw = FakeGateway()
+    j = job(steps=[{"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d@d",
+                    "latest": "@d"},
+                   {"id": "b", "type": "previous", "spl": '| where p="$run.param.p$"'}],
+            edges=[{"from": "a", "to": "b", "condition": "on_success"}])
+    out = hidden.sync(gw, j, None)
+    b = out["steps"][1]
+    assert b["mode"] == "previous" and b["hidden_search"].startswith("_so_daily_b_")
+    saved = gw.saved_searches[("alice", b["hidden_search"])]
+    assert saved["search"] == '$args.so_input$ | where p="$args.run__param__p$"'
+    assert (saved["earliest"], saved["latest"]) == ("", "")

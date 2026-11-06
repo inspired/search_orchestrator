@@ -7,7 +7,10 @@
   ``a`` (makeresults, run tokens) -> ``b`` and ``c`` in parallel
   (``| loadjob $a.sid$``) -> ``d`` (``first`` and ``resultCount`` tokens of
   ``b`` and ``c``); ``skip_me`` after ``a`` with a ``run_when`` that never
-  matches; ``flaky`` after ``a`` with ``retries = 1``, whose first attempt fails.
+  matches; ``flaky`` after ``a`` with ``retries = 1``, whose first attempt fails;
+  ``merged`` (From previous steps) after ``b``, ``c`` and ``skip_me``, which
+  gives one row exactly when both branches were loaded and the skipped step
+  added nothing.
 * ``rollup_late`` / ``rollup_fail``: ``rollup_definition(fail_first)``,
   daily -> weekly -> monthly, every step ending in ``addinfo`` so its
   ``info_min_time`` / ``info_max_time`` show the window it summarised. The late
@@ -97,13 +100,18 @@ def definition():
             _step("skip_me", "Never runs", "| makeresults",
                   run_when={"kind": "expression", "value": "$a.resultCount$ < 0"}),
             _step("flaky", "Fails once", _fail_first("flaky") + " | stats count", retries=1),
+            {"id": "merged", "name": "Merge inputs", "type": "previous",
+             "spl": "| stats dc(branch) AS branches | where branches=2", "actions": []},
         ],
         "edges": [{"from": "a", "to": "b", "condition": "on_success"},
                   {"from": "a", "to": "c", "condition": "on_success"},
                   {"from": "b", "to": "d", "condition": "on_success"},
                   {"from": "c", "to": "d", "condition": "on_success"},
                   {"from": "a", "to": "skip_me", "condition": "on_success"},
-                  {"from": "a", "to": "flaky", "condition": "on_success"}],
+                  {"from": "a", "to": "flaky", "condition": "on_success"},
+                  {"from": "b", "to": "merged", "condition": "on_success"},
+                  {"from": "c", "to": "merged", "condition": "on_success"},
+                  {"from": "skip_me", "to": "merged", "condition": "on_success"}],
         "actions": [_event_action("on_failure")],
     }
 

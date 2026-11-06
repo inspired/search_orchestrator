@@ -831,7 +831,8 @@ class Engine:
         state = status.get("state")
         if state == "running":
             return
-        if state == "done" and not status.get("finalized"):
+        if state == "done" and not status.get("finalized") \
+                and not (sdef.get("type") == "previous" and status.get("truncated")):
             count = int(status.get("result_count") or 0)
             first = None
             wanted = first_fields(run.get("definition") or {}).get(sid)
@@ -847,7 +848,10 @@ class Engine:
             st.update(outcome="succeeded", result_count=count, first=first, ended_at=now,
                       error=None)
         else:
-            if state == "done":
+            if state == "done" and not status.get("finalized"):
+                # A From previous steps search whose appended input was cut short.
+                error = "input was cut short: " + status["truncated"]
+            elif state == "done":
                 error = ("search %s was finalized (stopped early) outside the orchestrator, so "
                          "its results may be incomplete" % st["sid"])
             elif state == "failed":
@@ -936,9 +940,18 @@ class Engine:
         definition = run.get("definition") or {}
         ids = [s["id"] for s in definition.get("steps") or []]
         spl = sdef.get("spl") or ""
-        _, arg_names = tokens.compile_spl(spl, ids)
-        return tokens.render_args(arg_names, tokens.run_context(run),
-                                  tokens.token_defaults(spl, ids))
+        _, arg_names = tokens.step_spl(sdef, ids)
+        args = tokens.render_args(arg_names, tokens.run_context(run),
+                                tokens.token_defaults(spl, ids))
+        if sdef.get("type") == "previous":
+            # Only dependencies that succeeded have results to load; skipped and failed
+            # ones add nothing.
+            steps = run.get("steps") or {}
+            sids = [(steps.get(up) or {}).get("sid")
+                    for up in tokens.previous_inputs(definition, sdef["id"])
+                    if (steps.get(up) or {}).get("state") == "succeeded"]
+            args[tokens.INPUT_ARG] = tokens.input_spl(sids)
+        return args
 
     def _attempt_failed(self, run, sid, error, now, pending):
         st = run["steps"][sid]

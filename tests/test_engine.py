@@ -1382,3 +1382,74 @@ def test_action_submitted_audited_only_with_actions():
     assert w.run(run_id)["state"] == "succeeded"
     assert w.audit.of("action_submitted", run_id=run_id, hook="on_success", scope="job")
     assert not w.audit.of("action_submitted", run_id=run_id, hook="on_start")
+
+
+# --- From previous steps --------------------------------------------------------
+
+NEVER = {"kind": "expression", "value": "$a.resultCount$ < 0"}
+
+
+def test_previous_input_skips_unsucceeded():
+    from so import tokens
+    w = World()
+    j = w.add_job(make_job(steps=["a", {"id": "s", "run_when": NEVER}, "f",
+                                  {"id": "p", "type": "previous", "spl": "| stats count"}],
+                           edges=[("a", "s"), ("a", "f"), ("a", "p"), ("s", "p"),
+                                  ("f", "p", "on_failure")]),
+                  scripts={"f": {"states": ["failed"], "error": "bad search"}})
+    run_id = cron_run(w, j)
+    for _ in range(4):
+        w.tick(advance=5)
+    assert w.step(run_id, "s")["state"] == "skipped"
+    assert w.step(run_id, "f")["state"] == "failed"
+    a_sid = w.step(run_id, "a")["sid"]
+    assert w.dispatched("p")[0]["args"] == {"so_input": '| loadjob "%s"' % a_sid}
+
+    w2 = World()
+    j2 = w2.add_job(make_job(steps=["a", {"id": "s", "run_when": NEVER},
+                                    {"id": "p", "type": "previous", "spl": "| stats count"}],
+                             edges=[("a", "s"), ("s", "p")]))
+    run2 = cron_run(w2, j2)
+    for _ in range(3):
+        w2.tick(advance=5)
+    assert w2.step(run2, "s")["state"] == "skipped"
+    assert w2.dispatched("p")[0]["args"] == {"so_input": tokens.EMPTY_INPUT}
+
+
+def test_previous_input_bad_sid_fails_the_attempt():
+    bad = 'x" | delete'
+    w = World()
+    j = w.add_job(make_job(steps=["a", {"id": "p", "type": "previous", "spl": "| stats count"}],
+                           edges=[("a", "p")]),
+                  scripts={"a": {"states": ["running"]}})
+    run_id = cron_run(w, j)
+    run = w.run(run_id)
+    run["steps"]["a"]["sid"] = bad
+    w.store.save_run(run)
+    w.gw.jobs[bad] = {"states": ["done"], "idx": 0, "result_count": 1, "first": None,
+                      "error": None}
+    w.tick(advance=5)
+    w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "succeeded"
+    p = w.step(run_id, "p")
+    assert p["state"] == "failed" and "bad search id" in p["error"]
+    assert not w.dispatched("p")
+
+
+TRUNC = "Subsearch produced 100000 results, truncating to maxout [subsearch_maxout] 50000."
+
+
+def test_previous_step_fails_on_subsearch_truncation():
+    w = World()
+    j = w.add_job(make_job(steps=["a", {"id": "p", "type": "previous", "spl": "| stats count"},
+                                  {"id": "i", "spl": "| makeresults"}],
+                           edges=[("a", "p"), ("a", "i")]),
+                  scripts={"p": {"states": ["done"], "truncated": TRUNC},
+                           "i": {"states": ["done"], "result_count": 1, "truncated": TRUNC}})
+    run_id = cron_run(w, j)
+    for _ in range(3):
+        w.tick(advance=5)
+    p = w.step(run_id, "p")
+    assert p["state"] == "failed"
+    assert p["error"] == "input was cut short: " + TRUNC
+    assert w.step(run_id, "i")["state"] == "succeeded"

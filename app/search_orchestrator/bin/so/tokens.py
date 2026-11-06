@@ -127,6 +127,50 @@ def compile_spl(spl, step_ids):
     return "".join(out), names
 
 
+INPUT_ARG = "so_input"
+EMPTY_INPUT = '| makeresults | where 1=0'
+_SID_RE = re.compile(r"[A-Za-z0-9_.-]+")
+_ARGS_RE = re.compile(r"\$args\.([A-Za-z0-9_]+)\$")
+
+
+def input_spl(sids):
+    """The SPL that loads a ``previous`` step's input jobs: ``| loadjob "s1"``, then
+    ``| append [| loadjob "s2"]`` for each later one; ``EMPTY_INPUT`` for none. The only
+    unquoted value the engine builds, so every sid must match ``^[A-Za-z0-9_.-]+$``."""
+    token = "$%s$" % INPUT_ARG
+    parts = []
+    for sid in sids:
+        if not isinstance(sid, str) or not _SID_RE.fullmatch(sid):
+            raise TokenError(token, "bad search id")
+        load = '| loadjob "%s"' % sid
+        parts.append(load if not parts else "| append [%s]" % load)
+    return " ".join(parts) if parts else EMPTY_INPUT
+
+
+def step_spl(step, step_ids):
+    """``(saved search text, arg names)`` for an ``inline`` or ``previous`` step. A
+    ``previous`` step's search starts with ``$args.so_input$``, filled at dispatch."""
+    spl, names = compile_spl(step.get("spl") or "", step_ids)
+    if step.get("type") == "previous":
+        spl = "$args.%s$ %s" % (INPUT_ARG, spl)
+    return spl, names
+
+
+def previous_inputs(definition, step_id):
+    """The steps with an edge into ``step_id``, in edge order, without repeats."""
+    out = []
+    for e in definition.get("edges") or []:
+        if e.get("to") == step_id and e.get("from") not in out:
+            out.append(e.get("from"))
+    return out
+
+
+def fill(compiled, args):
+    """Replace each ``$args.<name>$`` whose name is in ``args`` with its value."""
+    return _ARGS_RE.sub(lambda m: str(args[m.group(1)]) if m.group(1) in args else m.group(0),
+                        compiled)
+
+
 def token_defaults(spl, step_ids):
     out = {}
     for m in _regex(step_ids).finditer(spl):

@@ -1,3 +1,4 @@
+from so import model
 from so.model import validate_job, topo_order, resolve_step
 
 
@@ -172,3 +173,25 @@ def test_token_after_backslash_is_a_save_error():
            "edges": [], "params": [{"name": "p", "type": "string"}]}
     issues = model.validate_job(job)
     assert any(i["code"] == "unsafe_token_position" and i["level"] == "error" for i in issues)
+
+
+def test_previous_step_validation():
+    base = {"id": "j", "owner": "o", "steps": [
+        {"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d"},
+        {"id": "b", "type": "previous", "spl": "stats count"}], "edges": []}
+    codes = {i["code"] for i in model.validate_job(base) if i["level"] == "error"}
+    assert {"previous_needs_pipe", "previous_needs_dependency"} <= codes
+    base["steps"][1]["spl"] = "| stats count"
+    base["edges"] = [{"from": "a", "to": "b"}]
+    assert not [i for i in model.validate_job(base) if i["level"] == "error"]
+    assert not [i for i in model.validate_job(base)
+                if i["code"] == "all_time_search" and i["step"] == "b"]
+
+
+def test_previous_step_shares_inline_spl_checks():
+    j = {"id": "j", "owner": "o", "steps": [
+        {"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d"},
+        {"id": "b", "type": "previous", "spl": "| orchestrate run x | eval x=```$a.sid$```"}],
+        "edges": [{"from": "a", "to": "b"}]}
+    found = {i["code"] for i in model.validate_job(j) if i["level"] == "error"}
+    assert {"orchestrate_in_step", "unsafe_token_position"} <= found

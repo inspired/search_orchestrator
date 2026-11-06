@@ -68,12 +68,14 @@ class FakeGateway:
 
     # Scripting.
 
-    def script_job(self, name, states, result_count=0, first=None, error="scripted failure"):
+    def script_job(self, name, states, result_count=0, first=None, error="scripted failure",
+                   truncated=None):
         """Each dispatch of ``name`` makes a job whose status steps through ``states``
         ("running", "done", "failed", "missing", "finalized"); the last state sticks.
-        "finalized" is a job stopped early outside the app (done with isFinalized)."""
+        "finalized" is a job stopped early outside the app (done with isFinalized).
+        ``truncated``: the subsearch truncation message its status reports."""
         self._scripts[name] = {"states": list(states), "result_count": result_count,
-                               "first": first, "error": error}
+                               "first": first, "error": error, "truncated": truncated}
 
     def fail_dispatch(self, name, transient, times=1):
         self._dispatch_errors[name] = [transient] * times
@@ -107,18 +109,19 @@ class FakeGateway:
         job = self.jobs.get(sid)
         if job is None or job.get("cancelled"):
             return {"state": "missing", "result_count": 0, "error": "search job not found",
-                    "finalized": False, "zombie": False, "ttl": 0}
+                    "finalized": False, "zombie": False, "ttl": 0, "truncated": None}
         state = job["states"][min(job["idx"], len(job["states"]) - 1)]
         job["idx"] += 1
         if state == "missing":
             return {"state": "missing", "result_count": 0, "error": "search job not found",
-                    "finalized": False, "zombie": False, "ttl": 0}
+                    "finalized": False, "zombie": False, "ttl": 0, "truncated": None}
         finalized = state == "finalized"
         if finalized:
             state = "done"
         return {"state": state, "result_count": job["result_count"] if state == "done" else 0,
                 "error": job["error"] if state == "failed" else None,
-                "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0)}
+                "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
+                "truncated": job.get("truncated")}
 
     def first_row(self, sid):
         job = self.jobs.get(sid)

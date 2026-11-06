@@ -32,9 +32,14 @@ def test_selftest_definition_is_valid():
     job = selftest.definition()
     assert not errors(as_job(job))
     s = steps(job)
-    assert set(s) == {"a", "b", "c", "d", "skip_me", "flaky"}
+    assert set(s) == {"a", "b", "c", "d", "skip_me", "flaky", "merged"}
     assert edges(job) == sorted([("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"),
-                                 ("a", "skip_me"), ("a", "flaky")])
+                                 ("a", "skip_me"), ("a", "flaky"), ("b", "merged"),
+                                 ("c", "merged"), ("skip_me", "merged")])
+    assert s["merged"]["type"] == "previous"
+    assert s["merged"]["spl"] == "| stats dc(branch) AS branches | where branches=2"
+    assert not s["merged"].get("earliest") and not s["merged"].get("latest")
+    assert all(e["condition"] == "on_success" for e in job["edges"] if e["to"] == "merged")
     assert "makeresults" in s["a"]["spl"]
     for parallel in ("b", "c"):
         assert "| loadjob $a.sid$" in s[parallel]["spl"]
@@ -108,9 +113,14 @@ def test_selftest_completes_on_fake():
     st = run["steps"]
     assert st["skip_me"]["state"] == "skipped" and st["skip_me"]["skip_kind"] == "run_when"
     assert st["flaky"]["state"] == "succeeded" and st["flaky"]["attempt"] == 2
-    assert all(st[s]["state"] == "succeeded" for s in ("a", "b", "c", "d"))
+    assert all(st[s]["state"] == "succeeded" for s in ("a", "b", "c", "d", "merged"))
     d_args = [x["args"] for x in w.gw.dispatch_log if x["name"] == hidden(w, "so_selftest", "d")]
     assert d_args and d_args[0]["b__first__rows"] == "3"
+    m_args = [x["args"] for x in w.gw.dispatch_log
+              if x["name"] == hidden(w, "so_selftest", "merged")]
+    assert m_args == [{"so_input": '| loadjob "%s" | append [| loadjob "%s"]'
+                                   % (st["b"]["sid"], st["c"]["sid"])}]
+    assert st["skip_me"].get("sid") is None
     assert [e for e in w.audit.events if e.get("run_id") == run_id and e["type"] == "run_state"]
 
 

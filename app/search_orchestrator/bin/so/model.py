@@ -2,7 +2,8 @@
 
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
-unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape; warning timezone_fallback.
+unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_needs_pipe,
+previous_needs_dependency; warning timezone_fallback.
 ``workload_pool`` was removed from the first version and is ignored.
 """
 import re
@@ -257,8 +258,8 @@ def _validate(job, known_saved_searches):
                 issues.append(_issue("error", "bad_step", "saved_search step needs saved_search_ref", sid))
             elif known_saved_searches is not None and ref not in known_saved_searches:
                 issues.append(_issue("error", "unknown_saved_search", "unknown saved search %r" % ref, sid))
-        elif s.get("type") == "inline":
-            if not (s.get("spl") or "").strip():
+        elif s.get("type") in ("inline", "previous"):
+            if s.get("type") == "inline" and not (s.get("spl") or "").strip():
                 issues.append(_issue("error", "bad_step", "inline step needs spl", sid))
             if _ORCHESTRATE_RE.search(s.get("spl") or ""):
                 # It would start runs outside the chain depth limit.
@@ -269,7 +270,15 @@ def _validate(job, known_saved_searches):
             except tk.TokenError as e:
                 issues.append(_issue("error", "unsafe_token_position",
                                      "%s: %s" % (e.token, e.reason), sid))
-            if not s.get("earliest") and not s.get("latest"):
+            if s.get("type") == "previous":
+                if not (s.get("spl") or "").lstrip().startswith("|"):
+                    issues.append(_issue("error", "previous_needs_pipe",
+                                         "A From previous steps search must start with |", sid))
+                if not any(e.get("to") == sid for e in job.get("edges", []) or []):
+                    issues.append(_issue("error", "previous_needs_dependency",
+                                         "A From previous steps step needs at least one step "
+                                         "before it", sid))
+            elif not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
                                      "This step searches all time.", sid))
         else:

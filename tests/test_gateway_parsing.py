@@ -351,3 +351,28 @@ def test_search_oneshot_uses_search_jobs_exec_mode():
     assert rows == [{"a": "1"}]
     path, kw = calls[0]
     assert str(path).endswith("search/jobs") and kw.get("exec_mode") == "oneshot"
+
+
+def _status_body(**content):
+    return json.dumps({"entry": [{"content": content}]})
+
+
+def test_status_reports_subsearch_truncation_from_info_message():
+    body = _status_body(dispatchState="DONE", isDone="1", messages=[{"type": "INFO",
+        "text": "[subsearch]: Subsearch produced 100000 results, truncating to maxout "
+                "[subsearch_maxout] 50000."}])
+    st = g.parse_job_status(body)
+    assert st["state"] == "done" and "truncating to maxout" in st["truncated"]
+
+
+def test_status_truncated_other_subsearch_limits_and_none():
+    for text in ("[subsearch]: Subsearch timed out after 60 seconds",
+                 "[subsearch]: Subsearch was auto-finalized after 60 seconds"):
+        st = g.parse_job_status(_status_body(isDone="1", messages=[{"type": "WARN",
+                                                                     "text": text}]))
+        assert st["state"] == "done" and st["truncated"] == text
+    st = g.parse_job_status(_status_body(isDone="1", messages=[{"type": "INFO",
+                                                                 "text": "timed out"}]))
+    assert st["truncated"] is None
+    assert g.parse_job_status(fx("job_done_rows.json"))["truncated"] is None
+    assert g.MISSING_STATUS["truncated"] is None

@@ -1,5 +1,7 @@
 import pytest
 
+from so import tokens as tk
+
 from so.tokens import (TokenError, compile_spl, escape_spl_string, find_tokens,
                        render_args, token_defaults, validate_param)
 
@@ -202,3 +204,37 @@ def test_backtick_in_search_value_fails_attempt():
 
 def test_escape_spl_string_neutralises_backticks():
     assert escape_spl_string('a`b"c\\') == 'a\'b\\"c\\\\'
+
+
+def test_input_spl_shapes():
+    assert tk.input_spl([]) == tk.EMPTY_INPUT
+    assert tk.input_spl(["1.2"]) == '| loadjob "1.2"'
+    assert tk.input_spl(["a_1", "b.2"]) == '| loadjob "a_1" | append [| loadjob "b.2"]'
+    assert tk.input_spl(["a", "b", "c"]) == \
+        '| loadjob "a" | append [| loadjob "b"] | append [| loadjob "c"]'
+    for bad in ['x" | delete', "", "a b", None]:
+        with pytest.raises(tk.TokenError):
+            tk.input_spl([bad])
+
+
+def test_step_spl_previous_prefixes_input():
+    step = {"id": "w", "type": "previous", "spl": "| stats sum(count) by $run.param.f$"}
+    spl, names = tk.step_spl(step, ["d", "w"])
+    assert spl == '$args.so_input$ | stats sum(count) by "$args.run__param__f$"'
+    assert names == ["run__param__f"]
+    inline = {"id": "w", "type": "inline", "spl": "| loadjob $d.sid$"}
+    assert tk.step_spl(inline, ["d", "w"]) == ('| loadjob "$args.d__sid$"', ["d__sid"])
+
+
+def test_previous_inputs_follow_edge_order():
+    job = {"steps": [{"id": x} for x in "abc"],
+           "edges": [{"from": "b", "to": "c"}, {"from": "a", "to": "c"}, {"from": "b", "to": "c"}]}
+    assert tk.previous_inputs(job, "c") == ["b", "a"]
+    assert tk.previous_inputs(job, "a") == []
+
+
+def test_fill_replaces_args_only():
+    assert tk.fill('$args.so_input$ | eval x="$args.a__sid$" | eval y="$keep$"',
+                   {"so_input": '| loadjob "1"', "a__sid": "1"}) == \
+        '| loadjob "1" | eval x="1" | eval y="$keep$"'
+    assert tk.fill('"$args.other$"', {"so_input": "x"}) == '"$args.other$"'

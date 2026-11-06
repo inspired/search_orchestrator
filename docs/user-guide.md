@@ -24,7 +24,7 @@ Node positions are not saved. The graph is laid out again each time the job open
 
 ### Steps
 
-- **Search** steps hold SPL. **Saved search** steps run an existing saved search. A saved search that isn't your own private search runs through a `| savedsearch` wrapper, and its own summary indexing and alert actions don't run. The builder warns you.
+- **Search** steps hold SPL. **Saved search** steps run an existing saved search. **From previous steps** steps search the results of the steps before them; see [From previous steps](#from-previous-steps). A saved search that isn't your own private search runs through a `| savedsearch` wrapper, and its own summary indexing and alert actions don't run. The builder warns you.
 - **A saved search must be shared globally or saved in the Search Orchestrator app** to be used as a step. Steps run in this app's context, where a private search in Search & Reporting, or one shared only with another app, can't be seen. Saving the job then fails with: "Saved search '<name>' must be shared globally or saved in the Search Orchestrator app to be used as a step."
 - **Steps run as the job owner**, with the owner's roles and index access.
 - **Time range:** Earliest and Latest are relative to the run's **scheduled time**, never to when the step actually starts. A daily summary that starts late after midnight still summarises the right day. **A search step with no time range runs over all time.** Set Earliest and Latest, such as `-1d@d` and `@d`.
@@ -33,6 +33,15 @@ Node positions are not saved. The graph is laid out again each time the job open
 - **Give up after** (default 24 hours from when the run leaves the queue): the step fails, other searches in the run are cancelled, and unfinished steps are abandoned.
 - **Max runtime** (default 4 hours per attempt).
 - **Retries** (default 0). A retry runs the search again, which can write duplicates to a summary index. See [Make steps safe to re-run](#make-steps-safe-to-re-run). Searches that never started are always retried up to 3 times.
+
+### From previous steps
+
+A **From previous steps** step searches the results of the steps it depends on, with no search of its own to repeat. Its SPL runs on their rows, as if each were loaded with `| loadjob`: the first dependency's results, then each later one appended, in the order the dependencies were connected.
+
+- **Its SPL must start with `|`**, such as `| stats sum(count) by host`. Saving fails otherwise, and it fails if the step has no step before it.
+- **It has no time range of its own.** It works on rows the earlier steps already found.
+- **Skipped and failed inputs add nothing.** Only dependencies that succeeded are loaded. A step that runs after an `on_failure` connection still runs, without the failed step's rows. If no dependency succeeded, it runs on no rows.
+- **The second and later inputs are limited to 50,000 rows each.** They are appended through a subsearch, and Splunk cuts a subsearch short at that limit. When that happens the step fails with "input was cut short: ..." and Splunk's message, never with silently partial results. The first input has no such limit, so connect the largest dependency first, or summarise the inputs before they reach this step.
 
 ### Tokens
 

@@ -13,6 +13,10 @@ Step searches (``steps[i]``, written into the job definition):
   ``tokens.compile_spl`` and saved as ``names.step_search_name`` with a hash
   of the job and step IDs, compiled SPL, earliest and latest, so old and new
   versions coexist while runs still use them.
+* ``previous`` ("From previous steps"): ``mode = "previous"``. Compiled with
+  ``tokens.step_spl``, so the search starts with ``$args.so_input$``, which the
+  engine fills at dispatch with ``| loadjob`` of each succeeded dependency.
+  Named and hashed like ``inline``.
 * ``saved_search``: the two-mode rule, checked with the user's session through
   ``gateway.saved_search_info``. If the job owner owns it, it is private
   (sharing ``user``) and has ``dispatchAs = owner``: ``mode = "direct"`` and
@@ -182,8 +186,8 @@ def plan(gw, job):
             mode = "wrapped"
             issues.append(_wrapped_warning(ref, owner, sid))
         else:
-            spl, _ = tokens.compile_spl(step.get("spl") or "", ids)
-            mode = "inline"
+            spl, _ = tokens.step_spl(step, ids)
+            mode = "previous" if step.get("type") == "previous" else "inline"
         name = names.step_search_name(job_id, sid, step_hash(job_id, sid, spl, earliest, latest))
         step.update(mode=mode, hidden_search=name)
         searches.append({"owner": owner, "name": name, "search": spl, "earliest": earliest,
