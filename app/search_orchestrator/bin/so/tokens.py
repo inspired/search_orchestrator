@@ -128,31 +128,34 @@ def compile_spl(spl, step_ids):
 
 
 INPUT_ARG = "so_input"
-EMPTY_INPUT = '| makeresults | where 1=0'
+EMPTY_INPUT = 'makeresults | where 1=0'
 _SID_RE = re.compile(r"[A-Za-z0-9_.-]+")
 _ARGS_RE = re.compile(r"\$args\.([A-Za-z0-9_]+)\$")
 
 
 def input_spl(sids):
-    """The SPL that loads a ``previous`` step's input jobs: ``| loadjob "s1"``, then
-    ``| append [| loadjob "s2"]`` for each later one; ``EMPTY_INPUT`` for none. The only
-    unquoted value the engine builds, so every sid must match ``^[A-Za-z0-9_.-]+$``."""
+    """The SPL that loads a ``previous`` step's input jobs, without its leading pipe
+    (the saved search supplies it): ``loadjob "s1"``, then ``| append [| loadjob "s2"]``
+    for each later one; ``EMPTY_INPUT`` for none. The only unquoted value the engine
+    builds, so every sid must match ``^[A-Za-z0-9_.-]+$``."""
     token = "$%s$" % INPUT_ARG
     parts = []
     for sid in sids:
         if not isinstance(sid, str) or not _SID_RE.fullmatch(sid):
             raise TokenError(token, "bad search id")
-        load = '| loadjob "%s"' % sid
-        parts.append(load if not parts else "| append [%s]" % load)
+        parts.append('loadjob "%s"' % sid if not parts
+                     else '| append [| loadjob "%s"]' % sid)
     return " ".join(parts) if parts else EMPTY_INPUT
 
 
 def step_spl(step, step_ids):
     """``(saved search text, arg names)`` for an ``inline`` or ``previous`` step. A
-    ``previous`` step's search starts with ``$args.so_input$``, filled at dispatch."""
+    ``previous`` step's search is ``| $args.so_input$ <tail>``: it must start with a pipe,
+    or Splunk prefixes ``search`` and ``loadjob`` is no longer the first command.
+    ``so_input`` is filled at dispatch (``fill`` gives the full text for previews)."""
     spl, names = compile_spl(step.get("spl") or "", step_ids)
     if step.get("type") == "previous":
-        spl = "$args.%s$ %s" % (INPUT_ARG, spl)
+        spl = "| $args.%s$ %s" % (INPUT_ARG, spl)
     return spl, names
 
 

@@ -1403,7 +1403,7 @@ def test_previous_input_skips_unsucceeded():
     assert w.step(run_id, "s")["state"] == "skipped"
     assert w.step(run_id, "f")["state"] == "failed"
     a_sid = w.step(run_id, "a")["sid"]
-    assert w.dispatched("p")[0]["args"] == {"so_input": '| loadjob "%s"' % a_sid}
+    assert w.dispatched("p")[0]["args"] == {"so_input": 'loadjob "%s"' % a_sid}
 
     w2 = World()
     j2 = w2.add_job(make_job(steps=["a", {"id": "s", "run_when": NEVER},

@@ -14,7 +14,7 @@ Step searches (``steps[i]``, written into the job definition):
   of the job and step IDs, compiled SPL, earliest and latest, so old and new
   versions coexist while runs still use them.
 * ``previous`` ("From previous steps"): ``mode = "previous"``. Compiled with
-  ``tokens.step_spl``, so the search starts with ``$args.so_input$``, which the
+  ``tokens.step_spl``, so the search starts with ``| $args.so_input$``, which the
   engine fills at dispatch with ``| loadjob`` of each succeeded dependency.
   Named and hashed like ``inline``.
 * ``saved_search``: the two-mode rule, checked with the user's session through

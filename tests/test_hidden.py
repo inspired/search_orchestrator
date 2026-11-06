@@ -247,5 +247,21 @@ def test_previous_step_saved_with_input_arg_first():
     b = out["steps"][1]
     assert b["mode"] == "previous" and b["hidden_search"].startswith("_so_daily_b_")
     saved = gw.saved_searches[("alice", b["hidden_search"])]
-    assert saved["search"] == '$args.so_input$ | where p="$args.run__param__p$"'
+    assert saved["search"] == '| $args.so_input$ | where p="$args.run__param__p$"'
     assert (saved["earliest"], saved["latest"]) == ("", "")
+
+
+def test_every_previous_hidden_search_starts_with_a_pipe():
+    # Splunk prefixes "search " to a saved search not starting with |, and then loadjob
+    # is no longer the first command (real server, 10.6).
+    gw = FakeGateway()
+    j = job(steps=[{"id": "a", "type": "inline", "spl": "| makeresults"},
+                   {"id": "b", "type": "previous", "spl": "| stats count"},
+                   {"id": "c", "type": "previous", "spl": "  | where x=1"},
+                   {"id": "d", "type": "previous", "spl": ""}],
+            edges=[{"from": "a", "to": "b"}, {"from": "a", "to": "c"}, {"from": "b", "to": "d"}])
+    planned, searches, _ = hidden.plan(gw, j)
+    names_prev = {s["hidden_search"] for s in planned["steps"] if s["type"] == "previous"}
+    prev = [s for s in searches if s["name"] in names_prev]
+    assert len(prev) == 3
+    assert all(s["search"].startswith("| $args.so_input$ ") for s in prev)
