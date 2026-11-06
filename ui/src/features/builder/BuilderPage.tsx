@@ -31,7 +31,7 @@ export interface BuilderApi extends PreviewApi {
     listDestinations: () => Promise<Destination[]>;
     listJobs: () => Promise<Job[]>;
     me: () => Promise<Me>;
-    previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number }>;
+    previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number; result_retention?: number }>;
     listRuns: (filters: RunFilters) => Promise<RunSummary[]>;
 }
 
@@ -84,6 +84,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
     const [paramValues, setParamValues] = useState<Record<string, string>>({});
     const [source, setSource] = useState('live');
     const [runs, setRuns] = useState<RunSummary[]>([]);
+    const [resultRetention, setResultRetention] = useState<number | undefined>(undefined);
     const returnFocus = useRef<HTMLElement | null>(null);
     const rememberFocus = () => {
         returnFocus.current = document.activeElement as HTMLElement | null;
@@ -162,6 +163,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                 if (!timeTouched.current) {
                     setScheduledTime(d.scheduled_time);
                 }
+                setResultRetention(d.result_retention);
             })
             .catch(() => undefined);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -385,6 +387,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             onSource={setSource}
             runs={runs}
             onOpenRuns={() => loadRuns(jobId)}
+            resultRetention={resultRetention}
         />
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>

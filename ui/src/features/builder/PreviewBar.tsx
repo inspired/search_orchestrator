@@ -50,9 +50,32 @@ export interface PreviewBarProps {
     runs: RunSummary[];
     /** The Input from list was opened: reload the runs. */
     onOpenRuns?: () => void;
+    /** Seconds a run's step results are kept after it ends (settings); runs ended longer
+     * ago are listed disabled. Unknown: none are. */
+    resultRetention?: number;
+    /** Epoch seconds; defaults to the clock. */
+    now?: number;
 }
 
-export default function PreviewBar({ scheduledTime, onScheduledTime, params, values, onValues, source, onSource, runs, onOpenRuns }: PreviewBarProps) {
+/** A run whose step results splunkd no longer keeps: it ended over `retention` s ago. */
+export function resultsExpired(run: RunSummary, retention: number | undefined, now: number): boolean {
+    return retention !== undefined && run.ended_at !== null && run.ended_at !== undefined && now - run.ended_at > retention;
+}
+
+export default function PreviewBar({
+    scheduledTime,
+    onScheduledTime,
+    params,
+    values,
+    onValues,
+    source,
+    onSource,
+    runs,
+    onOpenRuns,
+    resultRetention,
+    now,
+}: PreviewBarProps) {
+    const clock = now ?? Math.floor(Date.now() / 1000);
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [timeDraft, setTimeDraft] = useState(timeOf(scheduledTime));
     // A new time from outside (a picked run, the date) replaces the field, but not the
@@ -65,8 +88,11 @@ export default function PreviewBar({ scheduledTime, onScheduledTime, params, val
 
     const onPick = (_e: unknown, { value }: { value: unknown }) => {
         const id = String(value);
-        onSource(id);
         const run = shown.find((r) => r.id === id);
+        if (run && resultsExpired(run, resultRetention, clock)) {
+            return;
+        }
+        onSource(id);
         if (run) {
             onScheduledTime(run.scheduled_time);
             onValues({ ...(run.params || {}) });
@@ -152,9 +178,11 @@ export default function PreviewBar({ scheduledTime, onScheduledTime, params, val
             <ControlGroup label="Input from" labelFor="preview-source" labelPosition="top">
                 <Select inputId="preview-source" data-testid="input-from" value={source} onChange={onPick} onOpen={onOpenRuns}>
                     <Select.Option label="Live previews" value="live" />
-                    {shown.map((r) => (
-                        <Select.Option key={r.id} label={`${localStamp(r.scheduled_time)} · ${r.state}`} value={r.id} />
-                    ))}
+                    {shown.map((r) => {
+                        const expired = resultsExpired(r, resultRetention, clock);
+                        const label = `${localStamp(r.scheduled_time)} · ${r.state}${expired ? ' (results expired)' : ''}`;
+                        return <Select.Option key={r.id} label={label} value={r.id} disabled={expired} />;
+                    })}
                 </Select>
             </ControlGroup>
         </div>

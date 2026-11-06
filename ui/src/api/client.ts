@@ -215,8 +215,9 @@ export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: 
 // run_results_expired and run_results_forbidden (`extra.step`), invalid (`issues`),
 // bad_param, forbidden.
 
-/** The time a preview defaults to: the job's latest cron slot, or now. */
-export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_time: number }> {
+/** The time a preview defaults to (the job's latest cron slot, or now), and the seconds a
+ * run's step results are kept after it ends. */
+export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_time: number; result_retention?: number }> {
     return request('POST', 'preview/defaults', { body: { job: toDefinition(job) } });
 }
 

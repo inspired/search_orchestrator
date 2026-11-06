@@ -1070,9 +1070,12 @@ def test_preview_time_window_and_params(w):
 def test_preview_defaults_route(w):
     job = job_body(triggers=[{"type": "cron", "cron": "0 2 * * *"}])
     status, out = w.call("alice", "POST", "/orchestrator/preview/defaults", {"job": job})
-    assert status == 200 and out == {"scheduled_time": T0 - 23 * 3600}
+    assert status == 200 and out == {"scheduled_time": T0 - 23 * 3600, "result_retention": 86400}
     status, out = w.call("alice", "POST", "/orchestrator/preview/defaults", {"job": job_body()})
-    assert out == {"scheduled_time": T0}
+    assert out == {"scheduled_time": T0, "result_retention": 86400}
+    w.store.save_settings(dict(w.store.get_settings() or {}, result_retention=3600))
+    status, out = w.call("alice", "POST", "/orchestrator/preview/defaults", {"job": job_body()})
+    assert out["result_retention"] == 3600
     assert w.call("carol", "POST", "/orchestrator/preview/defaults", {"job": job})[0] == 403
 
 

@@ -5,7 +5,7 @@ import Canvas from '../features/builder/Canvas';
 import { autoLayout } from '../features/builder/graphLogic';
 import GraphView from '../features/builder/GraphView';
 import { fakeApi } from './builderFixtures';
-import { renderThemed } from './fixtures';
+import { renderThemed, runSummary } from './fixtures';
 
 const steps = [
     { id: 'daily', type: 'inline' as const, spl: '| makeresults' },
@@ -121,6 +121,21 @@ describe('Canvas', () => {
         fireEvent.click(screen.getByTestId('input-from'));
         await waitFor(() => expect(api.listRuns).toHaveBeenCalledTimes(3));
         expect(api.listRuns).toHaveBeenLastCalledWith({ job_id: 'rollups', limit: 20 });
+    });
+
+    test('Input from greys out runs past the retention the server reports', async () => {
+        const now = Math.floor(Date.now() / 1000);
+        const api = fakeApi({
+            previewDefaults: jest.fn().mockResolvedValue({ scheduled_time: 1762390800, result_retention: 3600 }),
+            listRuns: jest.fn().mockResolvedValue([
+                runSummary({ id: 'rollups:1', job_id: 'rollups', scheduled_time: 1762304400, ended_at: now - 7200 }),
+            ]),
+        });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await waitFor(() => expect(api.previewDefaults).toHaveBeenCalledTimes(1));
+        fireEvent.click(screen.getByTestId('input-from'));
+        expect(await screen.findByRole('option', { name: / · succeeded \(results expired\)$/ })).toBeDisabled();
     });
 
     test('GraphView shows status text per step', () => {

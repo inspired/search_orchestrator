@@ -124,4 +124,21 @@ describe('PreviewBar', () => {
         fireEvent.blur(field);
         expect(field).toHaveValue('09:05');
     });
+
+    test('a run whose results are past retention is listed disabled, marked expired', () => {
+        const now = t(2026, 11, 6, 12, 0);
+        const runs = [
+            runSummary({ id: 'old', scheduled_time: t(2026, 11, 4, 1, 0), ended_at: now - 86401 }),
+            runSummary({ id: 'kept', scheduled_time: t(2026, 11, 5, 1, 0), ended_at: now - 3600 }),
+            runSummary({ id: 'active', scheduled_time: t(2026, 11, 6, 1, 0), state: 'running', ended_at: null }),
+        ];
+        const props = renderBar({ runs, resultRetention: 86400, now });
+        fireEvent.click(screen.getByTestId('input-from'));
+        const old = screen.getByRole('option', { name: '2026-11-04 01:00 · succeeded (results expired)' });
+        expect(old).toBeDisabled();
+        expect(screen.getByRole('option', { name: '2026-11-05 01:00 · succeeded' })).toBeEnabled();
+        expect(screen.getByRole('option', { name: '2026-11-06 01:00 · running' })).toBeEnabled();
+        fireEvent.click(old);
+        expect(props.onSource).not.toHaveBeenCalled();
+    });
 });

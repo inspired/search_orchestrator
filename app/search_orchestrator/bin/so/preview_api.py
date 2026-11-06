@@ -6,7 +6,9 @@ its id exists and they may see it, else ``can_edit(None)``. A preview is an ad h
 started with ``user_gateway`` as the caller, never the owner or the system session;
 nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``new``.
 
-* ``POST preview/defaults`` ``{"job"}``: ``{"scheduled_time"}``, the latest cron slot.
+* ``POST preview/defaults`` ``{"job"}``: ``{"scheduled_time", "result_retention"}``: the
+  latest cron slot, and the seconds a run's step results are kept after it ends (the
+  editor greys out runs past it in "Input from").
 * ``POST preview`` ``{"job", "step_id", "scheduled_time", "params", "input", "anyway"}``,
   ``input`` ``{"mode": "live", "previews": {step: {"sid"} | {"skipped": kind}}}`` or
   ``{"mode": "run", "run_id"}``: 201 ``{"status": "started", "sid", "spl"}`` (plus
@@ -34,7 +36,7 @@ from . import authz, hidden, model, preview, scheduler, tokens
 from . import state as statemod
 from .api import (ApiError, _errors, _is_job_id, _issue, _prepare, _run_job, _scheduled_time,
                   _visible_run)
-from .engine import first_fields
+from .engine import DEFAULT_SETTINGS, first_fields
 from .gateway import GatewayError
 
 
@@ -285,7 +287,9 @@ def preview_defaults(ctx, body):
         scheduled = preview.default_time(job, ctx.now)
     except (ValueError, TypeError):
         scheduled = ctx.now
-    return 200, {"scheduled_time": int(scheduled)}
+    retention = int((ctx.store.get_settings() or {}).get("result_retention")
+                    or DEFAULT_SETTINGS["result_retention"])
+    return 200, {"scheduled_time": int(scheduled), "result_retention": retention}
 
 
 def start_preview(ctx, body):
