@@ -1,0 +1,272 @@
+import { act, renderHook } from '@testing-library/react';
+import { ApiError } from '../api/client';
+import type { JobDefinition, PreviewRequest } from '../api/types';
+import type { PreviewContext } from '../features/builder/previewLogic';
+import usePreviews, { PreviewApi } from '../features/builder/usePreviews';
+
+const job: JobDefinition = {
+    name: 'j',
+    enabled: true,
+    steps: [
+        { id: 'a', type: 'inline', spl: '| makeresults' },
+        { id: 'b', type: 'previous', spl: '| stats count' },
+    ],
+    edges: [{ from: 'a', to: 'b', condition: 'on_success' }],
+};
+const ctx: PreviewContext = { scheduledTime: 1762300800, params: {}, source: 'live' };
+
+async function flush() {
+    await act(async () => {
+        for (let i = 0; i < 10; i += 1) {
+            await Promise.resolve();
+        }
+    });
+}
+
+/** Lets the poll loop run: resolved promises, then the 2 s timer, a few times. */
+async function settle(rounds = 4) {
+    for (let i = 0; i < rounds; i += 1) {
+        await flush();
+        act(() => jest.advanceTimersByTime(2000));
+    }
+    await flush();
+}
+
+function fakeApi(over: Partial<PreviewApi> = {}): PreviewApi & Record<keyof PreviewApi, jest.Mock> {
+    let n = 0;
+    return {
+        startPreview: jest.fn((req: PreviewRequest) => {
+            n += 1;
+            return Promise.resolve({ status: 'started' as const, sid: `sid-${req.step_id}-${n}`, spl: `spl ${req.step_id}` });
+        }),
+        previewStatus: jest.fn(() => Promise.resolve({ state: 'done' as const, result_count: 3, run_duration: 0.4, messages: [] })),
+        previewResults: jest.fn(() => Promise.resolve({ fields: ['x'], rows: [{ x: 1 }], total: 1 })),
+        cancelPreview: jest.fn(() => Promise.resolve({ cancelled: true })),
+        ...over,
+    } as unknown as PreviewApi & Record<keyof PreviewApi, jest.Mock>;
+}
+
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => jest.useRealTimers());
+
+describe('usePreviews', () => {
+    test('previewing b with no preview of a starts a, then b with a as input', async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle();
+        const calls = api.startPreview.mock.calls.map((c) => c[0] as PreviewRequest);
+        expect(calls.map((c) => c.step_id)).toEqual(['a', 'b']);
+        expect(calls[1].input).toEqual({ mode: 'live', previews: { a: { sid: 'sid-a-1' } } });
+        expect(calls[1].scheduled_time).toBe(ctx.scheduledTime);
+        expect(result.current.previews.a.state).toBe('done');
+        expect(result.current.previews.b.state).toBe('done');
+        expect(result.current.previews.b.results).toEqual({ fields: ['x'], rows: [{ x: 1 }], total: 1 });
+        expect(result.current.previews.b.spl).toBe('spl b');
+        expect(result.current.previews.b.stale).toBe(false);
+    });
+
+    test('polls every 2 s with the step max runtime as the limit', async () => {
+        let polls = 0;
+        const api = fakeApi({
+            previewStatus: jest.fn(() => {
+                polls += 1;
+                return Promise.resolve(
+                    polls < 3
+                        ? { state: 'running' as const, result_count: 0, messages: [] }
+                        : { state: 'done' as const, result_count: 2, run_duration: 1, messages: [] }
+                );
+            }),
+        });
+        const { result } = renderHook(() => usePreviews({ ...job, defaults: { max_runtime: 300 } }, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await flush();
+        expect(result.current.previews.a.state).toBe('running');
+        await settle(5);
+        expect(api.previewStatus).toHaveBeenCalledTimes(3);
+        expect(api.previewStatus).toHaveBeenCalledWith('sid-a-1', 300);
+        expect(result.current.previews.a.state).toBe('done');
+    });
+
+    test('a 409 needs_preview re-runs the named steps once, then retries', async () => {
+        let n = 0;
+        const api = fakeApi({
+            startPreview: jest.fn((req: PreviewRequest) => {
+                n += 1;
+                if (req.step_id === 'b' && n === 2) {
+                    return Promise.reject(new ApiError(409, 'needs_preview', 'preview a first', [], { steps: ['a'] }));
+                }
+                return Promise.resolve({ status: 'started' as const, sid: `sid-${req.step_id}-${n}`, spl: 'x' });
+            }),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle(8);
+        const steps = api.startPreview.mock.calls.map((c) => (c[0] as PreviewRequest).step_id);
+        expect(steps).toEqual(['a', 'b', 'a', 'b']);
+        const last = api.startPreview.mock.calls[3][0] as PreviewRequest;
+        expect(last.input).toEqual({ mode: 'live', previews: { a: { sid: 'sid-a-3' } } });
+        expect(result.current.previews.b.state).toBe('done');
+    });
+
+    test('a second needs_preview fails the step instead of looping', async () => {
+        const api = fakeApi({
+            startPreview: jest.fn((req: PreviewRequest) =>
+                req.step_id === 'b'
+                    ? Promise.reject(new ApiError(409, 'needs_preview', 'preview a first', [], { steps: ['a'] }))
+                    : Promise.resolve({ status: 'started' as const, sid: 'sid-a', spl: 'x' })
+            ),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle(8);
+        expect(api.startPreview).toHaveBeenCalledTimes(4);
+        expect(result.current.previews.b.state).toBe('failed');
+        expect(result.current.previews.b.error).toBe('preview a first');
+    });
+
+    test('cancel calls cancelPreview and stops polling', async () => {
+        const api = fakeApi({
+            previewStatus: jest.fn(() => Promise.resolve({ state: 'running' as const, result_count: 0, messages: [] })),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle(2);
+        act(() => {
+            result.current.cancel('a');
+        });
+        await flush();
+        expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
+        expect(result.current.previews.a.state).toBe('failed');
+        expect(result.current.previews.a.error).toBe('Preview cancelled.');
+        const polls = api.previewStatus.mock.calls.length;
+        await settle(3);
+        expect(api.previewStatus.mock.calls.length).toBe(polls);
+    });
+
+    test('starting a step with a running preview cancels the old one first', async () => {
+        const api = fakeApi({
+            previewStatus: jest.fn(() => Promise.resolve({ state: 'running' as const, result_count: 0, messages: [] })),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle(1);
+        act(() => {
+            result.current.preview('a');
+        });
+        await flush();
+        expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
+        expect(api.startPreview).toHaveBeenCalledTimes(2);
+        expect(result.current.previews.a.sid).toBe('sid-a-2');
+    });
+
+    test('a skipped step is sent downstream as skipped; Preview anyway sends anyway', async () => {
+        const api = fakeApi({
+            startPreview: jest.fn((req: PreviewRequest) =>
+                req.step_id === 'a' && !req.anyway
+                    ? Promise.resolve({ status: 'skipped' as const, skip_kind: 'run_when' as const, reason: 'Runs on Mondays.' })
+                    : Promise.resolve({ status: 'started' as const, sid: `sid-${req.step_id}`, spl: 'x', anyway: req.anyway })
+            ),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle();
+        expect(result.current.previews.a.state).toBe('skipped');
+        expect(result.current.previews.a.skipped).toBe('run_when');
+        expect(result.current.previews.a.reason).toBe('Runs on Mondays.');
+        expect((api.startPreview.mock.calls[1][0] as PreviewRequest).input).toEqual({ mode: 'live', previews: { a: { skipped: 'run_when' } } });
+        act(() => {
+            result.current.preview('a', { anyway: true });
+        });
+        await settle();
+        const last = api.startPreview.mock.calls[2][0] as PreviewRequest;
+        expect(last.step_id).toBe('a');
+        expect(last.anyway).toBe(true);
+        expect(api.startPreview).toHaveBeenCalledTimes(3);
+        expect(result.current.previews.a.anyway).toBe(true);
+    });
+
+    test('an edit makes the preview and its downstream stale', async () => {
+        const api = fakeApi();
+        const { result, rerender } = renderHook(({ j }) => usePreviews(j, ctx, api), { initialProps: { j: job } });
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle();
+        expect(result.current.previews.b.stale).toBe(false);
+        rerender({ j: { ...job, steps: [{ ...job.steps[0], spl: '| makeresults count=2' }, job.steps[1]] } });
+        expect(result.current.previews.a.stale).toBe(true);
+        expect(result.current.previews.b.stale).toBe(true);
+    });
+
+    test('a run as input previews only the step and sends the run id', async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(job, { ...ctx, source: 'j:1' }, api));
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle();
+        expect(api.startPreview).toHaveBeenCalledTimes(1);
+        expect((api.startPreview.mock.calls[0][0] as PreviewRequest).input).toEqual({ mode: 'run', run_id: 'j:1' });
+    });
+
+    test('a start error becomes a failed preview with the server message', async () => {
+        const api = fakeApi({
+            startPreview: jest.fn(() => Promise.reject(new ApiError(410, 'run_results_expired', "daily's results from that run have expired", [], { step: 'daily' }))),
+        });
+        const { result } = renderHook(() => usePreviews(job, { ...ctx, source: 'j:1' }, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle();
+        expect(result.current.previews.a.state).toBe('failed');
+        expect(result.current.previews.a.error).toBe("daily's results from that run have expired");
+    });
+
+    test('done previews are polled every 5 minutes; a gone one becomes missing', async () => {
+        let gone = false;
+        const api = fakeApi({
+            previewStatus: jest.fn(() =>
+                Promise.resolve(gone ? { state: 'missing' as const, result_count: 0, messages: [] } : { state: 'done' as const, result_count: 3, messages: [] })
+            ),
+        });
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle();
+        const before = api.previewStatus.mock.calls.length;
+        gone = true;
+        act(() => jest.advanceTimersByTime(5 * 60 * 1000));
+        await flush();
+        expect(api.previewStatus.mock.calls.length).toBe(before + 1);
+        expect(result.current.previews.a.state).toBe('missing');
+    });
+
+    test('unmount cancels running previews', async () => {
+        const api = fakeApi({
+            previewStatus: jest.fn(() => Promise.resolve({ state: 'running' as const, result_count: 0, messages: [] })),
+        });
+        const { result, unmount } = renderHook(() => usePreviews(job, ctx, api));
+        act(() => {
+            result.current.preview('a');
+        });
+        await settle(1);
+        unmount();
+        expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
+    });
+});

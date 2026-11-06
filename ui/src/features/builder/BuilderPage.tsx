@@ -10,17 +10,20 @@ import Text from '@splunk/react-ui/Text';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
-import type { Destination, Issue, Job, JobDefinition, Me, SaveResponse, ValidateResponse } from '../../api/types';
+import type { Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import Canvas, { Selection } from './Canvas';
 import EdgePanel from './EdgePanel';
 import { findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs from './JobTabs';
+import PreviewBar from './PreviewBar';
+import type { PreviewContext } from './previewLogic';
+import usePreviews, { PreviewApi, previewNote } from './usePreviews';
 import { blankJob, initialState, nextStepId, reducer } from './reducer';
 import StepPanel, { IssueList } from './StepPanel';
 
-export interface BuilderApi {
+export interface BuilderApi extends PreviewApi {
     getJob: (jobId: string) => Promise<Job>;
     validateJob: (job: JobDefinition) => Promise<ValidateResponse>;
     createJob: (job: JobDefinition) => Promise<SaveResponse>;
@@ -28,6 +31,8 @@ export interface BuilderApi {
     listDestinations: () => Promise<Destination[]>;
     listJobs: () => Promise<Job[]>;
     me: () => Promise<Me>;
+    previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number }>;
+    listRuns: (filters: RunFilters) => Promise<RunSummary[]>;
 }
 
 const defaultApi: BuilderApi = {
@@ -38,6 +43,12 @@ const defaultApi: BuilderApi = {
     listDestinations: client.listDestinations,
     listJobs: client.listJobs,
     me: client.me,
+    previewDefaults: client.previewDefaults,
+    listRuns: client.listRuns,
+    startPreview: client.startPreview,
+    previewStatus: client.previewStatus,
+    previewResults: client.previewResults,
+    cancelPreview: client.cancelPreview,
 };
 
 export interface BuilderPageProps {
@@ -68,6 +79,11 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
     const [busy, setBusy] = useState(false);
     const [ownerConfirm, setOwnerConfirm] = useState<{ newOwner: string } | null>(null);
     const [removing, setRemovingState] = useState<string | null>(null);
+    const [scheduledTime, setScheduledTime] = useState(() => Math.floor(Date.now() / 1000));
+    const timeTouched = useRef(false);
+    const [paramValues, setParamValues] = useState<Record<string, string>>({});
+    const [source, setSource] = useState('live');
+    const [runs, setRuns] = useState<RunSummary[]>([]);
     const returnFocus = useRef<HTMLElement | null>(null);
     const rememberFocus = () => {
         returnFocus.current = document.activeElement as HTMLElement | null;
@@ -91,6 +107,9 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             .then((j) => live && setJobs(j))
             .catch(() => undefined);
         if (initialId) {
+            api.listRuns({ job_id: initialId, limit: 20 })
+                .then((r) => live && setRuns(r.filter((run) => run.job_id === initialId)))
+                .catch(() => undefined);
             api.getJob(initialId)
                 .then((job) => {
                     if (!live) {
@@ -114,6 +133,41 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
     }, []);
 
     const { job } = state;
+
+    // "As if scheduled at" defaults once, when the job is ready, to its latest cron slot.
+    const defaultsAsked = useRef(false);
+    useEffect(() => {
+        if (loading || loadError || defaultsAsked.current) {
+            return;
+        }
+        defaultsAsked.current = true;
+        api.previewDefaults({ ...job, id: jobId || undefined })
+            .then((d) => {
+                if (!timeTouched.current) {
+                    setScheduledTime(d.scheduled_time);
+                }
+            })
+            .catch(() => undefined);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, loadError]);
+    const previewJob = useMemo(() => ({ ...job, id: jobId || undefined }), [job, jobId]);
+    const previewCtx = useMemo<PreviewContext>(() => {
+        const params: Record<string, string> = {};
+        Object.keys(paramValues).forEach((k) => {
+            if (paramValues[k] !== '') {
+                params[k] = paramValues[k];
+            }
+        });
+        return { scheduledTime, params, source };
+    }, [scheduledTime, paramValues, source]);
+    const previews = usePreviews(previewJob, previewCtx, api);
+    const notes = useMemo(() => {
+        const out: Record<string, ReturnType<typeof previewNote>> = {};
+        Object.keys(previews.previews).forEach((id) => {
+            out[id] = previewNote(previews.previews[id]);
+        });
+        return out;
+    }, [previews.previews]);
     // Server warnings stay until the next check; server errors only while the job is the
     // one that was checked (the client check covers what an edit fixes).
     const issues = useMemo(() => {
@@ -267,6 +321,15 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     destinations={destinations}
                     onRename={(_from, to) => setSelected({ kind: 'step', id: to })}
                     onRequestRemove={setRemoving}
+                    preview={previews.previews[selectedStep]}
+                    onPreview={
+                        meta.canEdit
+                            ? (id, opts) => {
+                                  previews.preview(id, opts);
+                              }
+                            : undefined
+                    }
+                    onCancelPreview={previews.cancel}
                 />
             );
         }
@@ -291,6 +354,20 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
     };
 
     const stepsTab = (
+        <>
+        <PreviewBar
+            scheduledTime={scheduledTime}
+            onScheduledTime={(t) => {
+                timeTouched.current = true;
+                setScheduledTime(t);
+            }}
+            params={job.params || []}
+            values={paramValues}
+            onValues={setParamValues}
+            source={source}
+            onSource={setSource}
+            runs={runs}
+        />
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
@@ -316,6 +393,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     onMove={(id, x, y) => dispatch({ type: 'moveStep', id, x, y })}
                     onConnect={(from, to) => dispatch({ type: 'connect', from, to })}
                     onRequestRemove={setRemoving}
+                    notes={notes}
                 />
                 </div>
             </div>
@@ -332,6 +410,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                 {sidePanel()}
             </div>
         </div>
+        </>
     );
 
     const actions = (

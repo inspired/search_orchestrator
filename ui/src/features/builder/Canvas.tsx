@@ -23,6 +23,8 @@ export interface CanvasProps {
     onMove: (id: string, x: number, y: number) => void;
     onConnect: (from: string, to: string) => void;
     onRequestRemove: (id: string) => void;
+    /** A short preview note under each previewed step, such as "✓ 7 rows". */
+    notes?: Record<string, { text: string; failed?: boolean } | null | undefined>;
 }
 
 type Gesture =
@@ -45,6 +47,7 @@ export default function Canvas({
     onMove,
     onConnect,
     onRequestRemove,
+    notes = {},
 }: CanvasProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const svgRef = useRef<SVGSVGElement | null>(null);
@@ -258,10 +261,12 @@ export default function Canvas({
                             color = theme.statusColorMedium;
                             icon = ExclamationTriangle;
                         }
+                        const note = notes[s.id];
                         const label = [
                             `Step ${stepLabel(s)}`,
                             errors ? plural(errors, 'error') : '',
                             warnings ? plural(warnings, 'warning') : '',
+                            note ? note.text : '',
                         ]
                             .filter(Boolean)
                             .join(', ');
@@ -293,6 +298,18 @@ export default function Canvas({
                                 style={{ cursor: 'move' }}
                             >
                                 <NodeBox step={s} theme={theme} detail={detail} detailColor={color} icon={icon} stroke={color} selected={isSelected} />
+                                {note && (
+                                    <text
+                                        data-testid={`note-${s.id}`}
+                                        x={0}
+                                        y={NODE_H + 14}
+                                        fontSize={11}
+                                        fill={note.failed ? theme.statusColorHigh : theme.contentColorMuted}
+                                        fontFamily={theme.fontFamily}
+                                    >
+                                        {note.text}
+                                    </text>
+                                )}
                                 <circle
                                     data-testid={`handle-${s.id}`}
                                     aria-hidden

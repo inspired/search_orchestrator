@@ -67,6 +67,49 @@ describe('Canvas', () => {
         await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Job steps/ })));
     });
 
+    test('preview notes show as plain text under the step', () => {
+        renderThemed(
+            <Canvas
+                steps={steps}
+                edges={edges}
+                positions={autoLayout(steps, edges)}
+                selected={null}
+                issues={[]}
+                onSelect={jest.fn()}
+                onMove={jest.fn()}
+                onConnect={jest.fn()}
+                onRequestRemove={jest.fn()}
+                notes={{ daily: { text: '✓ 7 rows' }, weekly: { text: 'preview failed', failed: true } }}
+            />
+        );
+        expect(screen.getByTestId('note-daily')).toHaveTextContent('✓ 7 rows');
+        expect(screen.getByTestId('note-weekly')).toHaveTextContent('preview failed');
+        expect(screen.getByTestId('note-weekly').getAttribute('fill')).not.toBe(screen.getByTestId('note-daily').getAttribute('fill'));
+        expect(screen.getByRole('button', { name: 'Step daily, ✓ 7 rows' })).toBeInTheDocument();
+    });
+
+    test('Preview step in the editor previews upstream steps and shows the result', async () => {
+        const api = fakeApi();
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        const weekly = await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await waitFor(() => expect(api.previewDefaults).toHaveBeenCalledTimes(1));
+        expect(api.listRuns).toHaveBeenCalledWith({ job_id: 'rollups', limit: 20 });
+        fireEvent.keyDown(weekly, { key: 'Enter' });
+        fireEvent.click(screen.getByRole('button', { name: 'Preview step' }));
+        expect(await screen.findByText(/^7 rows · 0.2 s · input: daily preview/)).toBeInTheDocument();
+        const calls = (api.startPreview as jest.Mock).mock.calls.map((c) => c[0]);
+        expect(calls.map((c) => c.step_id)).toEqual(['daily', 'weekly']);
+        expect(calls[0].scheduled_time).toBe(1762390800);
+        expect(screen.getByTestId('note-daily')).toHaveTextContent('✓ 7 rows');
+        expect(screen.getByTestId('note-weekly')).toHaveTextContent('✓ 7 rows');
+        expect(screen.queryByTestId('note-monthly')).toBeNull();
+        fireEvent.keyDown(screen.getByRole('button', { name: /^Step Daily summary/ }), { key: 'Enter' });
+        fireEvent.change(screen.getByRole('textbox', { name: 'Search' }), { target: { value: '| makeresults count=2' } });
+        expect(screen.getByTestId('note-daily')).toHaveTextContent('out of date');
+        expect(screen.getByTestId('note-weekly')).toHaveTextContent('out of date');
+        expect(screen.getByText('Out of date. Preview again to refresh.')).toBeInTheDocument();
+    });
+
     test('GraphView shows status text per step', () => {
         renderThemed(
             <GraphView steps={steps} edges={edges} statusByStep={{ daily: { state: 'failed' }, weekly: { state: 'waiting' } }} />

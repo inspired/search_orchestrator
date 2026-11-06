@@ -14,6 +14,8 @@ import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
 import type { Destination, Issue, JobDefinition, StepDef } from '../../api/types';
 import ActionsEditor from './ActionsEditor';
+import PreviewResult from './PreviewResult';
+import type { PreviewView } from './usePreviews';
 import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
 import { BUILTIN_DEFAULTS, generatedInput } from './previewLogic';
 import type { BuilderAction } from './reducer';
@@ -98,9 +100,24 @@ export interface StepPanelProps {
     destinations: Destination[];
     onRename?: (from: string, to: string) => void;
     onRequestRemove?: (id: string) => void;
+    /** Shows "Preview step" and the step's preview result when given. */
+    onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
+    onCancelPreview?: (stepId: string) => void;
+    preview?: PreviewView;
 }
 
-export default function StepPanel({ job, stepId, issues, dispatch, destinations, onRename, onRequestRemove }: StepPanelProps) {
+export default function StepPanel({
+    job,
+    stepId,
+    issues,
+    dispatch,
+    destinations,
+    onRename,
+    onRequestRemove,
+    onPreview,
+    onCancelPreview,
+    preview,
+}: StepPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
     const step = steps.find((s) => s.id === stepId);
@@ -226,6 +243,16 @@ export default function StepPanel({ job, stepId, issues, dispatch, destinations,
                 <ControlGroup label="Search" labelFor={`${p}-spl`} labelPosition="top">
                     <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
                 </ControlGroup>
+            )}
+            {onPreview && (
+                <div style={{ marginBottom: '12px' }}>
+                    <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
+                    <PreviewResult
+                        preview={preview}
+                        onCancel={() => onCancelPreview && onCancelPreview(stepId)}
+                        onAnyway={() => onPreview(stepId, { anyway: true })}
+                    />
+                </div>
             )}
             {step.type !== 'previous' && (
                 <>
