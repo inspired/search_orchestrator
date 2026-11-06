@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5 (2026-11-06)
+
+- Pages follow the user's Splunk theme preference (Dark or Light) by reading it directly. Before, the pages asked Splunk's theme API, which answered "light" on Splunk 10.6 even for a user set to Dark. A "System" preference follows the browser.
+
 ## 1.0.4 (2026-11-06)
 
 - The late-rollup self-test's slow daily now really runs about 40 seconds: Splunk's optimizer removed the hashing in 1.0.3 because nothing read its result.
