@@ -88,3 +88,14 @@ def test_closure_edges_previous_tokens_and_order():
     assert preview.closure(job, "p") == ["r", "q", "n", "m"]
     assert preview.closure(job, "n") == []
     assert preview.closure(job, "r") == []
+
+
+def test_own_sid_is_static():
+    sid = preview.make_sid("alice", "j", "s_1", "r1")
+    assert preview.own_sid(sid, "alice", "j")
+    assert preview.own_sid(sid, "alice", "j", "s_1")
+    assert not preview.own_sid(sid, "bob", "j")
+    assert not preview.own_sid(sid, "alice", "k")
+    assert not preview.own_sid(sid, "alice", "j", "s_2")
+    assert not preview.own_sid("x", "alice", "j") and not preview.own_sid(None, "alice", "j")
+    assert not preview.own_preview({"owner": "bob"}, sid, "alice", "j")

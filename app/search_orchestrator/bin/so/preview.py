@@ -66,17 +66,20 @@ def make_sid(user, job_ref, step_id, rand):
     return "%s%s.%s.%s.%s" % (PREFIX, _user_hash(user), job_ref, step_id, rand)
 
 
-def own_preview(info, sid, user, job_ref, step_id=None):
+def own_sid(sid, user, job_ref, step_id=None):
     """True when ``sid`` is a well-formed preview sid made for ``user`` and ``job_ref``
-    (and ``step_id``, if given), and splunkd says ``user`` owns the job (``info`` is
-    ``preview_info``)."""
+    (and ``step_id``, if given). A static check, made before asking splunkd anything
+    about the sid, so a caller (even an admin) never reads another user's preview."""
     parts = _parts(sid)
     if parts is None:
         return False
     h, ref, step, _ = parts
-    return (h == _user_hash(user) and ref == job_ref
-            and (step_id is None or step == step_id)
-            and (info or {}).get("owner") == user)
+    return h == _user_hash(user) and ref == job_ref and (step_id is None or step == step_id)
+
+
+def own_preview(info, sid, user, job_ref, step_id=None):
+    """``own_sid`` and splunkd says ``user`` owns the job (``info`` is ``preview_info``)."""
+    return own_sid(sid, user, job_ref, step_id) and (info or {}).get("owner") == user
 
 
 def _step_refs(step, step_ids):

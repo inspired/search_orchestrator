@@ -1280,3 +1280,96 @@ def test_preview_errors_only_in_closure_block(w):
     status, out = preview(w, job=job, step_id="b", input=live(a={"skipped": "run_when"}))
     assert status == 400 and error(out) == "invalid"
     assert {i["step"] for i in out["error"]["issues"]} == {"a"}
+
+
+def _info_log(w):
+    seen = []
+    real = w.gw.preview_info
+
+    def info(sid):
+        seen.append(sid)
+        return real(sid)
+    w.gw.preview_info = info
+    return seen
+
+
+def test_preview_foreign_sids_never_reach_splunkd(w):
+    _, out = preview(w, "bob", job=chain_job())
+    bob_sid = out["sid"]
+    _, out = preview(w, job=chain_job(id="other"))
+    other_job = out["sid"]
+    seen = _info_log(w)
+    _, b_out = preview(w, job=job_body(steps=[{"id": "b", "type": "inline",
+                                               "spl": "| makeresults"}], edges=[]), step_id="b")
+    wrong_step = b_out["sid"]
+    for sid in (bob_sid, other_job, wrong_step):
+        status, out = preview(w, job=chain_job(), step_id="b", input=live(a={"sid": sid}))
+        assert status == 409 and error(out) == "needs_preview"
+    for path, method in (("", "GET"), ("/results", "GET"), ("/cancel", "POST")):
+        assert w.call("root", method, "/orchestrator/preview/" + bob_sid + path)[0] == 404
+    assert seen == []
+
+
+def test_preview_on_failure_branch_previews_in_live_mode(w):
+    job = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults"},
+                          {"id": "b", "type": "inline", "spl": '| makeresults | eval x="$a.status$"'},
+                          {"id": "p", "type": "previous", "spl": "| stats count"}],
+                   edges=[{"from": "a", "to": "b", "condition": "on_failure"},
+                          {"from": "a", "to": "p", "condition": "always"},
+                          {"from": "b", "to": "p", "condition": "always"}])
+    w.gw.script_job("so_preview_", ["failed"])
+    _, out = preview(w, job=job)
+    a_sid = out["sid"]
+    w.gw.script_job("so_preview_", ["done"], result_count=1)
+    status, out = preview(w, job=job, step_id="b", input=live(a={"sid": a_sid}))
+    assert status == 201 and out["spl"] == '| makeresults | eval x="failed"', out
+    b_sid = out["sid"]
+    status, out = preview(w, job=job, step_id="p", input=live(a={"sid": a_sid}, b={"sid": b_sid}))
+    assert status == 201 and out["spl"] == '| loadjob "%s" | stats count' % b_sid
+
+
+def test_preview_failed_parent_on_success_in_run_mode(w):
+    run_id = run_with(w, chain_job(), {"a": {"state": "failed", "sid": "run_a"}})
+    kept(w, "run_a")
+    status, out = preview(w, job=chain_job(), step_id="b", input={"mode": "run", "run_id": run_id})
+    assert status == 409 and error(out) == "upstream_failed" and out["error"]["step"] == "a"
+
+
+def test_preview_run_step_missing(w):
+    run_id = run_with(w, chain_job(), {"a": {"state": "cancelled"}})
+    status, out = preview(w, job=chain_job(), step_id="b", input={"mode": "run", "run_id": run_id})
+    assert status == 409 and error(out) == "run_step_missing" and out["error"]["step"] == "a"
+    assert out["error"]["message"] == ("a has no result in that run; switch to live previews "
+                                       "or pick another run")
+    job = chain_job()
+    job["steps"].insert(0, {"id": "n", "type": "inline", "spl": "| makeresults"})
+    job["steps"][2]["spl"] += ' | eval y="$n.resultCount$"'  # b reads a step added since
+    w.store.save_run(dict(w.store.get_run(run_id), steps={"a": {"state": "succeeded",
+                                                                "sid": "run_a"}}))
+    kept(w, "run_a")
+    status, out = preview(w, job=job, step_id="b", input={"mode": "run", "run_id": run_id})
+    assert status == 409 and error(out) == "run_step_missing" and out["error"]["step"] == "n"
+
+
+def test_preview_unrelated_edge_error_does_not_block(w):
+    job = chain_job()
+    job["steps"].append({"id": "z", "type": "inline", "spl": "| makeresults"})
+    job["edges"].append({"from": "a", "to": "z", "condition": "bogus"})
+    job["edges"].append({"from": "z", "to": "nowhere"})
+    assert preview(w, job=job)[0] == 201
+    job["edges"].append({"from": "ghost", "to": "a"})
+    status, out = preview(w, job=job)
+    assert status == 400 and out["error"]["issues"][0]["code"] == "unknown_edge_step"
+    job = chain_job(params=[{"name": "p", "type": "bogus"}])
+    assert preview(w, job=job)[0] == 400
+    job = chain_job(timezone="Nowhere/Land")
+    assert preview(w, job=job)[0] == 400
+    job = chain_job(triggers=[{"type": "cron", "cron": "bad"}])
+    assert preview(w, job=job)[0] == 201
+
+
+def test_job_id_new_reserved(w):
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body("new"))
+    assert status == 400 and error(out) == "bad_job_id"
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(None, name="New"))
+    assert status == 201 and out["job"]["id"] != "new"

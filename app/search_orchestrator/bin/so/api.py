@@ -30,9 +30,11 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
   ``input`` ``{"mode": "live", "previews": {step: {"sid"} | {"skipped": kind}}}`` or
   ``{"mode": "run", "run_id"}``: 201 ``{"status": "started", "sid", "spl"}`` (plus
   ``"anyway": true`` when it bypassed a skip), 200 ``{"status": "skipped", "skip_kind",
-  "reason"}``, 409 ``needs_preview`` (``steps``) or ``upstream_failed`` (``step``), 410
-  ``run_results_expired`` (``step``), 400 ``invalid`` (errors in the step or the steps it
-  reads) or ``bad_param``. Audited as ``preview_dispatched``.
+  "reason"}``, 409 ``needs_preview`` (``steps``), ``upstream_failed`` (``step``: a failed
+  step behind an on_success edge, as a run decides) or ``run_step_missing`` (``step``), 410
+  ``run_results_expired`` (``step``), 400 ``invalid`` (errors in the step, the steps it
+  reads, the edges into them, params or time zone) or ``bad_param``. The sid of a live
+  input is checked statically (``preview.own_sid``) before splunkd is asked about it. Audited as ``preview_dispatched``.
 * ``GET preview/<sid>`` (query ``limit``, seconds, capped at ``preview.MAX_RUNTIME``):
   ``{"state", "result_count", "error", "truncated", "run_duration", "messages"}``; a
   running search past the limit is cancelled and reported failed, otherwise touched.
@@ -74,7 +76,7 @@ from .store import ACTIVE_RUN_STATES, COMMANDS, RUNS, SETTINGS, Store
 
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-RESERVED_JOB_IDS = ("validate",)  # route keywords under jobs/
+RESERVED_JOB_IDS = ("validate", "new")  # route keywords under jobs/; "new": unsaved previews
 DESTINATIONS_KEY = "destinations"
 ACTION_RUNS = "so_action_runs"
 AUDIT_INDEX = "orchestrator"
@@ -995,6 +997,7 @@ SKIP_REASONS = {
     "not_taken": "A run would skip this step: none of the edges into it would be taken."}
 POLL_FIELDS = ("state", "result_count", "error", "truncated", "run_duration", "messages")
 _UPSTREAM = ("state", "skip_kind", "sid", "result_count", "first")
+RUN_ENDED = ("succeeded", "failed", "skipped")  # step states a preview can read from a run
 
 
 def _preview_target(ctx, body):
@@ -1018,16 +1021,23 @@ def _invalid(issues):
 
 
 def _preview_scope(job, step_id):
-    """The steps ``step_id`` reads, after checking that it and they are valid. Errors in
-    other steps, and in the job's schedule, don't block a preview."""
-    errors = _errors(model.validate_job(job))
-    general = [i for i in errors if i.get("step") is None and i.get("code") != "bad_cron"]
-    if general:
-        raise _invalid(general)
+    """The steps ``step_id`` reads, after checking the step, those steps, the edges into
+    them, the params and the time zone. Errors elsewhere (other steps and edges, the
+    schedule, actions) don't block a preview."""
+    shape = [i for i in _errors(model.validate_job(job)) if i.get("code") == "bad_shape"]
+    if shape:
+        raise _invalid(shape)
     if step_id not in [s.get("id") for s in job.get("steps") or []]:
         raise ApiError(400, "unknown_step", "the job has no step %r" % (step_id,))
+    try:
+        model.topo_order(job)
+    except ValueError:
+        raise _invalid([_issue("error", "cycle", "steps form a dependency cycle")])
     scope = preview.closure(job, step_id)
-    found = [i for i in errors if i.get("step") in set(scope) | {step_id}]
+    keep = set(scope) | {step_id}
+    part = dict(job, steps=[s for s in job.get("steps") or [] if s.get("id") in keep],
+                edges=[e for e in job.get("edges") or [] if e.get("to") in keep], triggers=[])
+    found = _errors(model.validate_job(part))
     if found:
         raise _invalid(found)
     return scope
@@ -1058,8 +1068,8 @@ def _live_state(ctx, job, job_ref, up, entry, fields):
     if entry.get("skipped") in SKIP_REASONS:
         return {"state": "skipped", "skip_kind": entry["skipped"]}
     sid = entry.get("sid")
-    if preview.parts(sid) is None:
-        return None
+    if not preview.own_sid(sid, ctx.user, job_ref, up):
+        return None  # checked before splunkd is asked anything about the sid
     info = ctx.user_gw.preview_info(sid)
     if not preview.own_preview(info, sid, ctx.user, job_ref, up):
         return None
@@ -1098,10 +1108,6 @@ def _live_upstream(ctx, job, job_ref, scope, previews):
             upstream[up] = st
     if needs:
         raise ApiError(409, "needs_preview", "preview %s first" % ", ".join(needs), steps=needs)
-    for up in scope:
-        if upstream[up]["state"] == "failed":
-            raise ApiError(409, "upstream_failed", "%s's preview failed; fix it or preview it "
-                           "again" % up, step=up)
     return upstream
 
 
@@ -1118,6 +1124,10 @@ def _run_upstream(ctx, job, step_id, scope, run_id):
     steps = run.get("steps") or {}
     upstream = {up: {k: (steps.get(up) or {}).get(k) for k in _UPSTREAM}
                 for up in scope if steps.get(up)}
+    for up in preview.reads(job, step_id):
+        if (upstream.get(up) or {}).get("state") not in RUN_ENDED:
+            raise ApiError(409, "run_step_missing", "%s has no result in that run; switch to "
+                           "live previews or pick another run" % up, step=up)
     for up in preview.reads(job, step_id):
         st = upstream.get(up) or {}
         if st.get("state") == "succeeded" and st.get("sid") \
@@ -1144,10 +1154,12 @@ def _decide(job, step_id, scheduled, params, upstream):
 
 
 def _needs(upstream, steps):
+    """A run would not reach the step: a failed step behind an on_success edge is
+    ``upstream_failed``, the same in both input modes."""
     failed = [s for s in steps if (upstream.get(s) or {}).get("state") == "failed"]
     if failed:
-        return ApiError(409, "upstream_failed", "%s failed, so a run would not reach this step"
-                        % failed[0], step=failed[0])
+        return ApiError(409, "upstream_failed", "%s failed, so a run would not reach this "
+                        "step; fix it or preview it again" % failed[0], step=failed[0])
     return ApiError(409, "needs_preview", "preview %s first" % ", ".join(steps), steps=steps)
 
 
@@ -1207,6 +1219,8 @@ def start_preview(ctx, body):
 def _own_preview(ctx, sid):
     """``preview_info`` of the caller's own preview ``sid``; anything else is 404."""
     _, job_ref, step_id, _ = preview.parts(sid)
+    if not preview.own_sid(sid, ctx.user, job_ref, step_id):
+        raise ApiError(404, "not_found", "no preview %r" % sid)
     info = ctx.user_gw.preview_info(sid)
     if not preview.own_preview(info, sid, ctx.user, job_ref, step_id):
         raise ApiError(404, "not_found", "no preview %r" % sid)
