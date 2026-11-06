@@ -1011,8 +1011,9 @@ class Engine:
                 return self._attempt_failed(run, sid, problem, now, pending)
         earliest, latest = sdef.get("earliest"), sdef.get("latest")
         if sdef.get("type") == "previous":
-            # Its input is search results, not events: no time range, even on a step stored
-            # with one before 1.1.0 stopped saving it.
+            # Its input is search results, not events: never send a time range override,
+            # even for a step stored with one before 1.1.0. (A hidden saved search written
+            # then keeps its own dispatch time range until the job is re-saved.)
             earliest = latest = None
         # Never dispatch without the lease: if another member took it, stop here. The step
         # stays starting with no search, and the new leader checks history first.

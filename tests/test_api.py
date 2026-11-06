@@ -1558,3 +1558,23 @@ def test_preview_reports_the_inputs_it_read_as_resolved(w):
     kept(w, "run_a")
     status, out = preview(w, job=chain_job(), step_id="b", input={"mode": "run", "run_id": run_id})
     assert out["input"] == [{"step": "a", "state": "succeeded", "sid": "run_a"}]
+
+
+def test_stored_previous_step_with_old_time_range_is_flagged_until_resaved(w):
+    body = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults"},
+                           {"id": "b", "type": "previous", "spl": "| stats count"}])
+    saved(w, body=body)
+    stored = w.store.get_job("daily")
+    stored["steps"][1].update(earliest="-7d", latest="now")  # as saved before 1.1.0
+    w.store.save_job(stored)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs")
+    assert [i["code"] for i in out["jobs"][0]["warnings"]] == ["previous_old_time_range"]
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    job = out["job"]
+    assert job["warnings"][0]["step"] == "b"
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", dict(job))
+    assert "previous_old_time_range" in [i["code"] for i in out["issues"]]
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job))
+    assert status == 200, out
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    assert out["job"]["warnings"] == []

@@ -207,3 +207,21 @@ def test_find_cycle_names_the_path():
     assert m.find_cycle(job) == ["a", "a"]
     job["edges"] = [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}]
     assert m.find_cycle(job) is None
+
+
+def test_previous_step_with_an_old_time_range_warns():
+    from so import model as m
+    j = {"name": "j", "enabled": True, "timezone": "UTC", "triggers": [], "params": [],
+         "actions": [],
+         "steps": [{"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d"},
+                   {"id": "p", "type": "previous", "spl": "| stats count", "earliest": "-7d",
+                    "latest": "now"}],
+         "edges": [{"from": "a", "to": "p"}]}
+    found = [i for i in m.validate_job(j) if i["code"] == "previous_old_time_range"]
+    assert found == [{"level": "warning", "code": "previous_old_time_range",
+                      "message": "re-save the job to drop this step's old time range",
+                      "step": "p"}]
+    assert m.old_time_range_issues(j) == found
+    del j["steps"][1]["earliest"], j["steps"][1]["latest"]
+    assert "previous_old_time_range" not in codes(m.validate_job(j))
+    assert m.old_time_range_issues(j) == []

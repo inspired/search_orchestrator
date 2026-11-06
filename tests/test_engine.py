@@ -1508,8 +1508,11 @@ def test_previous_old_definition_without_empty_search_fails_with_resave_message(
     assert w.run(run_id)["state"] in ("failed", "blocked")
 
 
-def test_old_previous_step_with_time_range_dispatches_without_one():
-    # Saved before 1.1.0, a previous step may still carry earliest/latest in its definition.
+def test_previous_step_dispatch_sends_no_time_range_override():
+    # A definition saved before 1.1.0 may still carry earliest/latest on a previous step.
+    # The engine sends no override for it; splunkd still applies the time range stored on
+    # that step's old hidden saved search until the job is re-saved (model warns:
+    # previous_old_time_range).
     w = World()
     j = w.add_job(make_job(steps=[{"id": "a", "earliest": "-1d", "latest": "now"},
                                   {"id": "p", "type": "previous", "spl": "| stats count",

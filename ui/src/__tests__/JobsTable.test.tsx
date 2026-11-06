@@ -8,6 +8,15 @@ import { formatTime } from '../format';
 import { NOW, job, me, renderThemed } from './fixtures';
 
 describe('JobsTable', () => {
+    test('a job warning (an old time range on a From previous steps step) shows under its name', () => {
+        const warning = { level: 'warning' as const, code: 'previous_old_time_range', message: "re-save the job to drop this step's old time range", step: 'b' };
+        renderThemed(<JobsTable jobs={[job({ warnings: [warning] }), job({ id: 'w', name: 'Weekly rollup' })]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const daily = screen.getByText('Daily summary').closest('tr') as HTMLElement;
+        expect(within(daily).getByText("Step b: re-save the job to drop this step's old time range")).toBeInTheDocument();
+        const weekly = screen.getByText('Weekly rollup').closest('tr') as HTMLElement;
+        expect(within(weekly).queryByText(/re-save/)).toBeNull();
+    });
+
     test('JobsTable shows next run and last outcome', () => {
         const jobs = [
             job({

@@ -152,6 +152,8 @@ export interface Job extends JobDefinition {
     /** True when no cron slot was found within the server's 400-day walk. */
     next_run_beyond?: boolean;
     last_run?: LastRun | null;
+    /** Problems a re-save fixes, such as previous_old_time_range. */
+    warnings?: Issue[];
 }
 
 export interface StepStatus {

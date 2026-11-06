@@ -3,7 +3,7 @@
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
 unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_needs_pipe,
-previous_needs_dependency; warning timezone_fallback.
+previous_needs_dependency; warnings timezone_fallback, previous_old_time_range.
 ``workload_pool`` was removed from the first version and is ignored.
 """
 import re
@@ -102,6 +102,17 @@ def find_cycle(job):
             if found:
                 return found
     return None
+
+
+def old_time_range_issues(job):
+    """Warnings for From previous steps steps that still carry earliest/latest: saved
+    before 1.1.0, their hidden saved search keeps that time range until the job is
+    re-saved (a save strips it)."""
+    return [_issue("warning", "previous_old_time_range",
+                   "re-save the job to drop this step's old time range", s.get("id"))
+            for s in job.get("steps") or []
+            if isinstance(s, dict) and s.get("type") == "previous"
+            and (s.get("earliest") or s.get("latest"))]
 
 
 def _downstream(succ, starts):
@@ -307,6 +318,8 @@ def _validate(job, known_saved_searches):
                     issues.append(_issue("error", "previous_needs_dependency",
                                          "A From previous steps step must depend on at least "
                                          "one step", sid))
+                if s.get("earliest") or s.get("latest"):
+                    issues.extend(old_time_range_issues({"steps": [s]}))
             elif not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
                                      "This step searches all time.", sid))

@@ -63,6 +63,11 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
                                 ) : (
                                     job.name
                                 )}
+                                {(job.warnings || []).map((w) => (
+                                    <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
+                                        {w.step ? `Step ${w.step}: ${w.message}` : w.message}
+                                    </div>
+                                ))}
                             </Table.Cell>
                             <Table.Cell>{job.owner}</Table.Cell>
                             <Table.Cell>

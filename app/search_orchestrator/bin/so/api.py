@@ -255,6 +255,7 @@ def _listed_job(ctx, job):
     out = _public_job(ctx, job)
     out["next_run"], out["next_run_beyond"] = _next_run(job, ctx.now)
     out["last_run"] = _last_run(ctx, job.get("id") or job.get("_key"))
+    out["warnings"] = model.old_time_range_issues(job)  # fixed by a re-save
     return out
 
 
