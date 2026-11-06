@@ -48,9 +48,11 @@ export interface PreviewBarProps {
     onSource: (source: string) => void;
     /** This job's runs; empty for an unsaved job. */
     runs: RunSummary[];
+    /** The Input from list was opened: reload the runs. */
+    onOpenRuns?: () => void;
 }
 
-export default function PreviewBar({ scheduledTime, onScheduledTime, params, values, onValues, source, onSource, runs }: PreviewBarProps) {
+export default function PreviewBar({ scheduledTime, onScheduledTime, params, values, onValues, source, onSource, runs, onOpenRuns }: PreviewBarProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [timeDraft, setTimeDraft] = useState(timeOf(scheduledTime));
     useEffect(() => setTimeDraft(timeOf(scheduledTime)), [scheduledTime]);
@@ -143,7 +145,7 @@ export default function PreviewBar({ scheduledTime, onScheduledTime, params, val
                     );
                 })}
             <ControlGroup label="Input from" labelFor="preview-source" labelPosition="top">
-                <Select inputId="preview-source" data-testid="input-from" value={source} onChange={onPick}>
+                <Select inputId="preview-source" data-testid="input-from" value={source} onChange={onPick} onOpen={onOpenRuns}>
                     <Select.Option label="Live previews" value="live" />
                     {shown.map((r) => (
                         <Select.Option key={r.id} label={`${localStamp(r.scheduled_time)} · ${r.state}`} value={r.id} />

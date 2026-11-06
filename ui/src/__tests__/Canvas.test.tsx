@@ -110,6 +110,19 @@ describe('Canvas', () => {
         expect(screen.getByText('Out of date. Preview again to refresh.')).toBeInTheDocument();
     });
 
+    test('the run list reloads after a save and when Input from is opened', async () => {
+        const api = fakeApi();
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await waitFor(() => expect(api.listRuns).toHaveBeenCalledTimes(1));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalledTimes(1));
+        await waitFor(() => expect(api.listRuns).toHaveBeenCalledTimes(2));
+        fireEvent.click(screen.getByTestId('input-from'));
+        await waitFor(() => expect(api.listRuns).toHaveBeenCalledTimes(3));
+        expect(api.listRuns).toHaveBeenLastCalledWith({ job_id: 'rollups', limit: 20 });
+    });
+
     test('GraphView shows status text per step', () => {
         renderThemed(
             <GraphView steps={steps} edges={edges} statusByStep={{ daily: { state: 'failed' }, weekly: { state: 'waiting' } }} />

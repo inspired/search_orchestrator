@@ -95,6 +95,24 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         setRemovingState(id);
     };
 
+    /** This job's recent runs for "Input from": loaded with the job, after a save, and
+     * each time the list is opened. */
+    const mountedRef = useRef(true);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+    const loadRuns = (id: string | null) => {
+        if (!id) {
+            return;
+        }
+        api.listRuns({ job_id: id, limit: 20 })
+            .then((r) => mountedRef.current && setRuns(r.filter((run) => run.job_id === id)))
+            .catch(() => undefined);
+    };
+
     useEffect(() => {
         let live = true;
         api.me()
@@ -107,9 +125,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             .then((j) => live && setJobs(j))
             .catch(() => undefined);
         if (initialId) {
-            api.listRuns({ job_id: initialId, limit: 20 })
-                .then((r) => live && setRuns(r.filter((run) => run.job_id === initialId)))
-                .catch(() => undefined);
+            loadRuns(initialId);
             api.getJob(initialId)
                 .then((job) => {
                     if (!live) {
@@ -233,6 +249,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     // the page still works; a reload would open a new job
                 }
             }
+            loadRuns(res.job.id);
             setNotice({ type: 'success', text: 'Saved.' });
         } catch (err) {
             const e = err as client.ApiError;
@@ -367,6 +384,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             source={source}
             onSource={setSource}
             runs={runs}
+            onOpenRuns={() => loadRuns(jobId)}
         />
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
