@@ -4,7 +4,7 @@ import calendar
 import pytest
 
 from fakes import FakeGateway
-from so import api
+from so import api, preview_api
 from so.actions import ActionRunner
 from so.engine import Engine
 from so.store import COMMANDS, JOBS, RUNS, Store
@@ -1482,7 +1482,7 @@ def test_malformed_preview_sid_is_404_not_500(w, sid):
     # The route checks the sid too; the helper never unpacks a None.
     ctx = api._Ctx("alice", w.deps("alice"))
     with pytest.raises(api.ApiError) as err:
-        api._own_preview(ctx, sid)
+        preview_api._own_preview(ctx, sid)
     assert err.value.status == 404 and err.value.code == "not_found"
     for method, suffix in (("GET", ""), ("GET", "/results"), ("POST", "/cancel")):
         if sid:
