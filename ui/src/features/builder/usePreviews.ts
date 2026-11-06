@@ -341,6 +341,8 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         const token = claim(stepId, jobSnap, ctxSnap);
         const chainId = `${stepId}#${token}`;
         chains.current[stepId] = chainId;
+        // Previewed directly: no other chain started this preview, so none may cancel it.
+        delete owners.current[stepId];
         // Waiting on all of them from the start: cancelling another chain leaves them be.
         before.forEach((up) => wait(up, chainId));
         const chain = (async (): Promise<Outcome> => {
@@ -384,14 +386,20 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         if (!chainId) {
             return;
         }
+        // A cancelled chain waits on nothing any more, even before its awaits settle.
+        Object.keys(waiters.current).forEach((up) => unwait(up, chainId));
         Object.keys(owners.current).forEach((up) => {
             if (owners.current[up] !== chainId) {
                 return;
             }
-            delete owners.current[up];
-            const others = Array.from(waiters.current[up] || []).filter((c) => c !== chainId);
+            const others = Array.from(waiters.current[up] || []);
             const p = store.current[up];
-            if (p && p.state === 'running' && !others.length) {
+            if (p && p.state === 'running' && others.length) {
+                owners.current[up] = others[0]; // kept for another chain, which now owns it
+                return;
+            }
+            delete owners.current[up];
+            if (p && p.state === 'running') {
                 stop(up);
             }
         });

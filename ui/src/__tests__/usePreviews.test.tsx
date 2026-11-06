@@ -660,4 +660,48 @@ describe('usePreviews', () => {
         expect(api.cancelPreview).not.toHaveBeenCalled();
         expect(result.current.previews.a.state).toBe('done');
     });
+
+    test('cancel leaves an upstream preview the user started on that step directly', async () => {
+        const api = slowA(100);
+        const { result } = renderHook(() => usePreviews(diamond, ctx, api));
+        act(() => {
+            result.current.preview('c');
+        });
+        await settle(1);
+        act(() => {
+            result.current.preview('a');
+        });
+        await flush();
+        const direct = result.current.previews.a.sid;
+        act(() => {
+            result.current.cancel('c');
+        });
+        await settle(2);
+        expect(result.current.previews.a.state).toBe('running');
+        expect(api.cancelPreview).not.toHaveBeenCalledWith(direct);
+    });
+
+    test('an upstream kept for another chain is stopped when that chain is cancelled too', async () => {
+        const api = slowA(100);
+        const { result } = renderHook(() => usePreviews(diamond, ctx, api));
+        act(() => {
+            result.current.preview('c');
+        });
+        await settle(1);
+        act(() => {
+            result.current.preview('d');
+        });
+        await flush();
+        act(() => {
+            result.current.cancel('c');
+        });
+        await flush();
+        expect(result.current.previews.a.state).toBe('running');
+        act(() => {
+            result.current.cancel('d');
+        });
+        await flush();
+        expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
+        expect(result.current.previews.a.state).toBe('failed');
+    });
 });
