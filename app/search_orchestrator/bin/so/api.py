@@ -1094,12 +1094,23 @@ def _scalar(value):
     return value
 
 
-def _live_upstream(ctx, job, job_ref, scope, previews):
+def _live_upstream(ctx, job, job_ref, scope, previews, scheduled, params):
+    """Upstream states from the caller's live previews. Each upstream step is decided again
+    (``state.preview_decision``, in topological order, from the states before it): a step a
+    run would skip is skipped downstream whatever the client sends, even with a sid from
+    Preview anyway. A step a run would not reach past a failure is ``upstream_failed``."""
     if not isinstance(previews, dict):
         raise ApiError(400, "bad_request", "input previews must be an object")
     wanted = first_fields(job)
     upstream, needs = {}, []
     for up in scope:
+        if not needs:
+            decision, detail = _decide(job, up, scheduled, params, upstream)
+            if decision == "skipped":
+                upstream[up] = {"state": "skipped", "skip_kind": detail}
+                continue
+            if decision == "needs":
+                raise _needs(upstream, detail.split(","))
         st = _live_state(ctx, job, job_ref, up, previews.get(up), wanted.get(up))
         if st is None:
             needs.append(up)
@@ -1136,13 +1147,14 @@ def _run_upstream(ctx, job, step_id, scope, run_id):
     return upstream
 
 
-def _preview_upstream(ctx, job, job_ref, step_id, scope, source):
+def _preview_upstream(ctx, job, job_ref, step_id, scope, source, scheduled, params):
     source = source or {"mode": "live"}
     if not isinstance(source, dict) or source.get("mode") not in ("live", "run"):
         raise ApiError(400, "bad_request", "input mode must be \"live\" or \"run\"")
     if source["mode"] == "run":
         return _run_upstream(ctx, job, step_id, scope, source.get("run_id"))
-    return _live_upstream(ctx, job, job_ref, scope, source.get("previews") or {})
+    return _live_upstream(ctx, job, job_ref, scope, source.get("previews") or {}, scheduled,
+                          params)
 
 
 def _decide(job, step_id, scheduled, params, upstream):
@@ -1197,7 +1209,8 @@ def start_preview(ctx, body):
     scope = _preview_scope(job, step_id)
     params = _preview_params(job, body)
     scheduled = _scheduled_time(ctx, body)
-    upstream = _preview_upstream(ctx, job, job_ref, step_id, scope, body.get("input"))
+    upstream = _preview_upstream(ctx, job, job_ref, step_id, scope, body.get("input"),
+                                 scheduled, params)
     decision, detail = _decide(job, step_id, scheduled, params, upstream)
     if decision == "needs":
         raise _needs(upstream, detail.split(","))

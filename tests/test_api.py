@@ -1374,3 +1374,48 @@ def test_job_id_new_reserved(w):
     assert status == 400 and error(out) == "bad_job_id"
     status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(None, name="New"))
     assert status == 201 and out["job"]["id"] != "new"
+
+
+def _skip_b_job(c_type="inline", c_spl="| loadjob $b.sid$"):
+    """a -> b -> c, where b's run_when never matches at T0 (a Tuesday)."""
+    return job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults"},
+                           {"id": "b", "type": "inline", "spl": "| makeresults",
+                            "run_when": {"kind": "cron", "value": "* * * * 1"}},
+                           {"id": "c", "type": c_type, "spl": c_spl}],
+                    edges=[{"from": "a", "to": "b"}, {"from": "b", "to": "c"}])
+
+
+def test_preview_anyway_upstream_feeds_downstream_as_skipped(w):
+    w.gw.script_job("so_preview_", ["done"], result_count=2)
+    job = _skip_b_job()
+    _, out = preview(w, job=job)
+    a_sid = out["sid"]
+    status, out = preview(w, job=job, step_id="b", anyway=True, input=live(a={"sid": a_sid}))
+    assert status == 201 and out["anyway"] is True
+    b_sid = out["sid"]
+    # c reads b as a run would: skipped, so $b.sid$ without a default fails as in a run.
+    status, out = preview(w, job=job, step_id="c", input=live(a={"sid": a_sid}, b={"sid": b_sid}))
+    assert status == 400 and error(out) == "invalid", out
+    assert out["error"]["issues"][0]["step"] == "c" and "$b.sid$" in out["error"]["issues"][0][
+        "message"]
+    # A step a run would skip needs no preview of its own.
+    status, out = preview(w, job=job, step_id="c", input=live(a={"sid": a_sid}))
+    assert status == 400 and error(out) == "invalid", out
+    job = _skip_b_job("previous", "| stats count")
+    status, out = preview(w, job=job, step_id="c", input=live(a={"sid": a_sid}, b={"sid": b_sid}))
+    assert status == 201 and out["spl"] == "| makeresults | where 1=0 | stats count", out
+
+
+def test_preview_live_failed_grandparent_is_upstream_failed(w):
+    job = _skip_b_job()
+    del job["steps"][1]["run_when"]
+    w.gw.script_job("so_preview_", ["done"], result_count=1)
+    _, out = preview(w, job=job)
+    _, out = preview(w, job=job, step_id="b", input=live(a={"sid": out["sid"]}))
+    b_sid = out["sid"]
+    w.gw.script_job("so_preview_", ["failed"])
+    _, out = preview(w, job=job)
+    a_sid = out["sid"]
+    # a run never reaches b (a failed behind an on_success edge), so it never reaches c.
+    status, out = preview(w, job=job, step_id="c", input=live(a={"sid": a_sid}, b={"sid": b_sid}))
+    assert status == 409 and error(out) == "upstream_failed" and out["error"]["step"] == "a", out
