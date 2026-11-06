@@ -172,7 +172,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                         return 'failed';
                     }
                     // eslint-disable-next-line no-await-in-loop
-                    const o = await follow(s, run(s, jobSnap, ctxSnap, false));
+                    const o = await reuse(s, jobSnap, ctxSnap);
                     if (!current(id, token)) {
                         return ended(id, token);
                     }
@@ -211,6 +211,12 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
             if (!current(id, token)) {
                 return ended(id, token);
             }
+            const kind = ((jobSnap.steps || []).find((s) => s.id === id) || {}).type;
+            if (st.state === 'done' && st.truncated && kind === 'previous') {
+                // As a run decides (engine.py): a cut-down input is a failed step.
+                patch(id, token, { state: 'failed', status: st, error: `input was cut short: ${st.truncated}` });
+                return 'failed';
+            }
             if (st.state === 'done') {
                 try {
                     // eslint-disable-next-line no-await-in-loop
@@ -247,19 +253,38 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         return p;
     }
 
+    /** A running, current preview of the step: awaited, not restarted. */
+    const runningNow = (id: string, jobSnap: JobDefinition, ctxSnap: PreviewContext): boolean => {
+        const p = store.current[id];
+        return Boolean(
+            p && p.state === 'running' && pending.current[id] && !isStale(p, previewKeys(jobSnap, ctxSnap, store.current)[id] || '')
+        );
+    };
+
+    /** The step's outcome: a running current preview is followed, otherwise it is previewed. */
+    function reuse(id: string, jobSnap: JobDefinition, ctxSnap: PreviewContext): Promise<Outcome> {
+        const p = pending.current[id];
+        if (p && runningNow(id, jobSnap, ctxSnap)) {
+            return follow(id, p);
+        }
+        return follow(id, run(id, jobSnap, ctxSnap, false));
+    }
+
+    /** Previews missing or stale upstream steps first (and waits for running ones), then
+     * the step. `anyway` applies to the step only, never to its upstream steps. */
     const preview = (stepId: string, opts: { anyway?: boolean } = {}): Promise<void> => {
         const { job: jobSnap, ctx: ctxSnap } = latest.current;
-        if (opts.anyway) {
-            return run(stepId, jobSnap, ctxSnap, true).then(() => undefined);
-        }
+        const anyway = Boolean(opts.anyway);
         const keys = previewKeys(jobSnap, ctxSnap, store.current);
-        const order = ctxSnap.source === 'live' ? toBeRun(jobSnap, stepId, store.current, (id) => keys[id] || '') : [stepId];
-        const before = order.slice(0, -1);
+        const live = ctxSnap.source === 'live';
+        const order = live ? toBeRun(jobSnap, stepId, store.current, (id) => keys[id] || '') : [stepId];
+        const toRun = order.slice(0, -1);
+        const before = live ? upstreamOf(jobSnap, stepId).filter((u) => toRun.includes(u) || runningNow(u, jobSnap, ctxSnap)) : [];
         const token = claim(stepId, jobSnap, ctxSnap);
         const chain = (async (): Promise<Outcome> => {
             for (const up of before) {
                 // eslint-disable-next-line no-await-in-loop
-                const o = await follow(up, run(up, jobSnap, ctxSnap, false));
+                const o = await reuse(up, jobSnap, ctxSnap);
                 if (!current(stepId, token)) {
                     return ended(stepId, token);
                 }
@@ -271,7 +296,7 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
                     return 'failed';
                 }
             }
-            return execute(stepId, token, jobSnap, ctxSnap, false, true);
+            return execute(stepId, token, jobSnap, ctxSnap, anyway, true);
         })();
         pending.current[stepId] = chain;
         return chain.then(() => undefined);

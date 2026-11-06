@@ -178,8 +178,8 @@ function stable(value: unknown): unknown {
 
 /** What a step's preview depends on, as text: the step (without its display name and its
  * actions, which don't change what a preview shows; with inherited defaults resolved), the edges into it, the time zone, "as if scheduled at",
- * the params it references, where the inputs come from, and each upstream step's key and
- * sid. A live preview is valid while this is unchanged. */
+ * the params it references, where the inputs come from, and (live previews only) each
+ * upstream step's key and sid. A live preview is valid while this is unchanged. */
 export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewContext, upstreamKeys: UpstreamKeys): string {
     const step = (job.steps || []).find((s) => s.id === stepId);
     if (!step) {
@@ -212,11 +212,14 @@ export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewConte
             const given = ctx.params[name];
             params[name] = given !== undefined && given !== '' ? String(given) : decl && decl.default !== undefined && decl.default !== null ? String(decl.default) : null;
         });
+    // From a past run the run id (in `source`) is the input; live previews don't matter.
     const upstream: Record<string, unknown> = {};
-    upstreamOf(job, stepId).forEach((u) => {
-        const k = upstreamKeys[u];
-        upstream[u] = k ? { key: k.key, sid: k.sid ?? null, skipped: k.skipped ?? null } : null;
-    });
+    if (ctx.source === 'live') {
+        upstreamOf(job, stepId).forEach((u) => {
+            const k = upstreamKeys[u];
+            upstream[u] = k ? { key: k.key, sid: k.sid ?? null, skipped: k.skipped ?? null } : null;
+        });
+    }
     return JSON.stringify(
         stable({
             step: resolved,

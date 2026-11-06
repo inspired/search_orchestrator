@@ -177,4 +177,16 @@ describe('previewLogic', () => {
         expect(keys.b).toBe(previewKey(j, 'b', ctx, { a: { key: keys.a, sid: 'sa' } }));
         expect(keys.c).toBe(previewKey(j, 'c', ctx, { a: { key: keys.a, sid: 'sa' }, b: { key: keys.b } }));
     });
+    test('past-run mode leaves upstream keys and sids out of the key; live mode keeps them', () => {
+        const j = chain();
+        const run = { ...ctx, source: 'run1' };
+        const p1: Record<string, LivePreview> = { a: { key: 'K', sid: 'sa', state: 'done', startedAt: 1 } };
+        const p2: Record<string, LivePreview> = { a: { key: 'K', sid: 'sa2', state: 'done', startedAt: 2 } };
+        expect(previewKeys(j, run, p1).b).toBe(previewKeys(j, run, p2).b);
+        expect(previewKeys(j, run, p1).b).toBe(previewKeys(j, run, {}).b);
+        const edited = job([{ ...j.steps[0], spl: '| makeresults count=2' }, ...j.steps.slice(1)], j.edges);
+        expect(previewKeys(edited, run, p1).b).toBe(previewKeys(j, run, p1).b);
+        expect(previewKeys(j, ctx, p1).b).not.toBe(previewKeys(j, ctx, p2).b);
+        expect(previewKeys(edited, ctx, p1).b).not.toBe(previewKeys(j, ctx, p1).b);
+    });
 });
