@@ -464,13 +464,12 @@ run_setup() {
 
   cat <<NEXT
 
-Setup finished. What to do next:
-  1. Restart Splunk on this server. The spike runs its checks once each time the engine starts.
-  2. Wait about 5 minutes after the restart, then run this search as an admin:
-       | inputlookup so_spike_results | table check ok detail sid at
-     The sequence has finished when a row with check=done appears.
-  3. Tell the builder the spike has run, so the results can be verified.
-  4. When the milestone is closed, remove the test objects, while the app is still installed:
+Setup finished. The restricted test users $USER1 and $USER2 exist now, for
+permission checks in the app. Log in as them with the password you entered; a
+generated password was not kept, so re-run with a chosen one to log in.
+(The Milestone 1 spike and its so_spike_results lookup were removed from the
+app; there is nothing to restart for or wait on.)
+When you are done, remove the test objects, while the app is still installed:
        scripts/m1_setup.sh --host $BASE_URL$( [ "$INSECURE" = 1 ] && printf ' --insecure' )$( [ "$ALLOW_HTTP" = 1 ] && printf ' --allow-http' ) --cleanup
 NEXT
 }

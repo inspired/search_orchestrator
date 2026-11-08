@@ -1,5 +1,7 @@
 # Milestone 1: identity spike procedure
 
+> **Historical.** The spike engine and its `so_spike_results` lookup were removed from the app, so the restart-and-inputlookup steps below no longer apply. `scripts/m1_setup.sh` is still useful for creating restricted test users (`so_m1_user`, `so_m1_owner2`) for permission checks, and `--cleanup` removes them.
+
 **Test-only.** `scripts/m1_setup.sh` creates throwaway users, roles, an index and saved searches, so it is meant for a test server only. Run `--cleanup` when the milestone is closed. The spike engine and this procedure are removed in Task 6.
 
 The spike answers spec §9's go/no-go question: can a modular input's system session dispatch saved searches that run with the identity and access of their owner? An admin-owned test would pass without proving anything, so this uses a restricted user and an index that user can't read.
