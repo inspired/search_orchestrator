@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1 (2026-11-08)
+
+- The app has an icon: the Splunk UI `NodeStartToEnd` symbol on a Splunk green tile.
+
 ## 1.2.0 (2026-11-08)
 
 Job editor canvas.
