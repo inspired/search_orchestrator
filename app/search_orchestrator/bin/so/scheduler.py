@@ -129,11 +129,42 @@ def _held_run(store, job):
     return rows[0] if rows else None
 
 
+def _active_count(store, job_id):
+    return len(store.list_runs({"job_id": job_id, "state": {"$in": ACTIVE_RUN_STATES}},
+                               fields="_key"))
+
+
+def _report_rejected(store, job, run, queue_cap, now, audit, actions):
+    """Audit a run the queue cap turned away and tell the job's on_failure actions."""
+    held = _held_run(store, job)
+    if audit is not None:
+        event = {"_time": now, "type": "run_rejected", "reason": "queue_cap",
+                 "job_id": run["job_id"], "run_id": run["id"], "trigger": run["trigger"],
+                 "scheduled_time": run["scheduled_time"], "queue_cap": int(queue_cap)}
+        if held is not None:
+            event["held"] = True
+        audit.emit(event)
+    if actions is not None:
+        if held is None:
+            actions.submit(dict(run, state="rejected"), "on_failure", "job", None)
+        else:
+            # Reported the same way as the hold: folded into the held run's daily hold
+            # alert (same key, so at most one per job per day; none on the day of the
+            # hold, whose failure was already sent).
+            days = (now - int(held.get("held_at") or held.get("ended_at") or now)) // DAY
+            if days >= 1:
+                actions.submit(held, "on_failure", "job", None, occurrence="hold%d" % days)
+
+
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
                catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0,
                rerun=None, action_index=None):
     """Insert a queued run and return its ID, or None if it already exists or the
-    job's queue is full. Raises tokens.TokenError for invalid parameters."""
+    job's queue is full. Raises tokens.TokenError for invalid parameters.
+
+    KV Store has no transactions, so the cap is checked again after the insert: a run
+    that finds the queue over the cap removes itself. Two exactly simultaneous starts can
+    both do so; a false "queue full" is safe, a queue over its cap is not."""
     now = int(time.time() if now is None else now)
     job_id = job.get("id") or job.get("_key")
     key = run_key(job_id, trigger, scheduled_time, upstream, rerun, action_index)
@@ -151,29 +182,14 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:
         queue_cap = (store.get_settings() or {}).get("queue_cap") or QUEUE_CAP
-    waiting = store.list_runs({"job_id": job_id, "state": {"$in": ACTIVE_RUN_STATES}},
-                              fields="definition:0")
-    if len(waiting) >= int(queue_cap):
-        held = _held_run(store, job)
-        if audit is not None:
-            event = {"_time": now, "type": "run_rejected", "reason": "queue_cap",
-                     "job_id": job_id, "run_id": key, "trigger": trigger,
-                     "scheduled_time": int(scheduled_time), "queue_cap": int(queue_cap)}
-            if held is not None:
-                event["held"] = True
-            audit.emit(event)
-        if actions is not None:
-            if held is None:
-                actions.submit(dict(run, state="rejected"), "on_failure", "job", None)
-            else:
-                # Reported the same way as the hold: folded into the held run's daily hold
-                # alert (same key, so at most one per job per day; none on the day of the
-                # hold, whose failure was already sent).
-                days = (now - int(held.get("held_at") or held.get("ended_at") or now)) // DAY
-                if days >= 1:
-                    actions.submit(held, "on_failure", "job", None, occurrence="hold%d" % days)
+    if _active_count(store, job_id) >= int(queue_cap):
+        _report_rejected(store, job, run, queue_cap, now, audit, actions)
         return None
     if not store.create_run(run):
+        return None
+    if _active_count(store, job_id) > int(queue_cap):
+        store.delete_run(key)
+        _report_rejected(store, job, run, queue_cap, now, audit, actions)
         return None
     if audit is not None:
         audit.emit({"_time": now, "type": "run_created", "job_id": job_id, "run_id": key,

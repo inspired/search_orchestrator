@@ -71,6 +71,7 @@ INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 10
                 "result_retention": 7 * 86400, "run_retention_days": 3650}
 HIDDEN_JOB = "(hidden job)"
 CHAIN_LIMIT = 10
+SCHEDULED_TIME_MAX = 253402300799  # the end of year 9999, the last time datetime can show
 NEXT_RUN_MAX_DAYS = 400  # day matches the Jobs screen's next-run walk may try per cron
 LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "ended_at",
                    "delay_alerted", "held", "gave_up")
@@ -263,7 +264,9 @@ def _listed_job(ctx, job):
 def list_jobs(ctx, body):
     jobs = [j for j in ctx.store.list_jobs() if ctx.allowed(authz.can_view, j)]
     jobs.sort(key=lambda j: (str(j.get("name") or ""), str(j.get("id"))))
-    return 200, {"jobs": [_listed_job(ctx, j) for j in jobs]}
+    # ``brief``: without the next and last run, which cost a KV Store query per job.
+    listed = _public_job if str(body.get("brief")) == "1" else _listed_job
+    return 200, {"jobs": [listed(ctx, j) for j in jobs]}
 
 
 def get_job(ctx, body, job_id):
@@ -577,9 +580,9 @@ def _scheduled_time(ctx, body):
         if isinstance(value, bool):
             raise ValueError
         out = int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # int(float("inf")) is an OverflowError
         raise ApiError(400, "bad_request", "scheduled_time must be epoch seconds")
-    if out < 0:
+    if not 0 <= out <= SCHEDULED_TIME_MAX:
         raise ApiError(400, "bad_request", "scheduled_time must be epoch seconds")
     return out
 
@@ -593,6 +596,10 @@ def start_run(ctx, body, job_id):
     params = body.get("params") or {}
     if not isinstance(params, dict):
         raise ApiError(400, "bad_request", "params must be an object")
+    unknown = sorted(set(params) - {d.get("name") for d in job.get("params") or []})
+    if unknown and body.get("strict_params") is True:  # else undeclared names are dropped
+        message = "the job has no parameter %s" % ", ".join(unknown)
+        raise ApiError(400, "bad_param", message, [_issue("error", "bad_param", message)])
     scheduled = _scheduled_time(ctx, body)
     try:
         run_id = scheduler.create_run(ctx.store, job, "manual", scheduled, params, now=ctx.now,
@@ -737,6 +744,8 @@ def _enqueue(ctx, command):
 
 def control_run(ctx, body, run_id, action):
     run = _controllable_run(ctx, run_id, action)
+    if action == "cancel" and run.get("state") not in ACTIVE_RUN_STATES:
+        raise ApiError(409, "invalid_state", "a %s run cannot be cancelled" % run.get("state"))
     key = _enqueue(ctx, {"type": action, "run_id": run.get("id") or run_id})
     return 202, {"command_id": key}
 

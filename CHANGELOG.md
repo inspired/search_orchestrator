@@ -7,6 +7,19 @@ Job editor canvas.
 - A line dragged from a step's handle and dropped on empty canvas adds a **From previous steps** step that depends on that step (on success), and selects it. One undo removes the step and its connection. Dropped on another step, it still adds a dependency.
 - Steps are arranged automatically, top to bottom, after every change, and can no longer be dragged. The **Auto layout** button is gone. The view follows the selected step if it lands outside the visible area.
 
+`| orchestrate` hardening, from a logic, performance and resilience test suite.
+
+- `start` refuses a parameter the job doesn't declare, so a mistyped name no longer runs with the default. The REST API does this only when asked (`strict_params`); the alert action and other callers still drop undeclared names.
+- `cancel` refuses a run that has already finished (409 `invalid_state`) instead of reporting success and having the engine reject it. This applies to the Cancel button too.
+- `scheduled_time` must be a real time: from 0 to the end of year 9999. `inf` was a server error and `1e300` was stored.
+- An option given twice, an empty option value (such as an unset dashboard token in `status run=""`) and a `/` in `job` or `run` are errors.
+- `status` skips a run removed by retention while it was listing, instead of losing every row. It stops fetching runs after 120 seconds and warns how many it returned.
+- An unexpected reply from the server is a readable error, not a raw `KeyError`.
+- The command tells Splunk not to run it for search previews.
+- `jobs` no longer reads each job's last and next run (`GET jobs?brief=1`).
+- The probe sleeps at most 40 seconds in all, so it ends inside the command's 60-second call on a slow server.
+- The per-job queue cap holds when two starts race: a run that finds the queue over its cap after inserting removes itself and reports `queue_full`.
+
 ## 1.1.1 (2026-11-06)
 
 Step preview follow-ups.

@@ -60,6 +60,7 @@ NO_SUCH_INDEX = "so_selftest_no_such_index"
 FALLBACK_SEARCH = "_so_fallback_email"
 SCRATCH = "so_selftest"  # its own collection, so the engine lease is never touched
 POLL_SECONDS = 20
+PROBE_SLEEP_MAX = 40  # in all, so the probe ends inside the command's 60 s loopback call
 DETAIL_MAX = 400
 
 
@@ -217,11 +218,16 @@ def me_check(call, secrets=()):
     return {"check": "rest_me", "ok": 1 if ok else 0, "detail": scrub(detail, secrets)}
 
 
-def _poll(fn, done, sleep, seconds=POLL_SECONDS, every=1):
-    """Call ``fn`` until ``done(value)``, at most ``seconds / every`` times."""
+def _poll(fn, done, sleep, seconds=POLL_SECONDS, every=1, budget=None):
+    """Call ``fn`` until ``done(value)``, at most ``seconds / every`` times. ``budget`` is
+    ``[seconds left to sleep]``, shared between polls; when it runs out, polling stops."""
     value = None
     for attempt in range(max(1, int(seconds // every))):
         if attempt:
+            if budget is not None:
+                if budget[0] < every:
+                    break
+                budget[0] -= every
             sleep(every)
         value = fn()
         if done(value):
@@ -243,6 +249,7 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
     checks = []
     found = {}
     tag = uuid.uuid4().hex[:12]
+    budget = [PROBE_SLEEP_MAX]
 
     def check(name, fn):
         try:
@@ -277,14 +284,14 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
     def history():
         sid = need_sid()
         sids = _poll(lambda: sys_gw.history(user, found["name"], since), lambda v: sid in v,
-                     sleep, seconds=10)
+                     sleep, seconds=10, budget=budget)
         return sid in sids, "history since %d lists %d job(s); probe sid %s" % (
             since, len(sids), "found" if sid in sids else "missing")
 
     def status():
         sid = need_sid()
         st = _poll(lambda: sys_gw.job_status(sid), lambda v: v.get("state") != "running",
-                   sleep)
+                   sleep, budget=budget)
         found["status"] = st
         ok = st.get("state") == "done" and st.get("result_count") == PROBE_ROWS
         return ok, "state=%s result_count=%s (want %d) finalized=%s ttl=%s error=%s" % (
@@ -309,7 +316,7 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
         sid = need_sid()
         sys_gw.control(sid, "cancel")
         st = _poll(lambda: sys_gw.job_status(sid), lambda v: v.get("state") == "missing",
-                   sleep, seconds=10)
+                   sleep, seconds=10, budget=budget)
         return st.get("state") == "missing", "after cancel state=%s" % st.get("state")
 
     def kv_delete_query():
@@ -364,9 +371,10 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
                      "user": user})
         query = 'search index=%s "%s" | head 1' % (AUDIT_INDEX, probe_id)
         rows = _poll(lambda: user_gw.search_oneshot(user, query, "-1h", "+1h"), bool,
-                     sleep, every=2)
+                     sleep, every=2, budget=budget)
         if not rows:
-            return False, "wrote %s; not found by a search within %ds" % (probe_id, POLL_SECONDS)
+            return False, "wrote %s; not found by a search after %ds" % (
+                probe_id, int(clock() - started))
         return True, "wrote %s; found by a search after %ds (sourcetype=%s)" % (
             probe_id, int(clock() - started), rows[0].get("sourcetype"))
 
@@ -376,7 +384,7 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
                                        int(clock()), sid)
         try:
             info = _poll(lambda: user_gw.preview_info(sid),
-                         lambda v: v.get("state") != "running", sleep)
+                         lambda v: v.get("state") != "running", sleep, budget=budget)
             rows = user_gw.preview_results(sid, preview.TABLE_ROWS).get("rows") or []
         finally:
             user_gw.control(sid, "cancel")

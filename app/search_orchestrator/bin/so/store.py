@@ -61,6 +61,9 @@ class Store:
     def get_run(self, run_id):
         return self.gw.kv_get(RUNS, run_id)
 
+    def delete_run(self, run_id):
+        self.gw.kv_delete(RUNS, run_id)
+
     def list_runs(self, filters=None, limit=0, skip=0, fields=None):
         """Runs matching equality filters (a value may be a KV query operator dict),
         newest first. ``limit``, ``skip`` and the ``fields`` projection go to KV Store."""

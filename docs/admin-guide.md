@@ -191,7 +191,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 |---|---|
 | `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE |
 | `jobs/validate` | POST |
-| `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`) |
+| `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
 | `runs`, `runs/<id>` | GET |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
 | `settings` | GET, PUT (admin) |

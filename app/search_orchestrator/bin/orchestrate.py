@@ -20,12 +20,14 @@ the run itself (``step = "(run)"``, the run's state and times).
 """
 import os
 import sys
+import time
 
 _BIN = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_BIN, "..", "lib"))
 sys.path.insert(0, _BIN)
 
 from splunklib.searchcommands import Configuration, GeneratingCommand, dispatch  # noqa: E402
+from splunklib.searchcommands.decorators import ConfigurationSetting  # noqa: E402
 
 from so import model, selftest  # noqa: E402
 from so.gateway import SplunkGateway  # noqa: E402
@@ -39,6 +41,8 @@ OPTIONS = {"start": ("job", "scheduled_time"), "status": ("run", "job", "limit")
 REQUIRED = {"start": ("job",), "cancel": ("run",), "rerun": ("run", "step")}
 STATUS_LIMIT = 5
 STATUS_MAX_RUNS = 20  # each run is one more loopback call
+STATUS_DEADLINE = 120  # seconds; no further run is fetched after this
+PATH_OPTIONS = ("job", "run")  # their values become part of a URL path
 RUN_ROW = "(run)"
 _TRUE = ("1", "true", "t", "yes", "y")
 _FALSE = ("0", "false", "f", "no", "n")
@@ -66,30 +70,55 @@ def parse_args(argv):
             raise CommandError("orchestrate: expected name=value, got %r" % arg)
         value = _unquote(value)
         if action == "start" and name.startswith("param.") and len(name) > len("param."):
-            params[name[len("param."):]] = value
+            target, key = params, name[len("param."):]
         elif name in OPTIONS[action]:
-            options[name] = value
+            target, key = options, name
         else:
             raise CommandError("orchestrate %s: unknown argument %r" % (action, name))
+        if key in target:
+            raise CommandError("orchestrate %s: %s is given twice" % (action, name))
+        target[key] = value
     missing = [n for n in REQUIRED.get(action, ()) if not options.get(n)]
     if missing:
         raise CommandError("orchestrate %s: %s is required" % (action, ", ".join(missing)))
+    for name, value in options.items():
+        if not value:  # an unset dashboard token must not select something else
+            raise CommandError("orchestrate %s: %s has no value" % (action, name))
+        if name in PATH_OPTIONS and "/" in value:
+            raise CommandError("orchestrate %s: %s can't contain /" % (action, name))
     return action, options, params
+
+
+def _dicts(value):
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
 def _check(status, payload, ok=(200, 201, 202)):
     if status in ok:
         return payload
-    err = (payload or {}).get("error") or {}
+    err = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(err, dict):
+        err = {"message": err if isinstance(err, str) else None}
     message = "orchestrate: %s (%s)" % (err.get("message") or "HTTP %s" % status,
                                        err.get("code") or status)
-    issues = [i.get("message") for i in err.get("issues") or [] if i.get("message")]
+    issues = [i.get("message") for i in _dicts(err.get("issues")) if i.get("message")]
     if issues:
         message += ": " + "; ".join(issues[:3])
-    choices = [c.get("definition") for c in err.get("choices") or [] if c.get("available")]
+    choices = [c.get("definition") for c in _dicts(err.get("choices")) if c.get("available")]
     if choices:
         message += "; add definition=%s" % " or definition=".join(choices)
     raise CommandError(message)
+
+
+def _fields(reply, *names):
+    """The payload of a successful ``(status, payload)`` reply that has every field in
+    ``names``. Anything else is the server's mistake, shown as a message."""
+    payload = _check(*reply)
+    missing = [n for n in names if n not in payload] if isinstance(payload, dict) else names
+    if not isinstance(payload, dict) or missing:
+        raise CommandError("orchestrate: unexpected reply from the server (%s)"
+                           % ("no %s" % ", ".join(missing) if missing else "not an object"))
+    return payload
 
 
 def _bool(value, name):
@@ -139,9 +168,10 @@ def _run_path(run_id):
     return "runs/" + run_id  # splunklib percent-encodes the path once
 
 
-def _status(call, options):
+def _status(call, options, warn):
     if options.get("run"):
-        return status_rows(_check(*call("GET", _run_path(options["run"]), None))["run"])
+        return status_rows(_fields(call("GET", _run_path(options["run"]), None), "run")["run"])
+    started = time.monotonic()
     try:
         limit = int(options.get("limit") or STATUS_LIMIT)
     except ValueError:
@@ -150,9 +180,16 @@ def _status(call, options):
     if options.get("job"):
         query["job_id"] = options["job"]
     rows = []
-    for summary in _check(*call("GET", "runs", query))["runs"]:
-        run = _check(*call("GET", _run_path(summary["id"]), None))["run"]
-        rows.extend(status_rows(run))
+    summaries = _fields(call("GET", "runs", query), "runs")["runs"]
+    for done, summary in enumerate(summaries):
+        if time.monotonic() - started >= STATUS_DEADLINE:
+            warn("orchestrate status: stopped after %d of %d runs (%d seconds); use a lower "
+                 "limit or run=<run id>" % (done, len(summaries), STATUS_DEADLINE))
+            break
+        reply = call("GET", _run_path(_fields((200, summary), "id")["id"]), None)
+        if reply[0] == 404:  # removed by retention since it was listed
+            continue
+        rows.extend(status_rows(_fields(reply, "run")["run"]))
     return rows
 
 
@@ -162,9 +199,8 @@ def _selftest(call, options):
     body["scenario"] = scenario
     if scenario == "probe":
         first = selftest.me_check(call)
-        out = _check(*call("POST", "selftest", body))
-        return [first] + out["checks"]
-    out = _check(*call("POST", "selftest", body))
+        return [first] + _fields(call("POST", "selftest", body), "checks")["checks"]
+    out = _fields(call("POST", "selftest", body), "scenario", "job_id", "run_id")
     row = {"ok": 1, "scenario": out["scenario"], "job_id": out["job_id"],
            "run_id": out["run_id"], "scheduled_time": out.get("scheduled_time"),
            "message": "poll with | orchestrate status run=\"%s\"" % out["run_id"]}
@@ -178,24 +214,25 @@ def _selftest(call, options):
     return [row]
 
 
-def execute(argv, gateway):
+def execute(argv, gateway, warn=lambda text: None):
     """Rows for one invocation. ``gateway.orchestrator_api(method, path, body)`` is the
-    caller-session REST call. Raises CommandError for anything the user should see."""
+    caller-session REST call. Raises CommandError for anything the user should see;
+    ``warn(text)`` reports a result that is incomplete."""
     action, options, params = parse_args(argv)
 
     def call(method, path, body):
         return gateway.orchestrator_api(method, path, body)
 
     if action == "start":
-        body = {"params": params}
+        body = {"params": params, "strict_params": True}  # a mistyped name is an error
         if options.get("scheduled_time"):
             body["scheduled_time"] = options["scheduled_time"]
-        out = _check(*call("POST", "jobs/%s/runs" % options["job"], body))
+        out = _fields(call("POST", "jobs/%s/runs" % options["job"], body), "run_id")
         return [{"ok": 1, "job": options["job"], "run_id": out["run_id"]}]
     if action == "status":
-        return _status(call, options)
+        return _status(call, options, warn)
     if action == "cancel":
-        out = _check(*call("POST", _run_path(options["run"]) + "/cancel", {}))
+        out = _fields(call("POST", _run_path(options["run"]) + "/cancel", {}))
         return [{"ok": 1, "run_id": options["run"], "command_id": out.get("command_id"),
                  "message": "cancel requested; the engine applies it on its next tick"}]
     if action == "rerun":
@@ -205,12 +242,12 @@ def execute(argv, gateway):
         if "restart_downstream_jobs" in options:
             body["restart_downstream_jobs"] = _bool(options["restart_downstream_jobs"],
                                                     "restart_downstream_jobs")
-        out = _check(*call("POST", _run_path(options["run"]) + "/rerun", body))
+        out = _fields(call("POST", _run_path(options["run"]) + "/rerun", body))
         return [{"ok": 1, "run_id": options["run"], "step": options["step"],
                  "definition": out.get("definition"), "command_id": out.get("command_id"),
                  "message": "re-run requested; the engine applies it on its next tick"}]
     if action == "jobs":
-        jobs = _check(*call("GET", "jobs", None))["jobs"]
+        jobs = _fields(call("GET", "jobs", {"brief": "1"}), "jobs")["jobs"]
         return [{"job": j.get("id"), "name": j.get("name"), "enabled": _flag(j.get("enabled"))}
                 for j in jobs if (j.get("permissions") or {}).get("can_run")]
     return _selftest(call, options)
@@ -221,9 +258,13 @@ def _literal(text):
     return text.replace("{", "{{").replace("}", "}}")
 
 
-@Configuration(type="reporting")
+@Configuration(type="reporting", run_in_preview=False)
 class OrchestrateCommand(GeneratingCommand):
     """Start, inspect and control Search Orchestrator runs."""
+
+    class ConfigurationSettings(GeneratingCommand.ConfigurationSettings):
+        # splunklib offers this only to reporting commands; a preview must never start a run.
+        run_in_preview = ConfigurationSetting(doc="Run when Splunk generates a search preview.")
 
     def _protocol_v2_option_parser(self, arg):
         return [arg]  # every argument is parsed by parse_args, including param.<name>=...
@@ -232,7 +273,8 @@ class OrchestrateCommand(GeneratingCommand):
         info = self.metadata.searchinfo
         try:
             gateway = SplunkGateway.from_session(info.splunkd_uri, info.session_key)
-            rows = execute(list(self.fieldnames or []), gateway)
+            rows = execute(list(self.fieldnames or []), gateway,
+                           warn=lambda text: self.write_warning(_literal(text)))
         except CommandError as err:
             self.write_error(_literal(str(err)))
             return

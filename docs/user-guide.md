@@ -158,7 +158,9 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 | orchestrate jobs
 ```
 
-`status` without `run=` shows up to 20 recent runs (5 by default). `scheduled_time` lets you backfill a day: steps then summarise that day's window.
+`status` without `run=` shows up to 20 recent runs (5 by default), and stops with a warning if fetching them takes over two minutes. `scheduled_time` lets you backfill a day: steps then summarise that day's window.
+
+`start` refuses a `param.<name>` the job doesn't declare. An option given twice or with an empty value is an error, so an unset dashboard token can't select other runs. `cancel` refuses a run that has already finished.
 
 ## Audit events
 
