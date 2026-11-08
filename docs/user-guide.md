@@ -14,7 +14,7 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 Open **Jobs > New job**.
 
-1. **Add steps** on the canvas, or in the side panel. Drag from one step to another to make the second depend on the first. Keyboard and screen-reader users can use **Depends on** in the side panel instead.
+1. **Add steps** with **Add step**, or by dragging a line from a step's handle (the circle at its bottom edge) and letting go on empty canvas: that adds a **From previous steps** step that reads the first step's results, and selects it. Let go on another step instead to make that step depend on the first. Steps are arranged automatically, top to bottom, every time the graph changes, so there is nothing to place. Keyboard and screen-reader users can use **Depends on** in the side panel instead.
 2. **Select a step** to edit it in the side panel: its search, time range, run-when rule, delay and give-up times, retries and actions.
 3. **Select an edge** to choose when it lets the next step start: on success (the default), on failure, always, or an expression such as `$daily.resultCount$ > 0`.
 4. Use the job tabs for triggers, parameters, actions, who may run and job-wide defaults.

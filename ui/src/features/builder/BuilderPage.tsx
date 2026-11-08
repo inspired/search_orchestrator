@@ -401,18 +401,20 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                             setSelected({ kind: 'step', id });
                         }}
                     />
-                    <Button appearance="secondary" label="Auto layout" onClick={() => dispatch({ type: 'layout' })} />
                 </div>
                 <div ref={canvasArea}>
                 <Canvas
                     steps={job.steps}
                     edges={job.edges || []}
-                    positions={state.positions}
                     selected={selected}
                     issues={issues}
                     onSelect={setSelected}
-                    onMove={(id, x, y) => dispatch({ type: 'moveStep', id, x, y })}
                     onConnect={(from, to) => dispatch({ type: 'connect', from, to })}
+                    onAddFrom={(from) => {
+                        const id = nextStepId(job.steps);
+                        dispatch({ type: 'addStepFrom', from, id });
+                        setSelected({ kind: 'step', id });
+                    }}
                     onRequestRemove={setRemoving}
                     notes={notes}
                 />

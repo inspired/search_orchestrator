@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+Job editor canvas.
+
+- A line dragged from a step's handle and dropped on empty canvas adds a **From previous steps** step that depends on that step (on success), and selects it. One undo removes the step and its connection. Dropped on another step, it still adds a dependency.
+- Steps are arranged automatically, top to bottom, after every change, and can no longer be dragged. The **Auto layout** button is gone. The view follows the selected step if it lands outside the visible area.
+
 ## 1.1.1 (2026-11-06)
 
 Step preview follow-ups.

@@ -1,12 +1,11 @@
-/* The builder's state: the job being edited, where its nodes sit on the canvas, and
- * undo/redo history. Positions are layout only and are not saved with the job. */
+/* The builder's state: the job being edited and undo/redo history. Where steps sit on the
+ * canvas is not state: the canvas lays the graph out from the steps and edges. */
 import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
-import { autoLayout, NODE_H, Pos, Positions, wouldCycle } from './graphLogic';
+import { wouldCycle } from './graphLogic';
 import { generatedInputSpl } from './previewLogic';
 
 interface Snapshot {
     job: JobDefinition;
-    positions: Positions;
 }
 
 export interface BuilderState extends Snapshot {
@@ -18,10 +17,10 @@ export interface BuilderState extends Snapshot {
 
 export type BuilderAction =
     | { type: 'load'; job: JobDefinition }
-    | { type: 'addStep'; step?: Partial<StepDef>; position?: Pos }
+    | { type: 'addStep'; step?: Partial<StepDef> }
+    /** A From previous steps step reading `from`, added with its edge as one undo step. */
+    | { type: 'addStepFrom'; from: string; id: string }
     | { type: 'removeStep'; id: string }
-    | { type: 'moveStep'; id: string; x: number; y: number }
-    | { type: 'layout' }
     | { type: 'updateStep'; id: string; changes: Partial<StepDef> }
     | { type: 'connect'; from: string; to: string; condition?: Edge['condition'] }
     | { type: 'disconnect'; from: string; to: string }
@@ -51,7 +50,7 @@ export function blankJob(): JobDefinition {
 
 export function initialState(job: JobDefinition): BuilderState {
     const normal = { ...job, steps: job.steps || [], edges: job.edges || [] };
-    return { job: normal, positions: autoLayout(normal.steps, normal.edges), past: [], future: [] };
+    return { job: normal, past: [], future: [] };
 }
 
 /** The id addStep gives a new step: step_<n>, unused. */
@@ -64,12 +63,12 @@ export function nextStepId(steps: StepDef[]): string {
     return `step_${n}`;
 }
 
-function edits(state: BuilderState, job: JobDefinition, positions: Positions = state.positions, key?: string): BuilderState {
+function edits(state: BuilderState, job: JobDefinition, key?: string): BuilderState {
     if (key && key === state.lastKey) {
-        return { ...state, job, positions, future: [], lastKey: key };
+        return { ...state, job, future: [], lastKey: key };
     }
-    const past = [...state.past, { job: state.job, positions: state.positions }].slice(-HISTORY);
-    return { job, positions, past, future: [], lastKey: key };
+    const past = [...state.past, { job: state.job }].slice(-HISTORY);
+    return { job, past, future: [], lastKey: key };
 }
 
 const fieldKey = (...parts: string[]) => parts.join('\u0000');
@@ -143,7 +142,7 @@ function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepD
 const same = (e: Pick<Edge, 'from' | 'to'>, from: string, to: string) => e.from === from && e.to === to;
 
 export function reducer(state: BuilderState, action: BuilderAction): BuilderState {
-    const { job, positions } = state;
+    const { job } = state;
     const steps = job.steps || [];
     const edgeList = job.edges || [];
     switch (action.type) {
@@ -152,27 +151,22 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         case 'addStep': {
             const id = action.step?.id || nextStepId(steps);
             const step: StepDef = { id, name: '', type: 'inline', spl: '', ...action.step };
-            const lowest = Object.values(positions).reduce((m, p) => Math.max(m, p.y), -Infinity);
-            const position = action.position || { x: 20, y: lowest === -Infinity ? 20 : lowest + NODE_H + 40 };
-            return edits(state, { ...job, steps: [...steps, step] }, { ...positions, [id]: position });
+            return edits(state, { ...job, steps: [...steps, step] });
         }
-        case 'removeStep': {
-            const rest = { ...positions };
-            delete rest[action.id];
-            return edits(
-                state,
-                {
-                    ...job,
-                    steps: steps.filter((s) => s.id !== action.id),
-                    edges: edgeList.filter((e) => e.from !== action.id && e.to !== action.id),
-                },
-                rest
-            );
+        case 'addStepFrom': {
+            if (!steps.some((s) => s.id === action.from) || steps.some((s) => s.id === action.id)) {
+                return state;
+            }
+            const step: StepDef = { id: action.id, name: '', type: 'previous', spl: '' };
+            const edge: Edge = { from: action.from, to: action.id, condition: 'on_success' };
+            return edits(state, { ...job, steps: [...steps, step], edges: [...edgeList, edge] });
         }
-        case 'moveStep':
-            return edits(state, job, { ...positions, [action.id]: { x: action.x, y: action.y } });
-        case 'layout':
-            return edits(state, job, autoLayout(steps, edgeList));
+        case 'removeStep':
+            return edits(state, {
+                ...job,
+                steps: steps.filter((s) => s.id !== action.id),
+                edges: edgeList.filter((e) => e.from !== action.id && e.to !== action.id),
+            });
         case 'updateStep': {
             const newId = action.changes.id;
             const renamed = newId !== undefined && newId !== action.id;
@@ -182,12 +176,10 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const nextSteps = steps.map((s) => (s.id === action.id ? convertType(job, s, { ...s, ...action.changes }) : s));
             if (!renamed) {
                 const key = fieldKey('step', action.id, ...Object.keys(action.changes).sort());
-                return edits(state, { ...job, steps: nextSteps }, positions, key);
+                return edits(state, { ...job, steps: nextSteps }, key);
             }
             const to = newId as string;
             const swap = (id: string) => (id === action.id ? to : id);
-            const nextPositions = { ...positions, [to]: positions[action.id] };
-            delete nextPositions[action.id];
             const edgesOut = edgeList.map((e) => {
                 const next = { ...e, from: swap(e.from), to: swap(e.to) };
                 if (typeof next.expression === 'string') {
@@ -202,8 +194,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                     steps: nextSteps.map((st) => renameStepTokens(st, action.id, to)),
                     edges: edgesOut,
                     actions: renameActions(job.actions, action.id, to),
-                },
-                nextPositions
+                }
             );
         }
         case 'connect': {
@@ -237,24 +228,23 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                     return next;
                 }),
                 },
-                positions,
                 fieldKey('edge', action.from, action.to, ...Object.keys(action.changes).sort())
             );
         case 'setJobField':
-            return edits(state, { ...job, [action.field]: action.value } as JobDefinition, positions, fieldKey('job', action.field));
+            return edits(state, { ...job, [action.field]: action.value } as JobDefinition, fieldKey('job', action.field));
         case 'undo': {
             const prev = state.past[state.past.length - 1];
             if (!prev) {
                 return state;
             }
-            return { ...prev, past: state.past.slice(0, -1), future: [{ job, positions }, ...state.future], lastKey: undefined };
+            return { ...prev, past: state.past.slice(0, -1), future: [{ job }, ...state.future], lastKey: undefined };
         }
         case 'redo': {
             const next = state.future[0];
             if (!next) {
                 return state;
             }
-            return { ...next, past: [...state.past, { job, positions }], future: state.future.slice(1), lastKey: undefined };
+            return { ...next, past: [...state.past, { job }], future: state.future.slice(1), lastKey: undefined };
         }
         default:
             return state;

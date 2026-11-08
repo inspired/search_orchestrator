@@ -1,14 +1,16 @@
-/* The editable step graph: an SVG with pan (drag the background), zoom (wheel or buttons),
- * node drag, and new dependencies drawn from a node's output handle onto another node.
+/* The editable step graph: an SVG with pan (drag the background) and zoom (wheel or
+ * buttons). Steps are laid out automatically, top to bottom, from the steps and edges; they
+ * can't be dragged. A line drawn from a step's output handle connects it to the step it is
+ * dropped on, or, dropped on empty canvas, adds a new step reading from it.
  * Keyboard: Tab through steps, Enter selects, Delete asks to remove. The side panel's
  * "Depends on" field connects steps without a pointer. Colours come from theme tokens. */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import CrossCircle from '@splunk/react-icons/CrossCircle';
 import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
 import type { Edge, Issue, StepDef } from '../../api/types';
-import { issuesByStep, NODE_H, NODE_W, Pos, Positions, runWhenSummary } from './graphLogic';
+import { autoLayout, issuesByStep, NODE_H, NODE_W, Pos, runWhenSummary } from './graphLogic';
 import { ArrowMarker, EdgeLine, NodeBox, NodeGroup, stepLabel, Theme } from './GraphView';
 
 export type Selection = { kind: 'step'; id: string } | { kind: 'edge'; from: string; to: string } | null;
@@ -16,20 +18,20 @@ export type Selection = { kind: 'step'; id: string } | { kind: 'edge'; from: str
 export interface CanvasProps {
     steps: StepDef[];
     edges: Edge[];
-    positions: Positions;
     selected: Selection;
     issues: Issue[];
     onSelect: (sel: Selection) => void;
-    onMove: (id: string, x: number, y: number) => void;
     onConnect: (from: string, to: string) => void;
+    /** A line from `from` was dropped on empty canvas: add a step reading from it. */
+    onAddFrom: (from: string) => void;
     onRequestRemove: (id: string) => void;
     /** A short preview note under each previewed step, such as "✓ 7 rows". */
     notes?: Record<string, { text: string; failed?: boolean } | null | undefined>;
 }
 
 type Gesture =
-    | { kind: 'drag'; id: string; startX: number; startY: number; origin: Pos; moved: boolean }
-    | { kind: 'link'; from: string }
+    | { kind: 'press'; id: string }
+    | { kind: 'link'; from: string; start: Pos }
     | { kind: 'pan'; startX: number; startY: number; origin: Pos; moved: boolean };
 
 const MIN_ZOOM = 0.4;
@@ -40,12 +42,11 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export default function Canvas({
     steps,
     edges,
-    positions,
     selected,
     issues,
     onSelect,
-    onMove,
     onConnect,
+    onAddFrom,
     onRequestRemove,
     notes = {},
 }: CanvasProps) {
@@ -54,10 +55,35 @@ export default function Canvas({
     const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [gesture, setGesture] = useState<Gesture | null>(null);
-    const [dragPos, setDragPos] = useState<Pos | null>(null);
     const [cursor, setCursor] = useState<Pos | null>(null);
     const view = useRef({ pan, zoom });
     view.current = { pan, zoom };
+
+    // Laid out again only when the graph's shape changes, not on every keystroke.
+    const shape = JSON.stringify([steps.map((s) => s.id), edges.map((e) => [e.from, e.to])]);
+    const positions = useMemo(() => autoLayout(steps, edges), [shape]);
+
+    // Keep the selected step in view, for example a step just added below the visible area.
+    useEffect(() => {
+        const svg = svgRef.current;
+        const p = selected && selected.kind === 'step' ? positions[selected.id] : undefined;
+        if (!svg || !p || !svg.clientWidth || !svg.clientHeight) {
+            return;
+        }
+        const { pan: at, zoom: z } = view.current;
+        const margin = 20;
+        const shift = (start: number, end: number, size: number) => {
+            if (start < margin) {
+                return margin - start;
+            }
+            return end > size - margin ? Math.max(margin - start, size - margin - end) : 0;
+        };
+        const dx = shift(p.x * z + at.x, (p.x + NODE_W) * z + at.x, svg.clientWidth);
+        const dy = shift(p.y * z + at.y, (p.y + NODE_H + 20) * z + at.y, svg.clientHeight);
+        if (dx || dy) {
+            setPan({ x: at.x + dx, y: at.y + dy });
+        }
+    }, [selected, positions]);
 
     // Wheel zoom needs a non-passive listener so the page does not scroll as well.
     useEffect(() => {
@@ -78,8 +104,6 @@ export default function Canvas({
         const { pan: p, zoom: z } = view.current;
         return { x: (clientX - rect.left - p.x) / z, y: (clientY - rect.top - p.y) / z };
     };
-
-    const posOf = (id: string): Pos => (gesture && gesture.kind === 'drag' && gesture.id === id && dragPos) || positions[id];
 
     const nodeAt = (pt: Pos): string | null => {
         const hit = steps.find((s) => {
@@ -110,29 +134,25 @@ export default function Canvas({
             if (!gesture.moved && Math.abs(dx) + Math.abs(dy) > 3) {
                 setGesture({ ...gesture, moved: true });
             }
-        } else if (gesture.kind === 'drag') {
-            const dx = (ev.clientX - gesture.startX) / zoom;
-            const dy = (ev.clientY - gesture.startY) / zoom;
-            setDragPos({ x: Math.round(gesture.origin.x + dx), y: Math.round(gesture.origin.y + dy) });
-            if (!gesture.moved && Math.abs(dx) + Math.abs(dy) > 3) {
-                setGesture({ ...gesture, moved: true });
-            }
-        } else {
+        } else if (gesture.kind === 'link') {
             setCursor(toCanvas(ev.clientX, ev.clientY));
         }
     };
 
     const onPointerUp = (ev: React.PointerEvent) => {
         if (gesture) {
-            if (gesture.kind === 'drag') {
-                if (gesture.moved && dragPos) {
-                    onMove(gesture.id, dragPos.x, dragPos.y);
-                } else {
-                    onSelect({ kind: 'step', id: gesture.id });
-                }
+            if (gesture.kind === 'press') {
+                onSelect({ kind: 'step', id: gesture.id });
             } else if (gesture.kind === 'link') {
-                const target = nodeAt(toCanvas(ev.clientX, ev.clientY));
-                if (target && target !== gesture.from) {
+                const end = toCanvas(ev.clientX, ev.clientY);
+                const target = nodeAt(end);
+                // A click on the handle, with no line drawn, adds nothing.
+                const drawn = Math.abs(end.x - gesture.start.x) + Math.abs(end.y - gesture.start.y) > 12;
+                if (!target) {
+                    if (drawn) {
+                        onAddFrom(gesture.from);
+                    }
+                } else if (target !== gesture.from) {
                     onConnect(gesture.from, target);
                 }
             } else if (!gesture.moved) {
@@ -140,14 +160,13 @@ export default function Canvas({
             }
         }
         setGesture(null);
-        setDragPos(null);
         setCursor(null);
     };
 
     const byStep = issuesByStep(issues);
     const isSelectedEdge = (e: Edge) => selected !== null && selected.kind === 'edge' && selected.from === e.from && selected.to === e.to;
     const markerId = 'so-canvas-arrow';
-    const linkFrom = gesture && gesture.kind === 'link' ? posOf(gesture.from) : null;
+    const linkFrom = gesture && gesture.kind === 'link' ? positions[gesture.from] : null;
 
     return (
         <div>
@@ -187,15 +206,14 @@ export default function Canvas({
                 onPointerUp={onPointerUp}
                 onPointerCancel={() => {
                     setGesture(null);
-                    setDragPos(null);
                     setCursor(null);
                 }}
             >
                 <ArrowMarker id={markerId} theme={theme} />
                 <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
                     {edges.map((e) => {
-                        const a = positions[e.from] && posOf(e.from);
-                        const b = positions[e.to] && posOf(e.to);
+                        const a = positions[e.from];
+                        const b = positions[e.to];
                         if (!a || !b) {
                             return null;
                         }
@@ -242,7 +260,7 @@ export default function Canvas({
                         />
                     )}
                     {steps.map((s) => {
-                        const p = posOf(s.id);
+                        const p = positions[s.id];
                         if (!p) {
                             return null;
                         }
@@ -284,7 +302,7 @@ export default function Canvas({
                                 onPointerDown={(ev) => {
                                     ev.stopPropagation();
                                     capture(ev);
-                                    setGesture({ kind: 'drag', id: s.id, startX: ev.clientX, startY: ev.clientY, origin: positions[s.id], moved: false });
+                                    setGesture({ kind: 'press', id: s.id });
                                 }}
                                 onKeyDown={(ev) => {
                                     if (ev.key === 'Enter' || ev.key === ' ') {
@@ -295,7 +313,7 @@ export default function Canvas({
                                         onRequestRemove(s.id);
                                     }
                                 }}
-                                style={{ cursor: 'move' }}
+                                style={{ cursor: 'pointer' }}
                             >
                                 <NodeBox step={s} theme={theme} detail={detail} detailColor={color} icon={icon} stroke={color} selected={isSelected} />
                                 {note && (
@@ -323,8 +341,9 @@ export default function Canvas({
                                     onPointerDown={(ev) => {
                                         ev.stopPropagation();
                                         capture(ev);
-                                        setGesture({ kind: 'link', from: s.id });
-                                        setCursor(toCanvas(ev.clientX, ev.clientY));
+                                        const start = toCanvas(ev.clientX, ev.clientY);
+                                        setGesture({ kind: 'link', from: s.id, start });
+                                        setCursor(start);
                                     }}
                                 />
                             </NodeGroup>

@@ -7,3 +7,17 @@ import '@testing-library/jest-dom';
     LOCALE: 'en-US',
     MRSPARKLE_ROOT_PATH: '',
 };
+
+// jsdom has no PointerEvent, so fireEvent.pointer* would drop clientX/clientY. A
+// MouseEvent subclass keeps them, which the canvas's drag gestures read.
+if (typeof window.PointerEvent === 'undefined') {
+    class PointerEventPolyfill extends MouseEvent {
+        pointerId: number;
+
+        constructor(type: string, init: PointerEventInit = {}) {
+            super(type, init);
+            this.pointerId = init.pointerId ?? 1;
+        }
+    }
+    (window as unknown as { PointerEvent: unknown }).PointerEvent = PointerEventPolyfill;
+}

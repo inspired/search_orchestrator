@@ -20,7 +20,6 @@ describe('builder reducer', () => {
         const s = reducer(initialState(job), { type: 'removeStep', id: 'weekly' });
         expect(s.job.steps.map((x) => x.id)).toEqual(['daily', 'monthly']);
         expect(s.job.edges).toEqual([]);
-        expect(s.positions.weekly).toBeUndefined();
     });
 
     test('undo restores', () => {
@@ -44,7 +43,6 @@ describe('builder reducer', () => {
             { from: 'daily', to: 'week', condition: 'on_success' },
             { from: 'week', to: 'monthly', condition: 'on_success' },
         ]);
-        expect(s.positions.week).toBeDefined();
     });
 
     test('renaming a step rewrites its tokens and leaves literal $ alone', () => {
@@ -77,13 +75,27 @@ describe('builder reducer', () => {
     test('undo history is capped at 100 steps', () => {
         let s = initialState(job);
         for (let i = 0; i < 120; i += 1) {
-            s = reducer(s, { type: 'moveStep', id: 'daily', x: i, y: i });
+            s = reducer(s, { type: 'addStep' });
         }
         expect(s.past).toHaveLength(100);
         for (let i = 0; i < 150; i += 1) {
             s = reducer(s, { type: 'undo' });
         }
-        expect(s.positions.daily).toEqual({ x: 19, y: 19 });
+        expect(s.job.steps).toHaveLength(3 + 20);
+    });
+
+    test('addStepFrom adds a From previous steps step reading the source, as one undo step', () => {
+        let s = reducer(initialState(job), { type: 'addStepFrom', from: 'monthly', id: 'step_4' });
+        expect(s.job.steps[3]).toEqual({ id: 'step_4', name: '', type: 'previous', spl: '' });
+        expect(s.job.edges?.[2]).toEqual({ from: 'monthly', to: 'step_4', condition: 'on_success' });
+        s = reducer(s, { type: 'undo' });
+        expect(s.job).toEqual(job);
+    });
+
+    test('addStepFrom ignores an unknown source or a taken id', () => {
+        const s0 = initialState(job);
+        expect(reducer(s0, { type: 'addStepFrom', from: 'nope', id: 'step_4' })).toBe(s0);
+        expect(reducer(s0, { type: 'addStepFrom', from: 'daily', id: 'weekly' })).toBe(s0);
     });
     test('switching previous → inline writes loadjob tokens in edge order', () => {
         const prev: JobDefinition = {
