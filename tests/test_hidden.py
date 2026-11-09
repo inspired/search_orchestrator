@@ -316,3 +316,47 @@ def test_previous_step_drops_earliest_and_latest():
     same = job(steps=[j["steps"][0], {"id": "b", "type": "previous", "spl": "| stats count"}],
                edges=j["edges"])
     assert hidden.plan(gw, same)[0]["steps"][1]["hidden_search"] == b["hidden_search"]
+
+
+REPORT = "| loadjob $args.so_input$ | stats count"
+
+
+def _report_gw(search=REPORT, **entry):
+    gw = FakeGateway()
+    gw.upsert_saved_search("bob", 'my "rep"', search, "-1h", "now")
+    gw.saved_searches[("bob", 'my "rep"')].update(dict({"sharing": "global"}, **entry))
+    return gw
+
+
+def _report(ref='my "rep"', **over):
+    return job(steps=[{"id": "a", "type": "inline", "spl": "| makeresults"},
+                      dict({"id": "b", "type": "saved_search", "saved_search_ref": ref,
+                            "read_previous": True}, **over)],
+               edges=[{"from": "a", "to": "b"}])
+
+
+def test_read_previous_wrapper_text_and_name():
+    gw = _report_gw()
+    out = hidden.sync(gw, _report(), None)
+    b = out["steps"][1]
+    assert b["mode"] == "wrapped"
+    assert gw.saved_searches[("alice", b["hidden_search"])]["search"] == \
+        '| savedsearch "my \\"rep\\"" args.so_input="$args.so_input$"'
+    plain = hidden.sync(gw, _report(read_previous=False), None)
+    assert plain["steps"][1]["hidden_search"] != b["hidden_search"]
+
+
+def test_read_previous_direct_stays_the_report():
+    gw = FakeGateway()
+    gw.upsert_saved_search("alice", "mine", REPORT, "-1h", "now")
+    b = hidden.sync(gw, _report(ref="mine"), None)["steps"][1]
+    assert b["mode"] == "direct" and b["hidden_search"] == "mine"
+
+
+def test_read_previous_placeholder_errors_block_the_search():
+    for search, code in (("index=a", "report_missing_input"),
+                         ('| loadjob "$args.so_input$"', "report_input_quoted")):
+        _, searches, issues = hidden.plan(_report_gw(search), _report())
+        assert code in [i["code"] for i in issues]
+        assert all(i["level"] == "error" for i in issues if i["code"] == code)
+        assert [s for s in searches if "savedsearch" in s["search"]] == []

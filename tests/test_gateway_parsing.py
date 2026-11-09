@@ -212,7 +212,7 @@ def test_parse_saved_search_info():
             '"content":{"dispatchAs":"owner","search":"index=x"}}]}')
     assert g.parse_saved_search_info(body) == {"exists": True, "owner": "alice", "sharing": "user",
                                                "dispatch_as": "owner", "app": "search_orchestrator",
-                                               "visible": True}
+                                               "visible": True, "search": "index=x"}
 
 
 def test_parse_saved_search_info_visibility_across_apps():
@@ -233,7 +233,7 @@ def test_parse_saved_search_info_visibility_across_apps():
 def test_saved_search_info_404_is_missing():
     info = _raiser(404).saved_search_info("alice", "nope")
     assert info == {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
-                    "app": None, "visible": False}
+                    "app": None, "visible": False, "search": None}
 
 
 def test_saved_search_info_reads_owner_namespace():
@@ -244,7 +244,7 @@ def test_saved_search_info_reads_owner_namespace():
     assert svc.calls[0][2]["app"] == "-"  # wildcard app: the lookup sees every app
     assert svc.calls[0][1] == "saved/searches/x%20y"  # encoded exactly once (see below)
     assert info == {"exists": True, "owner": "bob", "sharing": "app", "dispatch_as": "user",
-                    "app": None, "visible": False}
+                    "app": None, "visible": False, "search": None}
 
 
 def test_index_exists():

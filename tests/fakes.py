@@ -280,7 +280,7 @@ class FakeGateway:
                 found.append((o, entry))
         if not found:
             return {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
-                    "app": None, "visible": False}
+                    "app": None, "visible": False, "search": None}
 
         def visible(entry):
             return (entry.get("app", "search_orchestrator") == "search_orchestrator"
@@ -289,7 +289,8 @@ class FakeGateway:
         o, entry = found[0]
         return {"exists": True, "owner": o, "sharing": entry.get("sharing", "user"),
                 "dispatch_as": entry.get("dispatch_as", "owner"),
-                "app": entry.get("app", "search_orchestrator"), "visible": visible(entry)}
+                "app": entry.get("app", "search_orchestrator"), "visible": visible(entry),
+                "search": entry.get("search")}
 
     def index_exists(self, name):
         return name in self.indexes

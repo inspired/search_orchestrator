@@ -306,7 +306,7 @@ def parse_user_access(body):
 
 
 MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
-                        "app": None, "visible": False}
+                        "app": None, "visible": False, "search": None}
 
 
 def _visible_from_app(acl):
@@ -316,7 +316,7 @@ def _visible_from_app(acl):
 
 def parse_saved_search_info(body):
     """Saved search JSON (looked up with a wildcard app, so several apps may hold the
-    name) -> ``{"exists", "owner", "sharing", "dispatch_as", "app", "visible"}``.
+    name) -> ``{"exists", "owner", "sharing", "dispatch_as", "app", "visible", "search"}``.
     ``visible``: the search can be seen from this app's context. An entry that is
     visible is preferred."""
     entries = json.loads(body).get("entry") or []
@@ -327,7 +327,7 @@ def parse_saved_search_info(body):
     content = entry.get("content") or {}
     return {"exists": True, "owner": acl.get("owner"), "sharing": acl.get("sharing"),
             "dispatch_as": content.get("dispatchAs"), "app": acl.get("app"),
-            "visible": _visible_from_app(acl)}
+            "visible": _visible_from_app(acl), "search": content.get("search")}
 
 
 def encoded_path(*parts):

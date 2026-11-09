@@ -225,3 +225,42 @@ def test_previous_step_with_an_old_time_range_warns():
     del j["steps"][1]["earliest"], j["steps"][1]["latest"]
     assert "previous_old_time_range" not in codes(m.validate_job(j))
     assert m.old_time_range_issues(j) == []
+
+
+def report_job(edges=(("a", "b"),), **step):
+    j = job(edges=edges)
+    j["steps"][1] = dict({"id": "b", "type": "saved_search", "saved_search_ref": "rep",
+                          "read_previous": True}, **step)
+    return j
+
+
+def test_read_previous_rules():
+    assert not [i for i in validate_job(report_job()) if i["level"] == "error"]
+    assert "bad_shape" in codes(validate_job(report_job(read_previous="true")))
+    assert "report_input_needs_one" in codes(validate_job(report_job(edges=())))
+    three = job(steps=("a", "c", "b"), edges=[("a", "b"), ("c", "b")])
+    three["steps"][2] = report_job()["steps"][1]
+    assert "report_input_needs_one" in codes(validate_job(three))
+    inline = job(edges=[("a", "b")])
+    inline["steps"][1]["read_previous"] = True
+    assert "bad_step" in codes(validate_job(inline))
+    off = job(edges=())
+    off["steps"][1] = {"id": "b", "type": "saved_search", "saved_search_ref": "rep",
+                       "read_previous": False}
+    assert "report_input_needs_one" not in codes(validate_job(off))
+
+
+def test_same_two_steps_connected_twice_is_one_input():
+    j = report_job(edges=[("a", "b"), ("a", "b")])
+    assert "report_input_needs_one" not in codes(validate_job(j))
+
+
+def test_report_input_warning():
+    warned = lambda j: "report_input_may_be_missing" in codes(validate_job(j))  # noqa: E731
+    assert not warned(report_job())
+    failing = report_job()
+    failing["edges"][0]["condition"] = "on_failure"
+    assert warned(failing)
+    skippable = report_job()
+    skippable["steps"][0]["run_when"] = {"kind": "cron", "value": "0 0 1 * *"}
+    assert warned(skippable)
