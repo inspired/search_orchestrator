@@ -50,7 +50,7 @@ A **Saved search** step can read the results of the step before it. Tick **Reads
 
 To set one up:
 
-1. Edit the report so it starts with `| loadjob $args.so_input$`, such as `| loadjob $args.so_input$ | stats count by host`. **Put no quotes around the placeholder.** The placeholder may appear more than once, for example inside a subsearch. A report without it, or with quotes directly around it, can't be saved in the job. If you edit the report that way later, the step is refused again before each run.
+1. Edit the report so it reads its input with `| loadjob $args.so_input$`, such as `| loadjob $args.so_input$ | stats count by host`. **Put no quotes around the placeholder.** The placeholder may appear more than once, for example inside a subsearch. A report without it, or with quotes directly around it, can't be saved in the job. If you edit the report that way later, the step is refused again before each run.
 2. Add the report as a Saved search step and tick **Reads the previous step's results**.
 3. Connect exactly one step before it.
 
@@ -59,7 +59,7 @@ Things to know:
 - **The report no longer runs on its own outside a job.** Splunk has no value for the placeholder.
 - **It must have no other placeholders.** The run fails on any it can't fill.
 - **Its own summary indexing and alert actions don't run** when a job wraps it, as with any wrapped saved search. Use job actions instead. A report that runs directly keeps them.
-- **If the previous step was skipped or failed and this step still starts**, it fails with "Report step <id> needs the results of step <up>, which did not succeed". Saving the job warns you about this possibility.
+- **If the previous step was skipped or failed and this step still starts**, it fails with `Report step <id> needs the results of step <up>, which did not succeed`. Saving the job warns you about this possibility.
 - **Its Earliest and Latest still apply.**
 - **Opening a wrapped report in Splunk doesn't show the results of the job's run.**
 
