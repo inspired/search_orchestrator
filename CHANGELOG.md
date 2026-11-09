@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0 (2026-11-09)
+
+- An alert action's parameters are labelled fields with help text, dropdowns and default hints, read from the action's form in Splunk. An empty field uses the action's default, and picking another action clears the parameters. Anything the form doesn't list goes in **Other parameters**.
+
 ## 1.3.0 (2026-11-09)
 
 - Alert actions on jobs and steps are picked from a searchable list instead of typed by name. It shows the enabled custom alert actions this app can use. A saved action that is no longer listed stays selected, and the field falls back to typing the name if the list can't be loaded.
