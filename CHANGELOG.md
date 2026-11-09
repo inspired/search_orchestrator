@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0 (2026-11-09)
+
+- Alert actions on jobs and steps are picked from a searchable list instead of typed by name. It shows the enabled custom alert actions this app can use. A saved action that is no longer listed stays selected, and the field falls back to typing the name if the list can't be loaded.
+
 ## 1.2.1 (2026-11-08)
 
 - The app has an icon: the Splunk UI `NodeStartToEnd` symbol on a Splunk green tile.
