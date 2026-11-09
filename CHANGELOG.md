@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A Saved search step can read the previous step's results: tick **Reads the previous step's results**, and the report receives that step's search ID as `$args.so_input$`. The report must start with `| loadjob $args.so_input$` with no quotes around the placeholder, have no other placeholders, and follow exactly one step. Saving the job checks the report and warns if the previous step can be skipped or fail.
+
 ## 1.4.0 (2026-11-09)
 
 - An alert action's parameters are labelled fields with help text, dropdowns and default hints, read from the action's form in Splunk. An empty field uses the action's default, and picking another action clears the parameters. Anything the form doesn't list goes in **Other parameters**.
