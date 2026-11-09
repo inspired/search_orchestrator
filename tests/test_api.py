@@ -1614,3 +1614,42 @@ def test_builders_list_alert_actions_with_their_own_session(w):
 
 def test_alert_actions_need_build_access(w):
     assert w.call("carol", "GET", "/orchestrator/alert_actions")[0] == 403
+
+
+REPORT = "| loadjob $args.so_input$ | stats count"
+
+
+def _report_job(job_id="daily"):
+    return job_body(job_id, steps=[
+        {"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d", "latest": "now"},
+        {"id": "b", "type": "saved_search", "saved_search_ref": "rep", "read_previous": True}],
+        edges=[{"from": "a", "to": "b"}])
+
+
+def test_preview_report_reads_run_input(w):
+    w.gw.saved_searches[("alice", "rep")] = {"search": REPORT}
+    job = _report_job()
+    run_id = run_with(w, job, {"a": {"state": "succeeded", "sid": "run_a", "result_count": 1}})
+    kept(w, "run_a")
+    status, out = preview(w, job=job, step_id="b", input={"mode": "run", "run_id": run_id})
+    assert status == 201, out
+    assert out["spl"] == '| savedsearch "rep" args.so_input="\\"run_a\\""'
+
+
+def test_preview_report_no_input(w):
+    w.gw.saved_searches[("alice", "rep")] = {"search": REPORT}
+    job = _report_job()
+    run_id = run_with(w, job, {"a": {"state": "skipped", "skip_kind": "run_when"}})
+    status, out = preview(w, job=job, step_id="b", input={"mode": "run", "run_id": run_id})
+    assert status == 400 and out["error"]["issues"][0]["code"] == "no_input"
+    assert out["error"]["issues"][0]["message"] == \
+        "Report step b needs the results of step a, which did not succeed"
+
+
+def test_preview_report_missing_placeholder(w):
+    w.gw.saved_searches[("alice", "rep")] = {"search": "index=a"}
+    w.gw.script_job("so_preview_", ["done"], result_count=3)
+    _, out = preview(w, job=_report_job())
+    status, out = preview(w, job=_report_job(), step_id="b", input=live(a={"sid": out["sid"]}))
+    assert status == 400
+    assert out["error"]["issues"][0]["code"] == "report_missing_input"
