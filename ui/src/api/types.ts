@@ -71,6 +71,8 @@ export interface StepDef {
     type: 'inline' | 'saved_search' | 'previous';
     spl?: string;
     saved_search_ref?: string;
+    /** `saved_search` only: the report reads the one step connected before it. */
+    read_previous?: boolean;
     earliest?: string;
     latest?: string;
     run_when?: RunWhen | null;
