@@ -36,6 +36,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol
 from urllib.parse import quote, urlsplit
 
+from . import alert_forms
+
 APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
@@ -281,14 +283,19 @@ def saved_search_params(search, earliest, latest, description=""):
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
-def parse_alert_actions(body):
-    """Alert actions JSON -> ``[{"name", "label"}]`` by label. Only enabled custom actions:
+def parse_alert_actions(body, forms_body=None):
+    """Alert actions JSON and alert form JSON (or None) -> ``[{"name", "label", "params"}]``
+    by label (``params``: see ``alert_forms``). Only enabled custom actions:
     ``| sendalert`` cannot run built-ins such as ``email`` or ``summary_index``."""
+    forms = {e.get("name"): (e.get("content") or {}).get("eai:data")
+             for e in (json.loads(forms_body).get("entry") or [] if forms_body else [])}
     found = []
     for entry in json.loads(body).get("entry") or []:
         c = entry.get("content") or {}
-        if entry.get("name") and _truthy(c.get("is_custom")) and not _truthy(c.get("disabled")):
-            found.append({"name": entry["name"], "label": c.get("label") or entry["name"]})
+        name = entry.get("name")
+        if name and _truthy(c.get("is_custom")) and not _truthy(c.get("disabled")):
+            found.append({"name": name, "label": c.get("label") or name,
+                          "params": alert_forms.action_params(name, c, forms.get(name))})
     return sorted(found, key=lambda a: (a["label"].lower(), a["name"]))
 
 
@@ -619,7 +626,11 @@ class SplunkGateway:
         except Exception as err:
             raise GatewayError("alert action list failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
-        return parse_alert_actions(body)
+        try:
+            forms = self._call("get", "data/ui/alerts", user, count=0)
+        except Exception:  # the list is still useful, with defaults from the settings only
+            forms = None
+        return parse_alert_actions(body, forms)
 
     # KV Store.
 

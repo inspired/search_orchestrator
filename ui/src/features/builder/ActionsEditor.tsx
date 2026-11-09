@@ -8,7 +8,7 @@ import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Action, AlertAction, Destination } from '../../api/types';
+import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
 
 const HOOKS: { value: Action['hook']; label: string }[] = [
     { value: 'on_start', label: 'On start' },
@@ -59,6 +59,79 @@ function PairsField({ id, value, onChange }: { id: string; value: unknown; onCha
                 onChange(parsePairs(next));
             }}
         />
+    );
+}
+
+/** One parameter of an alert action. The default is only a hint: an empty field is left out
+ * of the job, so the action uses its own default when it runs. */
+function AlertParamField({ id, param, value, onChange }: { id: string; param: AlertActionParam; value: string; onChange: (next: string) => void }) {
+    const onValue = (_e: unknown, { value: next }: { value: unknown }) => onChange(String(next ?? ''));
+    const label = param.required ? `${param.label} (required)` : param.label;
+    let control: React.ReactNode;
+    if (param.type === 'select') {
+        const named = param.options.find((o) => o.value === param.default);
+        const blank = param.default ? `Default (${named ? named.label : param.default})` : 'Not set';
+        const options = value && !param.options.some((o) => o.value === value) ? [...param.options, { value, label: value }] : param.options;
+        control = (
+            <Select inputId={id} value={value} onChange={onValue}>
+                <Select.Option label={blank} value="" />
+                {options.map((o) => (
+                    <Select.Option key={o.value} label={o.label} value={o.value} />
+                ))}
+            </Select>
+        );
+    } else if (param.type === 'textarea') {
+        control = <TextArea inputId={id} value={value} onChange={onValue} />;
+    } else {
+        control = <Text inputId={id} value={value} placeholder={param.default} onChange={onValue} />;
+    }
+    // A text area has no placeholder, so its default goes in the help.
+    const hint = param.type === 'textarea' && param.default ? `Default: ${param.default}` : '';
+    return (
+        <ControlGroup label={label} labelFor={id} labelPosition="top" help={[param.help, hint].filter(Boolean).join(' ') || undefined}>
+            {control}
+        </ControlGroup>
+    );
+}
+
+/** The action's listed parameters as fields, and everything else as name=value lines. */
+function AlertParams({ id, action, value, onChange }: { id: string; action?: AlertAction; value: unknown; onChange: (params: Record<string, string>) => void }) {
+    const params = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+    const fields = action ? action.params : [];
+    const listed = new Set(fields.map((f) => f.name));
+    const strings = (keep: (key: string) => boolean) => {
+        const out: Record<string, string> = {};
+        Object.keys(params)
+            .filter(keep)
+            .forEach((key) => {
+                out[key] = String(params[key]);
+            });
+        return out;
+    };
+    const setField = (name: string, next: string) => {
+        const { [name]: _old, ...rest } = strings(() => true);
+        onChange(next === '' ? rest : { ...rest, [name]: next });
+    };
+    return (
+        <>
+            {fields.map((f) => (
+                <AlertParamField
+                    key={f.name}
+                    id={`${id}-${f.name}`}
+                    param={f}
+                    value={params[f.name] === undefined ? '' : String(params[f.name])}
+                    onChange={(next) => setField(f.name, next)}
+                />
+            ))}
+            <ControlGroup label={fields.length ? 'Other parameters' : 'Parameters'} labelFor={id} labelPosition="top" help="One name=value per line.">
+                <PairsField
+                    key={action ? action.name : ''}
+                    id={id}
+                    value={strings((key) => !listed.has(key))}
+                    onChange={(other) => onChange({ ...strings((key) => listed.has(key)), ...other })}
+                />
+            </ControlGroup>
+        </>
     );
 }
 
@@ -206,7 +279,7 @@ export default function ActionsEditor({ actions, onChange, destinations, alertAc
                                             filter
                                             value={str(a.action)}
                                             placeholder="Pick an alert action"
-                                            onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, action: String(value) })}
+                                            onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, action: String(value), params: {} })}
                                         >
                                             {alertActionOptions(alertActions, str(a.action)).map((o) => (
                                                 <Select.Option key={o.value} label={o.label} value={o.value} />
@@ -219,9 +292,12 @@ export default function ActionsEditor({ actions, onChange, destinations, alertAc
                                         help: 'The list of alert actions is not available, so type the name.',
                                     })
                                 )}
-                                <ControlGroup label="Parameters" labelFor={paramsId} labelPosition="top" help="One name=value per line.">
-                                    <PairsField id={paramsId} value={a.params} onChange={(params) => update(i, { ...a, params })} />
-                                </ControlGroup>
+                                <AlertParams
+                                    id={paramsId}
+                                    action={alertActions ? alertActions.find((x) => x.name === a.action) : undefined}
+                                    value={a.params}
+                                    onChange={(params) => update(i, { ...a, params })}
+                                />
                             </>
                         )}
                         <Button appearance="subtle" label="Remove action" onClick={() => remove(i)} />

@@ -484,18 +484,39 @@ ALERT_ACTIONS = json.dumps({"entry": [
 
 def test_alert_actions_lists_only_enabled_custom_actions_by_label():
     assert g.parse_alert_actions(ALERT_ACTIONS) == [
-        {"name": "bare", "label": "bare"},
-        {"name": "logevent", "label": "Log Event"},
-        {"name": "webhook", "label": "Webhook"},
+        {"name": "bare", "label": "bare", "params": []},
+        {"name": "logevent", "label": "Log Event", "params": []},
+        {"name": "webhook", "label": "Webhook", "params": []},
     ]
 
 
-def test_alert_actions_reads_every_action_from_this_apps_namespace():
-    svc = StubService(lambda m, p, kw: Resp(ALERT_ACTIONS))
-    assert len(g.SplunkGateway(svc).alert_actions("alice")) == 3
-    method, path, kw = svc.calls[0]
-    assert (method, path) == ("get", "alerts/alert_actions")
-    assert (kw["owner"], kw["app"], kw["count"]) == ("alice", g.APP, 0)
+FORMS = json.dumps({"entry": [{"name": "logevent", "content": {"eai:data":
+    '<label>Index</label><input name="action.logevent.param.index"/>'}}]})
+
+
+def _alert_handler(forms):
+    def handler(method, path, kw):
+        if path == "data/ui/alerts":
+            return forms(kw)
+        return Resp(ALERT_ACTIONS)
+    return handler
+
+
+def test_alert_actions_reads_actions_and_forms_from_this_apps_namespace():
+    svc = StubService(_alert_handler(lambda kw: Resp(FORMS)))
+    found = {a["name"]: a for a in g.SplunkGateway(svc).alert_actions("alice")}
+    assert [p["name"] for p in found["logevent"]["params"]] == ["index"]
+    assert [c[:2] for c in svc.calls] == [("get", "alerts/alert_actions"), ("get", "data/ui/alerts")]
+    for _, _, kw in svc.calls:
+        assert (kw["owner"], kw["app"], kw["count"]) == ("alice", g.APP, 0)
+
+
+def test_alert_actions_are_still_listed_when_the_forms_cannot_be_read():
+    def denied(kw):
+        raise FakeHTTPError(403)
+    found = g.SplunkGateway(StubService(_alert_handler(denied))).alert_actions("alice")
+    assert [a["name"] for a in found] == ["bare", "logevent", "webhook"]
+    assert all(a["params"] == [] for a in found)
 
 
 def test_alert_actions_failure_is_a_gateway_error():

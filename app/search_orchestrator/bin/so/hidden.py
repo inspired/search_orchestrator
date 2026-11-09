@@ -85,7 +85,7 @@ SEARCH_ACTIONS = ("email", "event", "alert_action")
 ACTION_EARLIEST = "-1m"
 ACTION_LATEST = "now"
 _ALERT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-_PARAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.]+$")
+PARAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
 
 def action_search_name(job_id, action_index, compiled_hash):
@@ -135,7 +135,7 @@ def _action_issues(action, step):
         out.append(_issue("error", "bad_action", "alert action name %r is not valid"
                           % (action.get("action"),), step))
     for k in (action.get("params") or {}):
-        if not _PARAM_NAME_RE.fullmatch(str(k)):
+        if not PARAM_NAME_RE.fullmatch(str(k)):
             out.append(_issue("error", "bad_action", "alert action parameter name %r is not "
                               "valid" % (k,), step))
     return out

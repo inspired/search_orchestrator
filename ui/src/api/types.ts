@@ -277,9 +277,21 @@ export interface Settings {
     [key: string]: unknown;
 }
 
+export interface AlertActionParam {
+    name: string;
+    label: string;
+    help: string;
+    type: 'text' | 'textarea' | 'select';
+    /** What the action uses when the parameter is left out. */
+    default: string;
+    required: boolean;
+    options: { value: string; label: string }[];
+}
+
 export interface AlertAction {
     name: string;
     label: string;
+    params: AlertActionParam[];
 }
 
 export interface Destination {
