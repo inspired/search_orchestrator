@@ -281,6 +281,17 @@ def saved_search_params(search, earliest, latest, description=""):
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
+def parse_alert_actions(body):
+    """Alert actions JSON -> ``[{"name", "label"}]`` by label. Only enabled custom actions:
+    ``| sendalert`` cannot run built-ins such as ``email`` or ``summary_index``."""
+    found = []
+    for entry in json.loads(body).get("entry") or []:
+        c = entry.get("content") or {}
+        if entry.get("name") and _truthy(c.get("is_custom")) and not _truthy(c.get("disabled")):
+            found.append({"name": entry["name"], "label": c.get("label") or entry["name"]})
+    return sorted(found, key=lambda a: (a["label"].lower(), a["name"]))
+
+
 def parse_user_access(body):
     """User JSON -> ``{"roles": [...], "capabilities": [...]}`` (effective, from all roles)."""
     c = json.loads(body)["entry"][0].get("content", {})
@@ -364,6 +375,7 @@ class Gateway(Protocol):
     def delete_saved_search(self, owner: str, name: str) -> None: ...
     def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
     def index_exists(self, name: str) -> bool: ...
+    def alert_actions(self, user: str) -> List[Dict[str, str]]: ...
     def read_secret(self, name: str) -> Optional[str]: ...
     def write_secret(self, name: str, value: str) -> None: ...
     def delete_secret(self, name: str) -> None: ...
@@ -596,6 +608,18 @@ class SplunkGateway:
             raise GatewayError("index lookup failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return True
+
+    def alert_actions(self, user):
+        """The custom alert actions ``user`` can run from this app: the namespace is this
+        app's, so an action shared only inside another app is left out."""
+        try:
+            body = self._call("get", "alerts/alert_actions", user, count=0)
+        except GatewayError:
+            raise
+        except Exception as err:
+            raise GatewayError("alert action list failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        return parse_alert_actions(body)
 
     # KV Store.
 

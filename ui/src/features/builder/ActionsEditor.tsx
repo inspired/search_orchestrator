@@ -8,7 +8,7 @@ import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Action, Destination } from '../../api/types';
+import type { Action, AlertAction, Destination } from '../../api/types';
 
 const HOOKS: { value: Action['hook']; label: string }[] = [
     { value: 'on_start', label: 'On start' },
@@ -66,13 +66,24 @@ export interface ActionsEditorProps {
     actions: Action[];
     onChange: (actions: Action[]) => void;
     destinations: Destination[];
+    /** The alert actions to pick from. Null while unknown: the name is typed instead. */
+    alertActions?: AlertAction[] | null;
     /** Prefix for input ids, unique per editor on the page. */
     idPrefix: string;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
-export default function ActionsEditor({ actions, onChange, destinations, idPrefix }: ActionsEditorProps) {
+/** One option per alert action. A saved action missing from the list stays selectable. */
+export function alertActionOptions(alertActions: AlertAction[], current: string): { value: string; label: string }[] {
+    const options = alertActions.map((x) => ({ value: x.name, label: x.label === x.name ? x.name : `${x.label} (${x.name})` }));
+    if (current && !alertActions.some((x) => x.name === current)) {
+        options.push({ value: current, label: `${current} (not available)` });
+    }
+    return options;
+}
+
+export default function ActionsEditor({ actions, onChange, destinations, alertActions = null, idPrefix }: ActionsEditorProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const update = (i: number, next: Action) => onChange(actions.map((a, j) => (j === i ? next : a)));
     const remove = (i: number) => onChange(actions.filter((_a, j) => j !== i));
@@ -101,6 +112,7 @@ export default function ActionsEditor({ actions, onChange, destinations, idPrefi
                 const destId = `${idPrefix}-${i}-destination`;
                 const presetId = `${idPrefix}-${i}-preset`;
                 const paramsId = `${idPrefix}-${i}-params`;
+                const alertId = `${idPrefix}-${i}-action`;
                 return (
                     // Keyed by count too, so drafts re-read their action after a removal.
                     <div
@@ -182,7 +194,31 @@ export default function ActionsEditor({ actions, onChange, destinations, idPrefi
                         {a.type === 'start_job' && field(i, a, 'job', 'Job id', { help: 'The job to start. You need permission to run it.' })}
                         {a.type === 'alert_action' && (
                             <>
-                                {field(i, a, 'action', 'Alert action name', { placeholder: 'e.g. logevent' })}
+                                {alertActions ? (
+                                    <ControlGroup
+                                        label="Alert action"
+                                        labelFor={alertId}
+                                        labelPosition="top"
+                                        help={alertActions.length ? undefined : 'No alert actions are available to this app.'}
+                                    >
+                                        <Select
+                                            inputId={alertId}
+                                            filter
+                                            value={str(a.action)}
+                                            placeholder="Pick an alert action"
+                                            onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, action: String(value) })}
+                                        >
+                                            {alertActionOptions(alertActions, str(a.action)).map((o) => (
+                                                <Select.Option key={o.value} label={o.label} value={o.value} />
+                                            ))}
+                                        </Select>
+                                    </ControlGroup>
+                                ) : (
+                                    field(i, a, 'action', 'Alert action name', {
+                                        placeholder: 'e.g. logevent',
+                                        help: 'The list of alert actions is not available, so type the name.',
+                                    })
+                                )}
                                 <ControlGroup label="Parameters" labelFor={paramsId} labelPosition="top" help="One name=value per line.">
                                     <PairsField id={paramsId} value={a.params} onChange={(params) => update(i, { ...a, params })} />
                                 </ControlGroup>

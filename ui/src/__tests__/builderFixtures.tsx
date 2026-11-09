@@ -29,6 +29,7 @@ export function fakeApi(over: Partial<BuilderApi> = {}): BuilderApi {
         createJob: jest.fn(),
         updateJob: jest.fn().mockResolvedValue({ job: rollupJob(), issues: [], owner_will_change: false, owner: 'alice' }),
         listDestinations: jest.fn().mockResolvedValue([]),
+        listAlertActions: jest.fn().mockResolvedValue([]),
         listJobs: jest.fn().mockResolvedValue([]),
         me: jest.fn().mockResolvedValue(me),
         previewDefaults: jest.fn().mockResolvedValue({ scheduled_time: 1762390800 }),

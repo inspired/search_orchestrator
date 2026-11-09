@@ -277,6 +277,11 @@ export interface Settings {
     [key: string]: unknown;
 }
 
+export interface AlertAction {
+    name: string;
+    label: string;
+}
+
 export interface Destination {
     name: string;
     preset: 'slack' | 'generic';

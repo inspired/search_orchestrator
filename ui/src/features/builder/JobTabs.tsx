@@ -9,7 +9,7 @@ import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import type { Defaults, Destination, Job, JobDefinition } from '../../api/types';
+import type { AlertAction, Defaults, Destination, Job, JobDefinition } from '../../api/types';
 import AccessTab from './AccessTab';
 import ActionsEditor from './ActionsEditor';
 import ParamsTab from './ParamsTab';
@@ -25,6 +25,7 @@ export interface JobTabsProps {
     roles: string[];
     jobs: Pick<Job, 'id' | 'name'>[];
     destinations: Destination[];
+    alertActions?: AlertAction[] | null;
     /** The Steps tab: canvas and side panel. */
     steps: React.ReactNode;
 }
@@ -117,7 +118,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, steps }: JobTabsProps) {
+export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps }: JobTabsProps) {
     const [tab, setTab] = useState('steps');
     return (
         <div>
@@ -142,6 +143,7 @@ export default function JobTabs({ job, dispatch, owner, roles, jobs, destination
                             idPrefix="job-action"
                             actions={job.actions || []}
                             destinations={destinations}
+                            alertActions={alertActions}
                             onChange={(value) => dispatch({ type: 'setJobField', field: 'actions', value })}
                         />
                     </div>

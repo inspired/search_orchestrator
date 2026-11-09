@@ -1600,3 +1600,17 @@ def test_preview_run_results_forbidden_for_a_non_admin_editor(w):
         status, out = preview(w, user, **body)
         assert status in (403, 404), (user, out)
         assert not [c for c in w.calls if c[1] == "preview_info"], (user, w.calls)
+
+
+# Alert actions.
+
+def test_builders_list_alert_actions_with_their_own_session(w):
+    w.gw.alert_action_list = [{"name": "logevent", "label": "Log Event"}]
+    status, out = w.call("alice", "GET", "/orchestrator/alert_actions")
+    assert status == 200 and out == {"alert_actions": w.gw.alert_action_list}
+    assert w.gw.alert_action_log == ["alice"]
+    assert ("user:alice", "alert_actions") in [c[:2] for c in w.calls]
+
+
+def test_alert_actions_need_build_access(w):
+    assert w.call("carol", "GET", "/orchestrator/alert_actions")[0] == 403

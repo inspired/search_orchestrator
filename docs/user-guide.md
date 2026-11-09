@@ -78,7 +78,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 Add actions to a step or to the whole job, on start, success, failure, complete or delayed:
 
 - **Webhook** to a destination your admin set up (Slack is a body format).
-- **Email**, **event to an index**, **start another job**, or **any installed alert action**.
+- **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way.
 
 Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
 

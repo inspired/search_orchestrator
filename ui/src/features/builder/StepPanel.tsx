@@ -12,7 +12,7 @@ import TextArea from '@splunk/react-ui/TextArea';
 import Heading from '@splunk/react-ui/Heading';
 import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
-import type { Destination, Issue, JobDefinition, StepDef } from '../../api/types';
+import type { AlertAction, Destination, Issue, JobDefinition, StepDef } from '../../api/types';
 import ActionsEditor from './ActionsEditor';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
@@ -98,6 +98,7 @@ export interface StepPanelProps {
     issues: Issue[];
     dispatch: (action: BuilderAction) => void;
     destinations: Destination[];
+    alertActions?: AlertAction[] | null;
     onRename?: (from: string, to: string) => void;
     onRequestRemove?: (id: string) => void;
     /** Shows "Preview step" and the step's preview result when given. */
@@ -112,6 +113,7 @@ export default function StepPanel({
     issues,
     dispatch,
     destinations,
+    alertActions,
     onRename,
     onRequestRemove,
     onPreview,
@@ -344,6 +346,7 @@ export default function StepPanel({
                 idPrefix={`${p}-action`}
                 actions={step.actions || []}
                 destinations={destinations}
+                alertActions={alertActions}
                 onChange={(actions) => set({ actions })}
             />
             {onRequestRemove && (

@@ -1,6 +1,7 @@
 import {
     ApiError,
     cancelPreview,
+    listAlertActions,
     listRuns,
     me,
     previewDefaults,
@@ -221,5 +222,15 @@ describe('client', () => {
         [url, init] = fetch.mock.calls[0] as FetchCall;
         expect(url).toBe(`/en-US/splunkd/__raw/services/orchestrator/preview/${sid}/cancel?output_mode=json`);
         expect(init.method).toBe('POST');
+    });
+});
+
+describe('alert actions', () => {
+    it('lists them from the app API', async () => {
+        const actions = [{ name: 'logevent', label: 'Log Event' }];
+        const fetch = mockFetch(200, { alert_actions: actions });
+        await expect(listAlertActions()).resolves.toEqual(actions);
+        const [url] = fetch.mock.calls[0] as FetchCall;
+        expect(url).toBe('/en-US/splunkd/__raw/services/orchestrator/alert_actions?output_mode=json');
     });
 });

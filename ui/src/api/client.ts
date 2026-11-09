@@ -4,6 +4,7 @@
 import { createRESTURL } from '@splunk/splunk-utils/url';
 import { getCSRFToken } from '@splunk/splunk-utils/config';
 import type {
+    AlertAction,
     DefinitionChoice,
     Destination,
     DestinationInput,
@@ -250,6 +251,11 @@ export async function putSettings(changes: Partial<Settings>): Promise<Settings>
 
 export async function listDestinations(): Promise<Destination[]> {
     return (await request<{ destinations: Destination[] }>('GET', 'destinations')).destinations;
+}
+
+/** The custom alert actions the caller can pick for an alert action step or job action. */
+export async function listAlertActions(): Promise<AlertAction[]> {
+    return (await request<{ alert_actions: AlertAction[] }>('GET', 'alert_actions')).alert_actions;
 }
 
 export async function saveDestination(dest: DestinationInput): Promise<Destination> {

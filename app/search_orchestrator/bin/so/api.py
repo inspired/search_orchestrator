@@ -157,6 +157,7 @@ def _routes():
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
+        (r"alert_actions", {"GET": list_alert_actions}),
         (r"health", {"GET": health}),
         (r"me", {"GET": me}),
         (r"selftest", {"POST": run_selftest}),
@@ -870,6 +871,12 @@ def _save_destinations(ctx, dests):
 def _public_destination(dest):
     return {"name": dest.get("name"), "preset": dest.get("preset"), "host": dest.get("host"),
             "has_headers": bool(dest.get("headers_secret_ref"))}
+
+
+def list_alert_actions(ctx, body):
+    if not (ctx.allowed(authz.can_admin, None) or ctx.allowed(authz.can_edit, None)):
+        raise ctx.deny("list_alert_actions")
+    return 200, {"alert_actions": ctx.user_gw.alert_actions(ctx.user)}
 
 
 def list_destinations(ctx, body):

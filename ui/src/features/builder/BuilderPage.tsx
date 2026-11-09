@@ -10,7 +10,7 @@ import Text from '@splunk/react-ui/Text';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
-import type { Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
+import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import Canvas, { Selection } from './Canvas';
 import EdgePanel from './EdgePanel';
@@ -29,6 +29,7 @@ export interface BuilderApi extends PreviewApi {
     createJob: (job: JobDefinition) => Promise<SaveResponse>;
     updateJob: (jobId: string, job: JobDefinition) => Promise<SaveResponse>;
     listDestinations: () => Promise<Destination[]>;
+    listAlertActions: () => Promise<AlertAction[]>;
     listJobs: () => Promise<Job[]>;
     me: () => Promise<Me>;
     previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number; result_retention?: number }>;
@@ -41,6 +42,7 @@ const defaultApi: BuilderApi = {
     createJob: client.createJob,
     updateJob: client.updateJob,
     listDestinations: client.listDestinations,
+    listAlertActions: client.listAlertActions,
     listJobs: client.listJobs,
     me: client.me,
     previewDefaults: client.previewDefaults,
@@ -71,6 +73,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
     const [meta, setMeta] = useState<{ owner: string | null; canEdit: boolean }>({ owner: null, canEdit: true });
     const [me, setMe] = useState<Me | null>(null);
     const [destinations, setDestinations] = useState<Destination[]>([]);
+    const [alertActions, setAlertActions] = useState<AlertAction[] | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [selected, setSelected] = useState<Selection>(null);
     const [serverIssues, setServerIssues] = useState<Issue[]>([]);
@@ -121,6 +124,9 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             .catch(() => undefined);
         api.listDestinations()
             .then((d) => live && setDestinations(d))
+            .catch(() => undefined);
+        api.listAlertActions()
+            .then((a) => live && setAlertActions(a))
             .catch(() => undefined);
         api.listJobs()
             .then((j) => live && setJobs(j))
@@ -338,6 +344,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     issues={byStep[selectedStep] || []}
                     dispatch={dispatch}
                     destinations={destinations}
+                    alertActions={alertActions}
                     onRename={(_from, to) => setSelected({ kind: 'step', id: to })}
                     onRequestRemove={setRemoving}
                     preview={previews.previews[selectedStep]}
@@ -481,6 +488,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                         roles={me ? me.roles : []}
                         jobs={jobs}
                         destinations={destinations}
+                        alertActions={alertActions}
                         steps={stepsTab}
                     />
                 </>

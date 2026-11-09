@@ -62,6 +62,8 @@ class FakeGateway:
         self.removed_users = set()  # owners whose accounts no longer exist
         self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
         self.indexes = {"orchestrator"}
+        self.alert_action_list = []  # what alert_actions returns
+        self.alert_action_log = []  # the user of each alert_actions call
         self.api_handler = None  # (method, path, body) -> (status, payload)
         self.search_handler = None  # (owner, query) -> rows
         self.search_log = []
@@ -291,6 +293,10 @@ class FakeGateway:
 
     def index_exists(self, name):
         return name in self.indexes
+
+    def alert_actions(self, user):
+        self.alert_action_log.append(user)
+        return list(self.alert_action_list)
 
     def read_secret(self, name):
         return self.secrets.get(name)

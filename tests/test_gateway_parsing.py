@@ -470,3 +470,37 @@ def test_preview_dispatch_errors_are_dispatch_errors():
     with pytest.raises(g.DispatchError) as info:
         g.SplunkGateway(StubService(handler)).preview_dispatch("u", "x", "", "", 1, "so_preview_a")
     assert info.value.transient is False and info.value.status == 400
+
+
+ALERT_ACTIONS = json.dumps({"entry": [
+    {"name": "webhook", "content": {"label": "Webhook", "is_custom": "1", "disabled": "0"}},
+    {"name": "email", "content": {"label": "Send email", "disabled": False}},
+    {"name": "summary_index", "content": {"disabled": "0"}},
+    {"name": "logevent", "content": {"label": "Log Event", "is_custom": True, "disabled": False}},
+    {"name": "off", "content": {"label": "Off", "is_custom": "1", "disabled": "1"}},
+    {"name": "bare", "content": {"label": "", "is_custom": 1}},
+]})
+
+
+def test_alert_actions_lists_only_enabled_custom_actions_by_label():
+    assert g.parse_alert_actions(ALERT_ACTIONS) == [
+        {"name": "bare", "label": "bare"},
+        {"name": "logevent", "label": "Log Event"},
+        {"name": "webhook", "label": "Webhook"},
+    ]
+
+
+def test_alert_actions_reads_every_action_from_this_apps_namespace():
+    svc = StubService(lambda m, p, kw: Resp(ALERT_ACTIONS))
+    assert len(g.SplunkGateway(svc).alert_actions("alice")) == 3
+    method, path, kw = svc.calls[0]
+    assert (method, path) == ("get", "alerts/alert_actions")
+    assert (kw["owner"], kw["app"], kw["count"]) == ("alice", g.APP, 0)
+
+
+def test_alert_actions_failure_is_a_gateway_error():
+    def down(m, p, kw):
+        raise FakeHTTPError(503)
+    with pytest.raises(g.GatewayError) as err:
+        g.SplunkGateway(StubService(down)).alert_actions("alice")
+    assert err.value.status == 503 and err.value.transient
