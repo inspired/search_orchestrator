@@ -971,6 +971,9 @@ class Engine:
             sids = self._input_sids(run, sdef)
             if sids:
                 args[tokens.INPUT_ARG] = tokens.input_spl(sids)
+        elif sdef.get("read_previous"):
+            args[tokens.INPUT_ARG] = tokens.report_input_value(
+                self._input_sids(run, sdef), sdef.get("mode") != "direct")
         return args
 
     def _attempt_failed(self, run, sid, error, now, pending):
@@ -1005,15 +1008,27 @@ class Engine:
                 return self._attempt_failed(run, sid, "Could not confirm whether the results of "
                                             "step %s are still available" % up, now, pending)
             return None  # stays starting; checked again next tick
+        report = bool(sdef.get("read_previous"))
+        if report and not self._input_sids(run, sdef):
+            up = tokens.previous_inputs(run.get("definition") or {}, sid)[0]
+            return self._attempt_failed(run, sid, "Report step %s needs the results of step %s, "
+                                        "which did not succeed" % (sid, up), now, pending)
+        direct = sdef.get("mode") == "direct"
+        if direct or report:
+            ref = sdef.get("saved_search_ref") or name
+            info, problem = self._saved_info(run, ref)
+            if problem is None and direct:
+                problem = self._direct_problem(run, name, info)
+            if problem is None and report:
+                issue = tokens.report_input_issue(ref, info.get("search"))
+                problem = issue[1] if issue else None
+            if problem is not None:
+                return self._attempt_failed(run, sid, problem, now, pending)
         try:
             args = self._render_args(run, sdef)
         except tokens.TokenError as err:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
-        if sdef.get("mode") == "direct":
-            problem = self._direct_problem(run, name)
-            if problem is not None:
-                return self._attempt_failed(run, sid, problem, now, pending)
         earliest, latest = sdef.get("earliest"), sdef.get("latest")
         if sdef.get("type") == "previous":
             # Its input is search results, not events: never send a time range override,
@@ -1058,18 +1073,22 @@ class Engine:
                                           dispatch_now=int(run["scheduled_time"])))
         return None
 
-    def _direct_problem(self, run, name):
-        """Re-check a direct-mode saved search with the system session right before its
-        dispatch: it must still be the owner's private search with dispatchAs = owner,
-        or the system session's dispatch might not run as the owner. None if it is."""
-        owner = run.get("owner")
+    def _saved_info(self, run, name):
+        """Look a saved search up with the system session right before a dispatch that
+        needs to re-check it: (info, None), or (None, problem) on a non-transient error."""
         try:
-            info = self.gw.saved_search_info(owner, name)
+            return self.gw.saved_search_info(run.get("owner"), name), None
         except GatewayError as err:
             _check_auth(err)
             if err.transient:
                 raise  # the step stays starting; checked again next tick
-            return "could not check saved search %r before running it: %s" % (name, err)
+            return None, "could not check saved search %r before running it: %s" % (name, err)
+
+    def _direct_problem(self, run, name, info):
+        """Re-check a direct-mode saved search (``info`` from ``_saved_info``) right before
+        its dispatch: it must still be the owner's private search with dispatchAs = owner,
+        or the system session's dispatch might not run as the owner. None if it is."""
+        owner = run.get("owner")
         if (info.get("exists") and info.get("owner") == owner and info.get("sharing") == "user"
                 and info.get("dispatch_as") == "owner"):
             return None

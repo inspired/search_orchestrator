@@ -10,7 +10,7 @@ from so import engine as enginemod
 from so import names, scheduler
 from so.actions import ActionRunner
 from so.engine import AuthExpired, Engine
-from so.gateway import DispatchError, KvError
+from so.gateway import DispatchError, GatewayError, KvError
 from so.lease import Lease
 from so.store import Store
 
@@ -1524,3 +1524,128 @@ def test_previous_step_dispatch_sends_no_time_range_override():
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("a")] == [("-1d", "now")]
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("p")] == [(None, None)]
     assert w.step(run_id, "p")["state"] == "succeeded"
+
+
+REPORT = "| loadjob $args.so_input$ | stats count"
+
+def _report_world(mode="wrapped", search=REPORT, condition="on_success", a=None, **step):
+    w = World()
+    b = dict({"id": "b", "type": "saved_search", "saved_search_ref": "rep",
+              "read_previous": True, "mode": mode}, **step)
+    if mode == "direct":
+        b["hidden_search"] = "rep"
+    j = w.add_job(make_job(steps=[dict({"id": "a"}, **(a or {})), b],
+                           edges=[("a", "b", condition)]),
+                  scripts={"a": {"states": ["done"], "result_count": 1}})
+    w.gw.upsert_saved_search("alice", "rep", search, "-1h", "now")
+    if mode == "wrapped":
+        w.gw.saved_searches[("alice", "rep")]["sharing"] = "global"
+    return w, j
+
+def _settle(w, n=6):
+    for _ in range(n):
+        w.tick(advance=5)
+
+def _b_dispatches(w, a_name):
+    return [d for d in w.gw.dispatch_log if d["name"] != a_name]
+
+def test_report_input_wrapped_and_direct_arguments():
+    for mode, wrap in (("wrapped", '\\"%s\\"'), ("direct", '"%s"')):
+        w, j = _report_world(mode)
+        run_id = cron_run(w, j)
+        _settle(w)
+        sid = w.step(run_id, "a")["sid"]
+        [d] = _b_dispatches(w, j["steps"][0]["hidden_search"])
+        assert d["args"]["so_input"] == wrap % sid
+        assert d["trigger_actions"] is (mode == "direct")
+        assert w.run(run_id)["state"] == "succeeded"
+
+def test_report_time_range_still_sent():
+    w, j = _report_world(earliest="-1d", latest="now")
+    cron_run(w, j)
+    _settle(w)
+    [d] = _b_dispatches(w, j["steps"][0]["hidden_search"])
+    assert (d["earliest"], d["latest"]) == ("-1d", "now")
+
+def test_report_runs_on_zero_row_input():
+    w, j = _report_world()
+    w.gw.script_job(j["steps"][0]["hidden_search"], ["done"], result_count=0)
+    run_id = cron_run(w, j)
+    _settle(w)
+    sid = w.step(run_id, "a")["sid"]
+    [d] = _b_dispatches(w, j["steps"][0]["hidden_search"])
+    assert sid in d["args"]["so_input"]
+
+def test_report_no_input_fails_the_attempt():
+    w, j = _report_world(condition="always",
+                         a={"run_when": {"kind": "cron", "value": "0 0 1 1 *"}})
+    run_id = cron_run(w, j)
+    _settle(w)
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and failed[0]["error"] == \
+        "Report step b needs the results of step a, which did not succeed"
+
+@pytest.mark.parametrize("mode", ["wrapped", "direct"])
+@pytest.mark.parametrize("search,text", [("index=a", "must read its input"),
+                                         ('| loadjob "$args.so_input$"', "without quotes")])
+def test_report_edited_after_save_fails_the_attempt(mode, search, text):
+    w, j = _report_world(mode, search=search)
+    run_id = cron_run(w, j)
+    _settle(w)
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and text in failed[0]["error"] and "rep" in failed[0]["error"]
+
+def test_report_lookup_transient_error_keeps_step_starting():
+    w, j = _report_world()
+    real = w.gw.saved_search_info
+    def down(owner, name):
+        if name == "rep":
+            raise GatewayError("HTTP 503", status=503, transient=True)
+        return real(owner, name)
+    w.gw.saved_search_info = down
+    run_id = cron_run(w, j)
+    _settle(w, 3)
+    assert w.step(run_id, "b")["state"] == "starting"
+    w.gw.saved_search_info = real
+    _settle(w)
+    assert len(_b_dispatches(w, j["steps"][0]["hidden_search"])) == 1
+
+def test_report_retry_gets_the_same_input():
+    w, j = _report_world(retries=1)
+    w.gw.script_job(j["steps"][1]["hidden_search"], ["failed"], error="boom")
+    run_id = cron_run(w, j)
+    _settle(w, 4)
+    assert w.step(run_id, "b")["state"] == "retrying"
+    w.gw.script_job(j["steps"][1]["hidden_search"], ["done"])
+    for _ in range(4):
+        w.tick(advance=30)
+    ds = _b_dispatches(w, j["steps"][0]["hidden_search"])
+    assert len(ds) == 2 and ds[0]["args"] == ds[1]["args"]
+    assert w.step(run_id, "a")["sid"] in ds[1]["args"]["so_input"]
+
+def test_report_rerun_from_a_uses_new_sid():
+    w, j = _report_world()
+    w.gw.script_job(j["steps"][1]["hidden_search"], ["failed"], error="boom")
+    run_id = cron_run(w, j)
+    _settle(w)
+    first = w.step(run_id, "a")["sid"]
+    w.gw.script_job(j["steps"][1]["hidden_search"], ["done"])
+    w.command(type="rerun", run_id=run_id, step_id="a", definition="original", user="alice")
+    _settle(w, 10)
+    second = w.step(run_id, "a")["sid"]
+    assert second != first
+    last = _b_dispatches(w, j["steps"][0]["hidden_search"])[-1]
+    assert second in last["args"]["so_input"] and first not in last["args"]["so_input"]
+
+def test_report_rerun_of_b_with_expired_a_fails():
+    w, j = _report_world()
+    w.gw.script_job(j["steps"][1]["hidden_search"], ["failed"], error="boom")
+    run_id = cron_run(w, j)
+    _settle(w)
+    del w.gw.jobs[w.step(run_id, "a")["sid"]]
+    w.command(type="rerun", run_id=run_id, step_id="b", definition="original", user="alice")
+    _settle(w)
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and "have expired" in failed[-1]["error"]
