@@ -1599,16 +1599,16 @@ def test_report_edited_after_save_fails_the_attempt(mode, search, text):
 
 def test_report_lookup_transient_error_keeps_step_starting():
     w, j = _report_world()
-    real = w.gw.saved_search_info
+    real = w.gw.report_search
     def down(owner, name):
         if name == "rep":
             raise GatewayError("HTTP 503", status=503, transient=True)
         return real(owner, name)
-    w.gw.saved_search_info = down
+    w.gw.report_search = down
     run_id = cron_run(w, j)
     _settle(w, 3)
     assert w.step(run_id, "b")["state"] == "starting"
-    w.gw.saved_search_info = real
+    w.gw.report_search = real
     _settle(w)
     assert len(_b_dispatches(w, j["steps"][0]["hidden_search"])) == 1
 
@@ -1649,3 +1649,172 @@ def test_report_rerun_of_b_with_expired_a_fails():
     _settle(w)
     failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
     assert failed and "have expired" in failed[-1]["error"]
+
+
+def _two_direct_reports():
+    """a1->b1 and a2->b2, both direct on the one report ``rep``."""
+    w = World()
+    def report(step_id):
+        return {"id": step_id, "type": "saved_search", "saved_search_ref": "rep",
+                "read_previous": True, "mode": "direct", "hidden_search": "rep"}
+    j = w.add_job(make_job(steps=["a1", "a2", report("b1"), report("b2")],
+                           edges=[("a1", "b1"), ("a2", "b2")]))
+    w.gw.upsert_saved_search("alice", "rep", REPORT, "-1h", "now")
+    return w, j
+
+def test_direct_report_never_adopts_another_steps_search():
+    w, j = _two_direct_reports()
+    real, seen = w.gw.dispatch, []
+    def flaky(owner, name, *args, **kw):
+        if name == "rep":
+            seen.append(name)
+            if len(seen) == 2:
+                raise DispatchError(True, "HTTP 503", 503)
+        return real(owner, name, *args, **kw)
+    w.gw.dispatch = flaky
+    run_id = cron_run(w, j)
+    for _ in range(10):
+        w.tick(advance=30)
+    b1, b2 = w.step(run_id, "b1"), w.step(run_id, "b2")
+    assert b1["sid"] != b2["sid"]
+    ds = {d["sid"]: d for d in w.gw.dispatch_log}
+    assert w.step(run_id, "a2")["sid"] in ds[b2["sid"]]["args"]["so_input"]
+    assert w.step(run_id, "a1")["sid"] in ds[b1["sid"]]["args"]["so_input"]
+    assert w.run(run_id)["state"] == "succeeded"
+    assert not w.audit.of("step_adopted", run_id=run_id)
+
+def _crash_on_report(w, j):
+    run_id = cron_run(w, j)
+    w.gw.crash_after_dispatch = True
+    w.tick(advance=5)
+    w.gw.crash_after_dispatch = False
+    return run_id
+
+def test_direct_report_adopts_its_own_search_after_a_crash():
+    w, j = _report_world("direct")
+    run_id = _crash_on_report(w, j)
+    assert w.step(run_id, "b")["state"] == "starting" and not w.step(run_id, "b")["sid"]
+    _settle(w)
+    [d] = _b_dispatches(w, j["steps"][0]["hidden_search"])
+    assert w.step(run_id, "b")["sid"] == d["sid"]
+    assert w.audit.of("step_adopted", run_id=run_id, step_id="b", sid=d["sid"])
+    assert w.run(run_id)["state"] == "succeeded"
+
+def test_direct_report_job_without_recorded_input_stays_unknown_then_fails():
+    w, j = _report_world("direct")
+    run_id = _crash_on_report(w, j)
+    rows = w.gw.history_by_search[("alice", "rep")]
+    w.gw.history_by_search[("alice", "rep")] = [r[:3] for r in rows]  # no so_input recorded
+    _settle(w, 3)
+    assert w.step(run_id, "b")["state"] == "starting" and not w.step(run_id, "b")["sid"]
+    run = w.run(run_id)
+    sdef = next(s for s in run["definition"]["steps"] if s["id"] == "b")
+    kind, reason = w.engine._adopt(run, "b", sdef, int(w.clock()), enginemod._Pending())
+    assert kind == "unknown" and "'rep'" in reason and "no recorded input" in reason
+    w.tick(advance=enginemod.UNKNOWN_LIMIT)
+    _settle(w, 3)
+    assert len(_b_dispatches(w, j["steps"][0]["hidden_search"])) == 1
+    assert not w.audit.of("step_adopted", run_id=run_id, step_id="b")
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and "Could not confirm" in failed[0]["error"]
+    assert w.run(run_id)["state"] != "succeeded"
+
+@pytest.mark.parametrize("args,dispatched", [({"so_input": '"someone.else"'}, True), ({}, False)])
+def test_direct_report_other_scheduled_time(args, dispatched):
+    # A job for another scheduled time is safe to ignore only if it provably read other input.
+    w, j = _report_world("direct")
+    w.gw.history_by_search[("alice", "rep")] = [(T0 + 100, "other", T0 - 3600, args)]
+    w.gw.fail_dispatch("rep", True)
+    run_id = cron_run(w, j)
+    for _ in range(4):  # past the dispatch-error backoff, within UNKNOWN_LIMIT
+        w.tick(advance=30)
+    assert w.step(run_id, "b")["sid"] != "other"
+    assert bool(_b_dispatches(w, j["steps"][0]["hidden_search"])) is dispatched
+
+def test_report_sends_only_so_input_whatever_its_stale_spl_says():
+    w, j = _report_world("direct", spl="$run.param.x$")
+    j["params"] = [{"name": "x", "default": "v"}]
+    w.store.save_job(j)
+    run_id = cron_run(w, j)
+    _settle(w)
+    [d] = _b_dispatches(w, j["steps"][0]["hidden_search"])
+    assert list(d["args"]) == ["so_input"]
+    assert w.step(run_id, "a")["sid"] in d["args"]["so_input"]
+
+def test_report_text_comes_from_the_owners_namespace():
+    w, j = _report_world("wrapped", search="index=a")
+    w.gw.saved_searches[("alice", "rep")]["sharing"] = "user"
+    w.gw.saved_searches[("bob", "rep")] = {"search": REPORT, "sharing": "global", "app": "search"}
+    def selected_shared_entry(owner, name):  # the entry a lookup across apps may pick
+        return {"exists": True, "owner": "bob", "sharing": "global", "dispatch_as": "owner",
+                "app": "search", "visible": True, "search": REPORT}
+    w.gw.saved_search_info = selected_shared_entry
+    run_id = cron_run(w, j)
+    _settle(w)
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and "must read its input" in failed[0]["error"]
+
+def test_report_lookup_permanent_error_fails_the_attempt():
+    w, j = _report_world()
+    def rejected(owner, name):
+        raise GatewayError("HTTP 400", status=400, transient=False)
+    w.gw.report_search = rejected
+    run_id = cron_run(w, j)
+    _settle(w)
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and "could not check saved search 'rep' before running it" in failed[0]["error"]
+
+@pytest.mark.parametrize("mode", ["wrapped", "direct"])
+def test_deleted_report_says_so(mode):
+    w, j = _report_world(mode)
+    del w.gw.saved_searches[("alice", "rep")]
+    if mode == "direct":
+        w.gw.script_job("rep", ["done"])  # a dispatch would still go through
+    run_id = cron_run(w, j)
+    _settle(w)
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and failed[0]["error"] == \
+        "saved search 'rep' was not found or can't be read, so it was not run"
+
+BAD_SID = 'bad sid"'
+
+def _upstream_gets_bad_sid(w, j):
+    real, a_name = w.gw.dispatch, j["steps"][0]["hidden_search"]
+    def renamed(owner, name, *args, **kw):
+        sid = real(owner, name, *args, **kw)
+        if name != a_name:
+            return sid
+        w.gw.jobs[BAD_SID] = w.gw.jobs.pop(sid)
+        return BAD_SID
+    w.gw.dispatch = renamed
+
+@pytest.mark.parametrize("mode", ["wrapped", "direct"])
+def test_report_with_invalid_upstream_sid_fails_and_is_not_dispatched(mode):
+    w, j = _report_world(mode)
+    _upstream_gets_bad_sid(w, j)
+    run_id = cron_run(w, j)
+    _settle(w)
+    assert w.step(run_id, "a")["sid"] == BAD_SID
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and failed[0]["error"] == "token $so_input$: bad search id"
+
+def test_direct_report_invalid_upstream_sid_during_history_check_fails_the_attempt():
+    # A step left starting (no search ID) is checked against history first, and the invalid
+    # upstream ID must end the attempt there rather than break the tick.
+    w, j = _report_world("direct")
+    _upstream_gets_bad_sid(w, j)
+    real = w.gw.report_search
+    def down(owner, name):
+        raise GatewayError("HTTP 503", status=503, transient=True)
+    w.gw.report_search = down
+    run_id = cron_run(w, j)
+    _settle(w, 2)
+    w.gw.report_search = real
+    _settle(w)
+    assert _b_dispatches(w, j["steps"][0]["hidden_search"]) == []
+    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
+    assert failed and failed[0]["error"] == "token $so_input$: bad search id"

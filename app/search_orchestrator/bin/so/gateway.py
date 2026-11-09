@@ -241,9 +241,10 @@ def parse_history(body, since_epoch):
 
 
 def parse_history_details(body, since_epoch):
-    """History JSON -> ``[{"sid", "dispatch_now", "published"}]`` for jobs published or
-    dispatched at or after since_epoch, newest first. ``dispatch_now`` is the job's
-    ``dispatch.now`` (from its content or its request), or None if absent."""
+    """History JSON -> ``[{"sid", "dispatch_now", "published", "so_input"}]`` for jobs
+    published or dispatched at or after since_epoch, newest first. ``dispatch_now`` and
+    ``so_input`` are the job's ``dispatch.now`` and ``args.so_input`` (from its content or
+    its request), or None if absent."""
     found = []
     for entry in json.loads(body).get("entry", []):
         c = entry.get("content", {})
@@ -259,8 +260,12 @@ def parse_history_details(body, since_epoch):
             now = _epoch(c.get("dispatch.now"))
             if now is None:
                 now = _epoch(request.get("dispatch.now"))
+            so_input = c.get("args.so_input")
+            if so_input is None:
+                so_input = request.get("args.so_input")
             published = _epoch(entry.get("published") or c.get("published"))
-            found.append((when, {"sid": sid, "dispatch_now": now, "published": published}))
+            found.append((when, {"sid": sid, "dispatch_now": now, "published": published,
+                                 "so_input": so_input}))
     found.sort(key=lambda p: p[0], reverse=True)
     return [d for _, d in found]
 
@@ -306,7 +311,7 @@ def parse_user_access(body):
 
 
 MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
-                        "app": None, "visible": False, "search": None}
+                        "app": None, "visible": False}
 
 
 def _visible_from_app(acl):
@@ -316,7 +321,7 @@ def _visible_from_app(acl):
 
 def parse_saved_search_info(body):
     """Saved search JSON (looked up with a wildcard app, so several apps may hold the
-    name) -> ``{"exists", "owner", "sharing", "dispatch_as", "app", "visible", "search"}``.
+    name) -> ``{"exists", "owner", "sharing", "dispatch_as", "app", "visible"}``.
     ``visible``: the search can be seen from this app's context. An entry that is
     visible is preferred."""
     entries = json.loads(body).get("entry") or []
@@ -327,7 +332,7 @@ def parse_saved_search_info(body):
     content = entry.get("content") or {}
     return {"exists": True, "owner": acl.get("owner"), "sharing": acl.get("sharing"),
             "dispatch_as": content.get("dispatchAs"), "app": acl.get("app"),
-            "visible": _visible_from_app(acl), "search": content.get("search")}
+            "visible": _visible_from_app(acl)}
 
 
 def encoded_path(*parts):
@@ -381,6 +386,7 @@ class Gateway(Protocol):
                             latest: str, description: str = "") -> None: ...
     def delete_saved_search(self, owner: str, name: str) -> None: ...
     def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
+    def report_search(self, owner: str, name: str) -> Optional[str]: ...
     def index_exists(self, name: str) -> bool: ...
     def alert_actions(self, user: str) -> List[Dict[str, str]]: ...
     def read_secret(self, name: str) -> Optional[str]: ...
@@ -603,6 +609,22 @@ class SplunkGateway:
             raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return parse_saved_search_info(body)
+
+    def report_search(self, owner, name):
+        """The text of saved search ``name`` as ``owner`` resolves it in this app, where
+        dispatch and ``| savedsearch`` find it (``/servicesNS/<owner>/<app>/``), or None
+        if it is missing or the session cannot read it."""
+        try:
+            body = self._call("get", encoded_path("saved/searches", name), owner)
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) in (403, 404):
+                return None
+            raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        entries = json.loads(body).get("entry") or []
+        return (entries[0].get("content") or {}).get("search") if entries else None
 
     def index_exists(self, name):
         try:

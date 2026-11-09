@@ -264,3 +264,6 @@ def test_report_input_warning():
     skippable = report_job()
     skippable["steps"][0]["run_when"] = {"kind": "cron", "value": "0 0 1 * *"}
     assert warned(skippable)
+    branched = report_job()
+    branched["edges"][0].update(condition="expression", expression="1 == 1")
+    assert warned(branched)

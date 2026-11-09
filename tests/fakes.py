@@ -118,7 +118,8 @@ class FakeGateway:
                                   "args": dict(args or {}), "earliest": earliest,
                                   "latest": latest, "trigger_actions": trigger_actions})
         when = self.clock() if self.clock else now_epoch
-        self.history_by_search.setdefault((owner, name), []).append((when, sid, now_epoch))
+        self.history_by_search.setdefault((owner, name), []).append(
+            (when, sid, now_epoch, dict(args or {})))
         if self.crash_after_dispatch:
             raise RuntimeError("simulated crash after dispatch")
         return sid
@@ -197,7 +198,8 @@ class FakeGateway:
 
     def history_details(self, owner, name, since_epoch):
         rows = [r for r in self.history_by_search.get((owner, name), []) if r[0] >= since_epoch]
-        return [{"sid": r[1], "dispatch_now": r[2] if len(r) > 2 else None, "published": r[0]}
+        return [{"sid": r[1], "dispatch_now": r[2] if len(r) > 2 else None, "published": r[0],
+                 "so_input": r[3].get("so_input") if len(r) > 3 else None}
                 for r in sorted(rows, key=lambda r: r[0], reverse=True)]
 
     # KV.
@@ -280,7 +282,7 @@ class FakeGateway:
                 found.append((o, entry))
         if not found:
             return {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
-                    "app": None, "visible": False, "search": None}
+                    "app": None, "visible": False}
 
         def visible(entry):
             return (entry.get("app", "search_orchestrator") == "search_orchestrator"
@@ -289,8 +291,20 @@ class FakeGateway:
         o, entry = found[0]
         return {"exists": True, "owner": o, "sharing": entry.get("sharing", "user"),
                 "dispatch_as": entry.get("dispatch_as", "owner"),
-                "app": entry.get("app", "search_orchestrator"), "visible": visible(entry),
-                "search": entry.get("search")}
+                "app": entry.get("app", "search_orchestrator"), "visible": visible(entry)}
+
+    def report_search(self, owner, name):
+        """A saved search's text as this app's namespace for ``owner`` resolves it: the
+        owner's own entry first, else a shared entry visible from this app."""
+        own = self.saved_searches.get((owner, name))
+        if own is not None:
+            return own.get("search")
+        for (_, n), entry in sorted(self.saved_searches.items()):
+            sharing = entry.get("sharing", "user")
+            in_app = entry.get("app", "search_orchestrator") == "search_orchestrator"
+            if n == name and (sharing == "global" or (sharing == "app" and in_app)):
+                return entry.get("search")
+        return None
 
     def index_exists(self, name):
         return name in self.indexes

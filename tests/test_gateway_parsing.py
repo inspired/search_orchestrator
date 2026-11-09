@@ -212,7 +212,7 @@ def test_parse_saved_search_info():
             '"content":{"dispatchAs":"owner","search":"index=x"}}]}')
     assert g.parse_saved_search_info(body) == {"exists": True, "owner": "alice", "sharing": "user",
                                                "dispatch_as": "owner", "app": "search_orchestrator",
-                                               "visible": True, "search": "index=x"}
+                                               "visible": True}
 
 
 def test_parse_saved_search_info_visibility_across_apps():
@@ -233,7 +233,7 @@ def test_parse_saved_search_info_visibility_across_apps():
 def test_saved_search_info_404_is_missing():
     info = _raiser(404).saved_search_info("alice", "nope")
     assert info == {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
-                    "app": None, "visible": False, "search": None}
+                    "app": None, "visible": False}
 
 
 def test_saved_search_info_reads_owner_namespace():
@@ -244,7 +244,33 @@ def test_saved_search_info_reads_owner_namespace():
     assert svc.calls[0][2]["app"] == "-"  # wildcard app: the lookup sees every app
     assert svc.calls[0][1] == "saved/searches/x%20y"  # encoded exactly once (see below)
     assert info == {"exists": True, "owner": "bob", "sharing": "app", "dispatch_as": "user",
-                    "app": None, "visible": False, "search": None}
+                    "app": None, "visible": False}
+
+
+def test_report_search_reads_owner_and_app_namespace():
+    body = '{"entry":[{"content":{"search":"| loadjob $args.so_input$"}},{"content":{"search":"x"}}]}'
+    svc = StubService(lambda m, p, kw: Resp(body))
+    assert g.SplunkGateway(svc).report_search("alice", "x y") == "| loadjob $args.so_input$"
+    assert svc.calls[0][0] == "get" and svc.calls[0][2]["owner"] == "alice"
+    assert svc.calls[0][2]["app"] == "search_orchestrator"  # where dispatch resolves the name
+    assert svc.calls[0][1] == "saved/searches/x%20y"
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_report_search_unreadable_is_none(status):
+    assert _raiser(status).report_search("alice", "nope") is None
+
+
+@pytest.mark.parametrize("status,transient", [(503, True), (400, False)])
+def test_report_search_other_errors_raise(status, transient):
+    with pytest.raises(g.GatewayError) as err:
+        _raiser(status).report_search("alice", "x")
+    assert err.value.status == status and err.value.transient is transient
+
+
+def test_report_search_no_entry_is_none():
+    svc = StubService(lambda m, p, kw: Resp('{"entry":[]}'))
+    assert g.SplunkGateway(svc).report_search("alice", "x") is None
 
 
 def test_index_exists():
@@ -315,6 +341,17 @@ def test_parse_history_details_reads_dispatch_now():
     assert [d["sid"] for d in out] == ["s2", "s3", "s1"]
     assert out[0]["dispatch_now"] == 1796086000 and out[1]["dispatch_now"] is None
     assert out[2]["dispatch_now"] == 1796086800 and out[1]["published"] == 1796086807
+
+
+def test_parse_history_details_reads_so_input():
+    body = json.dumps({"entry": [
+        {"name": "s1", "published": "2026-12-01T01:00:09+00:00",
+         "content": {"args.so_input": "\"a\""}},
+        {"name": "s2", "published": "2026-12-01T01:00:08+00:00",
+         "content": {"request": {"args.so_input": "\"b\""}}},
+        {"name": "s3", "published": "2026-12-01T01:00:07+00:00", "content": {}}]})
+    out = g.parse_history_details(body, 1796086800)
+    assert [d["so_input"] for d in out] == ['"a"', '"b"', None]
 
 
 def test_done_job_with_error_message_is_failed():
