@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The Jobs page loads quickly with hundreds of jobs. It shows 50 jobs at a time with **Previous** and **Next**, sorted by name ignoring case, and reads last runs only for the jobs on screen (`GET jobs?limit=&offset=`). If the last runs can't be read, the jobs still show, with Last run as **Unknown** and a warning.
+- Search the Jobs page by any part of a job's name, ignoring case (`q`).
+- Search the Runs page by job name, replacing the Job dropdown (`GET runs?q=`). Runs of a deleted job are found by its exact job ID. The search looks through at most the newest 5,000 runs when more than 100 jobs match, and says so if it stopped early.
+- The Runs page and the job builder no longer read every job's last run just to get job names.
+- `so_runs` has KV Store indexes for reading runs newest first.
+
 ## 1.4.1 (2026-11-10)
 
 - The engine makes far fewer calls to splunkd, so steps hold their slots for less time and busy periods drain faster. A run is written only when a pass changed it, a hook with no actions stores no row, a new attempt row takes one write instead of two, and renewing the leader lease takes two calls instead of four.

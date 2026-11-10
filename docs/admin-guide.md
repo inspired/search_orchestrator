@@ -189,10 +189,10 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 
 | Route | Methods |
 |---|---|
-| `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE |
+| `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE. `GET jobs` takes `q` (part of a name). With `limit` (at most 50) and `offset` it returns one page and `total`; `brief=1` leaves out next and last runs. |
 | `jobs/validate` | POST |
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
-| `runs`, `runs/<id>` | GET |
+| `runs`, `runs/<id>` | GET. `GET runs` takes `q` (part of a job's name, or an exact job ID), `job_id`, `state` and `limit`. |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
 | `settings` | GET, PUT (admin) |
 | `destinations`, `destinations/<name>` | GET, POST, DELETE (admin; builders may list) |

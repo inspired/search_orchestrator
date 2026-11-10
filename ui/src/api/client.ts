@@ -12,6 +12,8 @@ import type {
     Issue,
     Job,
     JobDefinition,
+    JobSearch,
+    JobsResult,
     Me,
     PreviewRequest,
     PreviewResults,
@@ -20,6 +22,7 @@ import type {
     RerunRequest,
     RunDetailResponse,
     RunFilters,
+    RunsResult,
     RunSummary,
     SaveResponse,
     Settings,
@@ -148,8 +151,14 @@ export function toDefinition(job: JobDefinition | Job): JobDefinition {
 
 // Jobs.
 
+/** Every job the user may see, without their next and last runs. */
 export async function listJobs(): Promise<Job[]> {
-    return (await request<{ jobs: Job[] }>('GET', 'jobs')).jobs;
+    return (await request<{ jobs: Job[] }>('GET', 'jobs', { query: { brief: 1 } })).jobs;
+}
+
+/** One page of jobs matching a name, with their next and last runs. */
+export function searchJobs(search: JobSearch): Promise<JobsResult> {
+    return request<JobsResult>('GET', 'jobs', { query: { ...search } });
 }
 
 export async function getJob(jobId: string): Promise<Job> {
@@ -188,9 +197,13 @@ export function startRun(jobId: string, body: StartRunRequest = {}): Promise<{ r
 
 // Runs.
 
+export function searchRuns(filters: RunFilters = {}): Promise<RunsResult> {
+    const query: Query = { q: filters.q, job_id: filters.job_id, state: filters.state, limit: filters.limit };
+    return request<RunsResult>('GET', 'runs', { query });
+}
+
 export async function listRuns(filters: RunFilters = {}): Promise<RunSummary[]> {
-    const query: Query = { job_id: filters.job_id, state: filters.state, limit: filters.limit };
-    return (await request<{ runs: RunSummary[] }>('GET', 'runs', { query })).runs;
+    return (await searchRuns(filters)).runs;
 }
 
 export function getRun(runId: string): Promise<RunDetailResponse> {

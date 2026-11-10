@@ -143,7 +143,7 @@ describe('Delete job', () => {
         let current = jobs;
         return {
             me: jest.fn(() => Promise.resolve(me)),
-            listJobs: jest.fn(() => Promise.resolve(current)),
+            searchJobs: jest.fn(() => Promise.resolve({ jobs: current, total: current.length })),
             setJobEnabled: jest.fn(() => Promise.resolve({ job: jobs[0] })),
             deleteJob: jest.fn((id: string) => {
                 current = current.filter((j) => j.id !== id);
@@ -176,7 +176,7 @@ describe('Delete job', () => {
         await waitFor(() => expect(api.deleteJob).toHaveBeenCalledWith('daily'));
         await waitFor(() => expect(screen.queryByText('Daily summary')).toBeNull());
         expect(screen.getByText('Weekly rollup')).toBeInTheDocument();
-        expect(api.listJobs).toHaveBeenCalledTimes(2);
+        expect(api.searchJobs).toHaveBeenCalledTimes(2);
     });
 
     test('a job with active runs shows the 409 message', async () => {
@@ -203,7 +203,7 @@ describe('Enable switch', () => {
         const jobs = [job({ owner: 'bob' })];
         const api = {
             me: jest.fn(() => Promise.resolve(admin)),
-            listJobs: jest.fn(() => Promise.resolve(jobs)),
+            searchJobs: jest.fn(() => Promise.resolve({ jobs, total: jobs.length })),
             setJobEnabled: jest.fn(() => Promise.resolve({ job: { ...jobs[0], enabled: false } })),
             deleteJob: jest.fn(),
         } as unknown as JobsApi;
@@ -213,6 +213,114 @@ describe('Enable switch', () => {
         fireEvent.click(within(row).getByRole('switch'));
         await waitFor(() => expect(api.setJobEnabled).toHaveBeenCalledWith('daily', false));
         expect(screen.queryByText(/take ownership/)).toBeNull();
-        await waitFor(() => expect(api.listJobs).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(api.searchJobs).toHaveBeenCalledTimes(2));
+    });
+});
+
+describe('Jobs search and paging', () => {
+    const page = (offset: number, total: number) => ({
+        jobs: [job({ id: `j${offset}`, name: `Job at ${offset}` })],
+        total,
+    });
+
+    function pagedApi(total: number, over: Partial<JobsApi> = {}): JobsApi {
+        return {
+            me: jest.fn(() => Promise.resolve(me)),
+            searchJobs: jest.fn(({ offset }: { offset: number }) => Promise.resolve(page(offset, total))),
+            setJobEnabled: jest.fn(),
+            deleteJob: jest.fn(),
+            ...over,
+        } as unknown as JobsApi;
+    }
+
+    test('the first load asks for the first page with no search', async () => {
+        const api = pagedApi(1);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText('Job at 0');
+        expect(api.searchJobs).toHaveBeenCalledWith({ q: '', offset: 0, limit: 50 });
+    });
+
+    test('typing searches by name, once, after a pause', async () => {
+        const api = pagedApi(1);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText('Job at 0');
+        const box = screen.getByRole('textbox', { name: 'Search by name' });
+        fireEvent.change(box, { target: { value: 'sa' } });
+        fireEvent.change(box, { target: { value: 'sales' } });
+        await waitFor(() => expect(api.searchJobs).toHaveBeenCalledWith({ q: 'sales', offset: 0, limit: 50 }));
+        expect((api.searchJobs as jest.Mock).mock.calls.filter(([a]) => a.q === 'sa')).toHaveLength(0);
+    });
+
+    test('Next and Previous move by a page and show the range', async () => {
+        const api = pagedApi(120);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText('Job at 0');
+        expect(screen.getByText('1\u201350 of 120')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Previous' })).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        await screen.findByText('Job at 50');
+        expect(screen.getByText('51\u2013100 of 120')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+        await screen.findByText('Job at 0');
+    });
+
+    test('the last page cannot go further', async () => {
+        const api = pagedApi(60);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText('Job at 0');
+        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        await screen.findByText('Job at 50');
+        expect(screen.getByText('51\u201360 of 60')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Next' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    test('a new search goes back to the first page', async () => {
+        const api = pagedApi(120);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText('Job at 0');
+        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        await screen.findByText('Job at 50');
+        fireEvent.change(screen.getByRole('textbox', { name: 'Search by name' }), { target: { value: 'x' } });
+        await waitFor(() => expect(api.searchJobs).toHaveBeenLastCalledWith({ q: 'x', offset: 0, limit: 50 }));
+    });
+
+    test('no paging controls when everything fits on one page', async () => {
+        renderThemed(<JobsPage api={pagedApi(50)} />);
+        await screen.findByText('Job at 0');
+        expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+    });
+
+    test('a search with no match says so', async () => {
+        const api = pagedApi(0, {
+            searchJobs: jest.fn(() => Promise.resolve({ jobs: [], total: 0 })),
+        } as Partial<JobsApi>);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText(/No jobs yet/);
+        fireEvent.change(screen.getByRole('textbox', { name: 'Search by name' }), { target: { value: 'zzz' } });
+        expect(await screen.findByText('No jobs match this search.')).toBeInTheDocument();
+    });
+
+    test('a page left empty by deletions moves back to the last page that exists', async () => {
+        const searchJobs = jest.fn(({ offset }: { offset: number }) =>
+            Promise.resolve(offset >= 50 ? { jobs: [], total: 50 } : page(offset, offset === 0 ? 60 : 50))
+        );
+        const api = pagedApi(60, { searchJobs } as unknown as Partial<JobsApi>);
+        renderThemed(<JobsPage api={api} />);
+        await screen.findByText('Job at 0');
+        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        await waitFor(() => expect(searchJobs).toHaveBeenLastCalledWith({ q: '', offset: 0, limit: 50 }));
+    });
+
+    test('when the last runs cannot be read, jobs still show with Unknown and a warning', async () => {
+        const api = pagedApi(1, {
+            searchJobs: jest.fn(() =>
+                Promise.resolve({ jobs: [job({ last_run: null })], total: 1, last_run_unavailable: true })
+            ),
+        } as Partial<JobsApi>);
+        renderThemed(<JobsPage api={api} />);
+        const row = (await screen.findByText('Daily summary')).closest('tr') as HTMLElement;
+        expect(within(row).getByText('Unknown')).toBeInTheDocument();
+        expect(within(row).queryByText('Never run')).toBeNull();
+        expect(screen.getByText(/last runs could not be read/)).toBeInTheDocument();
     });
 });
