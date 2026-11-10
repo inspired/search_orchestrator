@@ -19,6 +19,8 @@ export interface JobsTableProps {
     onDelete?: (job: Job, opener: HTMLElement) => void;
     /** Job ids with a save in flight: their switch is disabled. */
     busy?: Record<string, boolean>;
+    /** The last runs could not be read: a job with none shown is unknown, not never run. */
+    lastRunUnavailable?: boolean;
 }
 
 function nextRunText(job: Job): string {
@@ -32,7 +34,7 @@ function nextRunText(job: Job): string {
     return job.next_run_beyond ? '\u2014' : 'Not scheduled';
 }
 
-export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
+export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelete, busy = {}, lastRunUnavailable = false }: JobsTableProps) {
     if (!jobs.length) {
         return <p>No jobs yet.{me && me.can_build ? ' Use New job to build one.' : ''}</p>;
     }
@@ -79,6 +81,8 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
                                         <StatusText state={last.state} delayed={isRunDelayed(last)} />
                                         <span style={{ marginLeft: '0.5em' }}>{formatTime(last.scheduled_time)}</span>
                                     </Link>
+                                ) : lastRunUnavailable ? (
+                                    'Unknown'
                                 ) : (
                                     'Never run'
                                 )}

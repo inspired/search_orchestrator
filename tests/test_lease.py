@@ -71,3 +71,47 @@ def test_renew_extends_expiry():
     lease.acquire("A", 1000)
     assert lease.acquire("A", 1020)
     assert gw.kv_get("so_locks", "engine")["expires"] == 1110
+
+
+def _write_log(gw):
+    log = []
+
+    def wrap(name):
+        real = getattr(gw, name)
+
+        def call(*a, **kw):
+            log.append(name)
+            return real(*a, **kw)
+        setattr(gw, name, call)
+    for name in ("kv_insert", "kv_get", "kv_delete_query"):
+        wrap(name)
+    return log
+
+
+def test_renewing_a_lease_we_wrote_takes_two_calls():
+    gw = FakeGateway()
+    lease = Lease(gw)
+    assert lease.acquire("a", 1000)
+    log = _write_log(gw)
+    assert lease.acquire("a", 1005)
+    assert log == ["kv_delete_query", "kv_insert"]
+    assert gw.kv_get("so_locks", "engine")["expires"] == 1095
+
+
+def test_renewal_loses_to_a_takeover_without_touching_it():
+    gw = FakeGateway()
+    a, b = Lease(gw), Lease(gw)
+    assert a.acquire("a", 1000)
+    assert b.acquire("b", 1091)  # a's lease expired and b took over
+    assert not a.acquire("a", 1092)
+    assert gw.kv_get("so_locks", "engine")["holder"] == "b"
+
+
+def test_renewal_after_losing_uses_the_full_path_again():
+    gw = FakeGateway()
+    a, b = Lease(gw), Lease(gw)
+    assert a.acquire("a", 1000)
+    assert b.acquire("b", 1091)
+    assert not a.acquire("a", 1092)
+    assert a.acquire("a", 1190)  # b's lease has expired
+    assert gw.kv_get("so_locks", "engine")["holder"] == "a"

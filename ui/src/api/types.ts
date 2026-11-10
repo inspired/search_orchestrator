@@ -321,7 +321,30 @@ export interface Health {
     audit_index: string;
 }
 
+/** One page of the Jobs screen (GET jobs with a limit). */
+export interface JobsResult {
+    jobs: Job[];
+    /** Jobs matching the search, over all pages. */
+    total: number;
+    /** The last runs could not be read, so each job's last_run is unknown. */
+    last_run_unavailable?: boolean;
+}
+
+export interface JobSearch {
+    q: string;
+    offset: number;
+    limit: number;
+}
+
+export interface RunsResult {
+    runs: RunSummary[];
+    /** The search stopped before looking at every run. */
+    partial?: boolean;
+}
+
 export interface RunFilters {
+    /** Part of a job's name, or a job's exact id. */
+    q?: string;
     job_id?: string;
     state?: RunState;
     limit?: number;

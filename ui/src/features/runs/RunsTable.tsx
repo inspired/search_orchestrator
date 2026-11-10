@@ -4,18 +4,18 @@ import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
 import Select from '@splunk/react-ui/Select';
 import Table from '@splunk/react-ui/Table';
+import Text from '@splunk/react-ui/Text';
 import { RUN_STATES } from '../../api/types';
 import type { RunFilters, RunState, RunSummary } from '../../api/types';
 import StatusText, { isRunDelayed, statusLabel } from '../../components/StatusText';
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
 
-export type RunsTableFilters = Pick<RunFilters, 'job_id' | 'state'>;
+export type RunsTableFilters = Pick<RunFilters, 'q' | 'state'>;
 
+/** The server applies the filters; this hides rows at once when the state changes. */
 export function filterRuns(runs: RunSummary[], filters: RunsTableFilters): RunSummary[] {
-    return runs.filter(
-        (r) => (!filters.state || r.state === filters.state) && (!filters.job_id || r.job_id === filters.job_id)
-    );
+    return runs.filter((r) => !filters.state || r.state === filters.state);
 }
 
 function duration(run: RunSummary, now: number): string {
@@ -27,7 +27,7 @@ function duration(run: RunSummary, now: number): string {
 
 export interface RunsTableProps {
     runs: RunSummary[];
-    /** Job id to name, for the Job column and filter. */
+    /** Job id to name, for the Job column. */
     jobNames: Record<string, string>;
     filters: RunsTableFilters;
     onFiltersChange: (filters: RunsTableFilters) => void;
@@ -40,23 +40,18 @@ const ALL = '';
 export default function RunsTable({ runs, jobNames, filters, onFiltersChange, now }: RunsTableProps) {
     const at = now !== undefined ? now : Math.floor(Date.now() / 1000);
     const rows = filterRuns(runs, filters);
-    const jobIds = Object.keys(jobNames).sort((a, b) => jobNames[a].localeCompare(jobNames[b]));
     return (
         <>
             <div style={{ display: 'flex', gap: '24px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                <ControlGroup label="Job" labelFor="runs-filter-job" labelPosition="top">
-                    <Select
-                        inputId="runs-filter-job"
-                        value={filters.job_id || ALL}
-                        onChange={(_e: unknown, { value }: { value: unknown }) =>
-                            onFiltersChange({ ...filters, job_id: value ? String(value) : undefined })
+                <ControlGroup label="Search by job name" labelFor="runs-search" labelPosition="top">
+                    <Text
+                        inputId="runs-search"
+                        value={filters.q || ''}
+                        canClear
+                        onChange={(_e: unknown, { value }: { value: string }) =>
+                            onFiltersChange({ ...filters, q: value })
                         }
-                    >
-                        <Select.Option label="All jobs" value={ALL} />
-                        {jobIds.map((id) => (
-                            <Select.Option key={id} label={jobNames[id]} value={id} />
-                        ))}
-                    </Select>
+                    />
                 </ControlGroup>
                 <ControlGroup label="State" labelFor="runs-filter-state" labelPosition="top">
                     <Select
@@ -74,7 +69,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                 </ControlGroup>
             </div>
             {rows.length === 0 ? (
-                <p>{runs.length ? 'No runs match these filters.' : 'No runs yet.'}</p>
+                <p>{runs.length || filters.q || filters.state ? 'No runs match these filters.' : 'No runs yet.'}</p>
             ) : (
                 <Table stripeRows>
                     <Table.Head>

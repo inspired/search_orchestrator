@@ -70,6 +70,15 @@ def _stanzas(path):
     return re.findall(r"^\[([^\]]+)\]", path.read_text(), re.M)
 
 
+def test_runs_are_indexed_for_newest_first_reads():
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(APP / "default" / "collections.conf")
+    fields = {k: json.loads(v) for k, v in parser["so_runs"].items()
+              if k.startswith("accelerated_fields.")}
+    assert sorted(fields.values(), key=len) == [{"created_at": -1},
+                                                {"job_id": 1, "created_at": -1}]
+
+
 def test_all_collections_declared():
     assert _stanzas(APP / "default" / "collections.conf") == COLLECTIONS
 

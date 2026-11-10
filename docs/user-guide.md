@@ -136,8 +136,8 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 
 ## Follow runs
 
-- **Jobs** shows each job's next run and last outcome, with Run now and an enable switch. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
-- **Runs** lists runs, filterable by job and state.
+- **Jobs** shows each job's next run and last outcome, 50 jobs at a time, with Run now and an enable switch. **Search by name** finds jobs by any part of their name. If last runs can't be read for a moment, Last run shows Unknown. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
+- **Runs** lists runs, newest first. Search by any part of a job's name and filter by state. For a deleted job, search its exact job ID.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 
 Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish.

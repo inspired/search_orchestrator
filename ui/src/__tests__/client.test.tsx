@@ -2,7 +2,10 @@ import {
     ApiError,
     cancelPreview,
     listAlertActions,
+    listJobs,
     listRuns,
+    searchJobs,
+    searchRuns,
     me,
     previewDefaults,
     previewResults,
@@ -80,6 +83,27 @@ describe('client', () => {
         expect(url).toContain('output_mode=json');
         expect(init.method).toBe('GET');
         expect(init.body).toBeUndefined();
+    });
+
+    test('listJobs asks for the brief listing', async () => {
+        const fetch = mockFetch(200, { jobs: [] });
+        await expect(listJobs()).resolves.toEqual([]);
+        expect((fetch.mock.calls[0] as FetchCall)[0]).toContain('brief=1');
+    });
+
+    test('searchJobs sends the search and page and returns the whole result', async () => {
+        const result = { jobs: [], total: 7, last_run_unavailable: true };
+        const fetch = mockFetch(200, result);
+        await expect(searchJobs({ q: 'sales', offset: 50, limit: 50 })).resolves.toEqual(result);
+        const [url] = fetch.mock.calls[0] as FetchCall;
+        ['q=sales', 'offset=50', 'limit=50'].forEach((part) => expect(url).toContain(part));
+        expect(url).not.toContain('brief');
+    });
+
+    test('searchRuns sends q and returns partial', async () => {
+        const fetch = mockFetch(200, { runs: [], partial: true });
+        await expect(searchRuns({ q: 'sales', state: 'failed' })).resolves.toEqual({ runs: [], partial: true });
+        expect((fetch.mock.calls[0] as FetchCall)[0]).toContain('q=sales');
     });
 
     test('POST sends JSON and returns the payload', async () => {

@@ -7,6 +7,7 @@ from fakes import FakeGateway
 from so import api, preview_api
 from so.actions import ActionRunner
 from so.engine import Engine
+from so.gateway import KvError
 from so.store import COMMANDS, JOBS, RUNS, Store
 
 T0 = calendar.timegm((2026, 12, 1, 1, 0, 0))
@@ -1653,3 +1654,264 @@ def test_preview_report_missing_placeholder(w):
     status, out = preview(w, job=_report_job(), step_id="b", input=live(a={"sid": out["sid"]}))
     assert status == 400
     assert out["error"]["issues"][0]["code"] == "report_missing_input"
+
+
+# Jobs page: search, paging and the bounded last-run read.
+
+def named(w, job_id, name, user="alice", **over):
+    return saved(w, user, job_body(job_id, name=name, **over))
+
+
+def run_row(w, run_id, job_id, created_at, state="succeeded", **over):
+    assert w.store.create_run(dict({"id": run_id, "job_id": job_id, "state": state, "owner": "alice",
+                                    "trigger": "cron", "scheduled_time": created_at,
+                                    "created_at": created_at}, **over))
+
+
+def spy_runs(w):
+    """Records every query against so_runs; returns the list."""
+    calls, real = [], w.gw.kv_query
+
+    def spy(collection, query=None, sort=None, limit=0, skip=0, fields=None):
+        if collection == RUNS:
+            calls.append({"query": query, "sort": sort, "limit": limit, "skip": skip, "fields": fields})
+        return real(collection, query, sort=sort, limit=limit, skip=skip, fields=fields)
+    w.gw.kv_query = spy
+    return calls
+
+
+def jobs_page(w, user="alice", **params):
+    status, out = w.call(user, "GET", "/orchestrator/jobs", dict(params, limit=params.get("limit", "50")))
+    assert status == 200, out
+    return out
+
+
+def test_paged_job_list_returns_one_page_sorted_by_name_with_the_total(w):
+    for name in ("Charlie", "alpha", "Bravo", "Delta"):
+        named(w, name.lower(), name)
+    out = jobs_page(w, limit="2", offset="1")
+    assert out["total"] == 4
+    assert [j["id"] for j in out["jobs"]] == ["bravo", "charlie"]
+
+
+def test_paged_job_list_past_the_end_is_empty_but_keeps_the_total(w):
+    named(w, "one", "One")
+    out = jobs_page(w, offset="50")
+    assert out["jobs"] == [] and out["total"] == 1
+
+
+def test_job_search_matches_any_part_of_the_name_ignoring_case(w):
+    named(w, "a", "Nightly Sales rollup")
+    named(w, "b", "sales export")
+    named(w, "c", "Inventory")
+    out = jobs_page(w, q="  SALES ")
+    assert sorted(j["id"] for j in out["jobs"]) == ["a", "b"] and out["total"] == 2
+
+
+def test_job_search_and_total_only_count_jobs_the_user_may_see(w):
+    named(w, "mine", "Sales mine")
+    named(w, "theirs", "Sales theirs", user="bob", run_roles=[])
+    out = jobs_page(w, user="alice", q="sales")
+    assert [j["id"] for j in out["jobs"]] == ["mine"] and out["total"] == 1
+
+
+def test_job_page_reads_each_jobs_newest_run_in_one_query(w):
+    named(w, "a", "A")
+    named(w, "b", "B")
+    named(w, "never", "Never")
+    run_row(w, "a:old", "a", T0 - 100, state="failed")
+    run_row(w, "a:new", "a", T0 - 10)
+    run_row(w, "b:only", "b", T0 - 50, state="running")
+    calls = spy_runs(w)
+    jobs = {j["id"]: j for j in jobs_page(w)["jobs"]}
+    assert jobs["a"]["last_run"]["id"] == "a:new" and jobs["a"]["last_run"]["state"] == "succeeded"
+    assert jobs["b"]["last_run"]["id"] == "b:only"
+    assert jobs["never"]["last_run"] is None
+    assert len(calls) == 1
+    assert calls[0]["query"] == {"job_id": {"$in": ["a", "b", "never"]}}
+    assert calls[0]["sort"] == "created_at:-1" and calls[0]["limit"] == api.LAST_RUN_SCAN
+
+
+def test_job_page_only_reads_runs_for_the_jobs_on_the_page(w):
+    for name in ("A", "B", "C"):
+        named(w, name.lower(), name)
+    calls = spy_runs(w)
+    jobs_page(w, limit="2")
+    assert calls[0]["query"] == {"job_id": {"$in": ["a", "b"]}}
+
+
+def test_job_page_looks_up_jobs_crowded_out_of_a_full_read(w, monkeypatch):
+    monkeypatch.setattr(api, "LAST_RUN_SCAN", 2)
+    named(w, "busy", "Busy")
+    named(w, "quiet", "Quiet")
+    run_row(w, "quiet:1", "quiet", T0 - 1000)
+    for i in range(3):
+        run_row(w, "busy:%d" % i, "busy", T0 - i)
+    calls = spy_runs(w)
+    jobs = {j["id"]: j for j in jobs_page(w)["jobs"]}
+    assert jobs["busy"]["last_run"]["id"] == "busy:0"
+    assert jobs["quiet"]["last_run"]["id"] == "quiet:1"
+    assert [c["query"] for c in calls[1:]] == [{"job_id": "quiet"}]
+
+
+def test_job_page_query_count_is_bounded_by_the_page_not_the_job_count(w, monkeypatch):
+    monkeypatch.setattr(api, "LAST_RUN_SCAN", 1)
+    for i in range(60):
+        named(w, "j%02d" % i, "Job %02d" % i)
+        run_row(w, "j%02d:1" % i, "j%02d" % i, T0 - i)
+    calls = spy_runs(w)
+    out = jobs_page(w, limit="500")
+    assert len(out["jobs"]) == api.JOBS_PAGE_MAX and out["total"] == 60
+    assert len(calls) <= api.JOBS_PAGE_MAX + 1
+
+
+def test_job_page_still_lists_jobs_when_the_last_run_read_fails(w):
+    named(w, "a", "A")
+    real = w.gw.kv_query
+
+    def failing(collection, *a, **kw):
+        if collection == RUNS:
+            raise KvError("KV Store unavailable", status=503, transient=True)
+        return real(collection, *a, **kw)
+    w.gw.kv_query = failing
+    out = jobs_page(w)
+    assert [j["id"] for j in out["jobs"]] == ["a"]
+    assert out["jobs"][0]["last_run"] is None and out["last_run_unavailable"] is True
+
+
+def test_job_page_says_nothing_about_availability_when_the_read_works(w):
+    named(w, "a", "A")
+    assert "last_run_unavailable" not in jobs_page(w)
+
+
+def test_job_page_rejects_a_non_numeric_limit_or_offset(w):
+    for params in ({"limit": "x"}, {"limit": "5", "offset": "y"}):
+        assert w.call("alice", "GET", "/orchestrator/jobs", params)[0] == 400
+
+
+def test_unpaged_job_list_keeps_its_shape_and_returns_every_job(w):
+    for i in range(3):
+        named(w, "j%d" % i, "Job %d" % i)
+    out = w.call("alice", "GET", "/orchestrator/jobs")[1]
+    assert len(out["jobs"]) == 3 and "total" not in out and "last_run" in out["jobs"][0]
+
+
+def test_brief_job_list_can_be_searched_and_skips_run_queries(w):
+    named(w, "a", "Sales")
+    named(w, "b", "Other")
+    calls = spy_runs(w)
+    out = w.call("alice", "GET", "/orchestrator/jobs", {"brief": "1", "q": "sal"})[1]
+    assert [j["id"] for j in out["jobs"]] == ["a"] and calls == []
+
+
+# Runs page: search by job name.
+
+def runs_search(w, user="alice", **params):
+    status, out = w.call(user, "GET", "/orchestrator/runs", params)
+    assert status == 200, out
+    return out
+
+
+def two_named_jobs(w):
+    named(w, "s", "Sales rollup")
+    named(w, "i", "Inventory")
+    run_row(w, "s:1", "s", T0 - 30)
+    run_row(w, "i:1", "i", T0 - 20)
+    run_row(w, "s:2", "s", T0 - 10, state="failed")
+
+
+def test_run_search_finds_runs_by_part_of_the_job_name_newest_first(w):
+    two_named_jobs(w)
+    assert [r["id"] for r in runs_search(w, q="SALES")["runs"]] == ["s:2", "s:1"]
+
+
+def test_run_search_combines_with_the_state_filter(w):
+    two_named_jobs(w)
+    assert [r["id"] for r in runs_search(w, q="sales", state="failed")["runs"]] == ["s:2"]
+
+
+def test_run_search_pushes_matching_job_ids_into_the_query(w):
+    two_named_jobs(w)
+    calls = spy_runs(w)
+    runs_search(w, user="root", q="sales", limit="5")
+    assert len(calls) == 1 and calls[0]["query"] == {"job_id": {"$in": ["s", "sales"]}}
+    assert calls[0]["limit"] == 5 and calls[0]["fields"] == "definition:0"
+
+
+def test_run_search_with_no_matching_job_or_id_does_not_leak_other_runs(w):
+    two_named_jobs(w)
+    assert runs_search(w, q="nothing-like-it")["runs"] == []
+
+
+def test_run_search_hides_runs_of_jobs_the_user_may_not_see(w):
+    named(w, "theirs", "Sales theirs", user="bob", run_roles=[])
+    run_row(w, "theirs:1", "theirs", T0, owner="bob")
+    assert runs_search(w, user="alice", q="sales")["runs"] == []
+    assert runs_search(w, user="alice", q="theirs")["runs"] == []
+
+
+def test_run_search_finds_a_visible_job_by_its_exact_id(w):
+    named(w, "abc", "Report")
+    run_row(w, "abc:1", "abc", T0)
+    assert [r["id"] for r in runs_search(w, q="abc")["runs"]] == ["abc:1"]
+    assert runs_search(w, q="ab")["runs"] == []
+
+
+def test_run_search_finds_a_deleted_jobs_runs_by_exact_id_for_those_allowed(w):
+    run_row(w, "gone:1", "gone", T0, owner="bob")
+    assert [r["id"] for r in runs_search(w, user="bob", q="gone")["runs"]] == ["gone:1"]
+    assert [r["id"] for r in runs_search(w, user="root", q="gone")["runs"]] == ["gone:1"]
+    assert runs_search(w, user="alice", q="gone")["runs"] == []
+    assert runs_search(w, user="root", q="gon")["runs"] == []
+
+
+def test_run_search_limits_permission_checks_on_a_deleted_jobs_runs(w):
+    for i in range(4):
+        run_row(w, "gone:%d" % i, "gone", T0 - i, owner="bob")
+    reads, real = [], w.gw.kv_get
+
+    def spy(collection, key):
+        if collection == RUNS:
+            reads.append(key)
+        return real(collection, key)
+    w.gw.kv_get = spy
+    out = runs_search(w, user="alice", q="gone", limit="2")
+    assert out["runs"] == [] and out["partial"] is True and len(reads) == 2
+
+
+def test_run_search_over_many_jobs_scans_newest_first_instead_of_a_huge_query(w, monkeypatch):
+    monkeypatch.setattr(api, "RUN_SEARCH_IN_MAX", 1)
+    named(w, "a", "Sales a")
+    named(w, "b", "Sales b")
+    named(w, "x", "Other")
+    run_row(w, "x:1", "x", T0)
+    run_row(w, "a:1", "a", T0 - 1)
+    run_row(w, "b:1", "b", T0 - 2)
+    calls = spy_runs(w)
+    out = runs_search(w, q="sales")
+    assert [r["id"] for r in out["runs"]] == ["a:1", "b:1"]
+    assert all("job_id" not in (c["query"] or {}) for c in calls)
+    assert "partial" not in out
+
+
+def test_run_search_scan_stops_at_its_cap_and_says_so(w, monkeypatch):
+    monkeypatch.setattr(api, "RUN_SEARCH_IN_MAX", 1)
+    monkeypatch.setattr(api, "RUN_SCAN_PAGE", 2)
+    monkeypatch.setattr(api, "RUN_SCAN_MAX", 2)
+    named(w, "a", "Sales a")
+    named(w, "b", "Sales b")
+    named(w, "x", "Other")
+    for i in range(3):
+        run_row(w, "x:%d" % i, "x", T0 - i)
+    run_row(w, "a:1", "a", T0 - 100)
+    calls = spy_runs(w)
+    out = runs_search(w, q="sales")
+    assert out["runs"] == [] and out["partial"] is True and len(calls) == 1
+
+
+def test_run_list_without_a_search_is_unchanged(w):
+    two_named_jobs(w)
+    calls = spy_runs(w)
+    out = runs_search(w, user="root", limit="2")
+    assert [r["id"] for r in out["runs"]] == ["s:2", "i:1"] and "partial" not in out
+    assert calls[0]["query"] == {}

@@ -73,6 +73,11 @@ HIDDEN_JOB = "(hidden job)"
 CHAIN_LIMIT = 10
 SCHEDULED_TIME_MAX = 253402300799  # the end of year 9999, the last time datetime can show
 NEXT_RUN_MAX_DAYS = 400  # day matches the Jobs screen's next-run walk may try per cron
+JOBS_PAGE_MAX = 50  # jobs per page of the Jobs screen, and so at most 51 run queries a load
+LAST_RUN_SCAN = 1000  # newest runs read at once to find a page of jobs' last runs
+RUN_SEARCH_IN_MAX = 100  # matching jobs named in one runs query, to keep its URL short
+RUN_SCAN_PAGE = 1000  # rows per read when a runs search scans instead
+RUN_SCAN_MAX = 5000  # newest runs a runs search looks through before saying it stopped
 LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "ended_at",
                    "delay_alerted", "held", "gave_up")
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
@@ -253,21 +258,85 @@ def _last_run(ctx, job_id):
     return {k: rows[0].get(k) for k in LAST_RUN_FIELDS}
 
 
-def _listed_job(ctx, job):
+def _last_runs(ctx, job_ids):
+    """``{job id: last run}`` for a page of jobs; a job that never ran is absent.
+
+    One read of their newest runs usually finds them all. If that read was cut off, a few
+    busy jobs may have crowded the others out, so those are looked up one at a time, which
+    a page bounds. Without the cut-off, a job not found has no runs.
+    """
+    if not job_ids:
+        return {}
+    rows = ctx.store.list_runs({"job_id": {"$in": job_ids}}, limit=LAST_RUN_SCAN,
+                               fields=",".join(("job_id",) + LAST_RUN_FIELDS))
+    found = {}
+    for row in rows:  # newest first, so the first row seen for a job is its last run
+        found.setdefault(row.get("job_id"), {k: row.get(k) for k in LAST_RUN_FIELDS})
+    if len(rows) >= LAST_RUN_SCAN:
+        for job_id in job_ids:
+            if job_id not in found:
+                last = _last_run(ctx, job_id)
+                if last is not None:
+                    found[job_id] = last
+    return found
+
+
+def _with_runs(ctx, job, last_run):
     """A job for the Jobs screen: the public job plus its next and last run."""
     out = _public_job(ctx, job)
     out["next_run"], out["next_run_beyond"] = _next_run(job, ctx.now)
-    out["last_run"] = _last_run(ctx, job.get("id") or job.get("_key"))
+    out["last_run"] = last_run
     out["warnings"] = model.old_time_range_issues(job)  # fixed by a re-save
+    return out
+
+
+def _listed_job(ctx, job):
+    return _with_runs(ctx, job, _last_run(ctx, _job_id(job)))
+
+
+def _job_id(job):
+    return job.get("id") or job.get("_key")
+
+
+def _search_term(body):
+    term = body.get("q")
+    return term.strip() if isinstance(term, str) else ""
+
+
+def _name_has(job, term):
+    return term.casefold() in str(job.get("name") or "").casefold()
+
+
+def _jobs_page(ctx, jobs, body):
+    """One page of ``jobs``. A failed read of the last runs still lists the jobs."""
+    try:
+        limit = max(1, min(JOBS_PAGE_MAX, int(body.get("limit") or JOBS_PAGE_MAX)))
+        offset = max(0, int(body.get("offset") or 0))
+    except (TypeError, ValueError):
+        raise ApiError(400, "bad_request", "limit and offset must be numbers")
+    page = jobs[offset:offset + limit]
+    out = {"total": len(jobs)}
+    try:
+        last = _last_runs(ctx, [_job_id(j) for j in page])
+    except GatewayError:
+        last = {}
+        out["last_run_unavailable"] = True
+    out["jobs"] = [_with_runs(ctx, j, last.get(_job_id(j))) for j in page]
     return out
 
 
 def list_jobs(ctx, body):
     jobs = [j for j in ctx.store.list_jobs() if ctx.allowed(authz.can_view, j)]
-    jobs.sort(key=lambda j: (str(j.get("name") or ""), str(j.get("id"))))
+    term = _search_term(body)
+    if term:
+        jobs = [j for j in jobs if _name_has(j, term)]
+    jobs.sort(key=lambda j: (str(j.get("name") or "").casefold(), str(j.get("id"))))
     # ``brief``: without the next and last run, which cost a KV Store query per job.
-    listed = _public_job if str(body.get("brief")) == "1" else _listed_job
-    return 200, {"jobs": [listed(ctx, j) for j in jobs]}
+    if str(body.get("brief")) == "1":
+        return 200, {"jobs": [_public_job(ctx, j) for j in jobs]}
+    if body.get("limit") in (None, ""):
+        return 200, {"jobs": [_listed_job(ctx, j) for j in jobs]}
+    return 200, _jobs_page(ctx, jobs, body)
 
 
 def get_job(ctx, body, job_id):
@@ -646,6 +715,9 @@ def list_runs(ctx, body):
         limit = max(1, min(1000, int(body.get("limit") or 200)))
     except (TypeError, ValueError):
         raise ApiError(400, "bad_request", "limit must be a number")
+    term = _search_term(body)
+    if term:
+        return 200, _search_runs(ctx, filters, term, limit)
     if ctx.allowed(authz.can_admin, None):
         runs = ctx.store.list_runs(filters, limit=limit, fields=LIST_FIELDS)
         return 200, {"runs": [_summary(r) for r in runs]}
@@ -665,6 +737,49 @@ def list_runs(ctx, body):
             break
         skip += len(page)
     return 200, {"runs": [_summary(r) for r in out[:limit]]}
+
+
+def _search_runs(ctx, filters, term, limit):
+    """Newest runs of the visible jobs whose name contains ``term``, or whose id is exactly
+    ``term``, which also finds a deleted job's runs. Every read is bounded: ``partial`` says
+    the search stopped before it had looked at everything."""
+    jobs = {_job_id(j): j for j in ctx.store.list_jobs()}
+    wanted = {k for k, j in jobs.items() if ctx.allowed(authz.can_view, j)
+              and (k == term or _name_has(j, term))}
+    if term not in jobs:
+        wanted.add(term)
+    if "job_id" in filters:
+        wanted &= {filters["job_id"]}
+    if not wanted:
+        return {"runs": []}
+    query, size = dict(filters), RUN_SCAN_PAGE
+    if len(wanted) <= RUN_SEARCH_IN_MAX:
+        query["job_id"], size = {"$in": sorted(wanted)}, limit
+    out, skip, checks, partial = [], 0, 0, False
+    while len(out) < limit and not partial:
+        if skip >= RUN_SCAN_MAX:
+            partial = True
+            break
+        page = ctx.store.list_runs(query, limit=size, skip=skip, fields=LIST_FIELDS)
+        for row in page:
+            job_id = row.get("job_id")
+            if job_id not in wanted:
+                continue
+            if job_id not in jobs:
+                if checks >= limit:  # each check may read the run's snapshot
+                    partial = True
+                    break
+                checks += 1
+                if not _deleted_job_run_visible(ctx, row):
+                    continue
+            out.append(row)
+        if len(page) < size:
+            break
+        skip += len(page)
+    result = {"runs": [_summary(r) for r in out[:limit]]}
+    if partial and len(out) < limit:
+        result["partial"] = True
+    return result
 
 
 def _deleted_job_run_visible(ctx, row):

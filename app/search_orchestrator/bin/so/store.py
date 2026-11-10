@@ -77,7 +77,7 @@ class Store:
         """One row per attempt; _key defaults to run_id:step_id:attempt."""
         if not row.get("_key"):
             row = dict(row, _key="{}:{}:{}".format(row["run_id"], row["step_id"], row["attempt"]))
-        self._upsert(STEP_RUNS, row)
+        self.gw.kv_batch_save(STEP_RUNS, [row])  # an upsert in one call; most rows are new
 
     def list_step_runs(self, run_id):
         return self.gw.kv_query(STEP_RUNS, {"run_id": run_id})
