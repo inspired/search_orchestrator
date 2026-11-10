@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.1 (2026-11-10)
 
 - The engine makes far fewer calls to splunkd, so steps hold their slots for less time and busy periods drain faster. A run is written only when a pass changed it, a hook with no actions stores no row, a new attempt row takes one write instead of two, and renewing the leader lease takes two calls instead of four.
 
