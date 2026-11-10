@@ -17,8 +17,10 @@ Splunk and KV Store. It is the only component that advances runs.
    results) every 5 minutes; at run end, set their TTL to the result-retention
    setting.
 7. ``actions.pump(now, keep_lease)``.
-8. Each run is saved as one document; audit events are emitted after the
-   save that made them true. Ended runs are pruned at most once an hour.
+8. Each run is saved as one document, only when the pass changed it (a run
+   waiting for a slot or a search costs no write); audit events are emitted
+   after the save that made them true. Ended runs are pruned at most once an
+   hour.
 
 Crash safety
 ------------
@@ -78,6 +80,7 @@ Settings (``so_settings`` document ``settings``, defaults in
 ``queue_cap``, ``result_retention`` (seconds), ``run_retention_days``.
 The engine's own bookkeeping lives in the ``engine_state`` document.
 """
+import json
 import logging
 import time
 
@@ -127,6 +130,11 @@ def _check_auth(err):
 
 def _inflight(run):
     return sum(1 for st in (run.get("steps") or {}).values() if st.get("state") in IN_FLIGHT)
+
+
+def _fingerprint(run):
+    """A run's content, to tell whether a pass changed it."""
+    return json.dumps(run, sort_keys=True, default=str)
 
 
 def _run_id(run):
@@ -566,6 +574,7 @@ class Engine:
                 self.store.save_run(run)
 
     def _advance(self, run, job, settings, now, budget, pending):
+        loaded = _fingerprint(run)
         definition = run.get("definition") or {}
         defs = {s["id"]: model.resolve_step(definition, s) for s in definition.get("steps") or []}
         before = _inflight(run)
@@ -645,7 +654,8 @@ class Engine:
                 to_dispatch.extend(chosen)
         for sid in to_dispatch:
             self._dispatch(run, sid, defs[sid], now, pending)
-        self._save(run, pending)
+        if pending.rows or pending.events or _fingerprint(run) != loaded:
+            self._save(run, pending)
         ttl = int(settings["result_retention"])
         for sid in ttl_sids:
             self._control(sid, "setttl", ttl=ttl)

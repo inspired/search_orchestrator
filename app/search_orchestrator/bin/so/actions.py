@@ -2,8 +2,8 @@
 
 The engine calls ``submit`` for every hook effect from ``state.evaluate`` (and
 for the hold and queue-cap alerts) *before* it saves the run that records the
-hook in ``hooks_fired``. ``submit`` persists one ``so_action_runs`` row under
-the idempotency key ``run_id:scope:hook:step_id:occurrence``, so replaying a
+hook in ``hooks_fired``. For a hook with actions to send, ``submit`` persists
+one ``so_action_runs`` row under the idempotency key ``run_id:scope:hook:step_id:occurrence``, so replaying a
 tick after a crash never submits the same hook twice. ``pump(now)`` executes
 due rows. Nothing here ever changes a run's state.
 
@@ -195,14 +195,14 @@ class ActionRunner:
                "chain_depth": int(run.get("chain_depth") or 0),
                "chain_rerun": chain_rerun(run),
                "actions": [_entry(i, a) for i, a in matching],
-               "state": "pending" if matching else "done", "attempts": 0, "error": None,
+               "state": "pending", "attempts": 0, "error": None,
                "fallback": False, "created_at": int(self.clock())}
-        new = self.gw.kv_insert(ACTION_RUNS, doc)
+        new = bool(matching) and self.gw.kv_insert(ACTION_RUNS, doc)  # nothing to send, no row
         needs = {"on_failure": _needs_failure_fallback,
                  "on_delayed": _needs_delay_fallback}.get(hook)
         if scope == "job" and needs and needs(run, definition):
             self._ensure_fallback(doc)  # also on replay: the insert is idempotent
-        return new and bool(matching)
+        return new
 
     @staticmethod
     def _ctx(run, hook, scope, step_id):

@@ -12,6 +12,7 @@ class Lease:
     def __init__(self, gateway, seconds=LEASE_SECONDS):
         self.gw = gateway
         self.seconds = seconds
+        self._mine = None  # the document this object last wrote
 
     def _doc(self, holder, now):
         return {"_key": KEY, "holder": holder, "expires": int(now) + self.seconds}
@@ -33,20 +34,40 @@ class Lease:
            a slow takeover contender cannot delete the winner's fresh lease.
            The only cost is a brief gap with no document, in which another
            contender may win; the renewer then simply loses, which is safe.
+
+        A renewal already knows the document it wrote, so it starts at step 3 with
+        that document and skips steps 1 and 2. If that insert fails, someone else
+        wrote a lease, and the steps above decide who holds it.
         """
-        if self.gw.kv_insert(COLLECTION, self._doc(holder, now)):
+        mine, self._mine = self._mine, None
+        if mine is not None and mine["holder"] == holder:
+            self._delete_exact(mine)
+            if self._insert(holder, now):
+                return True
+        if self._insert(holder, now):
             return True
         current = self.gw.kv_get(COLLECTION, KEY)
         if current is None:  # released between our insert and read
-            return self.gw.kv_insert(COLLECTION, self._doc(holder, now))
+            return self._insert(holder, now)
         if current.get("expires", 0) > now and current.get("holder") != holder:
             return False
-        self.gw.kv_delete_query(COLLECTION, {"_key": KEY, "holder": current.get("holder"),
-                                             "expires": current.get("expires")})
-        return self.gw.kv_insert(COLLECTION, self._doc(holder, now))
+        self._delete_exact(current)
+        return self._insert(holder, now)
+
+    def _insert(self, holder, now):
+        doc = self._doc(holder, now)
+        if not self.gw.kv_insert(COLLECTION, doc):
+            return False
+        self._mine = doc
+        return True
+
+    def _delete_exact(self, doc):
+        self.gw.kv_delete_query(COLLECTION, {"_key": KEY, "holder": doc.get("holder"),
+                                             "expires": doc.get("expires")})
 
     def release(self, holder):
         """Give the lease up if we hold it (clean shutdown)."""
+        self._mine = None
         current = self.gw.kv_get(COLLECTION, KEY)
         if current and current.get("holder") == holder:
             self.gw.kv_delete_query(COLLECTION, {"_key": KEY, "holder": holder})

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The engine makes far fewer calls to splunkd, so steps hold their slots for less time and busy periods drain faster. A run is written only when a pass changed it, a hook with no actions stores no row, a new attempt row takes one write instead of two, and renewing the leader lease takes two calls instead of four.
+
 ## 1.4.0 (2026-11-09)
 
 - An alert action's parameters are labelled fields with help text, dropdowns and default hints, read from the action's form in Splunk. An empty field uses the action's default, and picking another action clears the parameters. Anything the form doesn't list goes in **Other parameters**.
