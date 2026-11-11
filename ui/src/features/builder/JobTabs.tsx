@@ -19,6 +19,7 @@ import { BUILTIN_DEFAULTS } from './previewLogic';
 import { DurationField } from './StepPanel';
 import type { NextSlots } from './ScheduleEditor';
 import TriggersTab from './TriggersTab';
+import LearnMore from '../../components/LearnMore';
 import { issueCounts } from './issueTabs';
 
 export type TabId = 'steps' | 'triggers' | 'params' | 'actions' | 'access' | 'settings';
@@ -135,6 +136,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
                     <Select.Option label="Continue with later runs" value="continue" />
                 </Select>
             </ControlGroup>
+            <LearnMore anchor="when-a-step-gives-up" topic="giving up" />
         </div>
     );
 }

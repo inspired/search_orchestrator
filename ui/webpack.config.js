@@ -32,6 +32,10 @@ module.exports = (env, argv) => ({
                 use: 'babel-loader',
             },
             {
+                test: /\.md$/,
+                type: 'asset/source',
+            },
+            {
                 test: /\.m?js$/,
                 resolve: { fullySpecified: false },
             },

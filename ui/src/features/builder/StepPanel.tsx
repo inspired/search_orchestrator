@@ -19,6 +19,7 @@ import TimeRangeField from './TimeRangeField';
 import ActionsEditor from './ActionsEditor';
 import { TokenInput } from './InsertToken';
 import { availableTokens } from './tokens';
+import LearnMore from '../../components/LearnMore';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
 import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
@@ -270,7 +271,9 @@ export default function StepPanel({
                     <Select.Option label="From previous steps" value="previous" />
                 </Select>
             </ControlGroup>
+            {step.type === 'previous' && <LearnMore anchor="from-previous-steps" topic="From previous steps" />}
             {step.type === 'saved_search' ? (
+                <>
                 <ControlGroup
                     label="Saved search"
                     labelFor={`${p}-ref`}
@@ -279,6 +282,8 @@ export default function StepPanel({
                 >
                     <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
                 </ControlGroup>
+                <LearnMore anchor="steps" topic="saved search steps" />
+                </>
             ) : (
                 <>
                     {step.type === 'previous' && (
@@ -306,6 +311,7 @@ export default function StepPanel({
                             onValue={(spl) => set({ spl })}
                         />
                     </ControlGroup>
+                    <LearnMore anchor="tokens" topic="tokens" />
                 </>
             )}
             {onPreview && (

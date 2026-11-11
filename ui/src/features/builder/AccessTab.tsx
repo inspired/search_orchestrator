@@ -4,6 +4,7 @@ import React from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Multiselect from '@splunk/react-ui/Multiselect';
+import LearnMore from '../../components/LearnMore';
 
 export interface AccessTabProps {
     runRoles: string[];
@@ -39,6 +40,7 @@ export default function AccessTab({ runRoles, owner, roles, onChange }: AccessTa
                     ))}
                 </Multiselect>
             </ControlGroup>
+            <LearnMore anchor="who-may-run" topic="who may run" />
         </div>
     );
 }

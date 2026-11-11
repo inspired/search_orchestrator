@@ -7,6 +7,7 @@ import Message from '@splunk/react-ui/Message';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import Typography from '@splunk/react-ui/Typography';
+import LearnMore from '../../components/LearnMore';
 import type { BuilderApi } from './BuilderPage';
 import { TIME_RANGE_PRESETS, formatMoment, timeRangeChoice } from './timeRange';
 
@@ -120,7 +121,7 @@ export default function TimeRangeField({ idPrefix, earliest, latest, scheduledTi
             {choice === 'all_time' && <Message type="warning">Searches all time. Pick a range unless the search sets its own.</Message>}
             {unavailable && <Message type="warning">{`Can't show the window right now: ${unavailable}.`}</Message>}
             {readout && <Typography as="p" variant="body">{readout}</Typography>}
-            {/* TODO(Task 13): add a "Learn more about time ranges" Link to the Help page. */}
+            <LearnMore anchor="steps" topic="time ranges" />
         </div>
     );
 }
