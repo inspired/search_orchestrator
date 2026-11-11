@@ -1039,11 +1039,16 @@ def resolve_timerange(ctx, body):
             resolved[field] = default
             continue
         try:
-            resolved[field] = ctx.user_gw.parse_times(ctx.user, [value], scheduled)[value]
+            times = ctx.user_gw.parse_times(ctx.user, [value], scheduled)
         except GatewayError as err:
             if err.status != 400:
                 raise
-            raise ApiError(400, "bad_time", str(err), field=field)
+            raise ApiError(400, "bad_time", "%s; use a form like -1d@d, @d or now" % err, field=field)
+        if times.get(value) is None:
+            # The same reply the router gives any other failed call to Splunk.
+            raise ApiError(502, "splunk_error",
+                           "a call to Splunk failed: its time parser gave no time for %r" % value)
+        resolved[field] = times[value]
     return 200, resolved
 
 

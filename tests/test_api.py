@@ -1727,6 +1727,16 @@ def test_timerange_resolve_bad_value(w):
                          {"earliest": "-1x", "latest": "@d", "scheduled_time": NOV6})
     assert status == 400 and error(out) == "bad_time"
     assert out["error"]["field"] == "earliest"
+    assert out["error"]["message"].endswith("; use a form like -1d@d, @d or now")
+
+
+def test_timerange_resolve_reply_without_the_value_is_a_splunk_error(w, monkeypatch):
+    w.now = NOV6
+    monkeypatch.setattr(w.gw, "parse_times", lambda user, times, now: {})
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1d@d", "latest": "@d", "scheduled_time": NOV6})
+    assert status == 502 and error(out) == "splunk_error"
+    assert "-1d@d" in out["error"]["message"]
 
 
 def test_timerange_resolve_run_only_user_forbidden(w):
