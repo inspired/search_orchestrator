@@ -146,3 +146,13 @@ describe('builder reducer', () => {
         expect(s.job.steps[0]).toEqual({ id: 'p', type: 'inline', spl: '| stats count' });
     });
 });
+
+describe('applyTemplate', () => {
+    it('replaces the job as one undo step', () => {
+        const blank = initialState({ name: '', enabled: true, steps: [], edges: [] });
+        const next = reducer(blank, { type: 'applyTemplate', job });
+        expect(next.job).toBe(job);
+        expect(next.past).toHaveLength(1);
+        expect(reducer(next, { type: 'undo' }).job.steps).toEqual([]);
+    });
+});

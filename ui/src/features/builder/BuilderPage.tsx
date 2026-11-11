@@ -22,6 +22,8 @@ import type { PreviewContext } from './previewLogic';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
 import { blankJob, initialState, nextStepId, reducer } from './reducer';
 import StepPanel, { IssueList } from './StepPanel';
+import TemplatePicker from './TemplatePicker';
+import { JobTemplate, templateByKey } from './templates';
 
 export interface BuilderApi extends PreviewApi {
     getJob: (jobId: string) => Promise<Job>;
@@ -60,6 +62,8 @@ const defaultApi: BuilderApi = {
 export interface BuilderPageProps {
     /** From ?job_id=; none means a new job. */
     jobId?: string | null;
+    /** From ?template=; a known key skips the picker. */
+    template?: string | null;
     api?: BuilderApi;
 }
 
@@ -68,10 +72,12 @@ type Notice = { type: 'success' | 'error' | 'info'; text: string } | null;
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
-export default function BuilderPage({ jobId: initialId = null, api = defaultApi }: BuilderPageProps) {
+export default function BuilderPage({ jobId: initialId = null, template = null, api = defaultApi }: BuilderPageProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
-    const [state, dispatch] = useReducer(reducer, blankJob(), initialState);
+    const startTemplate = initialId ? null : templateByKey(template || null);
+    const [state, dispatch] = useReducer(reducer, startTemplate, (t: JobTemplate | null) => initialState(t ? t.build() : blankJob()));
+    const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startTemplate);
     const [loading, setLoading] = useState(Boolean(initialId));
     const [loadError, setLoadError] = useState<string | null>(null);
     const [meta, setMeta] = useState<{ owner: string | null; canEdit: boolean }>({ owner: null, canEdit: true });
@@ -478,6 +484,17 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             <IssueList issues={jobLevel} />
             {loading ? (
                 <WaitSpinner size="medium" />
+            ) : choosingTemplate ? (
+                <TemplatePicker
+                    onChoose={(t) => {
+                        const built = t.build();
+                        dispatch({ type: 'applyTemplate', job: built });
+                        setChoosingTemplate(false);
+                        if (built.steps.length) {
+                            setSelected({ kind: 'step', id: built.steps[0].id });
+                        }
+                    }}
+                />
             ) : (
                 <>
                     <ControlGroup label="Job name" labelFor="job-name" labelPosition="top">

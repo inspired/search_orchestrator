@@ -17,6 +17,8 @@ export interface BuilderState extends Snapshot {
 
 export type BuilderAction =
     | { type: 'load'; job: JobDefinition }
+    /** A template replaces the blank job as one undo step (load would clear history). */
+    | { type: 'applyTemplate'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
     /** A From previous steps step reading `from`, added with its edge as one undo step. */
     | { type: 'addStepFrom'; from: string; id: string }
@@ -148,6 +150,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
     switch (action.type) {
         case 'load':
             return initialState(action.job);
+        case 'applyTemplate':
+            return edits(state, action.job);
         case 'addStep': {
             const id = action.step?.id || nextStepId(steps);
             const step: StepDef = { id, name: '', type: 'inline', spl: '', ...action.step };
