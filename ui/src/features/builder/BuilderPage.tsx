@@ -15,7 +15,7 @@ import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilter
 import PageShell, { pageHref } from '../../components/PageShell';
 import Canvas, { Selection } from './Canvas';
 import EdgePanel from './EdgePanel';
-import { findIssues, issuesByStep } from './graphLogic';
+import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
 import { readiness } from './readiness';
@@ -226,10 +226,13 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         });
         return out;
     }, [previews.previews]);
-    // Server warnings stay until the next check; server errors only while the job is the
-    // one that was checked (the client check covers what an edit fixes).
+    // Server warnings stay until the next check. Once the job is edited, server errors the
+    // client check also finds are recomputed live; the rest stay until the next check.
     const issues = useMemo(() => {
-        const server = checkedJob === job ? serverIssues : serverIssues.filter((i) => i.level === 'warning');
+        const server =
+            checkedJob === job
+                ? serverIssues
+                : serverIssues.filter((i) => i.level === 'warning' || !CLIENT_ISSUE_CODES.has(i.code));
         const local = findIssues(job).filter((i) => !server.some((s) => sameIssue(s, i)));
         return [...server, ...local];
     }, [job, serverIssues, checkedJob]);
@@ -251,7 +254,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             setSelected({ kind: 'step', id: issue.step });
         }
     };
-    // The list stays until the next save attempt or until nothing is left to fix.
+    // The list stays until the next save attempt or until nothing is left to fix: no live
+    // client errors and no server errors kept from the last check.
     useEffect(() => {
         if (showSummary && !errorIssues.length) {
             setShowSummary(false);

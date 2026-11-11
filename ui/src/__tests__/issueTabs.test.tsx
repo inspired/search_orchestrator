@@ -91,6 +91,24 @@ describe('BuilderPage issue feedback', () => {
         expect(screen.getByRole('tab', { name: /Steps/ })).not.toHaveTextContent(/\d/);
     });
 
+    it('keeps a server-only error while editing until a fresh check clears it', async () => {
+        const badCron: Issue = { level: 'error', code: 'bad_cron', message: 'Bad cron', step: null };
+        const validateJob = jest.fn().mockImplementation((job: { name: string }) =>
+            Promise.resolve({ valid: job.name !== 'Renamed', issues: job.name === 'Renamed' ? [] : [badCron], owner_will_change: false, owner: 'alice' })
+        );
+        const api = fakeApi({ validateJob });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await screen.findByText('Fix 1 problem before saving');
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });
+        expect(screen.getByText('Fix 1 problem before saving')).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveTextContent('1');
+        await waitFor(() => expect(screen.queryByText(/before saving/)).not.toBeInTheDocument(), { timeout: 3000 });
+        expect(validateJob).toHaveBeenCalledWith(expect.objectContaining({ name: 'Renamed' }));
+        expect(screen.getByRole('tab', { name: /Triggers/ })).not.toHaveTextContent(/\d/);
+    });
+
     it('selects the step for a step issue', async () => {
         await open();
         fireEvent.click(screen.getByRole('button', { name: /^Go to Weekly rollup: Step broke/ }));
