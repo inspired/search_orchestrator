@@ -228,6 +228,12 @@ export function nextSlots(cron: string, timezone: string | null, count = 3): Pro
     return request('POST', 'schedule/next', { body: { cron, timezone, count } });
 }
 
+/** The window `earliest`/`latest` cover for a run scheduled at `scheduledTime`, as epoch seconds
+ * (earliest null: all time). A value Splunk rejects is an ApiError `bad_time` with extra.field. */
+export function resolveTimeRange(earliest: string, latest: string, scheduledTime: number): Promise<{ earliest: number | null; latest: number }> {
+    return request('POST', 'timerange/resolve', { body: { earliest, latest, scheduled_time: scheduledTime } });
+}
+
 export function startPreview(req: PreviewRequest): Promise<PreviewStart> {
     return request<PreviewStart>('POST', 'preview', { body: { ...req, job: toDefinition(req.job) } });
 }

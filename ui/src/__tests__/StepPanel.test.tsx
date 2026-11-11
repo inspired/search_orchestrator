@@ -22,7 +22,7 @@ const threeSteps = (edges: JobDefinition['edges']): JobDefinition => ({
 function Harness({ job, stepId, onState }: { job: JobDefinition; stepId: string; onState: (s: BuilderState) => void }) {
     const [state, dispatch] = useReducer(reducer, job, initialState);
     onState(state);
-    return <StepPanel job={state.job} stepId={stepId} issues={[]} dispatch={dispatch} destinations={[]} />;
+    return <StepPanel job={state.job} stepId={stepId} issues={[]} dispatch={dispatch} destinations={[]} scheduledTime={1762390800} resolveTimeRange={jest.fn().mockResolvedValue({ earliest: 1762300800, latest: 1762387200 })} />;
 }
 
 function renderPanel(job: JobDefinition, stepId: string) {
@@ -83,15 +83,13 @@ describe('StepPanel', () => {
         expect(screen.getByLabelText('Input (added for you)')).toHaveTextContent('| loadjob ‹b› | append [| loadjob ‹a›]');
         expect(screen.getByText('Starts with |. Results of the steps before this one come first.')).toBeInTheDocument();
         expect(screen.getByLabelText('Search')).toHaveValue('| stats count');
-        expect(screen.queryByLabelText('Earliest')).not.toBeInTheDocument();
-        expect(screen.queryByLabelText('Latest')).not.toBeInTheDocument();
+        expect(screen.queryByRole('combobox', { name: 'Time range' })).not.toBeInTheDocument();
     });
 
     test('a Search step has no generated input and keeps its time fields', () => {
         renderPanel(threeSteps([{ from: 'a', to: 'b' }]), 'b');
         expect(screen.queryByText('Input (added for you)')).not.toBeInTheDocument();
-        expect(screen.getByLabelText('Earliest')).toBeInTheDocument();
-        expect(screen.getByLabelText('Latest')).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: 'Time range' })).toBeInTheDocument();
     });
 
     test('the type list offers From previous steps, third', () => {

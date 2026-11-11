@@ -15,6 +15,8 @@ import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
 import type { AlertAction, Destination, Issue, JobDefinition, StepDef } from '../../api/types';
 import { DURATION_UNITS, DurationUnit, formatDuration, splitDuration, toSeconds } from './duration';
+import type { BuilderApi } from './BuilderPage';
+import TimeRangeField from './TimeRangeField';
 import ActionsEditor from './ActionsEditor';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
@@ -149,6 +151,9 @@ export interface StepPanelProps {
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview?: (stepId: string) => void;
     preview?: PreviewView;
+    /** The preview's "as if scheduled at" time, epoch seconds. */
+    scheduledTime: number;
+    resolveTimeRange: BuilderApi['resolveTimeRange'];
 }
 
 export default function StepPanel({
@@ -163,6 +168,8 @@ export default function StepPanel({
     onPreview,
     onCancelPreview,
     preview,
+    scheduledTime,
+    resolveTimeRange,
 }: StepPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
@@ -301,14 +308,15 @@ export default function StepPanel({
                 </div>
             )}
             {step.type !== 'previous' && (
-                <>
-                    <ControlGroup label="Earliest" labelFor={`${p}-earliest`} labelPosition="top" help="Relative to the run's scheduled time.">
-                        <Text inputId={`${p}-earliest`} value={step.earliest || ''} placeholder="-1d@d" onChange={onValue('earliest')} />
-                    </ControlGroup>
-                    <ControlGroup label="Latest" labelFor={`${p}-latest`} labelPosition="top">
-                        <Text inputId={`${p}-latest`} value={step.latest || ''} placeholder="@d" onChange={onValue('latest')} />
-                    </ControlGroup>
-                </>
+                <TimeRangeField
+                    idPrefix={p}
+                    earliest={step.earliest}
+                    latest={step.latest}
+                    scheduledTime={scheduledTime}
+                    timezone={job.timezone}
+                    resolve={resolveTimeRange}
+                    onChange={(earliest, latest) => set({ earliest, latest })}
+                />
             )}
             <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Runs after these steps succeed. Steps that would make a loop are not listed.">
                 <Multiselect inputId={`${p}-depends`} values={parents} onChange={onDepends} noOptionsMessage="No other steps can come before this one.">

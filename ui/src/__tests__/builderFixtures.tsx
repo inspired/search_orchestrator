@@ -34,6 +34,7 @@ export function fakeApi(over: Partial<BuilderApi> = {}): BuilderApi {
         me: jest.fn().mockResolvedValue(me),
         previewDefaults: jest.fn().mockResolvedValue({ scheduled_time: 1762390800 }),
         nextSlots: jest.fn().mockResolvedValue({ slots: [], timezone_status: 'ok' }),
+        resolveTimeRange: jest.fn().mockResolvedValue({ earliest: 1762300800, latest: 1762387200 }),
         listRuns: jest.fn().mockResolvedValue([]),
         startPreview: jest.fn().mockResolvedValue({ status: 'started', sid: 'sid-1', spl: '| makeresults' }),
         previewStatus: jest.fn().mockResolvedValue({ state: 'done', result_count: 7, run_duration: 0.2, messages: [] }),
