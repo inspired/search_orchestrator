@@ -29,6 +29,8 @@ describe('schedule presets', () => {
         expect(describeSchedule('30 6 * * 0,1,6')).toBe('Every Sunday, Monday and Saturday at 06:30');
         expect(describeSchedule('0 2 1 * *')).toBe('On day 1 of every month at 02:00');
         expect(describeSchedule('15 * * * *')).toBe('Every hour at 15 minutes past');
+        expect(describeSchedule('0 * * * *')).toBe('Every hour, on the hour');
+        expect(describeSchedule('1 * * * *')).toBe('Every hour at 1 minute past');
         expect(describeSchedule('*/15 * * * *')).toBe('Custom schedule: */15 * * * *');
     });
 

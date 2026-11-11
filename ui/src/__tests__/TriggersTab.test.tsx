@@ -106,6 +106,17 @@ describe('TriggersTab schedules', () => {
         await waitFor(() => expect(screen.getAllByText(/02:00/)).toHaveLength(3));
     });
 
+    test('a weekly schedule with no days says to pick one instead of the old summary', async () => {
+        const { dispatch } = setup(jobWith([{ type: 'cron', cron: '30 6 * * 1' }]));
+        expect(screen.getByText('Every Monday at 06:30, in the server\'s time zone')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('option', { name: /^Remove Monday/ }));
+        await waitFor(() => expect(screen.queryByText(/Every Monday/)).not.toBeInTheDocument());
+        // The field help and the summary line both say it.
+        expect(screen.getAllByText('Pick at least one day.')).toHaveLength(2);
+        expect(screen.queryByText(/in the server's time zone/)).not.toBeInTheDocument();
+        expect(dispatch).not.toHaveBeenCalled();
+    });
+
     test('a bad_cron reply is the Custom field error', async () => {
         const next = jest.fn().mockRejectedValue(new ApiError(400, 'bad_cron', 'Cron needs five fields.'));
         setup(jobWith([{ type: 'cron', cron: '* *' }]), next);

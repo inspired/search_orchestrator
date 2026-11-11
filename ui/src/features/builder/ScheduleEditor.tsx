@@ -260,7 +260,12 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
                     />
                 </ControlGroup>
             )}
-            <p>{`${describeSchedule(cron)}, ${next ? zoneLabel(next.timezone, next.utc_offsets[0] ?? null) : zoneLabel(timezone || null, null)}`}</p>
+            {/* With no days the cron sent up is still the old one, so don't describe it. */}
+            <p>
+                {preset.kind === 'weekly' && !preset.days.length
+                    ? 'Pick at least one day.'
+                    : `${describeSchedule(cron)}, ${next ? zoneLabel(next.timezone, next.utc_offsets[0] ?? null) : zoneLabel(timezone || null, null)}`}
+            </p>
             {next && next.timezone_status !== 'ok' && <p>Unknown time zone; times are shown in server time.</p>}
             {next && next.slots.length > 0 && (
                 <DefinitionList termWidth="90px">

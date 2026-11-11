@@ -77,7 +77,10 @@ export function describeSchedule(cron: string): string {
     const at = (h: number, m: number) => `${pad(h)}:${pad(m)}`;
     switch (p.kind) {
         case 'hourly':
-            return `Every hour at ${p.minute} minutes past`;
+            if (p.minute === 0) {
+                return 'Every hour, on the hour';
+            }
+            return `Every hour at ${p.minute} ${p.minute === 1 ? 'minute' : 'minutes'} past`;
         case 'daily':
             return `Every day at ${at(p.hour, p.minute)}`;
         case 'weekly':
