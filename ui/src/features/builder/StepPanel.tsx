@@ -1,11 +1,12 @@
 /* The side panel for the selected step: search, time range, "Depends on" (so steps can be
  * connected without a pointer), run when, delayed after, give up after, max runtime,
  * retries and step actions, with the step's issues from the client check and the server. */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Multiselect from '@splunk/react-ui/Multiselect';
+import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
@@ -13,6 +14,7 @@ import Heading from '@splunk/react-ui/Heading';
 import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
 import type { AlertAction, Destination, Issue, JobDefinition, StepDef } from '../../api/types';
+import { DURATION_UNITS, DurationUnit, formatDuration, splitDuration, toSeconds } from './duration';
 import ActionsEditor from './ActionsEditor';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
@@ -20,13 +22,6 @@ import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wo
 import { BUILTIN_DEFAULTS, generatedInput } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
-
-export function formatMinutes(seconds: number): string {
-    if (seconds % 3600 === 0 && seconds >= 3600) {
-        return `${seconds / 3600} h`;
-    }
-    return `${Math.round(seconds / 60)} min`;
-}
 
 export interface DurationFieldProps {
     id: string;
@@ -42,35 +37,84 @@ export interface DurationFieldProps {
 
 const MIN_DURATION_ERROR = 'At least 1 minute.';
 
-/** Whole minutes in the field; seconds in the job. Empty inherits. Zero is refused (a
+const UNIT_LABELS: Record<DurationUnit, string> = { minutes: 'Minutes', hours: 'Hours', days: 'Days' };
+
+/** An amount and a unit in the field; seconds in the job. Empty inherits. Zero is refused (a
  * give-up of 0 would give up at once): the field shows an error and the job keeps its
- * previous value. */
+ * previous value. A value that is not whole minutes keeps its seconds until edited. */
 export function DurationField({ id, label, value, inherited, inheritedFrom, help, onChange }: DurationFieldProps) {
-    const shown = value === null || value === undefined ? '' : String(Math.round(value / 60));
-    const [zero, setZero] = useState<string | null>(null);
+    const initial = value === null || value === undefined ? null : splitDuration(value);
+    const [unit, setUnit] = useState<DurationUnit>(initial ? initial.unit : 'minutes');
+    const [amount, setAmount] = useState<number | undefined>(initial ? initial.amount : undefined);
+    const [zero, setZero] = useState(false);
+    // What this field last sent up, so only an outside change resets the amount and unit.
+    const sent = useRef<number | null | undefined>(value);
+    useEffect(() => {
+        if (value === sent.current) {
+            return;
+        }
+        sent.current = value;
+        const next = value === null || value === undefined ? null : splitDuration(value);
+        setAmount(next ? next.amount : undefined);
+        if (next) {
+            setUnit(next.unit);
+        }
+        setZero(false);
+    }, [value]);
+
+    const emit = (seconds: number | null) => {
+        sent.current = seconds;
+        onChange(seconds);
+    };
+
     return (
         <ControlGroup
-            label={`${label} (minutes)`}
+            label={label}
             labelFor={id}
             labelPosition="top"
-            help={zero !== null ? MIN_DURATION_ERROR : help}
-            error={zero !== null}
+            help={zero ? MIN_DURATION_ERROR : help}
+            error={zero}
+            controlsLayout="fillJoin"
         >
-            <Text
+            <NumberInput
                 inputId={id}
-                value={zero !== null ? zero : shown}
-                error={zero !== null}
-                placeholder={`${inheritedFrom} (${formatMinutes(inherited)})`}
-                onChange={(_e: unknown, { value: text }: { value: string }) => {
-                    const digits = text.replace(/[^0-9]/g, '');
-                    if (digits !== '' && parseInt(digits, 10) === 0) {
-                        setZero(digits);
+                min={0}
+                step={1}
+                roundTo={0}
+                value={amount}
+                error={zero}
+                {...{ placeholder: `${inheritedFrom} (${formatDuration(inherited)})` }}
+                onChange={(_e: unknown, { value: next }: { value?: number }) => {
+                    if (next === undefined || Number.isNaN(next)) {
+                        setZero(false);
+                        setAmount(undefined);
+                        emit(null);
                         return;
                     }
-                    setZero(null);
-                    onChange(digits === '' ? null : parseInt(digits, 10) * 60);
+                    setAmount(next);
+                    if (next < 1) {
+                        setZero(true);
+                        return;
+                    }
+                    setZero(false);
+                    emit(toSeconds(next, unit));
                 }}
             />
+            <Select
+                aria-label={`${label} unit`}
+                value={unit}
+                onChange={(_e: unknown, { value: next }: { value: unknown }) => {
+                    const u = next as DurationUnit;
+                    setUnit(u);
+                    if (amount !== undefined && amount >= 1) {
+                        emit(toSeconds(amount, u));
+                    }
+                }}
+            >
+                {DURATION_UNITS.map((u) => (
+                    <Select.Option key={u} label={UNIT_LABELS[u]} value={u} />
+                ))}
+            </Select>
         </ControlGroup>
     );
 }

@@ -63,12 +63,13 @@ describe('StepPanel', () => {
 
     test('a duration of 0 minutes is refused', () => {
         const state = renderPanel(threeSteps([]), 'a');
-        const field = screen.getByLabelText('Give up after (minutes)');
+        const field = screen.getByRole('spinbutton', { name: 'Give up after' });
         fireEvent.change(field, { target: { value: '0' } });
         expect(screen.getByText('At least 1 minute.')).toBeInTheDocument();
         expect(state().job.steps[0].give_up_after).toBeUndefined();
         fireEvent.change(field, { target: { value: '30' } });
         expect(state().job.steps[0].give_up_after).toBe(1800);
+        expect(screen.getAllByRole('combobox', { name: /Give up after/ })[0]).toHaveTextContent('Minutes');
         fireEvent.change(field, { target: { value: '' } });
         expect(state().job.steps[0].give_up_after).toBeNull();
     });
