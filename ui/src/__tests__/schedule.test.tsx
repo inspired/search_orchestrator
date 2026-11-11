@@ -38,5 +38,7 @@ describe('schedule presets', () => {
         expect(opts).toContain('Europe/Oslo');
         expect(opts).toEqual([...opts].sort());
         expect(timeZoneOptions(undefined)).toContain('Europe/Oslo');
+        expect(timeZoneOptions(undefined).filter((z) => z === 'UTC')).toHaveLength(1);
+        expect(timeZoneOptions('UTC').filter((z) => z === 'UTC')).toHaveLength(1);
     });
 });

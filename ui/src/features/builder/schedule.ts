@@ -89,7 +89,7 @@ export function describeSchedule(cron: string): string {
     }
 }
 
-/** The browser's IANA zones, plus `current` when it lists no such zone (only the server
+/** The browser's IANA zones, plus UTC (Chrome omits it), plus `current` when it lists no such zone (only the server
  * judges a stored zone), sorted. */
 export function timeZoneOptions(current: string | undefined): string[] {
     let zones: string[] = [];
@@ -98,7 +98,7 @@ export function timeZoneOptions(current: string | undefined): string[] {
     } catch {
         zones = [];
     }
-    const all = new Set(zones);
+    const all = new Set([...zones, 'UTC']);
     if (current) {
         all.add(current);
     }

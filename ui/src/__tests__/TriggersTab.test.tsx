@@ -28,6 +28,27 @@ describe('TriggersTab schedules', () => {
         expect(dispatch).not.toHaveBeenCalled();
     });
 
+    test('two schedules each open in their own mode and edit independently', () => {
+        const triggers = [
+            { type: 'cron' as const, cron: '0 1 * * *' },
+            { type: 'cron' as const, cron: '*/15 * * * *' },
+        ];
+        const { dispatch } = setup(jobWith(triggers));
+        expect(screen.getAllByRole('radio', { name: 'Daily' })[0]).toBeChecked();
+        expect(screen.getAllByRole('radio', { name: 'Custom' })[1]).toBeChecked();
+        expect(screen.getByLabelText('Cron')).toHaveValue('*/15 * * * *');
+        expect(dispatch).not.toHaveBeenCalled();
+        fireEvent.change(screen.getByLabelText('Time (HH:MM)'), { target: { value: '02:30' } });
+        expect(dispatch).toHaveBeenLastCalledWith({
+            type: 'setJobField',
+            field: 'triggers',
+            value: [
+                { type: 'cron', cron: '30 2 * * *' },
+                { type: 'cron', cron: '*/15 * * * *' },
+            ],
+        });
+    });
+
     test('a daily cron opens as Daily with its time', () => {
         setup(jobWith([{ type: 'cron', cron: '30 2 * * *' }]));
         expect(screen.getByRole('radio', { name: 'Daily' })).toBeChecked();
