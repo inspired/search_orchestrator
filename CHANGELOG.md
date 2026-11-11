@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0 (unreleased)
+
+- **Runs → Timeline**: every job's past, running and scheduled runs on one axis, over 24 hours or 7 days, with a **Searches at once** row and the Max searches limit, so busy times show before they are scheduled. Scheduled runs are projected from cron schedules (honouring step Run when days) and completion triggers, with lengths estimated from recent runs. Jobs you may not see show anonymously. Very frequent jobs are merged into spans. (`GET schedule?from=&to=`)
+- The Triggers tab shows a **busy-times strip** under each schedule, in the job's time zone, and may suggest a quieter start nearby. **Use this time** changes only the minute and hour; nothing changes otherwise. (`POST schedule/preview`)
+
 ## 1.5.0 (2026-11-11)
 
 - Run when offers **Days of week**, a row of day buttons with Weekdays, Weekends and Every day shortcuts, in place of the Mondays preset. The step on the canvas reads "Mondays only", "Weekdays only" or "Mon, Wed, Fri only". Steps saved with the Mondays preset, and any cron that only limits the day of the week, open with their days on. The stored value is still a cron, so the server is unchanged.
