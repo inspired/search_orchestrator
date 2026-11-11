@@ -4,9 +4,9 @@ import Message from '@splunk/react-ui/Message';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import { listJobs, listRuns } from '../../api/client';
 import { RUN_STATES } from '../../api/types';
-import type { RunState } from '../../api/types';
+import type { RunState, RunSummary } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
-import RunsTable, { needsAttention, RunsTableFilters } from '../../features/runs/RunsTable';
+import RunsTable, { RunsTableFilters } from '../../features/runs/RunsTable';
 import usePoll from '../../hooks/usePoll';
 
 const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
@@ -22,13 +22,19 @@ function initialFilters(): RunsTableFilters {
     };
 }
 
-// "Needs attention" is not a server state: fetch everything, then keep the runs that need it.
+// "Needs attention" is not a server state. Held runs are always failed, so it is the
+// blocked runs plus the failed ones, merged and newest first like the server's own list.
 async function fetchRuns(filters: RunsTableFilters) {
     if (filters.state !== 'attention') {
         return listRuns({ ...filters, state: filters.state });
     }
-    const all = await listRuns({ job_id: filters.job_id });
-    return all.filter(needsAttention);
+    const [blocked, failed] = await Promise.all([
+        listRuns({ ...filters, state: 'blocked' }),
+        listRuns({ ...filters, state: 'failed' }),
+    ]);
+    const byId = new Map<string, RunSummary>();
+    [...blocked, ...failed].forEach((r) => byId.set(r.id, r));
+    return Array.from(byId.values()).sort((a, b) => b.created_at - a.created_at);
 }
 
 function RunsPage() {
