@@ -6,7 +6,7 @@ import { listJobs, listRuns } from '../../api/client';
 import { RUN_STATES } from '../../api/types';
 import type { RunState } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
-import RunsTable, { RunsTableFilters } from '../../features/runs/RunsTable';
+import RunsTable, { needsAttention, RunsTableFilters } from '../../features/runs/RunsTable';
 import usePoll from '../../hooks/usePoll';
 
 const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
@@ -15,14 +15,26 @@ function initialFilters(): RunsTableFilters {
     const state = queryParam('state');
     return {
         job_id: queryParam('job_id') || undefined,
-        state: state && (RUN_STATES as readonly string[]).includes(state) ? (state as RunState) : undefined,
+        state:
+            state === 'attention' || (state && (RUN_STATES as readonly string[]).includes(state))
+                ? (state as RunState | 'attention')
+                : undefined,
     };
+}
+
+// "Needs attention" is not a server state: fetch everything, then keep the runs that need it.
+async function fetchRuns(filters: RunsTableFilters) {
+    if (filters.state !== 'attention') {
+        return listRuns({ ...filters, state: filters.state });
+    }
+    const all = await listRuns({ job_id: filters.job_id });
+    return all.filter(needsAttention);
 }
 
 function RunsPage() {
     const [filters, setFilters] = useState<RunsTableFilters>(initialFilters);
     const [fast, setFast] = useState(true);
-    const runs = usePoll(() => listRuns(filters), fast ? 5000 : 30000, true);
+    const runs = usePoll(() => fetchRuns(filters), fast ? 5000 : 30000, true);
     const [jobNames, setJobNames] = useState<Record<string, string>>({});
     const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 

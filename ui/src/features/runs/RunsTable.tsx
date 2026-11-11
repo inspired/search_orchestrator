@@ -10,11 +10,21 @@ import StatusText, { isRunDelayed, statusLabel } from '../../components/StatusTe
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
 
-export type RunsTableFilters = Pick<RunFilters, 'job_id' | 'state'>;
+/** The state filter: a run state, or 'attention' for blocked, failed and held runs. */
+export type RunsTableFilters = Omit<Pick<RunFilters, 'job_id' | 'state'>, 'state'> & {
+    state?: RunState | 'attention';
+};
+
+/** Blocked or failed runs, and held runs of any state. */
+export function needsAttention(run: RunSummary): boolean {
+    return run.state === 'blocked' || run.state === 'failed' || run.held === true;
+}
 
 export function filterRuns(runs: RunSummary[], filters: RunsTableFilters): RunSummary[] {
     return runs.filter(
-        (r) => (!filters.state || r.state === filters.state) && (!filters.job_id || r.job_id === filters.job_id)
+        (r) =>
+            (!filters.state ||
+                (filters.state === 'attention' ? needsAttention(r) : r.state === filters.state)) && (!filters.job_id || r.job_id === filters.job_id)
     );
 }
 
@@ -63,10 +73,11 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                         inputId="runs-filter-state"
                         value={filters.state || ALL}
                         onChange={(_e: unknown, { value }: { value: unknown }) =>
-                            onFiltersChange({ ...filters, state: value ? (String(value) as RunState) : undefined })
+                            onFiltersChange({ ...filters, state: value ? (String(value) as RunState | 'attention') : undefined })
                         }
                     >
                         <Select.Option label="All states" value={ALL} />
+                        <Select.Option label="Needs attention" value="attention" />
                         {RUN_STATES.map((s) => (
                             <Select.Option key={s} label={statusLabel(s)} value={s} />
                         ))}

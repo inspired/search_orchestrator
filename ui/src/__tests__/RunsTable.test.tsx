@@ -1,6 +1,7 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
-import RunsTable, { filterRuns } from '../features/runs/RunsTable';
+import userEvent from '@testing-library/user-event';
+import RunsTable, { filterRuns, needsAttention } from '../features/runs/RunsTable';
 import { formatTime } from '../format';
 import { NOW, renderThemed, runSummary } from './fixtures';
 
@@ -42,5 +43,29 @@ describe('RunsTable', () => {
             <RunsTable runs={runs} jobNames={jobNames} filters={{ state: 'paused' }} onFiltersChange={jest.fn()} now={NOW} />
         );
         expect(screen.getByText('No runs match these filters.')).toBeInTheDocument();
+    });
+
+    test('needsAttention keeps blocked, failed and held runs', () => {
+        expect(needsAttention(runSummary({ state: 'succeeded', held: true }))).toBe(true);
+        expect(needsAttention(runSummary({ state: 'blocked' }))).toBe(true);
+        expect(needsAttention(runSummary({ state: 'failed' }))).toBe(true);
+        expect(needsAttention(runSummary({ state: 'succeeded' }))).toBe(false);
+        expect(needsAttention(runSummary({ state: 'running' }))).toBe(false);
+    });
+
+    test('Needs attention option follows All states', async () => {
+        const user = userEvent.setup();
+        renderThemed(<RunsTable runs={runs} jobNames={jobNames} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
+        await user.click(screen.getByLabelText('State'));
+        const labels = screen.getAllByRole('option').map((o) => o.textContent);
+        expect(labels.slice(0, 2)).toEqual(['All states', 'Needs attention']);
+    });
+
+    test('attention filter shows only runs that need attention', () => {
+        const mixed = [...runs, runSummary({ id: 'daily:3', state: 'succeeded', held: true })];
+        renderThemed(
+            <RunsTable runs={mixed} jobNames={jobNames} filters={{ state: 'attention' }} onFiltersChange={jest.fn()} now={NOW} />
+        );
+        expect(screen.getAllByRole('row').slice(1)).toHaveLength(2);
     });
 });

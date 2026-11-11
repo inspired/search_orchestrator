@@ -139,7 +139,7 @@ describe('RunBanner', () => {
                 type: 'error',
                 text:
                     'This run is blocked: Daily summary failed (search failed: no such index). ' +
-                    'Weekly rollup is waiting on it. Re-run from the failed step or cancel the run.',
+                    'Weekly rollup is waiting on it. Fix the cause, then re-run from Daily summary.',
             },
         ]);
         renderThemed(<RunBanner run={run} now={NOW} />);
@@ -151,5 +151,19 @@ describe('RunBanner', () => {
         expect(bannerMessages(run, NOW)).toEqual([]);
         const { container } = renderThemed(<RunBanner run={run} now={NOW} />);
         expect(container.textContent).toBe('');
+    });
+
+    test('failed and held runs get next-step guidance as an info message', () => {
+        const failed = rollupRun({ state: 'failed', steps: { daily: { state: 'failed' } } });
+        expect(bannerMessages(failed, NOW)).toEqual([
+            {
+                type: 'info',
+                text: 'This run failed. Re-run it from Daily summary if its results are still needed.',
+            },
+        ]);
+        const held = rollupRun({ state: 'failed', held: true, steps: { daily: { state: 'failed' } } });
+        renderThemed(<RunBanner run={held} now={NOW} />);
+        expect(screen.getByText(/^Later runs of this job are waiting for this one\./)).toBeInTheDocument();
+        expect(screen.queryByText(/^This run failed\./)).toBeNull();
     });
 });

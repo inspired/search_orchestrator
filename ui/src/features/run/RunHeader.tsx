@@ -37,7 +37,7 @@ export default function RunHeader({ run, canRun, busy, onPause, onResume, onCanc
                     {state === 'paused' && <Button label="Resume" disabled={busy} onClick={onResume} />}
                     {canCancel && <Button label="Cancel" disabled={busy} onClick={onCancel} />}
                     {canRerun && <Button label="Re-run" disabled={busy} onClick={onRerun} />}
-                    {held && <Button label="Dismiss" disabled={busy} onClick={onDismiss} />}
+                    {held && <Button label="Dismiss run" disabled={busy} onClick={onDismiss} />}
                 </>
             )}
         </div>
