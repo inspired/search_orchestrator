@@ -26,7 +26,7 @@ import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
-import { blankJob, initialState, nextStepId, reducer } from './reducer';
+import { blankJob, initialState, isDirty, nextStepId, reducer } from './reducer';
 import StepPanel, { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
 import { JobTemplate, templateByKey } from './templates';
@@ -82,7 +82,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
     const startTemplate = initialId ? null : templateByKey(template || null);
-    const [state, dispatch] = useReducer(reducer, startTemplate, (t: JobTemplate | null) => initialState(t ? t.build() : blankJob()));
+    const [state, dispatch] = useReducer(reducer, startTemplate, (t: JobTemplate | null) => initialState(t ? t.build() : blankJob(), blankJob()));
     const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startTemplate);
     const [activeTab, setActiveTab] = useState<TabId>('steps');
     const [checklistDismissed, setChecklistDismissed] = useState(false);
@@ -285,6 +285,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         try {
             const res = jobId ? await api.updateJob(jobId, job) : await api.createJob(job);
             auto.accept(job, res);
+            dispatch({ type: 'saved', job });
             setMeta({ owner: res.job.owner, canEdit: true });
             if (!jobId) {
                 setJobId(res.job.id);
@@ -304,6 +305,19 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             setBusy(false);
         }
     };
+
+    const dirty = isDirty(state);
+    useEffect(() => {
+        if (!dirty) {
+            return undefined;
+        }
+        const warn = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', warn);
+        return () => window.removeEventListener('beforeunload', warn);
+    }, [dirty]);
 
     const onSave = async () => {
         setNotice(null);

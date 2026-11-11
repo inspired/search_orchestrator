@@ -1,5 +1,6 @@
 /* The builder's state: the job being edited and undo/redo history. Where steps sit on the
  * canvas is not state: the canvas lays the graph out from the steps and edges. */
+import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
 import { wouldCycle } from './graphLogic';
 import { generatedInputSpl } from './previewLogic';
@@ -9,6 +10,8 @@ interface Snapshot {
 }
 
 export interface BuilderState extends Snapshot {
+    /** What the server has: the loaded job, or the blank job for one never saved. */
+    savedJob: JobDefinition;
     past: Snapshot[];
     future: Snapshot[];
     /** The field the last edit changed: typing into one field is a single undo step. */
@@ -19,6 +22,8 @@ export type BuilderAction =
     | { type: 'load'; job: JobDefinition }
     /** A template replaces the blank job as one undo step (load would clear history). */
     | { type: 'applyTemplate'; job: JobDefinition }
+    /** A save went through: `job` (the definition sent) is now what the server has. */
+    | { type: 'saved'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
     /** A From previous steps step reading `from`, added with its edge as one undo step. */
     | { type: 'addStepFrom'; from: string; id: string }
@@ -50,9 +55,16 @@ export function blankJob(): JobDefinition {
     };
 }
 
-export function initialState(job: JobDefinition): BuilderState {
-    const normal = { ...job, steps: job.steps || [], edges: job.edges || [] };
-    return { job: normal, past: [], future: [] };
+const normalised = (job: JobDefinition): JobDefinition => ({ ...job, steps: job.steps || [], edges: job.edges || [] });
+
+/** `savedJob` is what the server has; it is `job` unless the job is a template not yet saved. */
+export function initialState(job: JobDefinition, savedJob: JobDefinition = job): BuilderState {
+    return { job: normalised(job), savedJob: normalised(savedJob), past: [], future: [] };
+}
+
+/** Whether the job differs from what the server has. */
+export function isDirty(state: BuilderState): boolean {
+    return JSON.stringify(toDefinition(state.job)) !== JSON.stringify(toDefinition(state.savedJob));
 }
 
 /** The id addStep gives a new step: step_<n>, unused. */
@@ -70,7 +82,7 @@ function edits(state: BuilderState, job: JobDefinition, key?: string): BuilderSt
         return { ...state, job, future: [], lastKey: key };
     }
     const past = [...state.past, { job: state.job }].slice(-HISTORY);
-    return { job, past, future: [], lastKey: key };
+    return { ...state, job, past, future: [], lastKey: key };
 }
 
 const fieldKey = (...parts: string[]) => parts.join('\u0000');
@@ -152,6 +164,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return initialState(action.job);
         case 'applyTemplate':
             return edits(state, action.job);
+        case 'saved':
+            return { ...state, savedJob: normalised(action.job) };
         case 'addStep': {
             const id = action.step?.id || nextStepId(steps);
             const step: StepDef = { id, name: '', type: 'inline', spl: '', ...action.step };
@@ -241,14 +255,14 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (!prev) {
                 return state;
             }
-            return { ...prev, past: state.past.slice(0, -1), future: [{ job }, ...state.future], lastKey: undefined };
+            return { ...state, ...prev, past: state.past.slice(0, -1), future: [{ job }, ...state.future], lastKey: undefined };
         }
         case 'redo': {
             const next = state.future[0];
             if (!next) {
                 return state;
             }
-            return { ...next, past: [...state.past, { job }], future: state.future.slice(1), lastKey: undefined };
+            return { ...state, ...next, past: [...state.past, { job }], future: state.future.slice(1), lastKey: undefined };
         }
         default:
             return state;

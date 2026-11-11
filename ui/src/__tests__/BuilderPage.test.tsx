@@ -70,3 +70,30 @@ describe('BuilderPage templates', () => {
         expect(screen.queryByRole('heading', { name: 'Start a new job' })).toBeNull();
     });
 });
+
+describe('BuilderPage unsaved changes', () => {
+    const leave = () => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event;
+    };
+
+    it('does not stop a clean page from closing', async () => {
+        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        expect(leave().defaultPrevented).toBe(false);
+    });
+
+    it('asks before closing once the job is edited, and not after it is saved', async () => {
+        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });
+        expect(leave().defaultPrevented).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(screen.getByText('Saved.')).toBeInTheDocument());
+        expect(leave().defaultPrevented).toBe(false);
+    });
+
+    it('treats a template that was never saved as unsaved', async () => {
+        await show(<BuilderPage api={fakeApi()} template="rollup" />);
+        expect(leave().defaultPrevented).toBe(true);
+    });
+});

@@ -1,4 +1,4 @@
-import { initialState, reducer } from '../features/builder/reducer';
+import { blankJob, initialState, isDirty, reducer } from '../features/builder/reducer';
 import type { JobDefinition } from '../api/types';
 
 const job: JobDefinition = {
@@ -154,5 +154,45 @@ describe('applyTemplate', () => {
         expect(next.job).toBe(job);
         expect(next.past).toHaveLength(1);
         expect(reducer(next, { type: 'undo' }).job.steps).toEqual([]);
+    });
+});
+
+describe('unsaved changes', () => {
+    const loaded = () => reducer(initialState(blankJob()), { type: 'load', job });
+
+    test('a loaded job is clean', () => {
+        expect(isDirty(loaded())).toBe(false);
+    });
+
+    test('an edit makes it dirty and undoing back makes it clean again', () => {
+        let s = reducer(loaded(), { type: 'setJobField', field: 'name', value: 'Other' });
+        expect(isDirty(s)).toBe(true);
+        s = reducer(s, { type: 'undo' });
+        expect(isDirty(s)).toBe(false);
+        s = reducer(s, { type: 'redo' });
+        expect(isDirty(s)).toBe(true);
+    });
+
+    test('saved marks the current job clean and keeps the history', () => {
+        let s = reducer(loaded(), { type: 'setJobField', field: 'name', value: 'Other' });
+        s = reducer(s, { type: 'saved', job: s.job });
+        expect(isDirty(s)).toBe(false);
+        expect(s.past).toHaveLength(1);
+        expect(s.job.name).toBe('Other');
+    });
+
+    test('server-only fields do not count as a change', () => {
+        const s = reducer(loaded(), { type: 'saved', job: { ...job, owner: 'alice' } as JobDefinition });
+        expect(isDirty(s)).toBe(false);
+    });
+
+    test('a template applied to a new job is unsaved', () => {
+        const s = reducer(initialState(blankJob()), { type: 'applyTemplate', job });
+        expect(isDirty(s)).toBe(true);
+    });
+
+    test('a template preload is unsaved when the saved job is blank', () => {
+        expect(isDirty(initialState(job, blankJob()))).toBe(true);
+        expect(isDirty(initialState(job))).toBe(false);
     });
 });
