@@ -78,7 +78,7 @@ Both parts use one server-side projection over a time window `[from, to)`. Cron 
 - A vertical "now" line in `contentColorActive` (or the closest theme token) across all rows.
 - Hovering a bar shows a tooltip with the job, run state, start, end or estimated duration, and "estimated" for future bars. Clicking a past or running bar opens its run page. Future bars don't link.
 
-**Load row.** A fixed row above the job rows, labelled "Searches at once". It is drawn as a step shape in the track using the load series, in the same 18 px row style or a little taller (up to 36 px) so it can be read **(builder call)**. A thin line marks `max_searches`, and any part above it uses `statusColorMedium`. Hovering shows the count at that moment.
+**Load row.** A fixed row above the job rows, labelled "Concurrent searches". It is drawn as a step shape in the track using the load series, in the same 18 px row style or a little taller (up to 36 px) so it can be read **(builder call)**. A thin line marks `max_searches`, and any part above it uses `statusColorMedium`. Hovering shows the count at that moment.
 
 **Rows.** One row per visible job that has a run or a projected run in the window, sorted by name **(builder call)**. The rows render in a plain scrolling list. Virtualise only if a live check with hundreds of jobs shows it's needed. A dependent job sits directly under its upstream job, indented with "↳". A job with several upstreams sits under the first one in name order. Jobs with nothing in the window are hidden, and a one-line note counts them. Bars that overlap in one row (a run started before the previous one ended) stack in the same track: later bars draw on top, and their outline keeps them distinguishable.
 

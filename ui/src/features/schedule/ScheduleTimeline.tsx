@@ -1,4 +1,4 @@
-/* The global timeline: a "Searches at once" row, then one row per job with its past,
+/* The global timeline: a "Concurrent searches" row, then one row per job with its past,
  * running and scheduled runs on a shared axis. Rows use the run page Timeline's layout:
  * label, track, and a right-hand column. */
 import React from 'react';
@@ -128,7 +128,7 @@ export default function ScheduleTimeline({ data, from, to, now, q = '', state }:
                     borderBottom: `1px solid ${theme.borderColor}`,
                 }}
             >
-                <span style={{ fontWeight: theme.fontWeightSemiBold as React.CSSProperties['fontWeight'] }}>Searches at once</span>
+                <span style={{ fontWeight: theme.fontWeightSemiBold as React.CSSProperties['fontWeight'] }}>Concurrent searches</span>
                 <LoadRow load={data.load} from={from} to={to} max={data.max_searches} now={now} />
                 <span style={{ color: theme.contentColorMuted }}>{`Limit ${data.max_searches}`}</span>
             </div>
@@ -168,11 +168,6 @@ export default function ScheduleTimeline({ data, from, to, now, q = '', state }:
                 })}
             </div>
             {rows.length === 0 && <p style={{ padding: '0 14px' }}>{term ? 'No jobs match this name.' : 'Nothing ran or is scheduled in this window.'}</p>}
-            {data.idle_jobs > 0 && !term && (
-                <p style={{ padding: '0 14px', color: theme.contentColorMuted }}>
-                    {`${data.idle_jobs} job${data.idle_jobs === 1 ? ' has' : 's have'} nothing in this window.`}
-                </p>
-            )}
             {data.partial && (
                 <p style={{ padding: '0 14px', color: theme.contentColorMuted }}>Only the newest runs in this window are shown.</p>
             )}

@@ -74,7 +74,7 @@ describe('ScheduleTimeline', () => {
         expect(bars[1].style.border).toContain('dashed');
         expect(screen.getByText('Daily summary').closest('a')).toHaveAttribute('href', 'builder?job_id=daily');
         expect(screen.getByText('Hidden job 1').closest('a')).toBeNull();
-        expect(screen.getByText('4 jobs have nothing in this window.')).toBeInTheDocument();
+        expect(screen.queryByText(/nothing in this window/)).toBeNull();
     });
 
     test('load row marks the part above the limit', () => {

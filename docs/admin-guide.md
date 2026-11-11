@@ -91,8 +91,8 @@ Only users with `orchestrator_admin` see it.
 
 | Setting | Default | Limits |
 |---|---|---|
-| Searches at once (all jobs) | 10 | 1 to 100 |
-| Searches at once per job | 4 | 1 to 50 |
+| Concurrent searches (all jobs) | 10 | 1 to 100 |
+| Concurrent searches per job | 4 | 1 to 50 |
 | Queue cap per job | 20 | 1 to 1000 |
 | Keep step results after a run | 24 hours | 1 to 168 hours (7 days) |
 | Keep run records | 90 days | 1 to 3650 days |

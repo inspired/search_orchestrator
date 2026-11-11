@@ -1,4 +1,4 @@
-/* "Searches at once": the load series as a step shape in a timeline track, with a line at
+/* "Concurrent searches": the load series as a step shape in a timeline track, with a line at
  * the max_searches limit and the part above it in the warning colour. Shared by the
  * Runs page timeline and the builder's busy-times strip. */
 import React from 'react';
@@ -26,7 +26,7 @@ export default function LoadRow({ load, from, to, max, now, height = 36, overlay
     return (
         <div
             role="img"
-            aria-label={`Up to ${peak} search${peak === 1 ? '' : 'es'} at once; the limit is ${max}.`}
+            aria-label={`Up to ${peak} concurrent search${peak === 1 ? '' : 'es'}; the limit is ${max}.`}
             data-testid="load-row"
             style={{
                 position: 'relative',
@@ -41,7 +41,7 @@ export default function LoadRow({ load, from, to, max, now, height = 36, overlay
                     key={`${s.leftPct}-${s.count}`}
                     data-testid="load-segment"
                     data-over={s.over ? 'true' : 'false'}
-                    title={`${s.count} search${s.count === 1 ? '' : 'es'} at once`}
+                    title={`${s.count} concurrent search${s.count === 1 ? '' : 'es'}`}
                     style={{
                         position: 'absolute',
                         bottom: 0,
@@ -56,7 +56,7 @@ export default function LoadRow({ load, from, to, max, now, height = 36, overlay
             {max > 0 && (
                 <div
                     data-testid="load-limit"
-                    title={`Limit: ${max} searches at once`}
+                    title={`Limit: ${max} concurrent searches`}
                     style={{
                         position: 'absolute',
                         left: 0,
