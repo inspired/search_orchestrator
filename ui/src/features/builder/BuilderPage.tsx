@@ -195,6 +195,17 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         return { scheduledTime, params, source };
     }, [scheduledTime, paramValues, source]);
     const previews = usePreviews(previewJob, previewCtx, api);
+    // Result fields of each step's current preview, for the first-row tokens.
+    const previewFields = useMemo(() => {
+        const out: Record<string, string[]> = {};
+        Object.keys(previews.previews).forEach((id) => {
+            const p = previews.previews[id];
+            if (p && !p.stale && p.results) {
+                out[id] = p.results.fields;
+            }
+        });
+        return out;
+    }, [previews.previews]);
     const notes = useMemo(() => {
         const out: Record<string, ReturnType<typeof previewNote>> = {};
         Object.keys(previews.previews).forEach((id) => {
@@ -368,6 +379,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                             : undefined
                     }
                     onCancelPreview={previews.cancel}
+                    previewFields={previewFields}
                 />
             );
         }
@@ -380,6 +392,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     issues={(byStep[selectedEdge.to] || []).filter((i) => i.code === 'bad_expression' || i.code === 'unknown_token')}
                     dispatch={dispatch}
                     onRemoved={() => setSelected(null)}
+                    previewFields={previewFields}
                 />
             );
         }
@@ -514,6 +527,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         alertActions={alertActions}
                         steps={stepsTab}
                         nextSlots={api.nextSlots}
+                        previewFields={previewFields}
                     />
                 </>
             )}

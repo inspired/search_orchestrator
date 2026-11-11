@@ -186,4 +186,23 @@ describe('AccessTab', () => {
         expect(screen.getByText(/alice/)).toBeInTheDocument();
         expect(screen.getByRole('combobox', { name: 'Who may run' })).toBeInTheDocument();
     });
+
+    test('insert value puts a token in the search: at the end when never focused, over a selection, at the caret', async () => {
+        const state = renderPanel(rollupJob(), 'monthly');
+        const spl = () => screen.getByLabelText('Search') as HTMLTextAreaElement;
+        const insert = async (group: number) => {
+            fireEvent.click(screen.getAllByRole('button', { name: 'Insert value' })[0]);
+            const items = await screen.findAllByRole('menuitem', { name: /Result count/ });
+            fireEvent.click(items[group]);
+        };
+        await insert(0);
+        expect(state().job.steps.find((s) => s.id === 'monthly')?.spl).toBe('| loadjob $weekly.sid$$daily.resultCount$');
+        await waitFor(() => expect(document.activeElement).toBe(spl()));
+        expect(spl().selectionStart).toBe(spl().value.length);
+        // a selection is replaced
+        spl().setSelectionRange(0, spl().value.length);
+        fireEvent.select(spl());
+        await insert(1);
+        expect(state().job.steps.find((s) => s.id === 'monthly')?.spl).toBe('$weekly.resultCount$');
+    });
 });

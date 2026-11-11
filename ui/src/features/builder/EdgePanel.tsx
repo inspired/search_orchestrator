@@ -5,11 +5,12 @@ import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
-import Text from '@splunk/react-ui/Text';
 import type { Edge, Issue, JobDefinition } from '../../api/types';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
+import { TokenInput } from './InsertToken';
 import { IssueList } from './StepPanel';
+import { availableTokens } from './tokens';
 
 export interface EdgePanelProps {
     job: JobDefinition;
@@ -19,9 +20,11 @@ export interface EdgePanelProps {
     issues: Issue[];
     dispatch: (action: BuilderAction) => void;
     onRemoved?: () => void;
+    /** Field names of each step's current preview, for the first-row tokens. */
+    previewFields?: Record<string, string[]>;
 }
 
-export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved }: EdgePanelProps) {
+export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, previewFields = {} }: EdgePanelProps) {
     const edge = (job.edges || []).find((e) => e.from === from && e.to === to);
     if (!edge) {
         return null;
@@ -54,11 +57,12 @@ export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved }
             </ControlGroup>
             {condition === 'expression' && (
                 <ControlGroup label="Expression" labelFor="edge-expression" labelPosition="top" help={`Checked when ${name(from)} finishes.`}>
-                    <Text
+                    <TokenInput
                         inputId="edge-expression"
                         value={edge.expression || ''}
                         placeholder={`$${from}.resultCount$ > 0`}
-                        onChange={(_e: unknown, { value }: { value: string }) => set({ expression: value })}
+                        groups={availableTokens(job, to, previewFields)}
+                        onValue={(expression) => set({ expression })}
                     />
                 </ControlGroup>
             )}

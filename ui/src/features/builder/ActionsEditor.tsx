@@ -7,6 +7,8 @@ import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
+import { TokenInput } from './InsertToken';
+import type { TokenGroup } from './tokens';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
 
@@ -143,6 +145,8 @@ export interface ActionsEditorProps {
     alertActions?: AlertAction[] | null;
     /** Prefix for input ids, unique per editor on the page. */
     idPrefix: string;
+    /** Values the message fields can insert. Without them the fields are plain. */
+    tokenGroups?: TokenGroup[];
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -156,18 +160,27 @@ export function alertActionOptions(alertActions: AlertAction[], current: string)
     return options;
 }
 
-export default function ActionsEditor({ actions, onChange, destinations, alertActions = null, idPrefix }: ActionsEditorProps) {
+export default function ActionsEditor({ actions, onChange, destinations, alertActions = null, idPrefix, tokenGroups }: ActionsEditorProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const update = (i: number, next: Action) => onChange(actions.map((a, j) => (j === i ? next : a)));
     const remove = (i: number) => onChange(actions.filter((_a, j) => j !== i));
     const add = () => onChange([...actions, { hook: 'on_failure', type: 'email', to: '' }]);
 
-    const field = (i: number, a: Action, key: string, label: string, opts: { placeholder?: string; multiline?: boolean; help?: string } = {}) => {
+    const field = (i: number, a: Action, key: string, label: string, opts: { placeholder?: string; multiline?: boolean; help?: string; tokens?: boolean } = {}) => {
         const id = `${idPrefix}-${i}-${key}`;
         const onValue = (_e: unknown, { value }: { value: string }) => update(i, { ...a, [key]: value });
         return (
             <ControlGroup label={label} labelFor={id} labelPosition="top" help={opts.help || (opts.multiline ? opts.placeholder : undefined)}>
-                {opts.multiline ? (
+                {tokenGroups && opts.tokens ? (
+                    <TokenInput
+                        inputId={id}
+                        multiline={opts.multiline}
+                        value={str(a[key])}
+                        placeholder={opts.placeholder}
+                        groups={tokenGroups}
+                        onValue={(value) => update(i, { ...a, [key]: value })}
+                    />
+                ) : opts.multiline ? (
                     <TextArea inputId={id} value={str(a[key])} onChange={onValue} />
                 ) : (
                     <Text inputId={id} value={str(a[key])} placeholder={opts.placeholder} onChange={onValue} />
@@ -219,8 +232,8 @@ export default function ActionsEditor({ actions, onChange, destinations, alertAc
                         {a.type === 'email' && (
                             <>
                                 {field(i, a, 'to', 'To', { placeholder: 'ops@example.com' })}
-                                {field(i, a, 'subject', 'Subject', { placeholder: '{{job}}: {{hook}}' })}
-                                {field(i, a, 'message', 'Message', { placeholder: 'Empty sends the default message.', multiline: true })}
+                                {field(i, a, 'subject', 'Subject', { placeholder: '{{job}}: {{hook}}', tokens: true })}
+                                {field(i, a, 'message', 'Message', { placeholder: 'Empty sends the default message.', multiline: true, tokens: true })}
                             </>
                         )}
                         {a.type === 'webhook' && (
@@ -261,7 +274,7 @@ export default function ActionsEditor({ actions, onChange, destinations, alertAc
                         {a.type === 'event' && (
                             <>
                                 {field(i, a, 'index', 'Index', { placeholder: 'main' })}
-                                {field(i, a, 'payload', 'Event', { placeholder: 'Empty writes a JSON summary of the run.', multiline: true })}
+                                {field(i, a, 'payload', 'Event', { placeholder: 'Empty writes a JSON summary of the run.', multiline: true, tokens: true })}
                             </>
                         )}
                         {a.type === 'start_job' && field(i, a, 'job', 'Job id', { help: 'The job to start. You need permission to run it.' })}

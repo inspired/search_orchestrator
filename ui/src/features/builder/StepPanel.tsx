@@ -9,7 +9,6 @@ import Multiselect from '@splunk/react-ui/Multiselect';
 import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
-import TextArea from '@splunk/react-ui/TextArea';
 import Heading from '@splunk/react-ui/Heading';
 import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
@@ -18,6 +17,8 @@ import { DURATION_UNITS, DurationUnit, formatDuration, splitDuration, toSeconds 
 import type { BuilderApi } from './BuilderPage';
 import TimeRangeField from './TimeRangeField';
 import ActionsEditor from './ActionsEditor';
+import { TokenInput } from './InsertToken';
+import { availableTokens } from './tokens';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
 import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
@@ -154,6 +155,8 @@ export interface StepPanelProps {
     /** The preview's "as if scheduled at" time, epoch seconds. */
     scheduledTime: number;
     resolveTimeRange: BuilderApi['resolveTimeRange'];
+    /** Field names of each step's current preview, for the first-row tokens. */
+    previewFields?: Record<string, string[]>;
 }
 
 export default function StepPanel({
@@ -170,6 +173,7 @@ export default function StepPanel({
     preview,
     scheduledTime,
     resolveTimeRange,
+    previewFields = {},
 }: StepPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
@@ -180,6 +184,7 @@ export default function StepPanel({
         return null;
     }
     const p = `step-${stepId}`;
+    const tokenGroups = availableTokens(job, stepId, previewFields);
     const set = (changes: Partial<StepDef>) => dispatch({ type: 'updateStep', id: stepId, changes });
     const onValue = (key: keyof StepDef) => (_e: unknown, { value }: { value: string }) => set({ [key]: value });
 
@@ -289,12 +294,26 @@ export default function StepPanel({
                         labelPosition="top"
                         help="Starts with |. Results of the steps before this one come first."
                     >
-                        <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
+                        <TokenInput
+                        inputId={`${p}-spl`}
+                        multiline
+                        value={step.spl || ''}
+                        rowsMin={4}
+                        groups={tokenGroups}
+                        onValue={(spl) => set({ spl })}
+                    />
                     </ControlGroup>
                 </>
             ) : (
                 <ControlGroup label="Search" labelFor={`${p}-spl`} labelPosition="top">
-                    <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
+                    <TokenInput
+                        inputId={`${p}-spl`}
+                        multiline
+                        value={step.spl || ''}
+                        rowsMin={4}
+                        groups={tokenGroups}
+                        onValue={(spl) => set({ spl })}
+                    />
                 </ControlGroup>
             )}
             {onPreview && (
@@ -399,6 +418,7 @@ export default function StepPanel({
                 actions={step.actions || []}
                 destinations={destinations}
                 alertActions={alertActions}
+                tokenGroups={tokenGroups}
                 onChange={(actions) => set({ actions })}
             />
             {onRequestRemove && (

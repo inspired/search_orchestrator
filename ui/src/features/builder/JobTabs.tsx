@@ -12,6 +12,7 @@ import TextArea from '@splunk/react-ui/TextArea';
 import type { AlertAction, Defaults, Destination, Job, JobDefinition } from '../../api/types';
 import AccessTab from './AccessTab';
 import ActionsEditor from './ActionsEditor';
+import { availableTokens } from './tokens';
 import ParamsTab from './ParamsTab';
 import type { BuilderAction } from './reducer';
 import { BUILTIN_DEFAULTS } from './previewLogic';
@@ -30,6 +31,8 @@ export interface JobTabsProps {
     /** The Steps tab: canvas and side panel. */
     steps: React.ReactNode;
     nextSlots?: NextSlots;
+    /** Field names of each step's current preview, for the first-row tokens. */
+    previewFields?: Record<string, string[]>;
 }
 
 function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
@@ -120,7 +123,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots }: JobTabsProps) {
+export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots, previewFields = {} }: JobTabsProps) {
     const [tab, setTab] = useState('steps');
     return (
         <div>
@@ -146,6 +149,7 @@ export default function JobTabs({ job, dispatch, owner, roles, jobs, destination
                             actions={job.actions || []}
                             destinations={destinations}
                             alertActions={alertActions}
+                            tokenGroups={availableTokens(job, null, previewFields)}
                             onChange={(value) => dispatch({ type: 'setJobField', field: 'actions', value })}
                         />
                     </div>
