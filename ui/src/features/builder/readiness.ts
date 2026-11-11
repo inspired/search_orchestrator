@@ -1,5 +1,5 @@
 /* What a job still needs before it is ready, for the setup checklist. */
-import type { Issue, JobDefinition } from '../../api/types';
+import type { JobDefinition } from '../../api/types';
 import type { TabId } from './JobTabs';
 
 export interface ChecklistItem {
@@ -10,18 +10,14 @@ export interface ChecklistItem {
     tab: TabId;
 }
 
-/** `checked`: the server issues come from a check of this very job; before that, a missing
- * `no_failure_notification` only means nobody has asked. */
-export function readiness(job: JobDefinition, issues: Issue[], checked: boolean): ChecklistItem[] {
+export function readiness(job: JobDefinition): ChecklistItem[] {
     const steps = job.steps || [];
     const searchesDone =
         steps.length > 0 &&
         steps.every((s) => (s.type === 'saved_search' ? Boolean((s.saved_search_ref || '').trim()) : Boolean((s.spl || '').trim())));
     const scheduled = (job.triggers || []).some((t) => t.type === 'cron' || t.type === 'completion');
-    const failureAction = [...(job.actions || []), ...steps.flatMap((s) => s.actions || [])].some(
-        (a) => a.hook === 'on_failure' || a.hook === 'on_complete'
-    );
-    const notified = failureAction || (checked && !issues.some((i) => i.code === 'no_failure_notification'));
+    // The server warns unless the job itself has an on_failure action.
+    const notified = (job.actions || []).some((a) => a.hook === 'on_failure');
     return [
         { key: 'name', label: 'Give the job a name', done: Boolean((job.name || '').trim()), optional: false, tab: 'steps' },
         { key: 'steps', label: 'Add a step', done: steps.length > 0, optional: false, tab: 'steps' },
@@ -33,6 +29,12 @@ export function readiness(job: JobDefinition, issues: Issue[], checked: boolean)
             optional: true,
             tab: 'triggers',
         },
-        { key: 'notify', label: 'Choose who hears about failures', done: notified, optional: true, tab: 'actions' },
+        {
+            key: 'notify',
+            label: "Choose who hears about failures (optional; otherwise the admin's fallback notification is used)",
+            done: notified,
+            optional: true,
+            tab: 'actions',
+        },
     ];
 }

@@ -23,11 +23,13 @@ const TAB_LABELS: Record<TabId, string> = {
 export interface SetupChecklistProps {
     items: ChecklistItem[];
     onTabChange: (tab: TabId) => void;
+    onHide?: () => void;
 }
 
-export default function SetupChecklist({ items, onTabChange }: SetupChecklistProps) {
+export default function SetupChecklist({ items, onTabChange, onHide }: SetupChecklistProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const count = items.filter((i) => i.done).length;
+    const requiredDone = items.every((i) => i.optional || i.done);
     return (
         <section aria-labelledby="setup-checklist-title" style={{ margin: '8px 0 16px' }}>
             <Typography as="h2" variant="title4" id="setup-checklist-title">
@@ -52,6 +54,7 @@ export default function SetupChecklist({ items, onTabChange }: SetupChecklistPro
                     );
                 })}
             </List>
+            {onHide && requiredDone && <Button appearance="subtle" label="Hide checklist" onClick={onHide} />}
         </section>
     );
 }

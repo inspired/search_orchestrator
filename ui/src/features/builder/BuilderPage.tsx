@@ -224,15 +224,14 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         const local = findIssues(job).filter((i) => !server.some((s) => sameIssue(s, i)));
         return [...server, ...local];
     }, [job, serverIssues, checkedJob]);
-    const issuesChecked = checkedJob === job;
-    const checklist = useMemo(() => readiness(job, issues, issuesChecked), [job, issues, issuesChecked]);
+    const checklist = useMemo(() => readiness(job), [job]);
     const allReady = checklist.every((i) => i.done);
     // Once everything is done the checklist stays away until the page reloads.
     useEffect(() => {
-        if (allReady && issuesChecked && !loading && !choosingTemplate) {
+        if (allReady && !loading && !choosingTemplate) {
             setChecklistDismissed(true);
         }
-    }, [allReady, issuesChecked, loading, choosingTemplate]);
+    }, [allReady, loading, choosingTemplate]);
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
 
@@ -530,7 +529,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                             onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'name', value })}
                         />
                     </ControlGroup>
-                    {!checklistDismissed && !allReady && <SetupChecklist items={checklist} onTabChange={setActiveTab} />}
+                    {!checklistDismissed && !allReady && <SetupChecklist items={checklist} onTabChange={setActiveTab} onHide={() => setChecklistDismissed(true)} />}
                     <JobTabs
                         activeTab={activeTab}
                         onTabChange={setActiveTab}
