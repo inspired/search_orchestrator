@@ -1,6 +1,7 @@
 /* A step's time range: a preset, all time or custom Earliest/Latest, with a readout of the
- * window a run scheduled at the preview time would search. */
+ * resolved a run scheduled at the preview time would search. */
 import React, { useEffect, useState } from 'react';
+import ColumnLayout from '@splunk/react-ui/ColumnLayout';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Select from '@splunk/react-ui/Select';
@@ -25,16 +26,18 @@ const DEBOUNCE_MS = 400;
 export default function TimeRangeField({ idPrefix, earliest, latest, scheduledTime, timezone, resolve, onChange }: TimeRangeFieldProps) {
     const e = earliest || '';
     const l = latest || '';
-    const derived = timeRangeChoice(e, l);
-    // "Custom" with both fields still empty would read as All time, so remember the pick.
-    const [forceCustom, setForceCustom] = useState(false);
-    const choice = forceCustom && derived === 'all_time' ? 'custom' : derived;
-    const [window, setWindow] = useState<{ earliest: number | null; latest: number } | null>(null);
+    // Once the user picks Custom it stays until they pick another option, whatever they type;
+    // otherwise the choice follows the values (so a stored preset shows as that preset).
+    const [pickedCustom, setPickedCustom] = useState(() => timeRangeChoice(e, l) === 'custom');
+    const choice = pickedCustom ? 'custom' : timeRangeChoice(e, l);
+    const [resolved, setResolved] = useState<{ earliest: number | null; latest: number } | null>(null);
     const [error, setError] = useState<{ field: string; message: string } | null>(null);
+    const [unavailable, setUnavailable] = useState<string | null>(null);
 
     useEffect(() => {
         setError(null);
-        setWindow(null);
+        setUnavailable(null);
+        setResolved(null);
         if (!e.trim() && !l.trim()) {
             return undefined;
         }
@@ -43,12 +46,17 @@ export default function TimeRangeField({ idPrefix, earliest, latest, scheduledTi
             resolve(e, l, scheduledTime).then(
                 (r) => {
                     if (!stale) {
-                        setWindow(r);
+                        setResolved(r);
                     }
                 },
                 (err: { code?: string; message?: string; extra?: { field?: string } }) => {
-                    if (!stale && err && err.code === 'bad_time') {
+                    if (stale) {
+                        return;
+                    }
+                    if (err && err.code === 'bad_time') {
                         setError({ field: err.extra?.field || 'latest', message: err.message || 'This time is not valid.' });
+                    } else {
+                        setUnavailable((err && err.message) || 'the request failed');
                     }
                 }
             );
@@ -62,10 +70,10 @@ export default function TimeRangeField({ idPrefix, earliest, latest, scheduledTi
     const onSelect = (_ev: unknown, { value }: { value: unknown }) => {
         const key = String(value);
         if (key === 'custom') {
-            setForceCustom(true);
+            setPickedCustom(true);
             return;
         }
-        setForceCustom(false);
+        setPickedCustom(false);
         if (key === 'all_time') {
             onChange('', '');
             return;
@@ -78,8 +86,8 @@ export default function TimeRangeField({ idPrefix, earliest, latest, scheduledTi
 
     const fieldError = (field: string) => (error && error.field === field ? error.message : undefined);
     const readout =
-        window && window.earliest !== null
-            ? `For a run scheduled ${formatMoment(scheduledTime, timezone)}, this searches ${formatMoment(window.earliest, timezone)} to ${formatMoment(window.latest, timezone)}`
+        resolved && resolved.earliest !== null
+            ? `For a run scheduled ${formatMoment(scheduledTime, timezone)}, this searches ${formatMoment(resolved.earliest, timezone)} to ${formatMoment(resolved.latest, timezone)}`
             : null;
 
     return (
@@ -94,16 +102,23 @@ export default function TimeRangeField({ idPrefix, earliest, latest, scheduledTi
                 </Select>
             </ControlGroup>
             {choice === 'custom' && (
-                <>
-                    <ControlGroup label="Earliest" labelFor={`${idPrefix}-earliest`} labelPosition="top" error={fieldError('earliest')} help="Splunk relative time, e.g. -1d@d.">
-                        <Text inputId={`${idPrefix}-earliest`} value={e} error={!!fieldError('earliest')} onChange={(_ev: unknown, { value }: { value: string }) => onChange(value, l)} />
-                    </ControlGroup>
-                    <ControlGroup label="Latest" labelFor={`${idPrefix}-latest`} labelPosition="top" error={fieldError('latest')} help="e.g. @d, or now.">
-                        <Text inputId={`${idPrefix}-latest`} value={l} error={!!fieldError('latest')} onChange={(_ev: unknown, { value }: { value: string }) => onChange(e, value)} />
-                    </ControlGroup>
-                </>
+                <ColumnLayout gutter={12}>
+                    <ColumnLayout.Row>
+                        <ColumnLayout.Column>
+                            <ControlGroup label="Earliest" labelFor={`${idPrefix}-earliest`} labelPosition="top" error={fieldError('earliest')} help="Splunk relative time, e.g. -1d@d.">
+                                <Text inputId={`${idPrefix}-earliest`} value={e} error={!!fieldError('earliest')} onChange={(_ev: unknown, { value }: { value: string }) => onChange(value, l)} />
+                            </ControlGroup>
+                        </ColumnLayout.Column>
+                        <ColumnLayout.Column>
+                            <ControlGroup label="Latest" labelFor={`${idPrefix}-latest`} labelPosition="top" error={fieldError('latest')} help="e.g. @d, or now.">
+                                <Text inputId={`${idPrefix}-latest`} value={l} error={!!fieldError('latest')} onChange={(_ev: unknown, { value }: { value: string }) => onChange(e, value)} />
+                            </ControlGroup>
+                        </ColumnLayout.Column>
+                    </ColumnLayout.Row>
+                </ColumnLayout>
             )}
             {choice === 'all_time' && <Message type="warning">Searches all time. Pick a range unless the search sets its own.</Message>}
+            {unavailable && <Message type="warning">{`Can't show the window right now: ${unavailable}.`}</Message>}
             {readout && <Typography as="p" variant="body">{readout}</Typography>}
             {/* TODO(Task 13): add a "Learn more about time ranges" Link to the Help page. */}
         </div>

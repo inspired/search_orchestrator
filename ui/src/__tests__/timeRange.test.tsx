@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import TimeRangeField from '../features/builder/TimeRangeField';
 import { TIME_RANGE_PRESETS, timeRangeChoice } from '../features/builder/timeRange';
 import { ApiError } from '../api/client';
@@ -68,10 +68,52 @@ describe('TimeRangeField', () => {
         expect(screen.getByLabelText('Latest')).toHaveValue('@d');
     });
 
-    test('a bad_time reply marks the named field', async () => {
-        const resolve = jest.fn().mockRejectedValue(new ApiError(400, 'bad_time', 'Invalid latest time.', [], { field: 'latest' }));
+    test.each([
+        ['earliest', 'latest'],
+        ['latest', 'earliest'],
+    ])('a bad_time reply on %s marks that field only', async (field, other) => {
+        const msg = `Invalid ${field} time.`;
+        const resolve = jest.fn().mockRejectedValue(new ApiError(400, 'bad_time', msg, [], { field }));
         renderThemed(<TimeRangeField {...base} earliest="-2d@d" latest="zzz" resolve={resolve} onChange={jest.fn()} />);
         await flush();
-        expect(screen.getByText('Invalid latest time.')).toBeInTheDocument();
+        const input = screen.getByLabelText(field === 'earliest' ? 'Earliest' : 'Latest');
+        const otherInput = screen.getByLabelText(other === 'earliest' ? 'Earliest' : 'Latest');
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+        expect(otherInput).not.toHaveAttribute('aria-invalid', 'true');
+        const group = input.closest('[data-test="control-group"]') as HTMLElement;
+        expect(within(group).getByText(msg)).toBeInTheDocument();
+        const otherGroup = otherInput.closest('[data-test="control-group"]') as HTMLElement;
+        expect(within(otherGroup).queryByText(msg)).not.toBeInTheDocument();
+    });
+
+    test('a bad_time reply without a field marks Latest', async () => {
+        const resolve = jest.fn().mockRejectedValue(new ApiError(400, 'bad_time', 'Bad time.', []));
+        renderThemed(<TimeRangeField {...base} earliest="-2d@d" latest="zzz" resolve={resolve} onChange={jest.fn()} />);
+        await flush();
+        expect(screen.getByLabelText('Latest')).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.getByLabelText('Earliest')).not.toHaveAttribute('aria-invalid', 'true');
+    });
+
+    test('another resolve failure says the window is unavailable', async () => {
+        const resolve = jest.fn().mockRejectedValue(new ApiError(502, 'splunk_error', 'Splunk is down'));
+        renderThemed(<TimeRangeField {...base} earliest="-1d@d" latest="@d" resolve={resolve} onChange={jest.fn()} />);
+        await flush();
+        expect(screen.getByText("Can't show the window right now: Splunk is down.")).toBeInTheDocument();
+    });
+
+    test('Custom stays Custom while typing values that match a preset', async () => {
+        function Stateful() {
+            const [r, setR] = React.useState({ e: '-2d@d', l: '@d' });
+            return <TimeRangeField {...base} earliest={r.e} latest={r.l} resolve={jest.fn().mockResolvedValue({ earliest: 1, latest: 2 })} onChange={(e, l) => setR({ e, l })} />;
+        }
+        renderThemed(<Stateful />);
+        fireEvent.change(screen.getByLabelText('Earliest'), { target: { value: '-1d@d' } });
+        expect(screen.getByLabelText('Earliest')).toHaveValue('-1d@d');
+        expect(screen.getByLabelText('Latest')).toHaveValue('@d');
+    });
+
+    test('a stored preset shows as that preset, not Custom', () => {
+        renderThemed(<TimeRangeField {...base} earliest="-1d@d" latest="@d" resolve={jest.fn().mockResolvedValue({ earliest: 1, latest: 2 })} onChange={jest.fn()} />);
+        expect(screen.queryByLabelText('Earliest')).not.toBeInTheDocument();
     });
 });
