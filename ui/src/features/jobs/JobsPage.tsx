@@ -1,4 +1,4 @@
-/* Jobs: every job the user may see, with Run now, enable/disable, Delete and New job. */
+/* Jobs: every job the user may see, with Run now, enable/disable, Delete and Create job. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
@@ -68,7 +68,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
 
     const actions =
         me && me.can_build ? (
-            <Button appearance="primary" label="New job" to={pageHref('builder')} />
+            <Button appearance="primary" label="Create job" to={pageHref('builder')} />
         ) : undefined;
 
     return (

@@ -6,6 +6,7 @@ import RunNowDialog from '../features/jobs/RunNowDialog';
 import { ApiError } from '../api/client';
 import { formatTime } from '../format';
 import { NOW, job, me, renderThemed } from './fixtures';
+import { rollupJob } from './builderFixtures';
 
 describe('JobsTable', () => {
     test('a job warning (an old time range on a From previous steps step) shows under its name', () => {
@@ -215,4 +216,54 @@ describe('Enable switch', () => {
         expect(screen.queryByText(/take ownership/)).toBeNull();
         await waitFor(() => expect(api.listJobs).toHaveBeenCalledTimes(2));
     });
+});
+
+describe('JobsTable summary, search and empty state', () => {
+    test('shows a summary line under each name', () => {
+        renderThemed(<JobsTable jobs={[rollupJob()]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('Every day at 01:00 · 3 steps')).toBeInTheDocument();
+    });
+
+    test('the Find jobs search filters rows and reports no matches', () => {
+        renderThemed(<JobsTable jobs={[job(), job({ id: 'w', name: 'Weekly rollup' })]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const box = screen.getByRole('searchbox', { name: 'Find jobs' });
+        fireEvent.change(box, { target: { value: 'weekly' } });
+        expect(screen.queryByText('Daily summary')).toBeNull();
+        expect(screen.getByText('Weekly rollup')).toBeInTheDocument();
+        fireEvent.change(box, { target: { value: 'zzz' } });
+        expect(screen.getByText('No jobs match "zzz".')).toBeInTheDocument();
+    });
+
+    test('no search when there are no jobs; builders see templates', () => {
+        renderThemed(<JobsTable jobs={[]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.queryByRole('searchbox')).toBeNull();
+        expect(screen.getByText('Build your first job')).toBeInTheDocument();
+        const link = screen.getByRole('link', { name: /Blank job/ });
+        expect(link.getAttribute('href')).toContain('template=blank');
+        expect(screen.queryByText(/selftest/)).toBeNull();
+    });
+
+    test('admins get the install check', () => {
+        renderThemed(<JobsTable jobs={[]} me={{ ...me, can_admin: true }} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText(/Check the install first: run/)).toBeInTheDocument();
+        const l = screen.getByRole('link', { name: '| orchestrate selftest' });
+        expect(l.getAttribute('href')).toBe('/app/search/search?q=%7C%20orchestrate%20selftest');
+    });
+
+    test('without can_build the empty state asks for access', () => {
+        renderThemed(<JobsTable jobs={[]} me={{ ...me, can_build: false }} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('No jobs you can run yet. Ask a job owner to add one of your roles under Access.')).toBeInTheDocument();
+        expect(screen.queryByText('Build your first job')).toBeNull();
+    });
+});
+
+test('the Jobs page primary button is Create job', async () => {
+    const api = {
+        me: jest.fn().mockResolvedValue(me),
+        listJobs: jest.fn().mockResolvedValue([job()]),
+        setJobEnabled: jest.fn(),
+        deleteJob: jest.fn(),
+    } as unknown as JobsApi;
+    renderThemed(<JobsPage api={api} />);
+    expect(await screen.findByRole('link', { name: 'Create job' })).toBeInTheDocument();
 });

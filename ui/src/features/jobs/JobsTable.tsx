@@ -1,14 +1,19 @@
 /* The Jobs table: name, owner, next run, last run outcome, enabled switch, Run now and
  * Delete (only for users who may edit the job). */
-import React from 'react';
+import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
+import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
+import Search from '@splunk/react-ui/Search';
 import Switch from '@splunk/react-ui/Switch';
 import Table from '@splunk/react-ui/Table';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Job, Me } from '../../api/types';
 import StatusText, { isRunDelayed, srOnly } from '../../components/StatusText';
 import { pageHref } from '../../components/PageShell';
 import { formatTime } from '../../format';
+import JobsEmpty from './JobsEmpty';
+import { filterJobs, jobSummary } from './jobSummary';
 
 export interface JobsTableProps {
     jobs: Job[];
@@ -33,10 +38,27 @@ function nextRunText(job: Job): string {
 }
 
 export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
+    const [query, setQuery] = useState('');
     if (!jobs.length) {
-        return <p>No jobs yet.{me && me.can_build ? ' Use New job to build one.' : ''}</p>;
+        return <JobsEmpty me={me} />;
     }
+    const names: Record<string, string> = {};
+    jobs.forEach((j) => {
+        names[j.id] = j.name;
+    });
+    const shown = filterJobs(jobs, query);
     return (
+        <>
+        <ControlGroup label="Find jobs" labelPosition="top">
+            <Search
+                inline
+                value={query}
+                onChange={(_e: unknown, { value }: { value: string }) => setQuery(value)}
+            />
+        </ControlGroup>
+        {!shown.length && <p>{`No jobs match "${query.trim()}".`}</p>}
+        {shown.length > 0 && (
         <Table stripeRows>
             <Table.Head>
                 <Table.HeadCell>Name</Table.HeadCell>
@@ -51,7 +73,7 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
                 </Table.HeadCell>
             </Table.Head>
             <Table.Body>
-                {jobs.map((job) => {
+                {shown.map((job) => {
                     const last = job.last_run;
                     const canEdit = job.permissions.can_edit;
                     const canRun = job.permissions.can_run && (!me || me.can_run || me.can_admin);
@@ -63,6 +85,9 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
                                 ) : (
                                     job.name
                                 )}
+                                <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
+                                    {jobSummary(job, names)}
+                                </div>
                                 {(job.warnings || []).map((w) => (
                                     <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
                                         {w.step ? `Step ${w.step}: ${w.message}` : w.message}
@@ -122,5 +147,7 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
                 })}
             </Table.Body>
         </Table>
+        )}
+        </>
     );
 }
