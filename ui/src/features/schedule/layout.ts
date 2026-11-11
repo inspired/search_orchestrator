@@ -108,19 +108,24 @@ export interface Tick {
     label: string;
 }
 
-/** Axis ticks: every 3 hours for a day, every midnight for a week, in local time. */
+const QUARTER = 900;
+
+/** Axis ticks: every 3 hours for a day, every midnight for a week, in local time. Walks
+ * in 15-minute steps, so zones with :30 and :45 offsets land on their real boundaries. */
 export function ticks(from: number, to: number, timeZone?: string): Tick[] {
-    const step = to - from > 2 * DAY ? DAY : 3 * HOUR;
+    const week = to - from > 2 * DAY;
     const out: Tick[] = [];
-    const opts: Intl.DateTimeFormatOptions =
-        step === DAY ? { weekday: 'short', day: 'numeric', timeZone } : { hour: '2-digit', minute: '2-digit', timeZone };
-    // Find the first local boundary by walking hours, which also handles odd offsets.
-    let t = Math.ceil(from / HOUR) * HOUR;
-    for (; t < to; t += HOUR) {
-        const parts = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone }).format(new Date(t * 1000));
-        const hour = parseInt(parts, 10);
-        if (step === DAY ? hour === 0 : hour % 3 === 0) {
-            out.push({ pct: pct(t, from, to), label: new Date(t * 1000).toLocaleString(undefined, opts) });
+    const label = new Intl.DateTimeFormat(
+        undefined,
+        week ? { weekday: 'short', day: 'numeric', timeZone } : { hour: '2-digit', minute: '2-digit', timeZone }
+    );
+    const parts = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: 'numeric', hourCycle: 'h23', timeZone });
+    for (let t = Math.ceil(from / QUARTER) * QUARTER; t < to; t += QUARTER) {
+        const p = parts.formatToParts(new Date(t * 1000));
+        const hour = Number(p.find((x) => x.type === 'hour')?.value);
+        const minute = Number(p.find((x) => x.type === 'minute')?.value);
+        if (minute === 0 && (week ? hour === 0 : hour % 3 === 0)) {
+            out.push({ pct: pct(t, from, to), label: label.format(new Date(t * 1000)) });
         }
     }
     return out;

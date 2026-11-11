@@ -18,7 +18,12 @@ every job, so it is the true load.
 job) returns the load of every *other* job over the next 24 hours (7 days when the job
 doesn't run every day), in the job's time zone, plus per cron trigger
 ``{"index", "runs": [{"start", "end"}], "suggestion": {"hour", "minute", "peak",
-"base_peak"} | null}``.
+"base_peak"} | null}``, and axis ``ticks`` ``[[t, label]]`` in that time zone (the
+server's own when the job has none, which is what its cron uses).
+
+Active runs count until their estimated end (not just until now), and the runs they will
+trigger are projected too. Rows of jobs the caller may not view never name an
+``upstream``, and visible rows never point at a hidden one.
 """
 from . import authz, schedule
 from .api import ApiError, LIST_FIELDS, _deleted_job_run_visible, _is_job_id, _job_id, _settings_view
@@ -26,6 +31,8 @@ from .store import ACTIVE_RUN_STATES
 
 PAST_SCAN = 20000  # runs read for one window
 HISTORY_SCAN = 1000  # newest succeeded runs read for step profiles
+PROFILE_LOOKUPS = 50  # jobs the scan missed, looked up one at a time per request
+PROFILE_RUNS = 5  # succeeded runs read per looked-up job
 DEFAULT_BACK = 8 * 3600
 DEFAULT_AHEAD = 16 * 3600
 DAY = 86400
@@ -49,24 +56,55 @@ def _limits(ctx):
     return int(settings["max_searches"]), int(settings["max_searches_per_job"])
 
 
-def _profiles(ctx, jobs, per_job):
+def _scheduled(job):
+    """Does anything start ``job`` on its own: a cron or completion trigger?"""
+    return bool(schedule.scheduler.cron_specs(job) or schedule._completion_upstreams(job))
+
+
+def _profiles(ctx, jobs, per_job, wanted):
+    """Profiles for ``jobs``. One read of the newest succeeded runs covers most jobs; a
+    frequent job can crowd the others out of it, so up to ``PROFILE_LOOKUPS`` of the
+    ``wanted`` jobs it missed are read one at a time. The rest fall back to the graph."""
     history = {}
     for run in ctx.store.list_runs({"state": "succeeded"}, limit=HISTORY_SCAN, fields=LIST_FIELDS):
         history.setdefault(run.get("job_id"), []).append(run)
+    missing = sorted(j for j in wanted if j not in history)[:PROFILE_LOOKUPS]
+    for jid in missing:
+        history[jid] = ctx.store.list_runs({"job_id": jid, "state": "succeeded"}, limit=PROFILE_RUNS,
+                                           fields=LIST_FIELDS)
     return {jid: schedule.profile(job, history.get(jid, []), per_job) for jid, job in jobs.items()}
 
 
-def _projection(ctx, jobs, start, end, per_job):
-    """``(profiles, projected)``: ``projected`` is ``{job_id: [runs]}``, cron and
-    completion-triggered runs together."""
-    profiles = _profiles(ctx, jobs, per_job)
+def _projection(ctx, jobs, start, end, per_job, active_runs=()):
+    """``(projected, remaining)``: ``projected`` is ``{job_id: [runs]}``, cron and
+    completion-triggered runs together (including runs triggered by ``active_runs``);
+    ``remaining`` is ``{job_id: [rest of each active run]}``."""
+    wanted = {jid for jid, job in jobs.items() if _scheduled(job)}
+    wanted |= {r.get("job_id") for r in active_runs if r.get("job_id") in jobs}
+    profiles = _profiles(ctx, jobs, per_job, wanted)
     projected = {jid: schedule.project(job, profiles[jid], start, end, ctx.now) for jid, job in jobs.items()}
     projected = {k: v for k, v in projected.items() if v}
-    for jid, runs in schedule.project_dependents(jobs, profiles, projected, end).items():
+    rest = {}
+    for run in active_runs:
+        jid = run.get("job_id")
+        if jid in jobs:
+            rest.setdefault(jid, []).append(schedule.remaining(jobs[jid], profiles[jid], run, ctx.now))
+    for jid, runs in schedule.project_dependents(jobs, profiles, projected, end, rest).items():
         for r in runs:
             r["dependent"] = True
         projected[jid] = sorted(projected.get(jid, []) + runs, key=lambda r: r["start"])
-    return profiles, projected
+    return projected, rest
+
+
+def _active(runs):
+    return [r for r in runs if r.get("state") in ACTIVE_RUN_STATES]
+
+
+def _load(ctx, past, projected, rest, start, end, skip_job=None):
+    intervals = [iv for r in past if r.get("job_id") != skip_job for iv in schedule.run_intervals(r, ctx.now)]
+    intervals += [iv for runs in projected.values() for r in runs for iv in r["steps"]]
+    intervals += [iv for runs in rest.values() for r in runs for iv in r["steps"]]
+    return schedule.load_series(intervals, start, end)
 
 
 def _past_runs(ctx, start, end):
@@ -98,12 +136,9 @@ def get_schedule(ctx, body):
     max_searches, per_job = _limits(ctx)
     jobs = {_job_id(j): j for j in ctx.store.list_jobs()}
     enabled = {k: j for k, j in jobs.items() if j.get("enabled") is not False}
-    _, projected = _projection(ctx, enabled, start, end, per_job)
     past, partial = _past_runs(ctx, start, end)
-
-    intervals = [iv for r in past for iv in schedule.run_intervals(r, ctx.now)]
-    intervals += [iv for runs in projected.values() for r in runs for iv in r["steps"]]
-    load = schedule.load_series(intervals, start, end)
+    projected, rest = _projection(ctx, enabled, start, end, per_job, _active(past))
+    load = _load(ctx, past, projected, rest, start, end)
 
     can_view = {k: ctx.allowed(authz.can_view, j) for k, j in jobs.items()}
     bars = {}
@@ -133,8 +168,10 @@ def get_schedule(ctx, body):
     rows = []
     for jid in order:
         entry = bars[jid]
-        upstreams = sorted((u for u in schedule._completion_upstreams(jobs.get(jid) or {}) if u in keys),
-                           key=lambda u: name(u).casefold())
+        # Nesting tells how jobs are chained, so only between two jobs the caller may view.
+        upstreams = [] if not entry["visible"] else sorted(
+            (u for u in schedule._completion_upstreams(jobs.get(jid) or {}) if u in keys and bars[u]["visible"]),
+            key=lambda u: name(u).casefold())
         future = [b["start"] for b in entry["bars"] if b["state"] == "scheduled" and b["start"] > ctx.now]
         rows.append({"key": keys[jid], "name": name(jid) if entry["visible"] else "Hidden job %s" % keys[jid][7:],
                      "hidden": not entry["visible"], "upstream": keys[upstreams[0]] if upstreams else None,
@@ -146,9 +183,7 @@ def get_schedule(ctx, body):
 
 
 def schedule_preview(ctx, body):
-    draft = body.get("job")
-    if not isinstance(draft, dict):
-        raise ApiError(400, "bad_request", "job must be a job definition object")
+    draft = _clean_draft(body.get("job"))
     job_id = draft.get("id")
     job_ref = job_id if isinstance(job_id, str) and _is_job_id(job_id) else None
     stored = ctx.store.get_job(job_ref) if job_ref else None
@@ -163,11 +198,10 @@ def schedule_preview(ctx, body):
 
     jobs = {_job_id(j): j for j in ctx.store.list_jobs()
             if _job_id(j) != job_ref and j.get("enabled") is not False}
-    _, projected = _projection(ctx, jobs, start, end, per_job)
     past, _ = _past_runs(ctx, start, end)
-    intervals = [iv for r in past if r.get("job_id") != job_ref for iv in schedule.run_intervals(r, ctx.now)]
-    intervals += [iv for runs in projected.values() for r in runs for iv in r["steps"]]
-    load = schedule.load_series(intervals, start, end)
+    active = [r for r in _active(past) if r.get("job_id") != job_ref]
+    projected, rest = _projection(ctx, jobs, start, end, per_job, active)
+    load = _load(ctx, past, projected, rest, start, end, skip_job=job_ref)
 
     history = []
     if job_ref:
@@ -182,5 +216,29 @@ def schedule_preview(ctx, body):
         schedules.append({"index": i, "runs": [{"start": r["start"], "end": r["end"]} for r in runs],
                           "suggestion": schedule.suggest(draft, t.get("cron"), prof, load, start, end,
                                                          max_searches) if runs else None})
-    return 200, {"from": start, "to": end, "now": ctx.now, "timezone": draft.get("timezone") or None,
+    tz = draft.get("timezone") if isinstance(draft.get("timezone"), str) and draft.get("timezone") else None
+    return 200, {"from": start, "to": end, "now": ctx.now, "timezone": tz,
+                 "ticks": schedule.local_ticks(start, end, tz),
                  "max_searches": max_searches, "load": load, "schedules": schedules}
+
+
+def _clean_draft(draft):
+    """A draft job with only the shapes the projection reads; an unsaved draft may hold
+    anything, and a malformed one must not reach the projection."""
+    if not isinstance(draft, dict):
+        raise ApiError(400, "bad_request", "job must be a job definition object")
+
+    def dicts(key):
+        value = draft.get(key)
+        return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+    steps = [s for s in dicts("steps") if isinstance(s.get("id"), str)]
+    for s in steps:
+        if not isinstance(s.get("run_when"), dict):
+            s.pop("run_when", None)
+    edges = [e for e in dicts("edges") if isinstance(e.get("from"), str) and isinstance(e.get("to"), str)]
+    triggers = [t for t in dicts("triggers") if isinstance(t.get("type"), str)]
+    tz = draft.get("timezone") if isinstance(draft.get("timezone"), str) else None
+    out = {k: draft.get(k) for k in ("id", "name")}
+    out.update(steps=steps, edges=edges, triggers=triggers, timezone=tz)
+    return out

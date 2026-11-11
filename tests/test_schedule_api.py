@@ -107,3 +107,54 @@ def test_preview_weekly_uses_seven_days_and_new_job(w):
     assert out["to"] - out["from"] == 7 * 86400
     assert len(out["schedules"][0]["runs"]) == 1
     assert out["schedules"][0]["suggestion"] is None  # nothing else runs: nothing quieter
+
+
+# Review fixes.
+
+def test_no_upstream_between_visible_and_hidden_rows(w):
+    saved(w, "alice", cron_job("mine", "0 3 * * *", name="Mine"))
+    saved(w, "bob", job_body("theirs", name="Theirs", run_roles=[],
+                             triggers=[{"type": "completion", "job": "mine"}]))
+    saved(w, "bob", cron_job("bobup", "0 4 * * *", run_roles=[]))
+    saved(w, "alice", job_body("after", name="After", triggers=[{"type": "completion", "job": "bobup"}]))
+    rows = w.call("alice", "GET", "/orchestrator/schedule")[1]["jobs"]
+    assert all(r["upstream"] is None for r in rows)
+    assert sum(1 for r in rows if r["hidden"]) == 2
+
+
+def test_active_run_counts_past_now_and_triggers_dependents(w):
+    saved(w, "alice", job_body("long", name="Long"))
+    saved(w, "alice", job_body("next", name="Next", triggers=[{"type": "completion", "job": "long"}]))
+    add_run(w, "long:old", "long", start=T0 - 86400)  # profile: a 0-60, b 60-120
+    add_run(w, "long:now", "long", state="running", start=T0 - 30,
+            steps={"a": {"state": "running", "started_at": T0 - 30}, "b": {"state": "waiting"}})
+    out = w.call("alice", "GET", "/orchestrator/schedule")[1]
+    # a until T0+30, b until T0+90 (estimated), then Next's a and b until T0+210
+    assert out["load"] == [[T0 - 8 * HOUR, 0], [T0 - 30, 1], [T0 + 210, 0]]
+    rows = {r["key"]: r for r in out["jobs"]}
+    assert rows["next"]["bars"][0]["start"] == T0 - 30 + 120
+
+
+def test_profiles_for_jobs_crowded_out_of_the_scan(w, monkeypatch):
+    from so import schedule_api
+    monkeypatch.setattr(schedule_api, "HISTORY_SCAN", 1)
+    saved(w, "alice", cron_job("busy", "* * * * *"))
+    saved(w, "alice", cron_job("nightly", "0 3 * * *", steps=[{"id": "a", "type": "inline", "spl": "| makeresults"}],
+                               edges=[]))
+    add_run(w, "busy:r", "busy", start=T0 - 60)
+    add_run(w, "nightly:r", "nightly", start=T0 - 86400,
+            steps={"a": {"state": "succeeded", "started_at": T0 - 86400, "ended_at": T0 - 86400 + 7200}})
+    rows = {r["key"]: r for r in w.call("alice", "GET", "/orchestrator/schedule")[1]["jobs"]}
+    nightly = [b for b in rows["nightly"]["bars"] if b["state"] == "scheduled"][0]
+    assert nightly["end"] - nightly["start"] == 7200
+
+
+def test_preview_ticks_and_malformed_draft(w):
+    out = w.call("alice", "POST", "/orchestrator/schedule/preview",
+                 {"job": cron_job("x", "0 2 * * *", timezone="Asia/Kolkata")})[1]
+    assert out["ticks"][0][1] == "09:00"  # T0 01:00 UTC is 06:30 in Kolkata; next 3-hour mark
+    bad = {"id": "x", "steps": [{"id": "a"}, "junk"], "edges": None, "triggers": ["x", {"type": "cron", "cron": "0 1 * * *"}],
+           "timezone": 5}
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/preview", {"job": bad})
+    assert status == 200, out
+    assert out["timezone"] is None and out["schedules"][0]["index"] == 0

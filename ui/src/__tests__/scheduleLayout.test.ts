@@ -71,4 +71,13 @@ describe('schedule layout', () => {
         expect(ticks(from, from + 86400, 'UTC')).toHaveLength(8);
         expect(ticks(from, from + 7 * 86400, 'UTC')).toHaveLength(7);
     });
+
+    test('ticks land on real boundaries in half-hour zones', () => {
+        const from = Date.UTC(2026, 11, 1) / 1000; // 05:30 in Kolkata
+        const day = ticks(from, from + 86400, 'Asia/Kolkata');
+        expect(day).toHaveLength(8);
+        expect(day[0].pct).toBeCloseTo((30 * 60 * 100) / 86400, 5); // 06:00 local = 00:30 UTC
+        const week = ticks(from, from + 7 * 86400, 'Asia/Kolkata');
+        expect(week[0].pct).toBeCloseTo(((18 * 3600 + 1800) * 100) / (7 * 86400), 5);
+    });
 });

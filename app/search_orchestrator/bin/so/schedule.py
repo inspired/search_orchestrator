@@ -17,6 +17,8 @@ pass jobs, runs and times; nothing here reads KV Store.
 The load is raw demand: no queueing above ``max_searches`` is simulated, so a projection
 can go over the limit, which is the point.
 """
+from datetime import datetime
+
 from . import cron as cronmod
 from . import model, scheduler, state
 from .actions import CHAIN_LIMIT
@@ -28,7 +30,7 @@ DENSE_DIVISOR = 400  # runs closer than window/400 (about 3 px) merge into a spa
 SUGGEST_RANGE = 120 * 60
 SUGGEST_STEP = 5 * 60
 CLEARLY_QUIETER = 2
-WORKING = ("ready", "starting", "running", "retrying")
+WORKING = state.ACTIVE  # step states with a search in flight
 MERGEABLE = ("succeeded", "scheduled")
 DAY = 86400
 
@@ -40,7 +42,7 @@ def _steps(job):
 def _order(job):
     try:
         return model.topo_order(job)
-    except ValueError:
+    except (ValueError, TypeError, AttributeError, KeyError):
         return [s["id"] for s in _steps(job)]
 
 
@@ -133,15 +135,19 @@ def _day_key(job, slot):
     return tuple(key)
 
 
-def _run_at(job, prof, start, memo=None):
+def _run_at(job, prof, start, memo=None, scheduled=None):
+    """A projected run starting at ``start``. Its steps are decided at ``scheduled`` (the
+    run's scheduled time, which a chained run takes from its upstream run), default
+    ``start``."""
     memo = {} if memo is None else memo
-    key = _day_key(job, start)
+    scheduled = start if scheduled is None else scheduled
+    key = _day_key(job, scheduled)
     if key not in memo:
-        memo[key] = steps_for_slot(job, start)
+        memo[key] = steps_for_slot(job, scheduled)
     run_steps = memo[key]
     steps = sorted((start + prof[s][0], start + prof[s][0] + prof[s][1]) for s in run_steps if s in prof)
     end = max([e for _, e in steps] or [start + 1])
-    return {"start": int(start), "end": int(end), "steps": steps}
+    return {"start": int(start), "end": int(end), "steps": steps, "scheduled": int(scheduled)}
 
 
 def _slots(specs, start, end, tz):
@@ -161,34 +167,68 @@ def project(job, prof, start, end, now):
     return [_run_at(job, prof, s, memo) for s in slots]
 
 
+def remaining(job, prof, run, now):
+    """The rest of an active run as a projected run: running steps until their estimated
+    end, and steps not yet started at their profile offset (no earlier than ``now``), for
+    the steps its scheduled time would run. ``end`` is the run's estimated end, when the
+    jobs it triggers would start."""
+    origin = int(run.get("started_at") or run.get("queued_at") or run.get("created_at") or now)
+    scheduled = int(run.get("scheduled_time") or origin)
+    status = run.get("steps") or {}
+    planned = steps_for_slot(job, scheduled)
+    steps, ends = [], [int(now)]
+    for sid in planned:
+        if sid not in prof:
+            continue
+        off, dur = prof[sid]
+        st = status.get(sid) or {}
+        st_state = st.get("state") or "waiting"
+        if st_state in WORKING and st.get("started_at") is not None:
+            e = max(int(now), int(st["started_at"]) + dur)
+            if e > now:
+                steps.append((int(now), e))
+            ends.append(e)
+        elif st_state == "waiting" or st_state in WORKING:  # not started yet
+            s = max(int(now), origin + off)
+            steps.append((s, s + dur))
+            ends.append(s + dur)
+        elif st.get("ended_at") is not None:
+            ends.append(int(st["ended_at"]))
+    return {"start": origin, "end": max(ends), "steps": sorted(steps), "scheduled": scheduled}
+
+
 def _completion_upstreams(job):
     out = []
     for t in job.get("triggers") or []:
         if isinstance(t, dict) and t.get("type") == "completion" and t.get("enabled") is not False \
                 and isinstance(t.get("job"), str) and t.get("job"):
-            out.append(t["job"])
+            if t["job"] not in out:
+                out.append(t["job"])  # the engine fires once per upstream run per job
     return out
 
 
-def project_dependents(jobs, profiles, projected, end):
+def project_dependents(jobs, profiles, projected, end, active=None):
     """``{job_id: [runs]}`` for jobs started by completion triggers on projected runs,
     following chains up to ``CHAIN_LIMIT``. ``jobs``: ``{job_id: job}``; ``profiles``:
-    ``{job_id: profile}``; ``projected``: ``{job_id: [runs]}`` of cron runs."""
+    ``{job_id: profile}``; ``projected``: ``{job_id: [runs]}`` of cron runs; ``active``:
+    ``{job_id: [runs]}`` from ``remaining``, whose triggered runs are projected too."""
     targets = {}
     for jid, job in jobs.items():
         if job.get("enabled") is False:
             continue
         for up in _completion_upstreams(job):
-            targets.setdefault(up, []).append(jid)
+            if jid not in targets.setdefault(up, []):
+                targets[up].append(jid)
     out, memos = {}, {}
-    frontier = [(jid, r) for jid, runs in projected.items() for r in runs]
+    frontier = [(jid, r) for group in (projected, active or {}) for jid, runs in group.items() for r in runs]
     for _ in range(CHAIN_LIMIT):
         nxt = []
         for up_id, run in frontier:
             for jid in sorted(targets.get(up_id, [])):
                 if run["end"] >= end:
                     continue
-                dep = _run_at(jobs[jid], profiles.get(jid) or {}, run["end"], memos.setdefault(jid, {}))
+                dep = _run_at(jobs[jid], profiles.get(jid) or {}, run["end"], memos.setdefault(jid, {}),
+                              scheduled=run.get("scheduled", run["start"]))
                 dep.update(dependent=True, upstream=up_id)
                 out.setdefault(jid, []).append(dep)
                 nxt.append((jid, dep))
@@ -268,6 +308,22 @@ def merge_dense(bars, start, end):
             continue
         out.append(bar)
     return out[:MAX_BARS_PER_JOB]
+
+
+def local_ticks(start, end, tz):
+    """Axis ticks ``[[epoch, label]]`` in ``tz`` (None: server local time): every 3 hours
+    ("02:00") for a window up to 2 days, else every midnight ("Mon 14"). Walks in
+    15-minute steps, so zones with :30 and :45 offsets land on their real boundaries."""
+    zone = cronmod.resolve_tz(tz)
+    week = end - start > 2 * DAY
+    out = []
+    t = -(-int(start) // 900) * 900
+    while t < end:
+        d = datetime.fromtimestamp(t, zone)
+        if d.minute == 0 and ((week and d.hour == 0) or (not week and d.hour % 3 == 0)):
+            out.append([t, "%s %d" % (d.strftime("%a"), d.day) if week else d.strftime("%H:%M")])
+        t += 900
+    return out
 
 
 def is_daily(job):

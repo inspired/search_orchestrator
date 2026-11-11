@@ -75,7 +75,9 @@ export default function RunsPage({ api = defaultApi }: { api?: RunsApi }) {
         });
         const query = params.toString();
         window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
-        runs.refresh();
+        if (view === 'table') {
+            runs.refresh(); // the timeline loads its own data
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [q, state, view]);
 

@@ -7,7 +7,7 @@ import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { SchedulePreview, SchedulePreviewResponse } from '../../api/types';
 import LoadRow from '../schedule/LoadRow';
-import { clock, ticks } from '../schedule/layout';
+import { clock, pct } from '../schedule/layout';
 
 export interface BusyStripProps {
     preview: SchedulePreviewResponse;
@@ -20,14 +20,15 @@ export interface BusyStripProps {
 export default function BusyStrip({ preview, schedule, onUseTime, dismissed, onDismiss }: BusyStripProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const { from, to, load, max_searches: max } = preview;
-    const tz = preview.timezone || undefined;
-    const marks = ticks(from, to, tz);
+    const tz = preview.timezone;
+    // The server's ticks are in the zone the cron runs in, even when that is the server's.
+    const marks = (preview.ticks || []).map(([t, label]) => ({ pct: pct(t, from, to), label }));
     const s = schedule.suggestion;
     const week = to - from > 2 * 86400;
     return (
         <div data-testid="busy-strip" style={{ margin: '4px 0 10px' }}>
             <div style={{ fontSize: '12px', color: theme.contentColorMuted, marginBottom: '2px' }}>
-                {`Other jobs' searches at once, next ${week ? '7 days' : '24 hours'}${tz ? ` (${tz})` : ''}. This schedule's runs are on top.`}
+                {`Other jobs' searches at once, next ${week ? '7 days' : '24 hours'} (${tz || "the server's time zone"}). This schedule's runs are on top.`}
             </div>
             <LoadRow load={load} from={from} to={to} max={max} height={32} overlay={schedule.runs} />
             <div style={{ position: 'relative', height: '14px', fontSize: '11px', color: theme.contentColorMuted }}>

@@ -110,5 +110,10 @@ describe('Runs page timeline view', () => {
         await waitFor(() => expect((api.getSchedule as jest.Mock).mock.calls.length).toBeGreaterThan(1));
         const last = (api.getSchedule as jest.Mock).mock.calls.slice(-1)[0];
         expect(last[1] - last[0]).toBe(7 * 86400);
+        // searching in the timeline doesn't load the hidden table
+        const tableCalls = (api.searchRuns as jest.Mock).mock.calls.length;
+        fireEvent.change(screen.getByLabelText('Search by job name'), { target: { value: 'dai' } });
+        await new Promise((r) => setTimeout(r, 400));
+        expect((api.searchRuns as jest.Mock).mock.calls.length).toBe(tableCalls);
     });
 });

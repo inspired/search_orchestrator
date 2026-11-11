@@ -10,6 +10,7 @@ function response(over: Partial<SchedulePreviewResponse> = {}): SchedulePreviewR
         to: NOW + 86400,
         now: NOW,
         timezone: 'Europe/Oslo',
+        ticks: [[NOW + 3600, '03:00']],
         max_searches: 10,
         load: [
             [NOW, 0],
@@ -55,6 +56,7 @@ describe('Busy-times strip', () => {
             'Quieter nearby: 02:40, with up to 3 other searches running instead of 9.Use this timeDismiss'
         );
         expect(screen.getAllByTestId('load-overlay')).toHaveLength(1);
+        expect(screen.getByText('03:00')).toBeInTheDocument(); // the server's ticks, in the job's zone
         fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
         expect(dispatch).toHaveBeenCalledWith({
             type: 'setJobField',
@@ -94,6 +96,21 @@ describe('Busy-times strip', () => {
             jest.advanceTimersByTime(1000);
         });
         expect(screen.queryByTestId('busy-strip')).toBeNull();
+    });
+
+    test('a job without a time zone says it uses the server time zone', async () => {
+        renderThemed(
+            <TriggersTab
+                job={{ ...job, timezone: undefined }}
+                jobs={[]}
+                dispatch={jest.fn()}
+                schedulePreview={() => Promise.resolve(response({ timezone: null }))}
+            />
+        );
+        await act(async () => {
+            jest.advanceTimersByTime(1000);
+        });
+        await waitFor(() => expect(screen.getByText(/next 24 hours \(the server's time zone\)/)).toBeInTheDocument());
     });
 
     test('no cron schedule, no request', async () => {

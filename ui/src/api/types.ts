@@ -457,7 +457,10 @@ export interface SchedulePreviewResponse {
     from: number;
     to: number;
     now: number;
+    /** The job's time zone; null means the server's own, which its cron uses. */
     timezone: string | null;
+    /** Axis ticks `[time, label]` in that time zone, computed by the server. */
+    ticks: [number, string][];
     max_searches: number;
     load: LoadSeries;
     schedules: SchedulePreview[];

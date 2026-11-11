@@ -184,3 +184,60 @@ def test_suggest_when_over_limit_even_if_only_one_lower():
     load = schedule.load_series([(T0 + 3600, T0 + 7800)] * 10 + [(T0 + 7800, T0 + 9000)] * 9, T0, T0 + DAY)
     out = schedule.suggest(j, "0 2 * * *", {"a": (0, 60)}, load, T0, T0 + DAY, 10)
     assert out == {"hour": 2, "minute": 10, "peak": 9, "base_peak": 10}
+
+
+# Review fixes.
+
+def test_dependent_steps_are_judged_at_upstream_scheduled_time():
+    # upstream Friday 23:50 ends Saturday 00:10; the dependent's weekday step still runs,
+    # because a chained run takes the upstream run's scheduled time
+    friday = T0 + 3 * DAY  # Fri 2026-12-04 00:00
+    up = job("up", cron="50 23 * * 5", steps=[{"id": "a", "type": "inline", "spl": "| makeresults"}], edges=[])
+    dep = job("dep", cron=None, triggers=[{"type": "completion", "job": "up"}],
+              steps=[{"id": "wk", "type": "inline", "spl": "| makeresults",
+                      "run_when": {"kind": "cron", "value": "* * * * 1-5"}}], edges=[])
+    projected = {"up": schedule.project(up, {"a": (0, 1200)}, friday, friday + 2 * DAY, friday)}
+    out = schedule.project_dependents({"up": up, "dep": dep}, {"dep": {"wk": (0, 60)}}, projected, friday + 2 * DAY)
+    run = out["dep"][0]
+    assert run["start"] == friday + 86400 + 600 and run["scheduled"] == friday + 23 * 3600 + 50 * 60
+    assert run["steps"] == [(run["start"], run["start"] + 60)]
+
+
+def test_two_completion_triggers_on_one_upstream_fire_once():
+    up = job("up")
+    dep = job("dep", cron=None, triggers=[{"type": "completion", "job": "up", "on": "success"},
+                                          {"type": "completion", "job": "up", "on": "complete"}])
+    prof = {"a": (0, 60), "b": (60, 60)}
+    projected = {"up": schedule.project(up, prof, T0, T0 + DAY, T0)}
+    out = schedule.project_dependents({"up": up, "dep": dep}, {"dep": prof}, projected, T0 + DAY)
+    assert len(out["dep"]) == 1
+
+
+def test_remaining_counts_an_active_run_until_its_estimated_end():
+    prof = {"a": (0, 600), "b": (600, 300)}
+    now = T0 + 120
+    active = {"started_at": T0, "scheduled_time": T0,
+              "steps": {"a": {"state": "running", "started_at": T0}, "b": {"state": "waiting"}}}
+    rest = schedule.remaining(job(), prof, active, now)
+    assert rest["steps"] == [(now, T0 + 600), (T0 + 600, T0 + 900)]
+    assert rest["end"] == T0 + 900
+    # a step that overran its estimate still counts a little past now, then the next one
+    late = schedule.remaining(job(), prof, active, T0 + 700)
+    assert late["steps"] == [(T0 + 700, T0 + 1000)]
+    dep = job("dep", cron=None, triggers=[{"type": "completion", "job": "j"}])
+    out = schedule.project_dependents({"j": job(), "dep": dep}, {"dep": prof}, {}, T0 + DAY, {"j": [rest]})
+    assert out["dep"][0]["start"] == T0 + 900
+
+
+def test_local_ticks_follow_half_hour_zones():
+    ticks = schedule.local_ticks(T0, T0 + DAY, "Asia/Kolkata")
+    assert ticks[0] == [T0 + 30 * 60, "06:00"]  # 00:30 UTC is 06:00 in +05:30
+    assert len(ticks) == 8
+    week = schedule.local_ticks(T0, T0 + 7 * DAY, "Asia/Kolkata")
+    assert week[0][0] == T0 + 18 * 3600 + 30 * 60 and week[0][1].endswith(" 2")
+
+
+def test_malformed_job_shapes_do_not_raise():
+    j = job(steps=[{"id": "a"}], edges=None)
+    assert schedule.steps_for_slot(j, T0) == {"a"}
+    assert schedule.profile(j, [], 4) == {"a": (0, 60)}
