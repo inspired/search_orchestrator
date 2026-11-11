@@ -110,7 +110,7 @@ def steps_for_slot(job, slot):
     for sid in _order(definition):
         try:
             decision, kind = state.preview_decision(definition, sid, slot, {}, upstream)
-        except (ValueError, TypeError, KeyError):
+        except (ValueError, TypeError, KeyError, AttributeError):
             decision, kind = "run", None  # a real run would fail the step; it ran briefly
         if decision == "run":
             out.add(sid)
