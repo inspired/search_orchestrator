@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { issueCounts, tabForIssue } from '../features/builder/issueTabs';
 import IssueSummary from '../features/builder/IssueSummary';
 import BuilderPage from '../features/builder/BuilderPage';
@@ -74,8 +74,21 @@ describe('BuilderPage issue feedback', () => {
     it('shows counts on tabs and jumps to the tab', async () => {
         await open();
         expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveTextContent('1');
+        expect(screen.getByRole('tab', { name: /Steps/ })).toHaveTextContent('1');
         fireEvent.click(screen.getByRole('button', { name: 'Go to Triggers: Bad cron' }));
         expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('omits the count on a tab with no errors', async () => {
+        const api = fakeApi({
+            validateJob: jest.fn().mockResolvedValue({ valid: false, issues: [errs[0]], owner_will_change: false, owner: 'alice' }),
+        });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await screen.findByText('Fix 1 problem before saving');
+        expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveTextContent('1');
+        expect(screen.getByRole('tab', { name: /Steps/ })).not.toHaveTextContent(/\d/);
     });
 
     it('selects the step for a step issue', async () => {
@@ -83,5 +96,54 @@ describe('BuilderPage issue feedback', () => {
         fireEvent.click(screen.getByRole('button', { name: /^Go to Weekly rollup: Step broke/ }));
         expect(screen.getByRole('tab', { name: /Steps/ })).toHaveAttribute('aria-selected', 'true');
         expect(screen.getByRole('button', { name: /^Step Weekly rollup/ })).toHaveAttribute('aria-pressed', 'true');
+    });
+});
+
+describe('save problem list lifecycle', () => {
+    // Two client-side errors: no job name and an empty search on the first step.
+    const broken = () => {
+        const j = rollupJob({ name: '' });
+        j.steps = j.steps.map((st) => (st.id === 'daily' ? { ...st, spl: '' } : st));
+        return j;
+    };
+    const open = async () => {
+        const api = fakeApi({ getJob: jest.fn().mockResolvedValue(broken()) });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Daily summary/ });
+        return api;
+    };
+    const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const fixName = () => fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Fixed' } });
+    const fixSearch = () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Go to Daily summary: the search is empty' }));
+        fireEvent.change(screen.getByLabelText('Search'), { target: { value: '| makeresults' } });
+    };
+
+    it('updates as errors are fixed, then disappears', async () => {
+        await open();
+        save();
+        expect(await screen.findByText('Fix 2 problems before saving')).toBeInTheDocument();
+        fixName();
+        expect(await screen.findByText('Fix 1 problem before saving')).toBeInTheDocument();
+        expect(screen.queryByText('the job needs a name')).not.toBeInTheDocument();
+        fixSearch();
+        await waitFor(() => expect(screen.queryByText(/before saving/)).not.toBeInTheDocument());
+    });
+
+    it('a second save attempt shows only the current errors', async () => {
+        const api = await open();
+        save();
+        await screen.findByText('Fix 2 problems before saving');
+        fixName();
+        await screen.findByText('Fix 1 problem before saving');
+        save();
+        expect(await screen.findByText('Fix 1 problem before saving')).toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: /^Go to .*: the search is empty/ })).toHaveLength(1);
+        expect(api.updateJob).not.toHaveBeenCalled();
+    });
+
+    it('is not shown before a save attempt', async () => {
+        await open();
+        expect(screen.queryByText(/before saving/)).not.toBeInTheDocument();
     });
 });
