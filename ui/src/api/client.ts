@@ -25,6 +25,8 @@ import type {
     RunsResult,
     RunSummary,
     SaveResponse,
+    SchedulePreviewResponse,
+    ScheduleResponse,
     Settings,
     ValidateResponse,
 } from './types';
@@ -228,6 +230,16 @@ export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: 
 // Step previews. Errors: needs_preview (`extra.steps`), upstream_failed, run_step_missing,
 // run_results_expired and run_results_forbidden (`extra.step`), invalid (`issues`),
 // bad_param, forbidden.
+
+/** Past, running and projected runs of every job over [from, to), and the load. */
+export function getSchedule(from: number, to: number): Promise<ScheduleResponse> {
+    return request('GET', 'schedule', { query: { from, to } });
+}
+
+/** The load of every other job around a draft job's cron schedules, with suggestions. */
+export function schedulePreview(job: JobDefinition | Job): Promise<SchedulePreviewResponse> {
+    return request('POST', 'schedule/preview', { body: { job: toDefinition(job) } });
+}
 
 /** The time a preview defaults to (the job's latest cron slot, or now), and the seconds a
  * run's step results are kept after it ends. */
