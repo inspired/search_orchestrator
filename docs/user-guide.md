@@ -44,7 +44,7 @@ Node positions are not saved. The graph is laid out again each time the job open
 - **Give up after** (default 24 hours from when the run leaves the queue): the step fails, other searches in the run are cancelled, and unfinished steps are abandoned.
 - **Max runtime** (default 4 hours per attempt).
 
-Durations take a unit (seconds, minutes, hours or days). A saved value shows in the largest whole unit, so 5400 seconds reads as 90 minutes, and a value that isn't whole minutes keeps its seconds until you edit it.
+Durations take a unit (minutes, hours or days). A saved value shows in the largest whole unit, so 5400 seconds reads as 90 minutes. A value that isn't whole minutes shows rounded to minutes and keeps its exact seconds until you edit it.
 - **Retries** (default 0). A retry runs the search again, which can write duplicates to a summary index. See [Make steps safe to re-run](#make-steps-safe-to-re-run). Searches that never started are always retried up to 3 times.
 
 ### Results of earlier steps

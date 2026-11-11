@@ -32,7 +32,7 @@ Faster starts and fewer typos when building a job.
 
 Clearer schedules, durations and time ranges in the job editor.
 
-- Durations take a unit (seconds, minutes, hours or days). A stored value shows in the largest whole unit, so 5400 seconds reads as 90 minutes, and a value that isn't whole minutes keeps its seconds until you edit it.
+- Durations take a unit (minutes, hours or days). A stored value shows in the largest whole unit, so 5400 seconds reads as 90 minutes. A value that isn't whole minutes shows rounded to minutes and keeps its exact seconds until you edit it.
 - A schedule is picked from presets (hourly, daily, weekly, monthly) or typed as a custom cron. It shows a plain summary and the next runs in the job's time zone. A cron no preset matches opens as Custom and is never rewritten. The time zone is picked from a list, and a stored zone the list lacks stays selected.
 - A step's time range is picked from presets (the hour, day, week or month before, or the last 24 hours), All time or Custom. It shows the window searched for a run scheduled at the preview time. All time shows a warning.
 - Two new REST routes back these readouts: `POST schedule/next` returns the next times a cron fires, and `POST timerange/resolve` returns the window an earliest and latest cover.
