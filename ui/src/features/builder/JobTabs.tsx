@@ -1,6 +1,6 @@
 /* The builder's tabs: Steps (the canvas and side panel), Triggers, Parameters, job-level
  * Actions, Access (who may run) and Settings (description, step defaults, after give-up). */
-import React, { useState } from 'react';
+import React from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Message from '@splunk/react-ui/Message';
@@ -20,7 +20,11 @@ import { DurationField } from './StepPanel';
 import type { NextSlots } from './ScheduleEditor';
 import TriggersTab from './TriggersTab';
 
+export type TabId = 'steps' | 'triggers' | 'params' | 'actions' | 'access' | 'settings';
+
 export interface JobTabsProps {
+    activeTab: TabId;
+    onTabChange: (tab: TabId) => void;
     job: JobDefinition;
     dispatch: (action: BuilderAction) => void;
     owner: string;
@@ -123,11 +127,10 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots, previewFields = {} }: JobTabsProps) {
-    const [tab, setTab] = useState('steps');
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots, previewFields = {} }: JobTabsProps) {
     return (
         <div>
-            <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setTab(selectedTabId || 'steps')}>
+            <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onTabChange((selectedTabId || 'steps') as TabId)}>
                 <TabBar.Tab label="Steps" tabId="steps" />
                 <TabBar.Tab label="Triggers" tabId="triggers" />
                 <TabBar.Tab label="Parameters" tabId="params" />

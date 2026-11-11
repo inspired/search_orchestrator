@@ -16,7 +16,9 @@ import Canvas, { Selection } from './Canvas';
 import EdgePanel from './EdgePanel';
 import { findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
-import JobTabs from './JobTabs';
+import JobTabs, { TabId } from './JobTabs';
+import { readiness } from './readiness';
+import SetupChecklist from './SetupChecklist';
 import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
@@ -78,6 +80,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const startTemplate = initialId ? null : templateByKey(template || null);
     const [state, dispatch] = useReducer(reducer, startTemplate, (t: JobTemplate | null) => initialState(t ? t.build() : blankJob()));
     const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startTemplate);
+    const [activeTab, setActiveTab] = useState<TabId>('steps');
+    const [checklistDismissed, setChecklistDismissed] = useState(false);
     const [loading, setLoading] = useState(Boolean(initialId));
     const [loadError, setLoadError] = useState<string | null>(null);
     const [meta, setMeta] = useState<{ owner: string | null; canEdit: boolean }>({ owner: null, canEdit: true });
@@ -220,6 +224,14 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         const local = findIssues(job).filter((i) => !server.some((s) => sameIssue(s, i)));
         return [...server, ...local];
     }, [job, serverIssues, checkedJob]);
+    const checklist = useMemo(() => readiness(job, issues), [job, issues]);
+    const allReady = checklist.every((i) => i.done);
+    // Once everything is done the checklist stays away until the page reloads.
+    useEffect(() => {
+        if (allReady && !loading && !choosingTemplate) {
+            setChecklistDismissed(true);
+        }
+    }, [allReady, loading, choosingTemplate]);
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
 
@@ -517,7 +529,10 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                             onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'name', value })}
                         />
                     </ControlGroup>
+                    {!checklistDismissed && !allReady && <SetupChecklist items={checklist} onTabChange={setActiveTab} />}
                     <JobTabs
+                        activeTab={activeTab}
+                        onTabChange={setActiveTab}
                         job={job}
                         dispatch={dispatch}
                         owner={owner}
