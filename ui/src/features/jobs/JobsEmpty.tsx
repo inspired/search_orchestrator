@@ -6,7 +6,14 @@ import { pageHref } from '../../components/PageShell';
 import TemplatePicker from '../builder/TemplatePicker';
 
 export default function JobsEmpty({ me }: { me: Me | null | undefined }) {
-    if (me && me.can_build) {
+    if (me === undefined) {
+        // Access is still loading: say nothing rather than something wrong.
+        return <div />;
+    }
+    if (me === null) {
+        return <p>No jobs yet.</p>;
+    }
+    if (me.can_build) {
         return (
             <>
                 <TemplatePicker

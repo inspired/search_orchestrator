@@ -50,104 +50,104 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
     const shown = filterJobs(jobs, query);
     return (
         <>
-        <ControlGroup label="Find jobs" labelPosition="top">
-            <Search
-                inline
-                value={query}
-                onChange={(_e: unknown, { value }: { value: string }) => setQuery(value)}
-            />
-        </ControlGroup>
-        {!shown.length && <p>{`No jobs match "${query.trim()}".`}</p>}
-        {shown.length > 0 && (
-        <Table stripeRows>
-            <Table.Head>
-                <Table.HeadCell>Name</Table.HeadCell>
-                <Table.HeadCell>Owner</Table.HeadCell>
-                <Table.HeadCell>Next run</Table.HeadCell>
-                <Table.HeadCell>Last run</Table.HeadCell>
-                <Table.HeadCell>Enabled</Table.HeadCell>
-                <Table.HeadCell>
-                    <span style={{ position: 'relative' }}>
-                        <span style={srOnly}>Actions</span>
-                    </span>
-                </Table.HeadCell>
-            </Table.Head>
-            <Table.Body>
-                {shown.map((job) => {
-                    const last = job.last_run;
-                    const canEdit = job.permissions.can_edit;
-                    const canRun = job.permissions.can_run && (!me || me.can_run || me.can_admin);
-                    return (
-                        <Table.Row key={job.id}>
-                            <Table.Cell>
-                                {canEdit ? (
-                                    <Link to={pageHref('builder', { job_id: job.id })}>{job.name}</Link>
-                                ) : (
-                                    job.name
-                                )}
-                                <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
-                                    {jobSummary(job, names)}
-                                </div>
-                                {(job.warnings || []).map((w) => (
-                                    <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
-                                        {w.step ? `Step ${w.step}: ${w.message}` : w.message}
-                                    </div>
-                                ))}
-                            </Table.Cell>
-                            <Table.Cell>{job.owner}</Table.Cell>
-                            <Table.Cell>
-                                {nextRunText(job)}
-                            </Table.Cell>
-                            <Table.Cell>
-                                {last ? (
-                                    <Link to={pageHref('run', { run_id: last.id })}>
-                                        <StatusText state={last.state} delayed={isRunDelayed(last)} />
-                                        <span style={{ marginLeft: '0.5em' }}>{formatTime(last.scheduled_time)}</span>
-                                    </Link>
-                                ) : (
-                                    'Never run'
-                                )}
-                            </Table.Cell>
-                            <Table.Cell>
-                                <Switch
-                                    appearance="toggle"
-                                    selected={job.enabled}
-                                    disabled={!canEdit || Boolean(busy[job.id])}
-                                    onClick={() => onToggleEnabled(job, !job.enabled)}
-                                >
-                                    <span style={{ position: 'relative' }}>
-                                        <span style={srOnly}>{`Enable ${job.name}`}</span>
-                                    </span>
-                                </Switch>
-                            </Table.Cell>
-                            <Table.Cell>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    {canRun && (
-                                        <Button
-                                            appearance="secondary"
-                                            label="Run now"
-                                            aria-label={`Run now: ${job.name}`}
-                                            disabled={!job.enabled}
-                                            onClick={() => onRunNow(job)}
-                                        />
-                                    )}
-                                    {canEdit && onDelete && (
-                                        <Button
-                                            appearance="secondary"
-                                            label="Delete"
-                                            aria-label={`Delete ${job.name}`}
-                                            disabled={Boolean(busy[job.id])}
-                                            onClick={(e: React.MouseEvent) => onDelete(job, e.currentTarget as HTMLElement)}
-                                        />
-                                    )}
-                                </div>
-                            </Table.Cell>
-                        </Table.Row>
-                    );
-                })}
-            </Table.Body>
-        </Table>
-        )}
+            <ControlGroup label="Find jobs" labelPosition="top">
+                <Search
+                    inline
+                    value={query}
+                    onChange={(_e: unknown, { value }: { value: string }) => setQuery(value)}
+                />
+            </ControlGroup>
+            {!shown.length && <p>{`No jobs match "${query.trim()}".`}</p>}
+            {shown.length > 0 && (
+                <Table stripeRows>
+                    <Table.Head>
+                        <Table.HeadCell>Name</Table.HeadCell>
+                        <Table.HeadCell>Owner</Table.HeadCell>
+                        <Table.HeadCell>Next run</Table.HeadCell>
+                        <Table.HeadCell>Last run</Table.HeadCell>
+                        <Table.HeadCell>Enabled</Table.HeadCell>
+                        <Table.HeadCell>
+                            <span style={{ position: 'relative' }}>
+                                <span style={srOnly}>Actions</span>
+                            </span>
+                        </Table.HeadCell>
+                    </Table.Head>
+                    <Table.Body>
+                        {shown.map((job) => {
+                            const last = job.last_run;
+                            const canEdit = job.permissions.can_edit;
+                            const canRun = job.permissions.can_run && (!me || me.can_run || me.can_admin);
+                            return (
+                                <Table.Row key={job.id}>
+                                    <Table.Cell>
+                                        {canEdit ? (
+                                            <Link to={pageHref('builder', { job_id: job.id })}>{job.name}</Link>
+                                        ) : (
+                                            job.name
+                                        )}
+                                        <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
+                                            {jobSummary(job, names)}
+                                        </div>
+                                        {(job.warnings || []).map((w) => (
+                                            <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
+                                                {w.step ? `Step ${w.step}: ${w.message}` : w.message}
+                                            </div>
+                                        ))}
+                                    </Table.Cell>
+                                    <Table.Cell>{job.owner}</Table.Cell>
+                                    <Table.Cell>
+                                        {nextRunText(job)}
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        {last ? (
+                                            <Link to={pageHref('run', { run_id: last.id })}>
+                                                <StatusText state={last.state} delayed={isRunDelayed(last)} />
+                                                <span style={{ marginLeft: '0.5em' }}>{formatTime(last.scheduled_time)}</span>
+                                            </Link>
+                                        ) : (
+                                            'Never run'
+                                        )}
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <Switch
+                                            appearance="toggle"
+                                            selected={job.enabled}
+                                            disabled={!canEdit || Boolean(busy[job.id])}
+                                            onClick={() => onToggleEnabled(job, !job.enabled)}
+                                        >
+                                            <span style={{ position: 'relative' }}>
+                                                <span style={srOnly}>{`Enable ${job.name}`}</span>
+                                            </span>
+                                        </Switch>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            {canRun && (
+                                                <Button
+                                                    appearance="secondary"
+                                                    label="Run now"
+                                                    aria-label={`Run now: ${job.name}`}
+                                                    disabled={!job.enabled}
+                                                    onClick={() => onRunNow(job)}
+                                                />
+                                            )}
+                                            {canEdit && onDelete && (
+                                                <Button
+                                                    appearance="secondary"
+                                                    label="Delete"
+                                                    aria-label={`Delete ${job.name}`}
+                                                    disabled={Boolean(busy[job.id])}
+                                                    onClick={(e: React.MouseEvent) => onDelete(job, e.currentTarget as HTMLElement)}
+                                                />
+                                            )}
+                                        </div>
+                                    </Table.Cell>
+                                </Table.Row>
+                            );
+                        })}
+                    </Table.Body>
+                </Table>
+            )}
         </>
     );
 }

@@ -28,7 +28,7 @@ const defaultApi: JobsApi = {
 };
 
 export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
-    const [me, setMe] = useState<Me | null>(null);
+    const [me, setMe] = useState<Me | null | undefined>(undefined);
     // Poll every 5 seconds while a run is active, and every 30 seconds otherwise.
     const [fast, setFast] = useState(true);
     const jobs = usePoll(api.listJobs, fast ? 5000 : 30000, true);

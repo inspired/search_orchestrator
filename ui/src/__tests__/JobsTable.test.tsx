@@ -240,6 +240,10 @@ describe('JobsTable summary, search and empty state', () => {
         expect(screen.getByText('Build your first job')).toBeInTheDocument();
         const link = screen.getByRole('link', { name: /Blank job/ });
         expect(link.getAttribute('href')).toContain('template=blank');
+        ['rollup', 'serial', 'parallel', 'blank'].forEach((key) => {
+            const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') || '');
+            expect(hrefs.some((h) => h.includes(`template=${key}`))).toBe(true);
+        });
         expect(screen.queryByText(/selftest/)).toBeNull();
     });
 
@@ -266,4 +270,17 @@ test('the Jobs page primary button is Create job', async () => {
     } as unknown as JobsApi;
     renderThemed(<JobsPage api={api} />);
     expect(await screen.findByRole('link', { name: 'Create job' })).toBeInTheDocument();
+});
+
+describe('JobsTable empty state and access', () => {
+    test('while access loads, no claim is made', () => {
+        renderThemed(<JobsTable jobs={[]} me={undefined} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.queryByText('Build your first job')).toBeNull();
+        expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+    });
+    test('when access failed to load, the line is neutral', () => {
+        renderThemed(<JobsTable jobs={[]} me={null} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('No jobs yet.')).toBeInTheDocument();
+        expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+    });
 });
