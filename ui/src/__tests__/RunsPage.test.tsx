@@ -35,7 +35,7 @@ describe('Runs page', () => {
     });
 
     it('asks the server for blocked and failed runs for Needs attention, newest first', async () => {
-        require('../pages/runs/index');
+        await import('../pages/runs/index');
         const element = (renderPage as jest.Mock).mock.calls[0][0];
         renderThemed(element);
         await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(4));
