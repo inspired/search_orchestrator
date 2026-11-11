@@ -54,11 +54,51 @@ describe('StepPanel', () => {
         expect(options).not.toContain('c');
     });
 
-    test('Mondays preset sets cron * * * * 1', () => {
+    const day = (name: string) => screen.getByRole('button', { name });
+
+    test('Days of week starts on Monday and the day buttons write the cron', () => {
         const state = renderPanel(threeSteps([]), 'b');
         fireEvent.click(screen.getByTestId('run-when-select'));
-        fireEvent.click(screen.getByRole('option', { name: 'Mondays' }));
+        fireEvent.click(screen.getByRole('option', { name: 'Days of week' }));
         expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 1' });
+        expect(day('Monday')).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(day('Wednesday'));
+        fireEvent.click(day('Friday'));
+        expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 1,3,5' });
+        fireEvent.click(day('Monday'));
+        expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 3,5' });
+        expect(day('Monday')).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    test('the shortcuts set weekdays, weekends and every day', () => {
+        const state = renderPanel(threeSteps([]), 'b');
+        fireEvent.click(screen.getByTestId('run-when-select'));
+        fireEvent.click(screen.getByRole('option', { name: 'Days of week' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Weekdays' }));
+        expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 1-5' });
+        fireEvent.click(screen.getByRole('button', { name: 'Weekends' }));
+        expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 0,6' });
+        fireEvent.click(screen.getByRole('button', { name: 'Every day' }));
+        expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 0-6' });
+    });
+
+    test('the last day that is on cannot be turned off', () => {
+        const job = threeSteps([]);
+        job.steps[1].run_when = { kind: 'cron', value: '* * * * 0' };
+        const state = renderPanel(job, 'b');
+        expect(day('Sunday')).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(day('Sunday'));
+        expect(state().job.steps[1].run_when).toEqual({ kind: 'cron', value: '* * * * 0' });
+        expect(day('Saturday')).not.toHaveAttribute('aria-disabled');
+    });
+
+    test('a hand-written day-of-week cron opens as Days of week', () => {
+        const job = threeSteps([]);
+        job.steps[1].run_when = { kind: 'cron', value: '* * * * mon-fri' };
+        renderPanel(job, 'b');
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach((d) => expect(day(d)).toHaveAttribute('aria-pressed', 'true'));
+        expect(day('Saturday')).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.queryByLabelText('Run-when cron')).not.toBeInTheDocument();
     });
 
     test('a duration of 0 minutes is refused', () => {
