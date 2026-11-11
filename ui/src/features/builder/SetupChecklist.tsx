@@ -8,17 +8,8 @@ import Typography from '@splunk/react-ui/Typography';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
 import Circle from '@splunk/react-icons/Circle';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { TabId } from './JobTabs';
+import { TAB_LABELS, TabId } from './JobTabs';
 import type { ChecklistItem } from './readiness';
-
-const TAB_LABELS: Record<TabId, string> = {
-    steps: 'Steps',
-    triggers: 'Triggers',
-    params: 'Parameters',
-    actions: 'Actions',
-    access: 'Access',
-    settings: 'Settings',
-};
 
 export interface SetupChecklistProps {
     items: ChecklistItem[];

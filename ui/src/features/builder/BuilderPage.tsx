@@ -18,6 +18,8 @@ import { findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
 import { readiness } from './readiness';
+import IssueSummary from './IssueSummary';
+import { tabForIssue } from './issueTabs';
 import SetupChecklist from './SetupChecklist';
 import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
@@ -93,6 +95,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const [serverIssues, setServerIssues] = useState<Issue[]>([]);
     const [checkedJob, setCheckedJob] = useState<JobDefinition | null>(null);
     const [notice, setNotice] = useState<Notice>(null);
+    const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
     const [ownerConfirm, setOwnerConfirm] = useState<{ newOwner: string } | null>(null);
     const [removing, setRemovingState] = useState<string | null>(null);
@@ -234,6 +237,20 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     }, [allReady, loading, choosingTemplate]);
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
+    const errorIssues = errorsIn(issues);
+    const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
+    const goToIssue = (issue: Issue) => {
+        setActiveTab(tabForIssue(issue));
+        if (issue.step) {
+            setSelected({ kind: 'step', id: issue.step });
+        }
+    };
+    // The list stays until the next save attempt or until nothing is left to fix.
+    useEffect(() => {
+        if (showSummary && !errorIssues.length) {
+            setShowSummary(false);
+        }
+    }, [showSummary, errorIssues.length]);
 
     const owner = meta.owner || (me ? me.user : '');
     const selectedStep = selected && selected.kind === 'step' && job.steps.some((s) => s.id === selected.id) ? selected.id : null;
@@ -303,19 +320,20 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     };
 
     const onSave = async () => {
+        setNotice(null);
+        setShowSummary(false);
         if (errorsIn(findIssues(job)).length) {
-            setNotice({ type: 'error', text: 'Fix the errors shown on the steps before saving.' });
+            setShowSummary(true);
             return;
         }
         setBusy(true);
-        setNotice(null);
         const res = await runCheck();
         setBusy(false);
         if (!res) {
             return;
         }
         if (errorsIn(res.issues || []).length) {
-            setNotice({ type: 'error', text: 'The job has errors and was not saved.' });
+            setShowSummary(true);
             return;
         }
         if (res.owner_will_change) {
@@ -506,6 +524,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     {notice.text}
                 </Message>
             )}
+            {showSummary && errorIssues.length > 0 && <IssueSummary issues={errorIssues} stepNames={stepNames} onGo={goToIssue} />}
             <IssueList issues={jobLevel} />
             {loading ? (
                 <WaitSpinner size="medium" />
@@ -543,6 +562,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         steps={stepsTab}
                         nextSlots={api.nextSlots}
                         previewFields={previewFields}
+                        issues={issues}
                     />
                 </>
             )}

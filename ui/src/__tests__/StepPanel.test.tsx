@@ -162,7 +162,7 @@ describe('BuilderPage save checks', () => {
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
         await screen.findByRole('button', { name: /^Step Weekly rollup/ });
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-        expect(await screen.findByText('The job has errors and was not saved.')).toBeInTheDocument();
+        expect(await screen.findByText('Fix 1 problem before saving')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^Step Weekly rollup, 1 error/ })).toBeInTheDocument();
         expect(api.updateJob).not.toHaveBeenCalled();
     });

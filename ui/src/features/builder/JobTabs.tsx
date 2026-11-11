@@ -9,7 +9,7 @@ import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import type { AlertAction, Defaults, Destination, Job, JobDefinition } from '../../api/types';
+import type { AlertAction, Issue, Defaults, Destination, Job, JobDefinition } from '../../api/types';
 import AccessTab from './AccessTab';
 import ActionsEditor from './ActionsEditor';
 import { availableTokens } from './tokens';
@@ -19,8 +19,18 @@ import { BUILTIN_DEFAULTS } from './previewLogic';
 import { DurationField } from './StepPanel';
 import type { NextSlots } from './ScheduleEditor';
 import TriggersTab from './TriggersTab';
+import { issueCounts } from './issueTabs';
 
 export type TabId = 'steps' | 'triggers' | 'params' | 'actions' | 'access' | 'settings';
+
+export const TAB_LABELS: Record<TabId, string> = {
+    steps: 'Steps',
+    triggers: 'Triggers',
+    params: 'Parameters',
+    actions: 'Actions',
+    access: 'Access',
+    settings: 'Settings',
+};
 
 export interface JobTabsProps {
     activeTab: TabId;
@@ -37,6 +47,8 @@ export interface JobTabsProps {
     nextSlots?: NextSlots;
     /** Field names of each step's current preview, for the first-row tokens. */
     previewFields?: Record<string, string[]>;
+    /** Every current issue; each tab shows how many errors it holds. */
+    issues?: Issue[];
 }
 
 function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
@@ -127,16 +139,14 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots, previewFields = {} }: JobTabsProps) {
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots, previewFields = {}, issues = [] }: JobTabsProps) {
+    const counts = issueCounts(issues);
     return (
         <div>
             <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onTabChange((selectedTabId || 'steps') as TabId)}>
-                <TabBar.Tab label="Steps" tabId="steps" />
-                <TabBar.Tab label="Triggers" tabId="triggers" />
-                <TabBar.Tab label="Parameters" tabId="params" />
-                <TabBar.Tab label="Actions" tabId="actions" />
-                <TabBar.Tab label="Access" tabId="access" />
-                <TabBar.Tab label="Settings" tabId="settings" />
+                {(Object.keys(TAB_LABELS) as TabId[]).map((id) => (
+                    <TabBar.Tab key={id} label={TAB_LABELS[id]} tabId={id} count={counts[id] || undefined} />
+                ))}
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
