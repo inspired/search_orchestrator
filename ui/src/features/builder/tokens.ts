@@ -51,6 +51,8 @@ function topoOrder(job: JobDefinition): string[] {
     return out;
 }
 
+const FIRST_ROW_FIELD_RE = /^[A-Za-z0-9_]+$/;
+
 /** Token groups for a field of `stepId` (null: a job-level action, which sees every step). */
 export function availableTokens(job: JobDefinition, stepId: string | null, previewFields: Record<string, string[]>): TokenGroup[] {
     const run: TokenOption[] = [
@@ -77,7 +79,8 @@ export function availableTokens(job: JobDefinition, stepId: string | null, previ
             { token: `$${id}.sid$`, label: 'Search id', description: 'The id of the search job this step ran.' },
             { token: `$${id}.resultCount$`, label: 'Result count', description: 'Number of rows the step returned.' },
             { token: `$${id}.status$`, label: 'Status', description: 'How the step ended, such as success or failed.' },
-            ...(previewFields[id] || []).map((f) => ({
+            // The server resolves only first.<letters, digits, _>; other fields can't be tokens.
+            ...(previewFields[id] || []).filter((f) => FIRST_ROW_FIELD_RE.test(f)).map((f) => ({
                 token: `$${id}.first.${f}$`,
                 label: `First row: ${f}`,
                 description: `The ${f} value in the first row the step returned.`,

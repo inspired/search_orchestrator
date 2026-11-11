@@ -22,6 +22,11 @@ describe('availableTokens', () => {
         expect(daily.options.map((o) => o.label)).toEqual(['Search id', 'Result count', 'Status', 'First row: host']);
     });
 
+    test('first-row tokens skip fields the server cannot resolve', () => {
+        const daily = availableTokens(rollupJob(), 'monthly', { daily: ['host', 'avg(bytes)', 'count'] })[1];
+        expect(daily.options.map((o) => o.token).filter((t) => t.includes('.first.'))).toEqual(['$daily.first.host$', '$daily.first.count$']);
+    });
+
     test('job-level actions list every step', () => {
         expect(titles(availableTokens(rollupJob(), null, {}))).toEqual(['This run', 'Daily summary', 'Weekly rollup', 'Monthly rollup']);
     });
