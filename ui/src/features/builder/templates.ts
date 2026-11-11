@@ -45,9 +45,9 @@ export const JOB_TEMPLATES: JobTemplate[] = [
             withCron(
                 '0 1 * * *',
                 [
-                    search('daily', 'Daily summary', { earliest: '-1d@d', latest: '@d' }),
+                    search('daily', 'Daily summary', preset('previous_day')),
                     search('weekly', 'Weekly rollup', { earliest: '-7d@d', latest: '@d' }, { run_when: runWhenPreset('mondays') }),
-                    search('monthly', 'Monthly rollup', { earliest: '-1mon@mon', latest: '@mon' }, { run_when: runWhenPreset('first_of_month') }),
+                    search('monthly', 'Monthly rollup', preset('previous_month'), { run_when: runWhenPreset('first_of_month') }),
                 ],
                 [onSuccess('daily', 'weekly'), onSuccess('weekly', 'monthly')]
             ),

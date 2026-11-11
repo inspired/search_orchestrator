@@ -1,4 +1,5 @@
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi } from './builderFixtures';
@@ -33,6 +34,23 @@ describe('BuilderPage templates', () => {
         expect(nodes()).toHaveLength(0);
         expect(screen.queryByRole('heading', { name: 'Start a new job' })).toBeNull();
         expect(screen.getByRole('button', { name: 'Undo' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('lists each template as a button named by its title', async () => {
+        await show(<BuilderPage api={fakeApi()} />);
+        ['Daily, weekly and monthly rollup', 'One search after another', 'Run searches side by side, then combine', 'Blank job'].forEach((t) =>
+            expect(screen.getByRole('button', { name: new RegExp(t) })).toBeInTheDocument()
+        );
+    });
+
+    it('opens a template from the keyboard and selects its first step', async () => {
+        await show(<BuilderPage api={fakeApi()} />);
+        const card = screen.getByRole('button', { name: /Daily, weekly and monthly rollup/ });
+        card.focus();
+        expect(card).toHaveFocus();
+        await userEvent.keyboard('{Enter}');
+        expect(nodes()).toHaveLength(3);
+        expect(screen.getByRole('region', { name: /Daily summary/ })).toBeInTheDocument();
     });
 
     it('skips the picker for a known template', async () => {
