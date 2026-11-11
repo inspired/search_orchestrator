@@ -224,14 +224,15 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         const local = findIssues(job).filter((i) => !server.some((s) => sameIssue(s, i)));
         return [...server, ...local];
     }, [job, serverIssues, checkedJob]);
-    const checklist = useMemo(() => readiness(job, issues), [job, issues]);
+    const issuesChecked = checkedJob === job;
+    const checklist = useMemo(() => readiness(job, issues, issuesChecked), [job, issues, issuesChecked]);
     const allReady = checklist.every((i) => i.done);
     // Once everything is done the checklist stays away until the page reloads.
     useEffect(() => {
-        if (allReady && !loading && !choosingTemplate) {
+        if (allReady && issuesChecked && !loading && !choosingTemplate) {
             setChecklistDismissed(true);
         }
-    }, [allReady, loading, choosingTemplate]);
+    }, [allReady, issuesChecked, loading, choosingTemplate]);
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
 

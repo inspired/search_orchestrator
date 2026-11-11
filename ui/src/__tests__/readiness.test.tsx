@@ -4,17 +4,19 @@ import { readiness } from '../features/builder/readiness';
 import SetupChecklist from '../features/builder/SetupChecklist';
 import { blankJob } from '../features/builder/reducer';
 import BuilderPage from '../features/builder/BuilderPage';
-import { act } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
 import { fakeApi, rollupJob } from './builderFixtures';
 import { renderThemed } from './fixtures';
-import type { JobDefinition } from '../api/types';
+import type { Issue, JobDefinition } from '../api/types';
 
-const done = (job: JobDefinition, issues: { level: 'error' | 'warning'; code: string; message: string; step: string | null }[] = []) =>
-    readiness(job, issues as never).reduce<Record<string, boolean>>((acc, i) => ({ ...acc, [i.key]: i.done }), {});
+const noteIssue: Issue = { level: 'warning', code: 'no_failure_notification', message: 'x', step: null };
+const done = (job: JobDefinition, issues: Issue[] = [], checked = true) =>
+    readiness(job, issues, checked).reduce<Record<string, boolean>>((acc, i) => ({ ...acc, [i.key]: i.done }), {});
+const bare = (): JobDefinition => ({ ...(rollupJob() as JobDefinition), actions: [] });
 
 describe('readiness', () => {
     it('a blank job has nothing done', () => {
-        const items = readiness(blankJob(), []);
+        const items = readiness(blankJob(), [], false);
         expect(items.map((i) => i.label)).toEqual([
             'Give the job a name',
             'Add a step',
@@ -43,7 +45,7 @@ describe('readiness', () => {
     });
 
     it('no_failure_notification makes notify not done', () => {
-        const d = done(rollupJob() as JobDefinition, [{ level: 'warning', code: 'no_failure_notification', message: 'x', step: null }]);
+        const d = done(rollupJob() as JobDefinition, [noteIssue]);
         expect(d.notify).toBe(false);
         expect(d.name).toBe(true);
     });
@@ -54,25 +56,43 @@ describe('readiness', () => {
     });
 });
 
+describe('readiness: failure notice', () => {
+    it('is not done before a server check', () => {
+        expect(done(bare(), [], false).notify).toBe(false);
+    });
+    it('is done after a check without the issue', () => {
+        expect(done(bare(), [], true).notify).toBe(true);
+    });
+    it('is done by an on_failure action even unchecked', () => {
+        const job = { ...bare(), actions: [{ hook: 'on_failure' as const, type: 'email' as const, to: 'a@b.c' }] };
+        expect(done(job, [], false).notify).toBe(true);
+    });
+    it('is done by a step on_complete action', () => {
+        const job = bare();
+        job.steps = [{ ...job.steps[0], actions: [{ hook: 'on_complete', type: 'webhook' }] }, ...job.steps.slice(1)];
+        expect(done(job, [], false).notify).toBe(true);
+    });
+});
+
 describe('SetupChecklist', () => {
     it('shows the count and goes to the item tab', () => {
         const onTabChange = jest.fn();
         const job = { ...(rollupJob() as JobDefinition), name: '', triggers: [] };
-        renderThemed(<SetupChecklist items={readiness(job, [])} onTabChange={onTabChange} />);
+        renderThemed(<SetupChecklist items={readiness(job, [], true)} onTabChange={onTabChange} />);
         expect(screen.getByText('3 of 5 done')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Go to Triggers' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Go to Triggers: Choose when it runs (optional; you can also start it by hand)' }));
         expect(onTabChange).toHaveBeenCalledWith('triggers');
         expect(screen.getAllByText('Done').length).toBe(3);
         expect(screen.getAllByText('Not done').length).toBe(2);
     });
 
     it('shows 0 of 5 for a blank job', () => {
-        renderThemed(<SetupChecklist items={readiness(blankJob(), [])} onTabChange={jest.fn()} />);
+        renderThemed(<SetupChecklist items={readiness(blankJob(), [], false)} onTabChange={jest.fn()} />);
         expect(screen.getByText('0 of 5 done')).toBeInTheDocument();
     });
 
     it('offers no Go to button for a done item', () => {
-        renderThemed(<SetupChecklist items={readiness(rollupJob() as JobDefinition, [])} onTabChange={jest.fn()} />);
+        renderThemed(<SetupChecklist items={readiness(rollupJob() as JobDefinition, [], true)} onTabChange={jest.fn()} />);
         expect(screen.queryByRole('button', { name: /Go to/ })).toBeNull();
     });
 });
@@ -93,17 +113,26 @@ describe('BuilderPage checklist', () => {
     it('shows for a new blank job and Go to switches tab', async () => {
         await show(<BuilderPage api={fakeApi()} template="blank" />);
         expect(screen.getByText('0 of 5 done')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Go to Triggers' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Go to Triggers: Choose when it runs (optional; you can also start it by hand)' }));
         expect(screen.getByRole('tab', { name: 'Triggers', selected: true })).toBeInTheDocument();
     });
 
-    it('is hidden for a ready loaded job', async () => {
-        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
-        expect(screen.queryByText(/of 5 done/)).toBeNull();
+    it('a templated job named by the user still lists the notice item', async () => {
+        await show(<BuilderPage api={fakeApi()} template="rollup" />);
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Mine' } });
+        expect(screen.getByRole('button', { name: 'Go to Actions: Choose who hears about failures' })).toBeInTheDocument();
     });
 
-    it('stays hidden once everything was done', async () => {
+    it('a ready job with no failure action still shows the notice item until checked', async () => {
         await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        expect(screen.getByText('4 of 5 done')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Go to Actions: Choose who hears about failures' })).toBeInTheDocument();
+    });
+
+    it('dismisses after a check finds everything done, and stays hidden when it regresses', async () => {
+        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
+        await waitFor(() => expect(screen.queryByText(/of 5 done/)).toBeNull());
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: '' } });
         expect(screen.queryByText(/of 5 done/)).toBeNull();
     });

@@ -10,14 +10,18 @@ export interface ChecklistItem {
     tab: TabId;
 }
 
-export function readiness(job: JobDefinition, issues: Issue[]): ChecklistItem[] {
+/** `checked`: the server issues come from a check of this very job; before that, a missing
+ * `no_failure_notification` only means nobody has asked. */
+export function readiness(job: JobDefinition, issues: Issue[], checked: boolean): ChecklistItem[] {
     const steps = job.steps || [];
     const searchesDone =
         steps.length > 0 &&
         steps.every((s) => (s.type === 'saved_search' ? Boolean((s.saved_search_ref || '').trim()) : Boolean((s.spl || '').trim())));
     const scheduled = (job.triggers || []).some((t) => t.type === 'cron' || t.type === 'completion');
-    // Nothing to notify about until there is a step to fail.
-    const notified = steps.length > 0 && !issues.some((i) => i.code === 'no_failure_notification');
+    const failureAction = [...(job.actions || []), ...steps.flatMap((s) => s.actions || [])].some(
+        (a) => a.hook === 'on_failure' || a.hook === 'on_complete'
+    );
+    const notified = failureAction || (checked && !issues.some((i) => i.code === 'no_failure_notification'));
     return [
         { key: 'name', label: 'Give the job a name', done: Boolean((job.name || '').trim()), optional: false, tab: 'steps' },
         { key: 'steps', label: 'Add a step', done: steps.length > 0, optional: false, tab: 'steps' },

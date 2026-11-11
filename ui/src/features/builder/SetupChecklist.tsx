@@ -44,7 +44,8 @@ export default function SetupChecklist({ items, onTabChange }: SetupChecklistPro
                                 <ScreenReaderContent>{item.done ? 'Done' : 'Not done'}</ScreenReaderContent>
                                 <span>{item.label}</span>
                                 {!item.done && (
-                                    <Button appearance="subtle" label={`Go to ${TAB_LABELS[item.tab]}`} onClick={() => onTabChange(item.tab)} />
+                                    <Button appearance="subtle" label={`Go to ${TAB_LABELS[item.tab]}`}
+                                        aria-label={`Go to ${TAB_LABELS[item.tab]}: ${item.label}`} onClick={() => onTabChange(item.tab)} />
                                 )}
                             </span>
                         </List.Item>
