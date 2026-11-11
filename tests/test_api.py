@@ -1630,6 +1630,56 @@ def test_schedule_next_daily(w):
     assert out["timezone_status"] == "ok"
 
 
+@pytest.fixture
+def oslo_local(monkeypatch):
+    import time as _t
+    if not hasattr(_t, "tzset"):
+        pytest.skip("tzset unavailable")
+    monkeypatch.setenv("TZ", "Europe/Oslo")
+    _t.tzset()
+    yield
+    monkeypatch.undo()
+    _t.tzset()
+
+
+def test_schedule_next_named_zone_returns_name_and_offsets(w):
+    w.now = NOV6  # November: Oslo is UTC+01:00
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "Europe/Oslo"})
+    assert status == 200
+    assert out["timezone"] == "Europe/Oslo"
+    assert out["timezone_status"] == "ok"
+    assert out["slots"] == [1762473600, 1762560000, 1762646400]  # 01:00 Oslo = 00:00 UTC
+    assert out["utc_offsets"] == [3600, 3600, 3600]
+
+
+def test_schedule_next_offsets_follow_dst(w):
+    w.now = 1774659600  # 2026-03-28 01:00 UTC; Oslo moves to +02:00 on the 29th
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 12 * * *", "timezone": "Europe/Oslo"})
+    assert out["utc_offsets"] == [3600, 7200, 7200]
+
+
+def test_schedule_next_server_time_has_no_zone_name(w, oslo_local):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next", {"cron": "0 1 * * *"})
+    assert status == 200
+    assert out["timezone"] is None
+    assert out["timezone_status"] == "ok"
+    assert out["slots"] == [1762473600, 1762560000, 1762646400]
+    assert out["utc_offsets"] == [3600, 3600, 3600]
+
+
+def test_schedule_next_unknown_zone_falls_back_to_server_time(w, oslo_local):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "No/Such_Zone"})
+    assert status == 200
+    assert out["timezone"] is None
+    assert out["timezone_status"] == "unknown"
+    assert out["utc_offsets"] == [3600, 3600, 3600]
+
+
 def test_schedule_next_bad_cron(w):
     status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
                          {"cron": "61 * * * *", "timezone": "UTC"})

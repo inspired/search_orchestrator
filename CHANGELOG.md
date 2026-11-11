@@ -9,6 +9,7 @@ Plain words, a friendlier Jobs and Runs, and help inside the app.
 - A **Help** page in the app shows the user guide, and many fields have a **Learn more** link to the matching section.
 - Wording: the step type "From previous steps" is now **Results of earlier steps** (the stored value is unchanged); "When a step gives up" offers **Wait for this run to be fixed** or **Start later runs anyway**; skipped steps read *Skipped (branch not taken)*; help texts no longer use internal words such as dispatchAs or wrapper.
 - Problem messages from the server say what to do next. Only the message text changed; the codes are the same.
+- Next run times use the time zone the server schedules in. `POST schedule/next` also returns `timezone` (the job's zone, or null for server time) and `utc_offsets` for each slot.
 - The user guide covers templates, schedule presets, time range presets, Insert value, the setup checklist, automatic checking and the Help page.
 
 ## 1.7.0 (2026-11-11)

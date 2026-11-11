@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import TriggersTab from '../features/builder/TriggersTab';
+import { formatSlot, zoneLabel } from '../features/builder/ScheduleEditor';
 import type { JobDefinition } from '../api/types';
 import { ApiError } from '../api/client';
 import { renderThemed } from './fixtures';
@@ -11,9 +12,13 @@ function jobWith(triggers: JobDefinition['triggers'], timezone?: string): JobDef
     return { name: 'j', steps: [{ id: 'a', type: 'inline', spl: '| makeresults' }], triggers, timezone } as JobDefinition;
 }
 
+function reply(over: Record<string, unknown> = {}) {
+    return { slots: SLOTS, utc_offsets: [0, 0, 0], timezone: null, timezone_status: 'ok', ...over };
+}
+
 function setup(job: JobDefinition, nextSlots?: jest.Mock) {
     const dispatch = jest.fn();
-    const next = nextSlots || jest.fn().mockResolvedValue({ slots: SLOTS, timezone_status: 'ok' });
+    const next = nextSlots || jest.fn().mockResolvedValue(reply());
     renderThemed(<TriggersTab job={job} jobs={[]} dispatch={dispatch} nextSlots={next} />);
     return { dispatch, next };
 }
@@ -75,10 +80,29 @@ describe('TriggersTab schedules', () => {
     });
 
     test('shows the summary and the next runs in the job time zone', async () => {
-        setup(jobWith([{ type: 'cron', cron: '0 1 * * *' }], 'Europe/Oslo'));
+        const next = jest.fn().mockResolvedValue(reply({ timezone: 'Europe/Oslo', utc_offsets: [3600, 3600, 3600] }));
+        setup(jobWith([{ type: 'cron', cron: '0 1 * * *' }], 'Europe/Oslo'), next);
         expect(screen.getByText('Every day at 01:00, in Europe/Oslo')).toBeInTheDocument();
         expect(await screen.findByText('Next runs')).toBeInTheDocument();
         // 01:00 UTC is 02:00 in Oslo.
+        await waitFor(() => expect(screen.getAllByText(/02:00/)).toHaveLength(3));
+    });
+
+    test('with no job zone the next runs use the server offset and say so', async () => {
+        // The server is at UTC-05:00: 01:00 UTC is 20:00 the evening before.
+        const next = jest.fn().mockResolvedValue(reply({ utc_offsets: [-18000, -18000, -18000] }));
+        setup(jobWith([{ type: 'cron', cron: '0 1 * * *' }]), next);
+        expect(screen.getByText("Every day at 01:00, in the server's time zone")).toBeInTheDocument();
+        expect(await screen.findByText("Every day at 01:00, in the server's time zone (UTC-05:00)")).toBeInTheDocument();
+        await waitFor(() => expect(screen.getAllByText(/20:00/)).toHaveLength(3));
+        expect(screen.queryByText(/Unknown time zone/)).not.toBeInTheDocument();
+    });
+
+    test('an unknown job zone says the times are in server time', async () => {
+        const next = jest.fn().mockResolvedValue(reply({ utc_offsets: [3600, 3600, 3600], timezone_status: 'unknown' }));
+        setup(jobWith([{ type: 'cron', cron: '0 1 * * *' }], 'Etc/Unknown'), next);
+        expect(await screen.findByText('Unknown time zone; times are shown in server time.')).toBeInTheDocument();
+        expect(screen.getByText("Every day at 01:00, in the server's time zone (UTC+01:00)")).toBeInTheDocument();
         await waitFor(() => expect(screen.getAllByText(/02:00/)).toHaveLength(3));
     });
 
@@ -97,5 +121,22 @@ describe('TriggersTab schedules', () => {
         const { dispatch } = setup(jobWith([]));
         fireEvent.click(screen.getByRole('button', { name: 'Add schedule' }));
         expect(dispatch).toHaveBeenCalledWith({ type: 'setJobField', field: 'triggers', value: [{ type: 'cron', cron: '0 1 * * *' }] });
+    });
+});
+
+describe('next-run formatting', () => {
+    test('formatSlot shows the wall time at the given offset', () => {
+        expect(formatSlot(1762390800, 0)).toBe('Thu, 6 Nov 2025, 01:00');
+        expect(formatSlot(1762390800, 3600)).toBe('Thu, 6 Nov 2025, 02:00');
+        expect(formatSlot(1762390800, -18000)).toBe('Wed, 5 Nov 2025, 20:00');
+        expect(formatSlot(1762390800, 19800)).toBe('Thu, 6 Nov 2025, 06:30');
+    });
+
+    test('zoneLabel names the zone, or the server zone with its offset', () => {
+        expect(zoneLabel('Europe/Oslo', 3600)).toBe('in Europe/Oslo');
+        expect(zoneLabel(null, 3600)).toBe("in the server's time zone (UTC+01:00)");
+        expect(zoneLabel(null, -16200)).toBe("in the server's time zone (UTC-04:30)");
+        expect(zoneLabel(null, 0)).toBe("in the server's time zone (UTC+00:00)");
+        expect(zoneLabel(null, null)).toBe("in the server's time zone");
     });
 });

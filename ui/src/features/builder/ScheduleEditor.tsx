@@ -9,9 +9,10 @@ import NumberInput from '@splunk/react-ui/Number';
 import RadioBar from '@splunk/react-ui/RadioBar';
 import Text from '@splunk/react-ui/Text';
 import { pad, parseTime } from './PreviewBar';
+import type { NextSlotsResponse } from '../../api/client';
 import { DAY_NAMES, SchedulePreset, describeSchedule, fromCron, toCron } from './schedule';
 
-export type NextSlots = (cron: string, timezone: string | null, count?: number) => Promise<{ slots: number[]; timezone_status: unknown }>;
+export type NextSlots = (cron: string, timezone: string | null, count?: number) => Promise<NextSlotsResponse>;
 
 export interface ScheduleEditorProps {
     id: string;
@@ -26,15 +27,32 @@ const KINDS: SchedulePreset['kind'][] = ['hourly', 'daily', 'weekly', 'monthly',
 const KIND_LABELS: Record<SchedulePreset['kind'], string> = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', custom: 'Custom' };
 const DEBOUNCE_MS = 400;
 
-/** An epoch in the job's zone; an unknown zone falls back to the browser's. */
-export function formatSlot(epoch: number, timezone: string | undefined): string {
-    const opts: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
-    const date = new Date(epoch * 1000);
-    try {
-        return new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: timezone || undefined }).format(date);
-    } catch {
-        return new Intl.DateTimeFormat('en-GB', opts).format(date);
+/** An epoch as wall time at `offset` seconds east of UTC, the offset the server scheduled it in. */
+export function formatSlot(epoch: number, offset: number): string {
+    const opts: Intl.DateTimeFormatOptions = {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'UTC',
+    };
+    return new Intl.DateTimeFormat('en-GB', opts).format(new Date((epoch + offset) * 1000));
+}
+
+/** Where the times are: the job's zone by name, or the server's with its offset when known. */
+export function zoneLabel(timezone: string | null, offset: number | null): string {
+    if (timezone) {
+        return `in ${timezone}`;
     }
+    if (offset === null) {
+        return "in the server's time zone";
+    }
+    const abs = Math.abs(offset);
+    const hhmm = `${pad(Math.floor(abs / 3600))}:${pad(Math.floor((abs % 3600) / 60))}`;
+    return `in the server's time zone (UTC${offset < 0 ? '-' : '+'}${hhmm})`;
 }
 
 /** A preset of `kind`, keeping the time of the one being left. */
@@ -58,7 +76,7 @@ function switchKind(from: SchedulePreset, kind: SchedulePreset['kind']): Schedul
 export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots }: ScheduleEditorProps) {
     const [preset, setPreset] = useState<SchedulePreset>(() => fromCron(cron));
     const [timeDraft, setTimeDraft] = useState('');
-    const [slots, setSlots] = useState<number[] | null>(null);
+    const [next, setNext] = useState<NextSlotsResponse | null>(null);
     const [cronError, setCronError] = useState<string | null>(null);
     // The cron this editor last sent up; only a different one from outside resets the preset.
     const sent = useRef(cron);
@@ -94,7 +112,7 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
     useEffect(() => {
         setCronError(null);
         if (!nextSlots || !cron.trim()) {
-            setSlots(null);
+            setNext(null);
             return undefined;
         }
         let stale = false;
@@ -102,14 +120,14 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
             nextSlots(cron, timezone || null, 3).then(
                 (r) => {
                     if (!stale) {
-                        setSlots(r.slots);
+                        setNext(r);
                     }
                 },
                 (e: { code?: string; message?: string }) => {
                     if (stale) {
                         return;
                     }
-                    setSlots(null);
+                    setNext(null);
                     if (e && e.code === 'bad_cron') {
                         setCronError(e.message || 'This cron expression is not valid.');
                     }
@@ -242,13 +260,14 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
                     />
                 </ControlGroup>
             )}
-            <p>{`${describeSchedule(cron)}, in ${timezone || "the server's time zone"}`}</p>
-            {slots && slots.length > 0 && (
+            <p>{`${describeSchedule(cron)}, ${next ? zoneLabel(next.timezone, next.utc_offsets[0] ?? null) : zoneLabel(timezone || null, null)}`}</p>
+            {next && next.timezone_status !== 'ok' && <p>Unknown time zone; times are shown in server time.</p>}
+            {next && next.slots.length > 0 && (
                 <DefinitionList termWidth="90px">
                     <DefinitionList.Term>Next runs</DefinitionList.Term>
                     <DefinitionList.Description>
-                        {slots.map((s) => (
-                            <div key={s}>{formatSlot(s, timezone)}</div>
+                        {next.slots.map((s, i) => (
+                            <div key={s}>{formatSlot(s, next.utc_offsets[i] ?? 0)}</div>
                         ))}
                     </DefinitionList.Description>
                 </DefinitionList>

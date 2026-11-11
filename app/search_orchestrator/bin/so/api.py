@@ -44,6 +44,7 @@ import json
 import re
 import time
 import uuid
+from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
 from . import authz, hidden, model, preview, scheduler, selftest, tokens
@@ -1006,15 +1007,19 @@ def schedule_next(ctx, body):
         spec = cronmod.parse(body.get("cron"))
     except cronmod.CronError as err:
         raise ApiError(400, "bad_cron", str(err))
+    # No zone, or one that doesn't resolve, means server local time (always resolves).
+    tz = cronmod.resolve_tz(timezone)
     slots, after = [], ctx.now + 1
     while len(slots) < count:
-        slot = cronmod.next_slot(spec, after, timezone, NEXT_RUN_MAX_DAYS)
+        slot = cronmod.next_slot(spec, after, tz, NEXT_RUN_MAX_DAYS)
         if slot is None:
             break
         slots.append(slot)
         after = slot + 1
-    # No zone means server local time, which always resolves.
+    offsets = [int(datetime.fromtimestamp(slot, tz).utcoffset().total_seconds()) for slot in slots]
     return 200, {"slots": slots,
+                 "utc_offsets": offsets,
+                 "timezone": timezone if timezone and not isinstance(tz, cronmod.LocalTZ) else None,
                  "timezone_status": cronmod.tz_status(timezone) if timezone else "ok"}
 
 

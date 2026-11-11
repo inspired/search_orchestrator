@@ -224,7 +224,16 @@ export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_t
 
 /** The next `count` (1 to 5) times a cron fires in `timezone` (null: the server's), as epoch
  * seconds. A bad cron is an ApiError with code `bad_cron`. */
-export function nextSlots(cron: string, timezone: string | null, count = 3): Promise<{ slots: number[]; timezone_status: unknown }> {
+/** POST schedule/next. `timezone` is the job's zone when it set one that resolved, else null
+ * (server time); `utc_offsets` are seconds east of UTC for each slot, as the server computed them. */
+export interface NextSlotsResponse {
+    slots: number[];
+    utc_offsets: number[];
+    timezone: string | null;
+    timezone_status: 'ok' | 'unknown' | 'unavailable';
+}
+
+export function nextSlots(cron: string, timezone: string | null, count = 3): Promise<NextSlotsResponse> {
     return request('POST', 'schedule/next', { body: { cron, timezone, count } });
 }
 

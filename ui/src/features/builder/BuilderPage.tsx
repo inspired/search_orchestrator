@@ -43,7 +43,7 @@ export interface BuilderApi extends PreviewApi {
     previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number; result_retention?: number }>;
     listRuns: (filters: RunFilters) => Promise<RunSummary[]>;
     resolveTimeRange: (earliest: string, latest: string, scheduledTime: number) => Promise<{ earliest: number | null; latest: number }>;
-    nextSlots: (cron: string, timezone: string | null, count?: number) => Promise<{ slots: number[]; timezone_status: unknown }>;
+    nextSlots: (cron: string, timezone: string | null, count?: number) => Promise<client.NextSlotsResponse>;
 }
 
 const defaultApi: BuilderApi = {
