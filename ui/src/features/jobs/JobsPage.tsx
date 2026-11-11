@@ -88,6 +88,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
             ) : (
                 <JobsTable
                     jobs={jobs.data || []}
+                    loadFailed={!!jobs.error}
                     me={me}
                     busy={busy}
                     onRunNow={(job) => setRunNow(job)}

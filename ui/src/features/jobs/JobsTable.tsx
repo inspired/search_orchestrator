@@ -17,6 +17,8 @@ import { filterJobs, jobSummary } from './jobSummary';
 
 export interface JobsTableProps {
     jobs: Job[];
+    /** The last load failed: with no jobs, show nothing (the page shows the error). */
+    loadFailed?: boolean;
     me: Me | null | undefined;
     onRunNow: (job: Job) => void;
     onToggleEnabled: (job: Job, enabled: boolean) => void;
@@ -37,11 +39,11 @@ function nextRunText(job: Job): string {
     return job.next_run_beyond ? '\u2014' : 'Not scheduled';
 }
 
-export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
+export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     if (!jobs.length) {
-        return <JobsEmpty me={me} />;
+        return loadFailed ? null : <JobsEmpty me={me} />;
     }
     const names: Record<string, string> = {};
     jobs.forEach((j) => {

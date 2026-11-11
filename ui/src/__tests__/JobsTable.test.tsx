@@ -272,6 +272,24 @@ test('the Jobs page primary button is Create job', async () => {
     expect(await screen.findByRole('link', { name: 'Create job' })).toBeInTheDocument();
 });
 
+test('when the jobs fail to load, the Jobs page shows the error and no empty state', async () => {
+    const api = {
+        me: jest.fn().mockResolvedValue(me),
+        listJobs: jest.fn().mockRejectedValue(new Error('splunkd is down')),
+        setJobEnabled: jest.fn(),
+        deleteJob: jest.fn(),
+    } as unknown as JobsApi;
+    renderThemed(<JobsPage api={api} />);
+    expect(await screen.findByText('The jobs could not be loaded: splunkd is down')).toBeInTheDocument();
+    expect(screen.queryByText('Build your first job')).toBeNull();
+    expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+});
+
+test('JobsTable shows nothing for no jobs when loading failed', () => {
+    const { container } = renderThemed(<JobsTable jobs={[]} loadFailed me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+});
+
 describe('JobsTable empty state and access', () => {
     test('while access loads, no claim is made', () => {
         renderThemed(<JobsTable jobs={[]} me={undefined} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
