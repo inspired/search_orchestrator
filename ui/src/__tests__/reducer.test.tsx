@@ -146,3 +146,10 @@ describe('builder reducer', () => {
         expect(s.job.steps[0]).toEqual({ id: 'p', type: 'inline', spl: '| stats count' });
     });
 });
+
+test('leaving Saved search clears read_previous', () => {
+    const job: JobDefinition = { name: 'j', enabled: true, edges: [],
+        steps: [{ id: 'b', type: 'saved_search', saved_search_ref: 'rep', read_previous: true }] };
+    const s = reducer(initialState(job), { type: 'updateStep', id: 'b', changes: { type: 'inline' } });
+    expect(s.job.steps[0].read_previous).toBeUndefined();
+});

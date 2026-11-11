@@ -240,10 +240,19 @@ def parse_history(body, since_epoch):
     return [sid for _, sid in found]
 
 
+# A dispatched saved search's search ID ends ``_at_<dispatch.now>_<n>``.
+_DISPATCHED_AT = re.compile(r"_at_(\d+)_\d+$")
+
+
 def parse_history_details(body, since_epoch):
-    """History JSON -> ``[{"sid", "dispatch_now", "published"}]`` for jobs published or
+    """History JSON -> ``[{"sid", "dispatch_now", "published", "by_scheduler"}]`` for jobs
+    published or
     dispatched at or after since_epoch, newest first. ``dispatch_now`` is the job's
-    ``dispatch.now`` (from its content or its request), or None if absent."""
+    ``dispatch.now``, or None if absent. Real history entries (10.6.1.1) carry no request
+    and no ``dispatch.now``; a dispatched saved search's job keeps it as ``request.now``
+    and in its search ID (``..._at_<now>_<n>``), which is what is usually read here.
+    ``by_scheduler``: Splunk's own schedule ran it (search ID ``scheduler__...``), so it
+    is never a job this app dispatched."""
     found = []
     for entry in json.loads(body).get("entry", []):
         c = entry.get("content", {})
@@ -256,11 +265,17 @@ def parse_history_details(body, since_epoch):
         sid = entry.get("name") or c.get("sid")
         if sid and when is not None and when >= since_epoch:
             request = c.get("request") if isinstance(c.get("request"), dict) else {}
-            now = _epoch(c.get("dispatch.now"))
+            now = None
+            for raw in (c.get("dispatch.now"), request.get("dispatch.now"), request.get("now")):
+                now = _epoch(raw)
+                if now is not None:
+                    break
             if now is None:
-                now = _epoch(request.get("dispatch.now"))
+                at = _DISPATCHED_AT.search(sid)
+                now = int(at.group(1)) if at else None
             published = _epoch(entry.get("published") or c.get("published"))
-            found.append((when, {"sid": sid, "dispatch_now": now, "published": published}))
+            found.append((when, {"sid": sid, "dispatch_now": now, "published": published,
+                                 "by_scheduler": sid.startswith("scheduler__")}))
     found.sort(key=lambda p: p[0], reverse=True)
     return [d for _, d in found]
 
@@ -381,6 +396,8 @@ class Gateway(Protocol):
                             latest: str, description: str = "") -> None: ...
     def delete_saved_search(self, owner: str, name: str) -> None: ...
     def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
+    def report_search(self, owner: str, name: str) -> Optional[str]: ...
+    def job_search(self, sid: str) -> Optional[str]: ...
     def index_exists(self, name: str) -> bool: ...
     def alert_actions(self, user: str) -> List[Dict[str, str]]: ...
     def read_secret(self, name: str) -> Optional[str]: ...
@@ -488,6 +505,24 @@ class SplunkGateway:
                 return dict(MISSING_STATUS)
             raise GatewayError("job status failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
+
+    def job_search(self, sid):
+        """The search a job ran, with its arguments filled in; None if the job is gone or
+        not readable (404/403) or doesn't say."""
+        try:
+            body = json.loads(self._call("get", "search/jobs/" + sid, "-", "-"))
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) in (403, 404):
+                return None
+            raise GatewayError("job lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        entries = body.get("entry") or [{}]
+        content = entries[0].get("content") or {}
+        # 10.6.1.1 gives the search as the entry's name; content may also carry it.
+        text = content.get("search") or entries[0].get("name")
+        return text if isinstance(text, str) and text != sid else None
 
     def first_row(self, sid):
         try:
@@ -603,6 +638,22 @@ class SplunkGateway:
             raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return parse_saved_search_info(body)
+
+    def report_search(self, owner, name):
+        """The text of saved search ``name`` as ``owner`` resolves it in this app, where
+        dispatch and ``| savedsearch`` find it (``/servicesNS/<owner>/<app>/``), or None
+        if it is missing or the session cannot read it."""
+        try:
+            body = self._call("get", encoded_path("saved/searches", name), owner)
+        except GatewayError:
+            raise
+        except Exception as err:
+            if self._status(err) in (403, 404):
+                return None
+            raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
+                               is_transient_status(self._status(err)))
+        entries = json.loads(body).get("entry") or []
+        return (entries[0].get("content") or {}).get("search") if entries else None
 
     def index_exists(self, name):
         try:

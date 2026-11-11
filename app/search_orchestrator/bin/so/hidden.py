@@ -29,6 +29,10 @@ Step searches (``steps[i]``, written into the job definition):
   cannot read is an ``unknown_saved_search`` error. The lookup spans all apps;
   a search this app's context can't see (not saved in this app and not
   shared globally) is a ``saved_search_not_visible`` error.
+  With ``read_previous`` the report, read through ``gateway.report_search`` from the
+  owner's namespace in this app (where it runs), must read ``$args.so_input$`` (not in a
+  ``` comment, not directly in double quotes), else a ``report_missing_input`` or ``report_input_quoted``
+  error skips the search; the wrapper then ends with ``args.so_input="$args.so_input$"``.
 
 Action searches
 ---------------
@@ -168,6 +172,11 @@ def _saved_search(gw, owner, step):
         return None, False, [_issue("error", "saved_search_not_visible",
                                     not_visible_message(ref), sid)]
     spl = '| savedsearch "%s"' % tokens.escape_spl_string(ref)
+    if step.get("read_previous") is True:
+        found = tokens.report_input_issue(ref, gw.report_search(owner, ref))
+        if found:
+            return None, False, [_issue("error", found[0], found[1], sid)]
+        spl += ' args.%s="$args.%s$"' % (tokens.INPUT_ARG, tokens.INPUT_ARG)
     if (info.get("owner") == owner and info.get("sharing") == "user"
             and info.get("dispatch_as") == "owner"):
         return spl, True, []

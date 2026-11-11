@@ -44,6 +44,25 @@ A **From previous steps** step searches the results of the steps it depends on, 
 - **Skipped and failed inputs add nothing.** Only dependencies that succeeded are loaded. A step that runs after an `on_failure` connection still runs, without the failed step's rows. If no dependency succeeded, it runs on no rows.
 - **The second and later inputs are limited to 50,000 rows each.** They are appended through a subsearch, and Splunk cuts a subsearch short at that limit. When that happens the step fails with "a subsearch was cut short: ..." and Splunk's message, never with silently partial results. The first input has no such limit, so connect the largest dependency first, or summarise the inputs before they reach this step.
 
+### Reports that read a previous step
+
+A **Saved search** step can read the results of the step before it. Tick **Reads the previous step's results** on the step, and the report receives that step's search ID as `$args.so_input$`.
+
+To set one up:
+
+1. Edit the report so it reads its input with `| loadjob $args.so_input$`, such as `| loadjob $args.so_input$ | stats count by host`. **Put no quotes around the placeholder.** The placeholder may appear more than once, for example inside a subsearch. A report without it, or with quotes directly around it, can't be saved in the job. If you edit the report that way later, the step is refused again before each run.
+2. Add the report as a Saved search step and tick **Reads the previous step's results**.
+3. Connect exactly one step before it.
+
+Things to know:
+
+- **The report no longer runs on its own outside a job.** Splunk has no value for the placeholder.
+- **It must have no other placeholders.** The run fails on any it can't fill.
+- **Its own summary indexing and alert actions don't run** when a job wraps it, as with any wrapped saved search. Use job actions instead. A report that runs directly keeps them.
+- **If the previous step was skipped or failed and this step still starts**, it fails with `Report step <id> needs the results of step <up>, which did not succeed`. Saving the job warns you about this possibility.
+- **Its Earliest and Latest still apply.**
+- **Opening a wrapped report in Splunk doesn't show the results of the job's run.**
+
 ### Tokens
 
 Use these in SPL, expressions and action messages:

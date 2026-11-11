@@ -63,3 +63,15 @@ describe('graphLogic', () => {
         ]);
     });
 });
+
+test('findIssues needs exactly one step before a report that reads it', () => {
+    const msg = 'A report that reads the previous step needs exactly one step before it';
+    const r = (id: string) => ({ id, type: 'saved_search' as const, saved_search_ref: 'rep', read_previous: true });
+    const job: JobDefinition = { name: 'j', enabled: true,
+        steps: [{ id: 'a', type: 'inline', spl: '| x' }, { id: 'c', type: 'inline', spl: '| x' },
+                r('none'), r('one'), r('twice'), r('two')],
+        edges: [{ from: 'a', to: 'one' }, { from: 'a', to: 'twice' }, { from: 'a', to: 'twice' },
+                { from: 'a', to: 'two' }, { from: 'c', to: 'two' }] };
+    const found = findIssues(job).filter((i) => i.code === 'report_input_needs_one').map((i) => [i.step, i.message]);
+    expect(found).toEqual([['none', msg], ['two', msg]]);
+});

@@ -188,3 +188,15 @@ describe('AccessTab', () => {
         expect(screen.getByRole('combobox', { name: 'Who may run' })).toBeInTheDocument();
     });
 });
+
+test('a saved search step can read the previous step', () => {
+    const job = threeSteps([{ from: 'a', to: 'b' }]);
+    job.steps[1] = { id: 'b', type: 'saved_search', saved_search_ref: 'rep' };
+    const state = renderPanel(job, 'b');
+    const box = screen.getByRole('checkbox', { name: "Reads the previous step's results" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    expect(state().job.steps[1].read_previous).toBe(true);
+    expect(screen.getByText(/\| loadjob \$args\.so_input\$/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Earliest')).toBeInTheDocument();
+});
