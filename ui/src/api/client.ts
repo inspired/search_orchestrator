@@ -222,6 +222,12 @@ export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_t
     return request('POST', 'preview/defaults', { body: { job: toDefinition(job) } });
 }
 
+/** The next `count` (1 to 5) times a cron fires in `timezone` (null: the server's), as epoch
+ * seconds. A bad cron is an ApiError with code `bad_cron`. */
+export function nextSlots(cron: string, timezone: string | null, count = 3): Promise<{ slots: number[]; timezone_status: unknown }> {
+    return request('POST', 'schedule/next', { body: { cron, timezone, count } });
+}
+
 export function startPreview(req: PreviewRequest): Promise<PreviewStart> {
     return request<PreviewStart>('POST', 'preview', { body: { ...req, job: toDefinition(req.job) } });
 }

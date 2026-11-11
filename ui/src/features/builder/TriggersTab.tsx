@@ -5,21 +5,26 @@ import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
+import ComboBox from '@splunk/react-ui/ComboBox';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Job, JobDefinition, Trigger } from '../../api/types';
 import type { BuilderAction } from './reducer';
+import ScheduleEditor, { NextSlots } from './ScheduleEditor';
+import { timeZoneOptions } from './schedule';
 
 export interface TriggersTabProps {
     job: JobDefinition;
     /** Other jobs, for completion triggers. */
     jobs: Pick<Job, 'id' | 'name'>[];
     dispatch: (action: BuilderAction) => void;
+    /** The next run times for a cron; without it the schedules show no next runs. */
+    nextSlots?: NextSlots;
 }
 
-export default function TriggersTab({ job, jobs, dispatch }: TriggersTabProps) {
+export default function TriggersTab({ job, jobs, dispatch, nextSlots }: TriggersTabProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const triggers = job.triggers || [];
     const setTriggers = (value: Trigger[]) => dispatch({ type: 'setJobField', field: 'triggers', value });
@@ -38,9 +43,7 @@ export default function TriggersTab({ job, jobs, dispatch }: TriggersTabProps) {
                 const id = `trigger-${triggers.length}-${i}`;
                 return (
                     <div key={id} style={row}>
-                        <ControlGroup label="Cron" labelFor={`${id}-cron`} labelPosition="top" help="minute hour day-of-month month day-of-week, in the job's time zone.">
-                            <Text inputId={`${id}-cron`} value={t.cron || ''} placeholder="0 1 * * *" onChange={(_e: unknown, { value }: { value: string }) => update(i, { cron: value })} />
-                        </ControlGroup>
+                        <ScheduleEditor id={id} cron={t.cron || ''} timezone={job.timezone} nextSlots={nextSlots} onChange={(cron) => update(i, { cron })} />
                         <Switch
                             appearance="toggle"
                             selected={t.enabled !== false}
@@ -101,12 +104,16 @@ export default function TriggersTab({ job, jobs, dispatch }: TriggersTabProps) {
 
             <Heading level={3}>Schedule options</Heading>
             <ControlGroup label="Time zone" labelFor="job-timezone" labelPosition="top" help="An IANA name such as Europe/Oslo. Empty uses the server's time zone.">
-                <Text
+                <ComboBox
                     inputId="job-timezone"
                     value={job.timezone || ''}
                     placeholder="Server time zone"
-                    onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'timezone', value: value || undefined })}
-                />
+                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'timezone', value: String(value) || undefined })}
+                >
+                    {timeZoneOptions(job.timezone).map((z) => (
+                        <ComboBox.Option key={z} value={z} />
+                    ))}
+                </ComboBox>
             </ControlGroup>
             <ControlGroup label="Missed runs" labelFor="job-catchup" labelPosition="top" help="What to do with cron slots missed while Splunk or the engine was down.">
                 <Select

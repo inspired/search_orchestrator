@@ -34,6 +34,7 @@ export interface BuilderApi extends PreviewApi {
     me: () => Promise<Me>;
     previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number; result_retention?: number }>;
     listRuns: (filters: RunFilters) => Promise<RunSummary[]>;
+    nextSlots: (cron: string, timezone: string | null, count?: number) => Promise<{ slots: number[]; timezone_status: unknown }>;
 }
 
 const defaultApi: BuilderApi = {
@@ -47,6 +48,7 @@ const defaultApi: BuilderApi = {
     me: client.me,
     previewDefaults: client.previewDefaults,
     listRuns: client.listRuns,
+    nextSlots: client.nextSlots,
     startPreview: client.startPreview,
     previewStatus: client.previewStatus,
     previewResults: client.previewResults,
@@ -490,6 +492,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                         destinations={destinations}
                         alertActions={alertActions}
                         steps={stepsTab}
+                        nextSlots={api.nextSlots}
                     />
                 </>
             )}

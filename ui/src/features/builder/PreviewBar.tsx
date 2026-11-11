@@ -13,7 +13,13 @@ import { localStamp } from './PreviewResult';
 const RUNS_SHOWN = 20;
 const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
-const pad = (n: number) => String(n).padStart(2, '0');
+export const pad = (n: number) => String(n).padStart(2, '0');
+
+/** "9:05" or "09:05" as hour and minute; null when it is not a 24-hour HH:MM. */
+export function parseTime(text: string): { hour: number; minute: number } | null {
+    const m = TIME_RE.exec(text);
+    return m ? { hour: Number(m[1]), minute: Number(m[2]) } : null;
+}
 
 function dateOf(epoch: number): string {
     const d = new Date(epoch * 1000);
@@ -28,11 +34,11 @@ function timeOf(epoch: number): string {
 /** Local date "YYYY-MM-DD" and time "HH:MM" as epoch seconds. */
 function toEpoch(date: string, time: string): number | null {
     const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-    const tm = TIME_RE.exec(time);
+    const tm = parseTime(time);
     if (!dm || !tm) {
         return null;
     }
-    const d = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+    const d = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), tm.hour, tm.minute);
     return Math.floor(d.getTime() / 1000);
 }
 

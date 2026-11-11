@@ -16,6 +16,7 @@ import ParamsTab from './ParamsTab';
 import type { BuilderAction } from './reducer';
 import { BUILTIN_DEFAULTS } from './previewLogic';
 import { DurationField } from './StepPanel';
+import type { NextSlots } from './ScheduleEditor';
 import TriggersTab from './TriggersTab';
 
 export interface JobTabsProps {
@@ -28,6 +29,7 @@ export interface JobTabsProps {
     alertActions?: AlertAction[] | null;
     /** The Steps tab: canvas and side panel. */
     steps: React.ReactNode;
+    nextSlots?: NextSlots;
 }
 
 function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
@@ -118,7 +120,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps }: JobTabsProps) {
+export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots }: JobTabsProps) {
     const [tab, setTab] = useState('steps');
     return (
         <div>
@@ -132,7 +134,7 @@ export default function JobTabs({ job, dispatch, owner, roles, jobs, destination
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
-                {tab === 'triggers' && <TriggersTab job={job} jobs={jobs} dispatch={dispatch} />}
+                {tab === 'triggers' && <TriggersTab job={job} jobs={jobs} dispatch={dispatch} nextSlots={nextSlots} />}
                 {tab === 'params' && (
                     <ParamsTab params={job.params || []} onChange={(value) => dispatch({ type: 'setJobField', field: 'params', value })} />
                 )}
