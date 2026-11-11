@@ -174,6 +174,7 @@ export default function ActionsEditor({ actions, onChange, destinations, alertAc
                 {tokenGroups && opts.tokens ? (
                     <TokenInput
                         inputId={id}
+                        fieldLabel={label}
                         multiline={opts.multiline}
                         value={str(a[key])}
                         placeholder={opts.placeholder}

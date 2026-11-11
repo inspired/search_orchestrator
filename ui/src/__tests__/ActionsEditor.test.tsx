@@ -116,3 +116,19 @@ describe('ActionsEditor alert action', () => {
         expect(onChange).toHaveBeenCalledWith([{ hook: 'on_failure', type: 'alert_action', action: 'logevent' }]);
     });
 });
+
+describe('ActionsEditor insert value', () => {
+    it('names each insert-value control after its field', () => {
+        renderThemed(
+            <ActionsEditor
+                actions={[{ hook: 'on_failure', type: 'email', to: 'a@b.c' } as Action]}
+                onChange={jest.fn()}
+                destinations={[]}
+                idPrefix="t"
+                tokenGroups={[{ title: 'This run', options: [{ token: '$run.id$', label: 'Run id', description: 'The id of this run.' }] }]}
+            />
+        );
+        expect(screen.getByRole('button', { name: 'Insert value into Subject' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Insert value into Message' })).toBeInTheDocument();
+    });
+});

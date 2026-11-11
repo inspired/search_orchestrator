@@ -11,14 +11,16 @@ import { insertAt, Selection, TokenGroup } from './tokens';
 
 export interface InsertTokenProps {
     groups: TokenGroup[];
+    /** The field's label; names the toggle for assistive technology. */
+    fieldLabel: string;
     onInsert: (token: string) => void;
 }
 
-export default function InsertToken({ groups, onInsert }: InsertTokenProps) {
+export default function InsertToken({ groups, fieldLabel, onInsert }: InsertTokenProps) {
     return (
         <Dropdown
             closeReasons={['clickAway', 'escapeKey', 'offScreen', 'toggleClick', 'contentClick']}
-            toggle={<Button appearance="subtle" label="Insert value" />}
+            toggle={<Button appearance="subtle" label="Insert value" aria-label={`Insert value into ${fieldLabel}`} />}
         >
             <Menu>
                 {groups.map((g) => (
@@ -40,6 +42,7 @@ type El = HTMLInputElement | HTMLTextAreaElement;
 
 export interface TokenInputProps {
     inputId: string;
+    fieldLabel: string;
     value: string;
     groups: TokenGroup[];
     /** Called with the new text, like the field's own typing. */
@@ -49,7 +52,7 @@ export interface TokenInputProps {
     placeholder?: string;
 }
 
-export function TokenInput({ inputId, value, groups, onValue, multiline, rowsMin, placeholder }: TokenInputProps) {
+export function TokenInput({ inputId, fieldLabel, value, groups, onValue, multiline, rowsMin, placeholder }: TokenInputProps) {
     const el = useRef<El | null>(null);
     const selection = useRef<Selection | null>(null);
     const pending = useRef<number | null>(null);
@@ -95,7 +98,7 @@ export function TokenInput({ inputId, value, groups, onValue, multiline, rowsMin
             ) : (
                 <Text inputId={inputId} inputRef={setRef} value={value} placeholder={placeholder} onChange={onChange} />
             )}
-            <InsertToken groups={groups} onInsert={onInsert} />
+            <InsertToken groups={groups} fieldLabel={fieldLabel} onInsert={onInsert} />
         </div>
     );
 }

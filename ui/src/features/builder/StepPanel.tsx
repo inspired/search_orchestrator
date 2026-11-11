@@ -279,42 +279,34 @@ export default function StepPanel({
                 >
                     <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
                 </ControlGroup>
-            ) : step.type === 'previous' ? (
+            ) : (
                 <>
-                    <ControlGroup label="Input (added for you)" labelPosition="top">
-                        <StaticContent>
-                            <Typography as="span" variant="monoBody">
-                                {generatedInput(job, stepId)}
-                            </Typography>
-                        </StaticContent>
-                    </ControlGroup>
+                    {step.type === 'previous' && (
+                        <ControlGroup label="Input (added for you)" labelPosition="top">
+                            <StaticContent>
+                                <Typography as="span" variant="monoBody">
+                                    {generatedInput(job, stepId)}
+                                </Typography>
+                            </StaticContent>
+                        </ControlGroup>
+                    )}
                     <ControlGroup
                         label="Search"
                         labelFor={`${p}-spl`}
                         labelPosition="top"
-                        help="Starts with |. Results of the steps before this one come first."
+                        help={step.type === 'previous' ? 'Starts with |. Results of the steps before this one come first.' : undefined}
                     >
                         <TokenInput
-                        inputId={`${p}-spl`}
-                        multiline
-                        value={step.spl || ''}
-                        rowsMin={4}
-                        groups={tokenGroups}
-                        onValue={(spl) => set({ spl })}
-                    />
+                            inputId={`${p}-spl`}
+                            fieldLabel="Search"
+                            multiline
+                            value={step.spl || ''}
+                            rowsMin={4}
+                            groups={tokenGroups}
+                            onValue={(spl) => set({ spl })}
+                        />
                     </ControlGroup>
                 </>
-            ) : (
-                <ControlGroup label="Search" labelFor={`${p}-spl`} labelPosition="top">
-                    <TokenInput
-                        inputId={`${p}-spl`}
-                        multiline
-                        value={step.spl || ''}
-                        rowsMin={4}
-                        groups={tokenGroups}
-                        onValue={(spl) => set({ spl })}
-                    />
-                </ControlGroup>
             )}
             {onPreview && (
                 <div style={{ marginBottom: '12px' }}>

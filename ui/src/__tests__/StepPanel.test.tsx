@@ -191,7 +191,7 @@ describe('AccessTab', () => {
         const state = renderPanel(rollupJob(), 'monthly');
         const spl = () => screen.getByLabelText('Search') as HTMLTextAreaElement;
         const insert = async (group: number) => {
-            fireEvent.click(screen.getAllByRole('button', { name: 'Insert value' })[0]);
+            fireEvent.click(screen.getByRole('button', { name: 'Insert value into Search' }));
             const items = await screen.findAllByRole('menuitem', { name: /Result count/ });
             fireEvent.click(items[group]);
         };

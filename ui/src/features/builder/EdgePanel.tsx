@@ -59,6 +59,7 @@ export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, 
                 <ControlGroup label="Expression" labelFor="edge-expression" labelPosition="top" help={`Checked when ${name(from)} finishes.`}>
                     <TokenInput
                         inputId="edge-expression"
+                        fieldLabel="Expression"
                         value={edge.expression || ''}
                         placeholder={`$${from}.resultCount$ > 0`}
                         groups={availableTokens(job, to, previewFields)}
