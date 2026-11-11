@@ -2,6 +2,7 @@
  * "Learn more" links elsewhere in the app can jump to a section. */
 import React, { useEffect } from 'react';
 import Heading from '@splunk/react-ui/Heading';
+import Link from '@splunk/react-ui/Link';
 import Markdown from '@splunk/react-ui/Markdown';
 import guide from '../../../../docs/user-guide.md';
 
@@ -38,6 +39,18 @@ function heading({ children, level }: { children: React.ReactNode[]; level: numb
     );
 }
 
+/** Links to other repo docs (admin-guide.md) have no page in the app, so they show as text. */
+export function docLink({ children, href, title }: { children: React.ReactNode[]; href?: string; title?: string }) {
+    if (href && /\.md(#.*)?$/.test(href)) {
+        return <>{children}</>;
+    }
+    return (
+        <Link to={href} title={title}>
+            {children}
+        </Link>
+    );
+}
+
 export default function HelpPage() {
     useEffect(() => {
         const id = decodeURIComponent(window.location.hash.replace(/^#/, ''));
@@ -48,7 +61,7 @@ export default function HelpPage() {
     }, []);
     return (
         <div style={{ maxWidth: '860px' }}>
-            <Markdown text={guide} headingRenderer={heading} />
+            <Markdown text={guide} headingRenderer={heading} linkRenderer={docLink} />
         </div>
     );
 }

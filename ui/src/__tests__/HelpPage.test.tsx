@@ -1,6 +1,6 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
-import HelpPage, { slugify } from '../features/help/HelpPage';
+import HelpPage, { docLink, slugify } from '../features/help/HelpPage';
 import LearnMore, { helpHref } from '../components/LearnMore';
 import { renderThemed } from './fixtures';
 import guide from '../../../docs/user-guide.md';
@@ -19,6 +19,29 @@ describe('HelpPage', () => {
         const tokens = document.getElementById('tokens');
         expect(tokens).not.toBeNull();
         expect(tokens!.tagName).toBe('H3'); // the guide's Tokens heading is ###
+    });
+});
+
+describe('HelpPage links', () => {
+    it('shows links to other repo docs as plain text, and keeps other links', () => {
+        renderThemed(<HelpPage />);
+        expect(screen.queryByRole('link', { name: 'admin guide' })).toBeNull();
+        expect(document.body.textContent).toContain('Admins: see the admin guide.');
+        expect(screen.getAllByRole('link').some((a) => /\.md(#|$)/.test(a.getAttribute('href') || ''))).toBe(false);
+        expect(screen.getAllByRole('link').some((a) => (a.getAttribute('href') || '').startsWith('#'))).toBe(true);
+    });
+
+    it('docLink renders .md hrefs as text', () => {
+        renderThemed(
+            <>
+                {docLink({ href: 'admin-guide.md', children: ['Admin'] })}
+                {docLink({ href: 'admin-guide.md#install', children: ['Install'] })}
+                {docLink({ href: '#tokens', children: ['Tokens'] })}
+            </>
+        );
+        expect(screen.queryByRole('link', { name: 'Admin' })).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Install' })).toBeNull();
+        expect(screen.getByRole('link', { name: 'Tokens' }).getAttribute('href')).toBe('#tokens');
     });
 });
 
