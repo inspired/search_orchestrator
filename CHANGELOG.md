@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 (2026-11-11)
+
+Faster starts and fewer typos when building a job.
+
+- A new job starts from a template: Daily, weekly and monthly rollup, One search after another, Run searches side by side, then combine, or Blank job. Choosing one fills in the steps, and one undo takes them back out.
+- An **Insert value** list puts tokens into searches, edge expressions and action messages (the email subject and message, and the event payload). It lists only the tokens that exist at that point. With no cursor in the field, the token goes at the end. A selection is replaced.
+- A setup checklist above the tabs shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button to the right tab. It goes away once the job is ready.
+
 ## 1.5.0 (2026-11-11)
 
 Clearer schedules, durations and time ranges in the job editor.
