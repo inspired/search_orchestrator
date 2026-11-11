@@ -58,6 +58,7 @@ class FakeGateway:
         self._dispatch_errors = {}
         self._sids = itertools.count(1)
         self.history_by_search = {}
+        self.job_search_error = None
         self.clock = None  # optional callable: history records real dispatch time, like splunkd
         self.removed_users = set()  # owners whose accounts no longer exist
         self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
@@ -199,8 +200,24 @@ class FakeGateway:
     def history_details(self, owner, name, since_epoch):
         rows = [r for r in self.history_by_search.get((owner, name), []) if r[0] >= since_epoch]
         return [{"sid": r[1], "dispatch_now": r[2] if len(r) > 2 else None, "published": r[0],
-                 "so_input": r[3].get("so_input") if len(r) > 3 else None}
+                 "by_scheduler": r[1].startswith("scheduler__")}
                 for r in sorted(rows, key=lambda r: r[0], reverse=True)]
+
+    def job_search(self, sid):
+        """The report's text with the job's args filled in, as splunkd shows it. A history
+        row without args (fewer than 4 fields) stands for a job whose search can't be read."""
+        if self.job_search_error is not None:
+            raise self.job_search_error
+        for (owner, name), rows in self.history_by_search.items():
+            for r in rows:
+                if r[1] == sid:
+                    if len(r) < 4:
+                        return None
+                    text = (self.saved_searches.get((owner, name)) or {}).get("search") or ""
+                    for key, value in r[3].items():
+                        text = text.replace("$args.%s$" % key, value)
+                    return text or " ".join(r[3].values())
+        return None
 
     # KV.
 

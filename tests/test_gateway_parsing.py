@@ -343,15 +343,48 @@ def test_parse_history_details_reads_dispatch_now():
     assert out[2]["dispatch_now"] == 1796086800 and out[1]["published"] == 1796086807
 
 
-def test_parse_history_details_reads_so_input():
+def test_parse_history_details_reads_now_from_the_request_or_search_id():
+    # Real server, 10.6.1.1: history entries carry only start, ttl and flags; the job keeps
+    # dispatch.now as request.now, and its search ID ends _at_<now>_<n>.
+    sid = "_c3BsdW5rLXN5c3RlbS11c2Vy__alice_c2VhcmNo__RMD5361a047d4ce8e9e4_at_1796086000_18409"
     body = json.dumps({"entry": [
         {"name": "s1", "published": "2026-12-01T01:00:09+00:00",
-         "content": {"args.so_input": "\"a\""}},
-        {"name": "s2", "published": "2026-12-01T01:00:08+00:00",
-         "content": {"request": {"args.so_input": "\"b\""}}},
-        {"name": "s3", "published": "2026-12-01T01:00:07+00:00", "content": {}}]})
+         "content": {"request": {"now": "1796086100"}}},
+        {"name": sid, "published": "2026-12-01T01:00:08+00:00",
+         "content": {"isDone": True, "start": 1796086800, "ttl": 600}},
+        {"name": "scheduler__alice_c2VhcmNo__RMD5x_at_1796086800_7",
+         "published": "2026-12-01T01:00:07+00:00", "content": {}}]})
     out = g.parse_history_details(body, 1796086800)
-    assert [d["so_input"] for d in out] == ['"a"', '"b"', None]
+    assert [d["dispatch_now"] for d in out] == [1796086100, 1796086000, 1796086800]
+    assert [d["by_scheduler"] for d in out] == [False, False, True]
+
+
+def test_job_search_reads_the_filled_in_search():
+    # Real server, 10.6.1.1: the job's entry name is its search with args filled in.
+    text = '| loadjob "a.1" | stats count'
+    gw = g.SplunkGateway(StubService(lambda m, p, kw: Resp(json.dumps(
+        {"entry": [{"name": text, "content": {"request": {"now": "1"}}}]}))))
+    assert gw.job_search("b.1") == text
+    gw = g.SplunkGateway(StubService(lambda m, p, kw: Resp(json.dumps(
+        {"entry": [{"name": "x", "content": {"search": text}}]}))))
+    assert gw.job_search("b.1") == text
+    gw = g.SplunkGateway(StubService(lambda m, p, kw: Resp(json.dumps(
+        {"entry": [{"name": "b.1", "content": {}}]}))))
+    assert gw.job_search("b.1") is None
+
+
+@pytest.mark.parametrize("status,outcome", [(404, None), (403, None), (503, "transient"),
+                                            (400, "error")])
+def test_job_search_errors(status, outcome):
+    def handler(method, path, kw):
+        raise FakeHTTPError(status)
+    gw = g.SplunkGateway(StubService(handler))
+    if outcome is None:
+        assert gw.job_search("b.1") is None
+        return
+    with pytest.raises(g.GatewayError) as info:
+        gw.job_search("b.1")
+    assert info.value.transient is (outcome == "transient")
 
 
 def test_done_job_with_error_message_is_failed():

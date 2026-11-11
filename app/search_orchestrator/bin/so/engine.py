@@ -32,10 +32,12 @@ Crash safety
   ``dispatch.now`` (or published time) equals the run's scheduled time is
   adopted; other jobs there make the outcome unknown. A direct step with
   ``read_previous`` shares its name with every other step on that report, so a
-  job must also prove its input: one whose ``args.so_input`` equals this step's
-  is adopted, one with a different value is another step's and is ignored (if
-  every job is, the step dispatches), and one with no recorded value is never
-  adopted and leaves the outcome unknown. Adoption runs before
+  job must also prove its input: Splunk keeps no args on a job, so its search
+  (``gateway.job_search``) must contain this step's ``so_input`` value. One that
+  does is adopted, one that doesn't is another step's and is ignored (if every
+  job is, the step dispatches), and one whose search can't be read is never
+  adopted and leaves the outcome unknown. A job Splunk's own schedule ran is
+  never adopted. Adoption runs before
   evaluate, so a cancel or give-up cancels the adopted search; re-dispatch runs
   after evaluate, only if the step is still wanted. A transient history
   error leaves the step ``starting`` (in flight) and evaluate still runs, so
@@ -162,7 +164,10 @@ def _scalar(value):
 
 def _dispatched_for(detail, scheduled):
     """Was this history job dispatched with ``dispatch.now`` = ``scheduled``? Without a
-    ``dispatch.now``, its published time must equal it."""
+    ``dispatch.now``, its published time must equal it. A job Splunk's own schedule ran
+    never is."""
+    if detail.get("by_scheduler"):
+        return False
     when = detail.get("dispatch_now")
     if when is None:
         when = detail.get("published")
@@ -923,13 +928,23 @@ class Engine:
             matching = [d for d in details if _dispatched_for(d, run["scheduled_time"])]
             found = [d["sid"] for d in matching]
             if expected is not None:
-                found = [d["sid"] for d in matching if d.get("so_input") == expected]
-                if not found and any(d.get("so_input") is None for d in matching):
-                    return "unknown", ("saved search %r has a job for this scheduled time with "
-                                       "no recorded input, so it can't be proven to be this "
+                # Splunk keeps no args on the job, only the search with them filled in.
+                texts = {}
+                for d in details:
+                    try:
+                        texts[d["sid"]] = self.gw.job_search(d["sid"])
+                    except GatewayError as err:
+                        _check_auth(err)
+                        log.warning("job %s of %s failed: %s", d["sid"], name, err)
+                        return ("unknown" if err.transient else "error"), str(err)
+                found = [d["sid"] for d in matching
+                         if texts[d["sid"]] is not None and expected in texts[d["sid"]]]
+                if not found and any(texts[d["sid"]] is None for d in matching):
+                    return "unknown", ("saved search %r has a job for this scheduled time whose "
+                                       "search can't be read, so it can't be proven to be this "
                                        "step's" % name)
-                if not found and all(d.get("so_input") is not None
-                                     and d.get("so_input") != expected for d in details):
+                if not found and all(t is not None and expected not in t
+                                     for t in texts.values()):
                     return "none", None  # every job read another step's results
             if not found:
                 return "unknown", ("saved search %r ran since the dispatch, but not for "

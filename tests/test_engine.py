@@ -1707,17 +1707,17 @@ def test_direct_report_adopts_its_own_search_after_a_crash():
     assert w.audit.of("step_adopted", run_id=run_id, step_id="b", sid=d["sid"])
     assert w.run(run_id)["state"] == "succeeded"
 
-def test_direct_report_job_without_recorded_input_stays_unknown_then_fails():
+def test_direct_report_job_with_unreadable_search_stays_unknown_then_fails():
     w, j = _report_world("direct")
     run_id = _crash_on_report(w, j)
     rows = w.gw.history_by_search[("alice", "rep")]
-    w.gw.history_by_search[("alice", "rep")] = [r[:3] for r in rows]  # no so_input recorded
+    w.gw.history_by_search[("alice", "rep")] = [r[:3] for r in rows]  # search can't be read
     _settle(w, 3)
     assert w.step(run_id, "b")["state"] == "starting" and not w.step(run_id, "b")["sid"]
     run = w.run(run_id)
     sdef = next(s for s in run["definition"]["steps"] if s["id"] == "b")
     kind, reason = w.engine._adopt(run, "b", sdef, int(w.clock()), enginemod._Pending())
-    assert kind == "unknown" and "'rep'" in reason and "no recorded input" in reason
+    assert kind == "unknown" and "'rep'" in reason and "can't be read" in reason
     w.tick(advance=enginemod.UNKNOWN_LIMIT)
     _settle(w, 3)
     assert len(_b_dispatches(w, j["steps"][0]["hidden_search"])) == 1
@@ -1726,11 +1726,14 @@ def test_direct_report_job_without_recorded_input_stays_unknown_then_fails():
     assert failed and "Could not confirm" in failed[0]["error"]
     assert w.run(run_id)["state"] != "succeeded"
 
-@pytest.mark.parametrize("args,dispatched", [({"so_input": '"someone.else"'}, True), ({}, False)])
-def test_direct_report_other_scheduled_time(args, dispatched):
+@pytest.mark.parametrize("row,dispatched", [
+    ((T0 + 100, "other", T0 - 3600, {"so_input": '"someone.else"'}), True),
+    ((T0 + 100, "other", T0 - 3600, {}), True),  # run by hand: placeholder left unfilled
+    ((T0 + 100, "other", T0 - 3600), False)])  # search can't be read
+def test_direct_report_other_scheduled_time(row, dispatched):
     # A job for another scheduled time is safe to ignore only if it provably read other input.
     w, j = _report_world("direct")
-    w.gw.history_by_search[("alice", "rep")] = [(T0 + 100, "other", T0 - 3600, args)]
+    w.gw.history_by_search[("alice", "rep")] = [row]
     w.gw.fail_dispatch("rep", True)
     run_id = cron_run(w, j)
     for _ in range(4):  # past the dispatch-error backoff, within UNKNOWN_LIMIT
@@ -1905,3 +1908,33 @@ def test_a_hook_with_no_actions_stores_no_row():
         w.tick(advance=5)
     assert w.store.list_runs({})[0]["state"] == "succeeded"
     assert not w.gw.kv.get("so_action_runs")
+
+
+def test_direct_mode_never_adopts_a_job_from_the_searchs_own_schedule():
+    # Splunk's schedule names its jobs scheduler__..._at_<slot>; the slot may equal the run's.
+    w = World()
+    _add_direct(w)
+    w.tick(at=T0 - 5)
+    w.gw.fail_dispatch("mine", True)
+    w.tick(at=T0 + 1)
+    run_id = "j:%d" % T0
+    theirs = "scheduler__alice_c2VhcmNo__RMD5x_at_%d_1" % T0
+    w.gw.history_by_search[("alice", "mine")] = [(T0 + 2, theirs, T0)]
+    run = w.run(run_id)
+    sdef = next(s for s in run["definition"]["steps"] if s["id"] == "a")
+    kind, _ = w.engine._adopt(run, "a", sdef, T0 + 3, enginemod._Pending())
+    assert kind == "unknown"
+    assert not w.audit.of("step_adopted", run_id=run_id)
+
+
+def test_direct_report_job_lookup_error_keeps_the_step_starting():
+    w, j = _report_world("direct")
+    run_id = _crash_on_report(w, j)
+    w.gw.job_search_error = GatewayError("job lookup failed: 503", 503, True)
+    _settle(w, 3)
+    assert w.step(run_id, "b")["state"] == "starting" and not w.step(run_id, "b")["sid"]
+    w.gw.job_search_error = None
+    _settle(w)
+    [d] = _b_dispatches(w, j["steps"][0]["hidden_search"])
+    assert w.step(run_id, "b")["sid"] == d["sid"]
+    assert w.run(run_id)["state"] == "succeeded"
