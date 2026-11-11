@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 (2026-11-11)
 
 - Run when offers **Days of week**, a row of day buttons with Weekdays, Weekends and Every day shortcuts, in place of the Mondays preset. The step on the canvas reads "Mondays only", "Weekdays only" or "Mon, Wed, Fri only". Steps saved with the Mondays preset, and any cron that only limits the day of the week, open with their days on. The stored value is still a cron, so the server is unchanged.
 - A Saved search step can read the previous step's results: tick **Reads the previous step's results**, and the report receives that step's search ID as `$args.so_input$`. The report must read its input with `| loadjob $args.so_input$` with no quotes around the placeholder, have no other placeholders, and follow exactly one step. Saving the job checks the report and warns if the previous step can be skipped or fail.
