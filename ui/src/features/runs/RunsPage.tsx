@@ -2,6 +2,7 @@
  * state. */
 import React, { useEffect, useRef, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
+import RadioBar from '@splunk/react-ui/RadioBar';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import * as client from '../../api/client';
 import { RUN_STATES } from '../../api/types';
@@ -9,6 +10,7 @@ import type { RunState } from '../../api/types';
 import PageShell, { queryParam } from '../../components/PageShell';
 import useDebounced, { SEARCH_DELAY_MS } from '../../hooks/useDebounced';
 import usePoll from '../../hooks/usePoll';
+import SchedulePanel from '../schedule/SchedulePanel';
 import RunsTable, { RunsTableFilters } from './RunsTable';
 
 const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
@@ -16,9 +18,12 @@ const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
 export interface RunsApi {
     listJobs: typeof client.listJobs;
     searchRuns: typeof client.searchRuns;
+    getSchedule: typeof client.getSchedule;
 }
 
-const defaultApi: RunsApi = { listJobs: client.listJobs, searchRuns: client.searchRuns };
+const defaultApi: RunsApi = { listJobs: client.listJobs, searchRuns: client.searchRuns, getSchedule: client.getSchedule };
+
+type View = 'table' | 'timeline';
 
 function initialFilters(): RunsTableFilters {
     const state = queryParam('state');
@@ -31,10 +36,11 @@ function initialFilters(): RunsTableFilters {
 
 export default function RunsPage({ api = defaultApi }: { api?: RunsApi }) {
     const [filters, setFilters] = useState<RunsTableFilters>(initialFilters);
+    const [view, setView] = useState<View>(() => (queryParam('view') === 'timeline' ? 'timeline' : 'table'));
     const q = useDebounced(filters.q || '', SEARCH_DELAY_MS).trim();
     const { state } = filters;
     const [fast, setFast] = useState(true);
-    const runs = usePoll(() => api.searchRuns({ q, state }), fast ? 5000 : 30000, true);
+    const runs = usePoll(() => api.searchRuns({ q, state }), fast ? 5000 : 30000, view === 'table');
     const [jobNames, setJobNames] = useState<Record<string, string>>({});
     const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
@@ -60,7 +66,7 @@ export default function RunsPage({ api = defaultApi }: { api?: RunsApi }) {
         }
         const params = new URLSearchParams(window.location.search);
         params.delete('job_id');
-        Object.entries({ q, state }).forEach(([key, value]) => {
+        Object.entries({ q, state, view: view === 'timeline' ? view : undefined }).forEach(([key, value]) => {
             if (value) {
                 params.set(key, value);
             } else {
@@ -71,7 +77,7 @@ export default function RunsPage({ api = defaultApi }: { api?: RunsApi }) {
         window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
         runs.refresh();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [q, state]);
+    }, [q, state, view]);
 
     const rows = runs.data ? runs.data.runs : [];
     const anyActive = rows.some((r) => ACTIVE.includes(r.state));
@@ -87,18 +93,36 @@ export default function RunsPage({ api = defaultApi }: { api?: RunsApi }) {
     });
 
     return (
-        <PageShell title="Runs">
-            {runs.error && (
+        <PageShell
+            title="Runs"
+            actions={
+                <RadioBar
+                    value={view}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => setView(value as View)}
+                >
+                    <RadioBar.Option value="table" label="Table" />
+                    <RadioBar.Option value="timeline" label="Timeline" />
+                </RadioBar>
+            }
+        >
+            {view === 'table' && runs.error && (
                 <Message type="error" appearance="default">
                     {`The runs could not be loaded: ${runs.error.message}`}
                 </Message>
             )}
-            {runs.data && runs.data.partial && (
+            {view === 'table' && runs.data && runs.data.partial && (
                 <Message type="warning" appearance="default">
                     Only the newest runs were searched. Older matching runs may be missing, so try more of the name.
                 </Message>
             )}
-            {runs.loading && !runs.data ? (
+            {view === 'timeline' ? (
+                <SchedulePanel
+                    q={filters.q || ''}
+                    state={state}
+                    onQChange={(value) => setFilters({ ...filters, q: value })}
+                    api={api}
+                />
+            ) : runs.loading && !runs.data ? (
                 <WaitSpinner size="medium" />
             ) : (
                 <RunsTable runs={rows} jobNames={names} filters={filters} onFiltersChange={setFilters} now={now} />
