@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0 (2026-11-11)
+
+Fewer surprises when saving or leaving the job editor.
+
+- Job tabs show how many problems each has. A failed save lists every problem, with a button that goes to it.
+- The job is checked against the server while it is edited, so the Validate button is gone.
+- Leaving the editor with unsaved changes asks first.
+
 ## 1.6.0 (2026-11-11)
 
 Faster starts and fewer typos when building a job.
