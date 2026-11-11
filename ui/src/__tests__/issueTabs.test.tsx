@@ -115,7 +115,7 @@ describe('save problem list lifecycle', () => {
     const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const fixName = () => fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Fixed' } });
     const fixSearch = () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Go to Daily summary: the search is empty' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Go to Daily summary: this step has no search; write one in Search' }));
         fireEvent.change(screen.getByLabelText('Search'), { target: { value: '| makeresults' } });
     };
 
@@ -125,7 +125,7 @@ describe('save problem list lifecycle', () => {
         expect(await screen.findByText('Fix 2 problems before saving')).toBeInTheDocument();
         fixName();
         expect(await screen.findByText('Fix 1 problem before saving')).toBeInTheDocument();
-        expect(screen.queryByText('the job needs a name')).not.toBeInTheDocument();
+        expect(screen.queryByText('the job needs a name; type one in Job name')).not.toBeInTheDocument();
         fixSearch();
         await waitFor(() => expect(screen.queryByText(/before saving/)).not.toBeInTheDocument());
     });
@@ -138,7 +138,7 @@ describe('save problem list lifecycle', () => {
         await screen.findByText('Fix 1 problem before saving');
         save();
         expect(await screen.findByText('Fix 1 problem before saving')).toBeInTheDocument();
-        expect(screen.getAllByRole('button', { name: /^Go to .*: the search is empty/ })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: /^Go to .*: this step has no search/ })).toHaveLength(1);
         expect(api.updateJob).not.toHaveBeenCalled();
     });
 

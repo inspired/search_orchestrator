@@ -96,34 +96,51 @@ export function runWhenChoice(rw: RunWhen | null | undefined): string {
     return rw.kind === 'expression' ? 'expression' : 'cron';
 }
 
-const issue = (level: Issue['level'], code: string, message: string, step: string | null = null): Issue => ({
+/** Every code findIssues can emit; a server error with one of these is rechecked live. */
+const CLIENT_CODES = [
+    'bad_job',
+    'bad_step_id',
+    'reserved_step_id',
+    'duplicate_step',
+    'bad_step',
+    'previous_needs_pipe',
+    'previous_needs_dependency',
+    'bad_run_when',
+    'unknown_edge_step',
+    'cycle',
+    'bad_expression',
+] as const;
+type ClientCode = (typeof CLIENT_CODES)[number];
+export const CLIENT_ISSUE_CODES: ReadonlySet<string> = new Set<string>(CLIENT_CODES);
+
+const issue = (level: Issue['level'], code: ClientCode, message: string, step: string | null = null): Issue => ({
     level,
     code,
     message,
     step,
 });
 
-/** A quick check while editing; codes match model.py where they overlap. */
+/** A quick check while editing; codes and messages match model.py where they overlap. */
 export function findIssues(job: JobDefinition): Issue[] {
     const out: Issue[] = [];
     if (!(job.name || '').trim()) {
-        out.push(issue('error', 'bad_job', 'the job needs a name'));
+        out.push(issue('error', 'bad_job', 'the job needs a name; type one in Job name'));
     }
     const seen = new Set<string>();
     (job.steps || []).forEach((s) => {
         if (!isStepId(s.id || '')) {
-            out.push(issue('error', 'bad_step_id', `bad step id '${s.id}': use a-z, 0-9 and _, starting with a letter`, s.id));
+            out.push(issue('error', 'bad_step_id', `step id '${s.id}' isn't valid; use lowercase letters, numbers and _ (no __), starting with a letter`, s.id));
         } else if (s.id === 'run') {
-            out.push(issue('error', 'reserved_step_id', "step id 'run' is reserved", s.id));
+            out.push(issue('error', 'reserved_step_id', "step id 'run' is reserved for run tokens; choose another id", s.id));
         } else if (seen.has(s.id)) {
-            out.push(issue('error', 'duplicate_step', `duplicate step id '${s.id}'`, s.id));
+            out.push(issue('error', 'duplicate_step', `two steps use the id '${s.id}'; give each step its own id`, s.id));
         }
         seen.add(s.id);
         if (s.type === 'saved_search' && !(s.saved_search_ref || '').trim()) {
-            out.push(issue('error', 'bad_step', 'pick the saved search to run', s.id));
+            out.push(issue('error', 'bad_step', 'pick a saved search for this step', s.id));
         }
         if (s.type === 'inline' && !(s.spl || '').trim()) {
-            out.push(issue('error', 'bad_step', 'the search is empty', s.id));
+            out.push(issue('error', 'bad_step', 'this step has no search; write one in Search', s.id));
         }
         if (s.type === 'previous') {
             // model.py's checks and messages (an empty search fails the first one there too).
@@ -135,18 +152,20 @@ export function findIssues(job: JobDefinition): Issue[] {
             }
         }
         if (s.run_when && s.run_when.kind && !(s.run_when.value || '').trim()) {
-            out.push(issue('error', 'bad_run_when', 'run when is empty', s.id));
+            out.push(issue('error', 'bad_run_when', 'run when is empty; fill it in or turn Run when off', s.id));
         }
     });
     const edges = job.edges || [];
     edges.forEach((e, i) => {
-        if (!seen.has(e.from) || !seen.has(e.to)) {
-            out.push(issue('error', 'unknown_edge_step', `a dependency references an unknown step (${e.from} -> ${e.to})`));
-        } else if (wouldCycle(edges.slice(0, i), e.from, e.to)) {
-            out.push(issue('error', 'cycle', 'steps form a dependency cycle'));
+        const missing = [e.from, e.to].filter((end) => !seen.has(end));
+        missing.forEach((end) => {
+            out.push(issue('error', 'unknown_edge_step', `a dependency points at step '${end}', which doesn't exist; remove the dependency`));
+        });
+        if (!missing.length && wouldCycle(edges.slice(0, i), e.from, e.to)) {
+            out.push(issue('error', 'cycle', 'steps depend on each other in a loop; remove a dependency to break it'));
         }
         if (e.condition === 'expression' && !(e.expression || '').trim()) {
-            out.push(issue('error', 'bad_expression', 'the dependency expression is empty', e.to));
+            out.push(issue('error', 'bad_expression', `dependency ${e.from}->${e.to}: empty expression`, e.to));
         }
     });
     return out;

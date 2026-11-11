@@ -1,4 +1,4 @@
-import { autoLayout, findIssues, runWhenPreset, wouldCycle } from '../features/builder/graphLogic';
+import { autoLayout, CLIENT_ISSUE_CODES, findIssues, runWhenPreset, wouldCycle } from '../features/builder/graphLogic';
 import type { JobDefinition } from '../api/types';
 
 const edges = [
@@ -61,5 +61,38 @@ describe('graphLogic', () => {
             ['empty', 'previous_needs_pipe', 'the search must start with |, such as | stats count'],
             ['alone', 'previous_needs_dependency', 'this step needs a step before it to read from; add one in Depends on'],
         ]);
+    });
+
+    test('findIssues uses the server wording for each code', () => {
+        const job: JobDefinition = {
+            name: ' ',
+            enabled: true,
+            steps: [
+                { id: 'Bad-Id', type: 'inline', spl: '| makeresults' },
+                { id: 'run', type: 'inline', spl: '| makeresults' },
+                { id: 'a', type: 'inline', spl: '' },
+                { id: 'a', type: 'saved_search' },
+                { id: 'b', type: 'inline', spl: '| makeresults', run_when: { kind: 'cron', value: ' ' } },
+            ],
+            edges: [
+                { from: 'a', to: 'gone' },
+                { from: 'a', to: 'b', condition: 'expression', expression: '' },
+                { from: 'b', to: 'a' },
+            ],
+        };
+        const found = findIssues(job).map((i) => [i.code, i.step, i.message]);
+        expect(found).toEqual([
+            ['bad_job', null, 'the job needs a name; type one in Job name'],
+            ['bad_step_id', 'Bad-Id', "step id 'Bad-Id' isn't valid; use lowercase letters, numbers and _ (no __), starting with a letter"],
+            ['reserved_step_id', 'run', "step id 'run' is reserved for run tokens; choose another id"],
+            ['bad_step', 'a', 'this step has no search; write one in Search'],
+            ['duplicate_step', 'a', "two steps use the id 'a'; give each step its own id"],
+            ['bad_step', 'a', 'pick a saved search for this step'],
+            ['bad_run_when', 'b', 'run when is empty; fill it in or turn Run when off'],
+            ['unknown_edge_step', null, "a dependency points at step 'gone', which doesn't exist; remove the dependency"],
+            ['bad_expression', 'b', 'dependency a->b: empty expression'],
+            ['cycle', null, 'steps depend on each other in a loop; remove a dependency to break it'],
+        ]);
+        found.forEach(([code]) => expect(CLIENT_ISSUE_CODES.has(code as string)).toBe(true));
     });
 });
