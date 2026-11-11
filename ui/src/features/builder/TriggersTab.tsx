@@ -115,15 +115,15 @@ export default function TriggersTab({ job, jobs, dispatch, nextSlots }: Triggers
                     ))}
                 </ComboBox>
             </ControlGroup>
-            <ControlGroup label="Missed runs" labelFor="job-catchup" labelPosition="top" help="What to do with cron slots missed while Splunk or the engine was down.">
+            <ControlGroup label="Missed runs" labelFor="job-catchup" labelPosition="top" help="What to do with scheduled times missed while Splunk or the engine was down.">
                 <Select
                     inputId="job-catchup"
                     value={job.catchup || 'all'}
                     onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'catchup', value })}
                 >
-                    <Select.Option label="Run each missed slot (up to 7)" value="all" />
-                    <Select.Option label="Run only the latest missed slot" value="latest" />
-                    <Select.Option label="Skip missed slots" value="none" />
+                    <Select.Option label="Run each missed time (up to 7)" value="all" />
+                    <Select.Option label="Run only the latest missed time" value="latest" />
+                    <Select.Option label="Skip missed times" value="none" />
                 </Select>
             </ControlGroup>
         </div>

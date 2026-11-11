@@ -30,7 +30,7 @@ The engine is a modular input, `orchestrator_engine://main`, enabled by default.
 
 ## Upgrading from 1.0.x
 
-A From previous steps step saved before 1.1.0 may still have an Earliest and Latest, and so does its hidden saved search. Splunk applies that time range until the job is saved again. The Jobs page shows "Step <id>: re-save the job to drop this step's old time range" under such a job, and validation in the editor shows the same warning (`previous_old_time_range`). Open the job and save it; the save drops the time range and writes a new hidden saved search.
+A Results of earlier steps step saved before 1.1.0 may still have an Earliest and Latest, and so does its hidden saved search. Splunk applies that time range until the job is saved again. The Jobs page shows "Step <id>: re-save the job to drop this step's old time range" under such a job, and validation in the editor shows the same warning (`previous_old_time_range`). Open the job and save it; the save drops the time range and writes a new hidden saved search.
 
 ## Roles and capabilities
 

@@ -9,7 +9,7 @@ import { NOW, job, me, renderThemed } from './fixtures';
 import { rollupJob } from './builderFixtures';
 
 describe('JobsTable', () => {
-    test('a job warning (an old time range on a From previous steps step) shows under its name', () => {
+    test('a job warning (an old time range on a Results of earlier steps step) shows under its name', () => {
         const warning = { level: 'warning' as const, code: 'previous_old_time_range', message: "re-save the job to drop this step's old time range", step: 'b' };
         renderThemed(<JobsTable jobs={[job({ warnings: [warning] }), job({ id: 'w', name: 'Weekly rollup' })]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
         const daily = screen.getByText('Daily summary').closest('tr') as HTMLElement;

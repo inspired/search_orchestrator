@@ -74,35 +74,50 @@ describe('StepPanel', () => {
         expect(state().job.steps[0].give_up_after).toBeNull();
     });
 
-    test('From previous steps shows the read-only input and hides time fields', () => {
+    test('Results of earlier steps shows the read-only input and hides time fields', () => {
         const job = threeSteps([{ from: 'b', to: 'c' }, { from: 'a', to: 'c' }]);
         job.steps[2] = { id: 'c', type: 'previous', spl: '| stats count' };
         renderPanel(job, 'c');
-        expect(screen.getByText('Input (added for you)')).toBeInTheDocument();
+        expect(screen.getByText('Reads results from')).toBeInTheDocument();
         // The label names the read-only input (aria-labelledby from ControlGroup).
-        expect(screen.getByLabelText('Input (added for you)')).toHaveTextContent('| loadjob ‹b› | append [| loadjob ‹a›]');
+        expect(screen.getByLabelText('Reads results from')).toHaveTextContent('| loadjob ‹b› | append [| loadjob ‹a›]');
         expect(screen.getByText('Starts with |. Results of the steps before this one come first.')).toBeInTheDocument();
         expect(screen.getByLabelText('Search')).toHaveValue('| stats count');
+        expect(screen.getByText('Works on the rows the steps before it found, with no search of its own.')).toBeInTheDocument();
         expect(screen.queryByRole('combobox', { name: 'Time range' })).not.toBeInTheDocument();
     });
 
     test('a Search step has no generated input and keeps its time fields', () => {
         renderPanel(threeSteps([{ from: 'a', to: 'b' }]), 'b');
-        expect(screen.queryByText('Input (added for you)')).not.toBeInTheDocument();
+        expect(screen.queryByText('Reads results from')).not.toBeInTheDocument();
         expect(screen.getByRole('combobox', { name: 'Time range' })).toBeInTheDocument();
     });
 
-    test('the type list offers From previous steps, third', () => {
+    test('the type list offers Results of earlier steps, third', () => {
         const state = renderPanel(threeSteps([{ from: 'a', to: 'b' }]), 'b');
         fireEvent.click(screen.getByTestId('type-select'));
         const types = screen
             .getAllByRole('option')
             .map((o) => o.textContent)
             .filter((t) => !(t || '').startsWith('Remove')); // the Depends on chips
-        expect(types).toEqual(['Search', 'Saved search', 'From previous steps']);
-        fireEvent.click(screen.getByRole('option', { name: 'From previous steps' }));
+        expect(types).toEqual(['Search', 'Saved search', 'Results of earlier steps']);
+        fireEvent.click(screen.getByRole('option', { name: 'Results of earlier steps' }));
         expect(state().job.steps[1]).toMatchObject({ type: 'previous', spl: '| makeresults' });
         expect(screen.getByText('| loadjob ‹a›')).toBeInTheDocument();
+    });
+
+    test('help texts use plain words', () => {
+        const saved = threeSteps([]);
+        saved.steps[0] = { id: 'a', type: 'saved_search', saved_search_ref: 'x' } as never;
+        renderPanel(saved, 'a');
+        expect(
+            screen.getByText(
+                "If this is your own private search, it runs as saved. Otherwise its own alerts and summary indexing don't run; add collect to the step if you need them.",
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Short name used in tokens, such as $a.sid$. Lowercase letters, numbers and _.')).toBeInTheDocument();
+        expect(screen.getByText("Starts after these steps succeed. Steps that would make a loop aren't listed.")).toBeInTheDocument();
+        expect(screen.queryByText(/dispatchAs|wrapper/)).not.toBeInTheDocument();
     });
 
     test('retries above 0 shows the duplicate warning', () => {
@@ -116,7 +131,7 @@ describe('StepPanel', () => {
 describe('BuilderPage', () => {
     test('server issues appear on the named step', async () => {
         const message =
-            "Saved search 'Weekly rollup' is not a private search of alice with dispatchAs = owner, so it runs through a hidden | savedsearch wrapper as alice: its own summary indexing and actions won't run";
+            "saved search 'Weekly rollup' isn't a private search of alice, so its own alerts and summary indexing don't run; add collect to the step if you need them";
         const api = fakeApi({
             validateJob: jest.fn().mockResolvedValue({
                 valid: true,
@@ -130,10 +145,10 @@ describe('BuilderPage', () => {
         expect(screen.queryByRole('button', { name: 'Validate' })).toBeNull();
         const weekly = await screen.findByRole('button', { name: /^Step Weekly rollup, 1 warning/ }, { timeout: 3000 });
         fireEvent.keyDown(screen.getByRole('button', { name: /^Step Daily summary/ }), { key: 'Enter' });
-        expect(screen.queryByText(/its own summary indexing and actions won't run/)).toBeNull();
+        expect(screen.queryByText(/isn't a private search of alice/)).toBeNull();
         fireEvent.keyDown(weekly, { key: 'Enter' });
         const panel = screen.getByRole('region', { name: 'Step Weekly rollup' });
-        expect(within(panel).getByText(/its own summary indexing and actions won't run/)).toBeInTheDocument();
+        expect(within(panel).getByText(/isn't a private search of alice/)).toBeInTheDocument();
     });
 
     test('shows Checking… next to Save while a check is running', async () => {

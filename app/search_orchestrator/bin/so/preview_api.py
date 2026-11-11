@@ -247,7 +247,7 @@ def _decide(job, step_id, scheduled, params, upstream):
     try:
         return statemod.preview_decision(job, step_id, scheduled, params, upstream)
     except (ValueError, TypeError) as err:  # a run would fail the step the same way
-        raise _invalid([_issue("error", "bad_run_when", "run_when: %s" % err, step_id)])
+        raise _invalid([_issue("error", "bad_run_when", "run when: %s" % err, step_id)])
 
 
 def _needs(upstream, steps, mode="live"):

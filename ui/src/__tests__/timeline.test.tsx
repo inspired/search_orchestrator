@@ -21,7 +21,7 @@ describe('Timeline', () => {
         expect(screen.getByTestId('bar-daily')).toHaveAttribute('data-pattern', 'solid');
         expect(screen.getByTestId('bar-weekly')).toHaveAttribute('data-pattern', 'hatched');
         expect(screen.queryByTestId('bar-monthly')).toBeNull();
-        expect(screen.getByText('Skipped (not taken)')).toBeInTheDocument();
+        expect(screen.getByText('Skipped (branch not taken)')).toBeInTheDocument();
     });
 
     test('running bar is neutral, not a status or positive colour', () => {
@@ -97,7 +97,7 @@ describe('timeline.bars', () => {
         );
         expect(out[0]).toMatchObject({ kind: 'done', startPct: 0 });
         expect(out[1]).toMatchObject({ kind: 'skipped', widthPct: 0, statusText: 'Skipped (run when)' });
-        expect(out[2].statusText).toBe('Skipped (not taken)');
+        expect(out[2].statusText).toBe('Skipped (branch not taken)');
     });
 });
 

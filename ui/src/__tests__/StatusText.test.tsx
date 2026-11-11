@@ -95,7 +95,7 @@ describe('StatusText', () => {
         renderThemed(<StatusText state="skipped" skipKind="run_when" />);
         renderThemed(<StatusText state="skipped" skipKind="not_taken" />);
         expect(screen.getByText('Skipped (run when)')).toBeInTheDocument();
-        expect(screen.getByText('Skipped (not taken)')).toBeInTheDocument();
+        expect(screen.getByText('Skipped (branch not taken)')).toBeInTheDocument();
     });
 });
 

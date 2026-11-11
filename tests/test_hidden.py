@@ -231,9 +231,10 @@ def test_saved_search_outside_app_context_is_clear_error():
     errors = {i["step"]: i for i in issues if i["level"] == "error"}
     assert sorted(errors) == ["n", "s"]
     assert errors["n"]["code"] == "saved_search_not_visible"
-    assert errors["n"]["message"] == ("Saved search 'nightly' must be shared globally or saved in "
-                                      "the Search Orchestrator app to be used as a step.")
-    assert errors["s"]["message"].startswith("Saved search 'shared_in_search' must be shared")
+    assert errors["n"]["message"] == ("saved search 'nightly' must be shared globally or saved in "
+                                      "the Search Orchestrator app to be used as a step; change its "
+                                      "sharing, or save a copy in this app")
+    assert errors["s"]["message"].startswith("saved search 'shared_in_search' must be shared")
     assert planned["steps"][2]["mode"] == "wrapped"
 
 

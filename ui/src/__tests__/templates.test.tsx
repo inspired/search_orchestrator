@@ -20,7 +20,7 @@ describe('job templates', () => {
         expect(job.steps[0].spl).toBe('```Replace with your search```\n| makeresults');
     });
 
-    it('parallel combines two steps with a From previous steps step', () => {
+    it('parallel combines two steps with a Results of earlier steps step', () => {
         const job = templateByKey('parallel')!.build();
         expect(job.steps.find((s) => s.id === 'combined')).toMatchObject({ type: 'previous', spl: '| stats count' });
         expect((job.edges || []).map((e) => `${e.from}>${e.to}`)).toEqual(['left>combined', 'right>combined']);

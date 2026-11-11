@@ -145,7 +145,7 @@ def test_orchestrate_in_step_spl_is_an_error():
         j["steps"][0]["spl"] = spl
         found = [i for i in validate_job(j) if i["code"] == "orchestrate_in_step"]
         assert found and found[0]["level"] == "error" and found[0]["step"] == "a"
-        assert found[0]["message"] == "Steps cannot call | orchestrate; use a start_job action"
+        assert found[0]["message"] == "a step can't call | orchestrate; use a start-job action instead"
     j = job()
     j["steps"][0]["spl"] = '| makeresults | eval note="orchestrate later"'
     assert "orchestrate_in_step" not in codes(validate_job(j))
@@ -157,7 +157,7 @@ def test_step_without_time_range_warns():
     j["steps"][1].update(earliest="-1d@d", latest="@d")
     found = [i for i in validate_job(j) if i["code"] == "all_time_search"]
     assert [(i["step"], i["level"], i["message"]) for i in found] == [
-        ("a", "warning", "This step searches all time.")]
+        ("a", "warning", "this step searches all time; set a time range to search less")]
     j["steps"][0]["earliest"] = "-1h"
     assert "all_time_search" not in codes(validate_job(j))
     j = job(steps=("a",))
@@ -225,3 +225,26 @@ def test_previous_step_with_an_old_time_range_warns():
     del j["steps"][1]["earliest"], j["steps"][1]["latest"]
     assert "previous_old_time_range" not in codes(m.validate_job(j))
     assert m.old_time_range_issues(j) == []
+
+
+def test_issue_messages_are_plain_and_say_what_to_do():
+    j = job()
+    j["actions"] = []
+    msgs = {i["code"]: i["message"] for i in validate_job(j)}
+    assert msgs["no_failure_notification"] == (
+        "no failure action, so the admin's fallback notification will be used; "
+        "add an on_failure action to choose who is told")
+    j["steps"][0]["id"] = "Bad Id"
+    j["timezone"] = "Nowhere/Land"
+    msgs = {i["code"]: i["message"] for i in validate_job(j)}
+    assert "lowercase letters, numbers and _" in msgs["bad_step_id"]
+    assert "Time zone list" in msgs["bad_timezone"]
+
+
+def test_issue_messages_use_no_internal_words():
+    j = job()
+    j["steps"].append({"id": "p", "type": "previous", "spl": "stats count"})
+    j["params"] = [{"name": "x", "type": "enum"}, {"name": "x"}]
+    for i in validate_job(j):
+        for word in ("dispatchAs", "wrapper", "KV Store", "From previous steps"):
+            assert word not in i["message"], i

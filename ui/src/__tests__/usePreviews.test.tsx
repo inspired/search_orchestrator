@@ -405,7 +405,7 @@ describe('usePreviews', () => {
         expect(result.current.previews.c.stale).toBe(false);
     });
 
-    test('a truncated From previous steps preview is failed', async () => {
+    test('a truncated Results of earlier steps preview is failed', async () => {
         const api = fakeApi({
             previewStatus: jest.fn(() =>
                 Promise.resolve({ state: 'done' as const, result_count: 5, truncated: 'append stopped at 50000 rows', messages: [] })

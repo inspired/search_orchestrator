@@ -131,28 +131,28 @@ def _validate_params(job, issues):
     for p in job.get("params", []) or []:
         n = p.get("name")
         if not isinstance(n, str) or not PARAM_NAME_RE.fullmatch(n):
-            issues.append(_issue("error", "bad_param", "bad parameter name %r" % (n,)))
+            issues.append(_issue("error", "bad_param", "parameter name %r isn't valid; use letters, numbers and _, starting with a letter" % (n,)))
             continue
         if n in names:
-            issues.append(_issue("error", "bad_param", "duplicate parameter %r" % n))
+            issues.append(_issue("error", "bad_param", "parameter %r is listed twice; give each parameter its own name" % n))
         names.add(n)
         t = p.get("type", "string")
         if t not in _PARAM_TYPES:
-            issues.append(_issue("error", "bad_param", "parameter %r: unknown type %r" % (n, t)))
+            issues.append(_issue("error", "bad_param", "parameter %r has an unknown type %r; pick Text, Number, One of a list or Time" % (n, t)))
             continue
         if t == "enum" and not p.get("values"):
-            issues.append(_issue("error", "bad_param", "parameter %r: enum needs values" % n))
+            issues.append(_issue("error", "bad_param", "parameter %r is a list with no values; add values separated by commas" % n))
         if p.get("regex"):
             try:
                 re.compile(p["regex"])
             except re.error as e:
-                issues.append(_issue("error", "bad_param", "parameter %r: bad regex (%s)" % (n, e)))
+                issues.append(_issue("error", "bad_param", "parameter %r: the pattern isn't valid (%s); fix it or clear it" % (n, e)))
                 continue
         if p.get("default") is not None:
             try:
                 tk.validate_param(p, p["default"])
             except tk.TokenError as e:
-                issues.append(_issue("error", "bad_param", "parameter %r: bad default (%s)" % (n, e.reason)))
+                issues.append(_issue("error", "bad_param", "parameter %r: the default breaks the parameter's own rules (%s); change or clear it" % (n, e.reason)))
     return names
 
 
@@ -164,7 +164,7 @@ def _check_expr_tokens(text, ids, params, issues, step, what):
         return
     for name in sorted(exprmod.tokens(node)):
         if not _token_ok(name, ids, params):
-            issues.append(_issue("error", "unknown_token", "%s: unknown token $%s$" % (what, name), step))
+            issues.append(_issue("error", "unknown_token", "%s: $%s$ isn't a token this job has; pick one with Insert value" % (what, name), step))
 
 
 def _token_ok(name, ids, params):
@@ -264,27 +264,27 @@ def _validate(job, known_saved_searches):
     if tz:
         status = cronmod.tz_status(tz)
         if status == "unknown":
-            issues.append(_issue("error", "bad_timezone", "unknown time zone %r" % tz))
+            issues.append(_issue("error", "bad_timezone", "unknown time zone %r; pick one from the Time zone list or clear it" % tz))
         elif status == "unavailable":
             issues.append(_issue("warning", "timezone_fallback",
-                                 "time zone database unavailable; server local time will be used"))
+                                 "the server can't look up time zones, so schedules will use its local time; ask your Splunk admin to install time zone data"))
     for t in job.get("triggers", []) or []:
         if t.get("type") == "cron":
             try:
                 cronmod.parse(t.get("cron"))
             except cronmod.CronError as e:
-                issues.append(_issue("error", "bad_cron", "trigger cron: %s" % e))
+                issues.append(_issue("error", "bad_cron", "schedule: %s; fix the cron or pick a preset" % e))
 
     seen = set()
     for s in steps:
         sid = s.get("id")
         if not isinstance(sid, str) or not STEP_ID_RE.fullmatch(sid) or "__" in sid:
-            issues.append(_issue("error", "bad_step_id", "bad step id %r" % (sid,), sid if isinstance(sid, str) else None))
+            issues.append(_issue("error", "bad_step_id", "step id %r isn't valid; use lowercase letters, numbers and _ (no __), starting with a letter" % (sid,), sid if isinstance(sid, str) else None))
             continue
         if sid == "run":
-            issues.append(_issue("error", "reserved_step_id", "step id 'run' is reserved", sid))
+            issues.append(_issue("error", "reserved_step_id", "step id 'run' is reserved for run tokens; choose another id", sid))
         if sid in seen:
-            issues.append(_issue("error", "duplicate_step", "duplicate step id %r" % sid, sid))
+            issues.append(_issue("error", "duplicate_step", "two steps use the id %r; give each step its own id" % sid, sid))
         seen.add(sid)
     ids = seen
 
@@ -295,16 +295,16 @@ def _validate(job, known_saved_searches):
         if s.get("type") == "saved_search":
             ref = s.get("saved_search_ref")
             if not ref:
-                issues.append(_issue("error", "bad_step", "saved_search step needs saved_search_ref", sid))
+                issues.append(_issue("error", "bad_step", "pick a saved search for this step", sid))
             elif known_saved_searches is not None and ref not in known_saved_searches:
-                issues.append(_issue("error", "unknown_saved_search", "unknown saved search %r" % ref, sid))
+                issues.append(_issue("error", "unknown_saved_search", "saved search %r was not found; pick another" % ref, sid))
         elif s.get("type") in ("inline", "previous"):
             if s.get("type") == "inline" and not (s.get("spl") or "").strip():
-                issues.append(_issue("error", "bad_step", "inline step needs spl", sid))
+                issues.append(_issue("error", "bad_step", "this step has no search; write one in Search", sid))
             if _ORCHESTRATE_RE.search(s.get("spl") or ""):
                 # It would start runs outside the chain depth limit.
                 issues.append(_issue("error", "orchestrate_in_step",
-                                     "Steps cannot call | orchestrate; use a start_job action", sid))
+                                     "a step can't call | orchestrate; use a start-job action instead", sid))
             try:
                 tk.compile_spl(s.get("spl") or "", ids)
             except tk.TokenError as e:
@@ -313,18 +313,17 @@ def _validate(job, known_saved_searches):
             if s.get("type") == "previous":
                 if not (s.get("spl") or "").lstrip().startswith("|"):
                     issues.append(_issue("error", "previous_needs_pipe",
-                                         "A From previous steps search must start with |", sid))
+                                         "the search must start with |, such as | stats count", sid))
                 if not any(e.get("to") == sid for e in job.get("edges", []) or []):
                     issues.append(_issue("error", "previous_needs_dependency",
-                                         "A From previous steps step must depend on at least "
-                                         "one step", sid))
+                                         "this step needs a step before it to read from; add one in Depends on", sid))
                 if s.get("earliest") or s.get("latest"):
                     issues.extend(old_time_range_issues({"steps": [s]}))
             elif not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
-                                     "This step searches all time.", sid))
+                                     "this step searches all time; set a time range to search less", sid))
         else:
-            issues.append(_issue("error", "bad_step", "unknown step type %r" % s.get("type"), sid))
+            issues.append(_issue("error", "bad_step", "step type %r isn't supported; pick Search, Saved search or Results of earlier steps" % s.get("type"), sid))
         rw = s.get("run_when")
         if rw:
             kind, val = rw.get("kind"), rw.get("value")
@@ -332,49 +331,49 @@ def _validate(job, known_saved_searches):
                 try:
                     cronmod.parse(val)
                 except cronmod.CronError as e:
-                    issues.append(_issue("error", "bad_cron", "run_when: %s" % e, sid))
+                    issues.append(_issue("error", "bad_cron", "run when: %s; fix the cron" % e, sid))
             elif kind == "expression":
-                _check_expr_tokens(val, ids, params, issues, sid, "run_when")
+                _check_expr_tokens(val, ids, params, issues, sid, "run when")
             else:
-                issues.append(_issue("error", "bad_run_when", "unknown run_when kind %r" % kind, sid))
+                issues.append(_issue("error", "bad_run_when", "run when type %r isn't supported; pick one in Run when" % kind, sid))
         spl = s.get("spl") or ""
         for m in _DOTTED_RE.finditer(spl):
             first, rest = m.group(1), m.group(2)
             name = first + "." + rest
             if (first == "run" or first in ids or _SUFFIX_RE.search("." + rest)) \
                     and not _token_ok(name, ids, params):
-                issues.append(_issue("error", "unknown_token", "unknown token %s" % m.group(0), sid))
+                issues.append(_issue("error", "unknown_token", "%s isn't a token this job has; pick one with Insert value or fix the spelling" % m.group(0), sid))
         for name in tk.find_tokens(spl, ids):
             if name.startswith("run.param.") and not _token_ok(name, ids, params):
-                issues.append(_issue("error", "unknown_token", "undeclared parameter in $%s$" % name, sid))
+                issues.append(_issue("error", "unknown_token", "$%s$ uses a parameter the job doesn't declare; add it on the Parameters tab" % name, sid))
 
     edges = job.get("edges", []) or []
     for e in edges:
         a, b = e.get("from"), e.get("to")
         for end in (a, b):
             if end not in ids:
-                issues.append(_issue("error", "unknown_edge_step", "edge references unknown step %r" % (end,)))
+                issues.append(_issue("error", "unknown_edge_step", "a dependency points at step %r, which doesn't exist; remove the dependency" % (end,)))
         cond = e.get("condition", "on_success")
         if cond not in _EDGE_CONDITIONS:
-            issues.append(_issue("error", "bad_edge", "unknown edge condition %r" % (cond,)))
+            issues.append(_issue("error", "bad_edge", "dependency condition %r isn't supported; pick on success, on failure, always or an expression" % (cond,)))
         elif cond == "expression":
             _check_expr_tokens(e.get("expression"), ids, params, issues, b if b in ids else None,
-                               "edge %s->%s" % (a, b))
+                               "dependency %s->%s" % (a, b))
 
     _, succ = _graph(job)
     try:
         topo_order(job)
     except ValueError:
-        issues.append(_issue("error", "cycle", "steps form a dependency cycle"))
+        issues.append(_issue("error", "cycle", "steps depend on each other in a loop; remove a dependency to break it"))
 
     # Warnings
     for s in steps:
         if s.get("id") in ids and resolve_step(job, s)["retries"] > 0:
             issues.append(_issue("warning", "retries_duplicate_risk",
-                                 "retries above 0 can write duplicates to a summary index", s["id"]))
+                                 "retries above 0 can write duplicates to a summary index; keep retries at 0 unless the step is safe to run twice", s["id"]))
     if not any(a.get("hook") == "on_failure" for a in job.get("actions", []) or []):
         issues.append(_issue("warning", "no_failure_notification",
-                             "no on_failure action; the fallback notification will be used"))
+                             "no failure action, so the admin's fallback notification will be used; add an on_failure action to choose who is told"))
     branch_targets = [e.get("to") for e in edges
                       if e.get("condition") in ("on_failure", "expression") and e.get("to") in ids]
     skippable = _downstream(succ, branch_targets)
@@ -388,7 +387,7 @@ def _validate(job, known_saved_searches):
             ref = name.split(".")[0]
             if ref != "run" and ref in skippable and arg_default_missing(name, defaults):
                 issues.append(_issue("warning", "token_from_skippable_step",
-                                     "$%s$ may come from a skipped step; add |default" % name, sid))
+                                     "$%s$ may come from a skipped step, which fails this step; add a default, as in $%s|none$" % (name, name), sid))
     return issues
 
 

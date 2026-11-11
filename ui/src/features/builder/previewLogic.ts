@@ -133,10 +133,10 @@ function loadjobChain(deps: string[], ref: (id: string) => string): string {
     return deps.map((d, i) => (i === 0 ? `| loadjob ${ref(d)}` : `| append [| loadjob ${ref(d)}]`)).join(' ');
 }
 
-/** The input a "From previous steps" step gets, as the panel shows it. */
+/** The input a "Results of earlier steps" step gets, as the panel shows it. */
 export function generatedInput(job: JobDefinition, stepId: string): string {
     const deps = previousInputs(job, stepId);
-    return deps.length ? loadjobChain(deps, (d) => `‹${d}›`) : '(no previous steps yet)';
+    return deps.length ? loadjobChain(deps, (d) => `‹${d}›`) : '(no earlier steps yet)';
 }
 
 /** The same input as Search SPL with `$step.sid$` tokens, for switching back to Search.

@@ -132,25 +132,25 @@ def _action_issues(action, step):
         return []
     out = []
     if not _ALERT_NAME_RE.fullmatch(str(action.get("action") or "")):
-        out.append(_issue("error", "bad_action", "alert action name %r is not valid"
+        out.append(_issue("error", "bad_action", "alert action name %r isn't valid; pick one from the Alert action list"
                           % (action.get("action"),), step))
     for k in (action.get("params") or {}):
         if not PARAM_NAME_RE.fullmatch(str(k)):
-            out.append(_issue("error", "bad_action", "alert action parameter name %r is not "
-                              "valid" % (k,), step))
+            out.append(_issue("error", "bad_action", "alert action parameter name %r isn't "
+                              "valid; use letters, numbers and _" % (k,), step))
     return out
 
 
 def not_visible_message(ref):
-    return ("Saved search '%s' must be shared globally or saved in the Search Orchestrator "
-            "app to be used as a step." % ref)
+    return ("saved search '%s' must be shared globally or saved in the Search Orchestrator "
+            "app to be used as a step; change its sharing, or save a copy in this app" % ref)
 
 
 def _wrapped_warning(ref, owner, step):
     return _issue("warning", "saved_search_wrapped",
-                  "Saved search %r is not a private search of %s with dispatchAs = owner, so it "
-                  "runs through a hidden | savedsearch wrapper as %s: its own summary indexing "
-                  "and actions won't run" % (ref, owner, owner), step)
+                  "saved search %r isn't a private search of %s, so its own alerts and "
+                  "summary indexing don't run; add collect to the step if you need them"
+                  % (ref, owner), step)
 
 
 def _saved_search(gw, owner, step):
@@ -163,7 +163,8 @@ def _saved_search(gw, owner, step):
     info = gw.saved_search_info(owner, ref)
     if not info.get("exists"):
         return None, False, [_issue("error", "unknown_saved_search", "saved search %r was not "
-                                    "found, or %s cannot read it" % (ref, owner), sid)]
+                                    "found, or %s can't read it; pick another saved search"
+                                    % (ref, owner), sid)]
     if not info.get("visible", True):
         return None, False, [_issue("error", "saved_search_not_visible",
                                     not_visible_message(ref), sid)]

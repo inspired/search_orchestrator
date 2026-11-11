@@ -316,7 +316,7 @@ def _job_issues(ctx, job):
     """Checks beyond ``model.validate_job``: job fields, actions and the start_job cycle."""
     issues = []
     if not isinstance(job.get("name"), str) or not job["name"].strip():
-        issues.append(_issue("error", "bad_job", "the job needs a name"))
+        issues.append(_issue("error", "bad_job", "the job needs a name; type one in Job name"))
     if not isinstance(job.get("enabled"), bool):
         issues.append(_issue("error", "bad_job", "enabled must be true or false"))
     roles = job.get("run_roles")
@@ -326,43 +326,45 @@ def _job_issues(ctx, job):
         if not isinstance(t, dict) or t.get("type") != "completion":
             continue
         if not isinstance(t.get("job"), str) or not JOB_ID_RE.fullmatch(t["job"]):
-            issues.append(_issue("error", "bad_trigger", "a completion trigger needs the id of "
-                                 "the job it follows"))
+            issues.append(_issue("error", "bad_trigger", "a completion trigger needs a job to follow; "
+                                 "pick one in Job"))
         if (t.get("on") or "success") not in ("success", "complete"):
-            issues.append(_issue("error", "bad_trigger", "a completion trigger's \"on\" must be "
-                                 "\"success\" or \"complete\""))
+            issues.append(_issue("error", "bad_trigger", "a completion trigger starts when the job "
+                                 "succeeds or completes; choose one in Start when it"))
     dests = None
     scoped = [(None, a) for a in job.get("actions") or []]
     for step in job.get("steps") or []:
         scoped.extend((step.get("id"), a) for a in step.get("actions") or [])
     for step_id, action in scoped:
         if not isinstance(action, dict):
-            issues.append(_issue("error", "bad_action", "an action must be an object", step_id))
+            issues.append(_issue("error", "bad_action", "an action is malformed; remove it and add it again", step_id))
             continue
         kind = action.get("type")
         if kind not in ACTION_TYPES:
-            issues.append(_issue("error", "bad_action", "unknown action type %r" % (kind,), step_id))
+            issues.append(_issue("error", "bad_action", "unknown action type %r; choose one in Do" % (kind,), step_id))
             continue
         if action.get("hook") not in HOOKS:
-            issues.append(_issue("error", "bad_action", "unknown action hook %r"
+            issues.append(_issue("error", "bad_action", "unknown action time %r; choose one in When"
                                  % (action.get("hook"),), step_id))
         required = {"email": "to", "event": "index", "start_job": "job",
                     "alert_action": "action", "webhook": "destination"}[kind]
         if not isinstance(action.get(required), str) or not action[required]:
-            issues.append(_issue("error", "bad_action", "%s action needs %s" % (kind, required),
+            issues.append(_issue("error", "bad_action", "the %s action needs %s; fill it in" % (kind, required),
                                  step_id))
         elif kind == "webhook":
             if dests is None:
                 dests = _destination_names(ctx)
             if action["destination"] not in dests:
-                issues.append(_issue("error", "unknown_destination", "unknown webhook destination "
-                                     "%r" % action["destination"], step_id))
+                issues.append(_issue("error", "unknown_destination", "webhook destination %r doesn't exist; "
+                                     "pick another, or ask an admin to add it in Settings"
+                                     % action["destination"], step_id))
     cycle = _chain_cycle(ctx, job)
     if cycle:
         cycle = _redact_cycle(ctx, cycle, job["id"])
         issues.append(_issue("warning", "job_chain_cycle",
-                             "start_job actions form a cycle across jobs (%s); each run starts the "
-                             "next until the chain depth limit (%d) stops it"
+                             "start-job actions form a loop across jobs (%s); each run starts the "
+                             "next until the limit of %d chained runs stops it; remove one "
+                             "start-job action to break the loop"
                              % (" -> ".join(cycle), CHAIN_LIMIT)))
     return issues
 

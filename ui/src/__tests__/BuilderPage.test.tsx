@@ -97,3 +97,24 @@ describe('BuilderPage unsaved changes', () => {
         expect(leave().defaultPrevented).toBe(true);
     });
 });
+
+describe('BuilderPage wording', () => {
+    it('the Settings tab words the give-up choice in plain terms', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        fireEvent.click(screen.getByRole('tab', { name: /Settings/ }));
+        expect(
+            screen.getByText("Waiting stops a rollup running over a missing day. Starting anyway keeps the schedule but can leave gaps.")
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('combobox', { name: 'When a step gives up' }));
+        expect(screen.getByRole('option', { name: 'Wait for this run to be fixed' })).toBeInTheDocument();
+        expect(screen.getByRole('option', { name: 'Start later runs anyway' })).toBeInTheDocument();
+    });
+
+    it('the remove-step confirmation names the step and says undo brings it back', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        const node = await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        fireEvent.keyDown(node, { key: 'Delete' });
+        expect(await screen.findByText('Weekly rollup and its connections are removed. Undo brings them back.')).toBeInTheDocument();
+    });
+});

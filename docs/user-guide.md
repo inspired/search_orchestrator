@@ -12,35 +12,48 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 ## Build a job
 
-Open **Jobs > New job**.
+Open **Jobs**, then **Create job**.
 
-1. **Add steps** with **Add step**, or by dragging a line from a step's handle (the circle at its bottom edge) and letting go on empty canvas: that adds a **From previous steps** step that reads the first step's results, and selects it. Let go on another step instead to make that step depend on the first. Steps are arranged automatically, top to bottom, every time the graph changes, so there is nothing to place. Keyboard and screen-reader users can use **Depends on** in the side panel instead.
+A new job starts from a template. Pick one and its steps are filled in, and one undo takes them back out:
+
+- **Daily, weekly and monthly rollup:** three steps, each starting when the one before it succeeds.
+- **One search after another:** a chain of steps.
+- **Run searches side by side, then combine:** two searches run at once, and a third works on both their results.
+- **Blank job:** an empty canvas.
+
+Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button to the right tab. It goes away once the job is ready, or sooner with **Hide checklist**.
+
+1. **Add steps** with **Add step**, or by dragging a line from a step's handle (the circle at its bottom edge) and letting go on empty canvas: that adds a **Results of earlier steps** step that reads the first step's results, and selects it. Let go on another step instead to make that step depend on the first. Steps are arranged automatically, top to bottom, every time the graph changes, so there is nothing to place. Keyboard and screen-reader users can use **Depends on** in the side panel instead.
 2. **Select a step** to edit it in the side panel: its search, time range, run-when rule, delay and give-up times, retries and actions.
 3. **Select an edge** to choose when it lets the next step start: on success (the default), on failure, always, or an expression such as `$daily.resultCount$ > 0`.
 4. Use the job tabs for triggers, parameters, actions, who may run and job-wide defaults.
 5. **Save.** The builder checks for cycles, unknown tokens, bad cron, unreadable saved searches and tokens from steps that might be skipped.
 
+**The job is checked as you edit it**, so there is no Validate button. Each tab shows how many problems it has. If a save fails, every problem is listed with a **Go to ...** button that opens the right tab and step. If you leave with unsaved changes, the builder asks first.
+
 Node positions are not saved. The graph is laid out again each time the job opens.
 
 ### Steps
 
-- **Search** steps hold SPL. **Saved search** steps run an existing saved search. **From previous steps** steps search the results of the steps before them; see [From previous steps](#from-previous-steps). A saved search that isn't your own private search runs through a `| savedsearch` wrapper, and its own summary indexing and alert actions don't run. The builder warns you.
-- **A saved search must be shared globally or saved in the Search Orchestrator app** to be used as a step. Steps run in this app's context, where a private search in Search & Reporting, or one shared only with another app, can't be seen. Saving the job then fails with: "Saved search '<name>' must be shared globally or saved in the Search Orchestrator app to be used as a step."
+- **Search** steps hold SPL. **Saved search** steps run an existing saved search. **Results of earlier steps** steps search the results of the steps before them; see [Results of earlier steps](#results-of-earlier-steps). If a saved search isn't your own private search, its own alerts and summary indexing don't run; add `collect` to the step if you need them. The builder warns you.
+- **A saved search must be shared globally or saved in the Search Orchestrator app** to be used as a step. Steps run in this app's context, where a private search in Search & Reporting, or one shared only with another app, can't be seen. Saving the job then fails with: "saved search '<name>' must be shared globally or saved in the Search Orchestrator app to be used as a step; change its sharing, or save a copy in this app".
 - **Steps run as the job owner**, with the owner's roles and index access.
-- **Time range:** Earliest and Latest are relative to the run's **scheduled time**, never to when the step actually starts. A daily summary that starts late after midnight still summarises the right day. **A search step with no time range runs over all time.** Set Earliest and Latest, such as `-1d@d` and `@d`.
+- **Time range:** pick a preset (the hour, day, week or month before, or the last 24 hours), **All time** or **Custom**. Under the picker, the builder shows the window searched for a run scheduled at the preview time, for example "For a run scheduled Tue 11 Nov 00:00, this searches Mon 10 Nov 00:00 to Tue 11 Nov 00:00". Custom takes Earliest and Latest as Splunk relative times, such as `-1d@d` and `@d`. They are relative to the run's **scheduled time**, never to when the step actually starts, so a daily summary that starts late after midnight still summarises the right day. **All time searches everything and shows a warning.**
 - **Run when:** limits a step to some runs, so one job can hold daily, weekly and monthly steps. Presets such as "Mondays" and "1st of month" match the whole day of the scheduled time. A step that doesn't apply shows as *Skipped (run when)* and lets the steps after it go ahead.
 - **Delayed after** (default 1 hour from the scheduled time): fires the delay alert once.
 - **Give up after** (default 24 hours from when the run leaves the queue): the step fails, other searches in the run are cancelled, and unfinished steps are abandoned.
 - **Max runtime** (default 4 hours per attempt).
+
+Durations take a unit (seconds, minutes, hours or days). A saved value shows in the largest whole unit, so 5400 seconds reads as 90 minutes, and a value that isn't whole minutes keeps its seconds until you edit it.
 - **Retries** (default 0). A retry runs the search again, which can write duplicates to a summary index. See [Make steps safe to re-run](#make-steps-safe-to-re-run). Searches that never started are always retried up to 3 times.
 
-### From previous steps
+### Results of earlier steps
 
-A **From previous steps** step searches the results of the steps it depends on, with no search of its own to repeat. Its SPL runs on their rows, as if each were loaded with `| loadjob`: the first dependency's results, then each later one appended, in the order the dependencies were connected.
+A **Results of earlier steps** step searches the results of the steps it depends on, with no search of its own to repeat. Its SPL runs on their rows, as if each were loaded with `| loadjob`: the first dependency's results, then each later one appended, in the order the dependencies were connected.
 
 - **Its SPL must start with `|`**, such as `| stats sum(count) by host`. Saving fails otherwise, and it fails unless the step depends on at least one step (a connection into it).
 - **It has no time range of its own.** It works on rows the earlier steps already found. Switching a step to this type drops its Earliest and Latest.
-- **Switching back to Search** writes the input into the SPL as `| loadjob $<step>.sid$` tokens. A token from a skipped or failed step fails the step, so if a dependency can be skipped or fail, give the token a default or keep the From previous steps type.
+- **Switching back to Search** writes the input into the SPL as `| loadjob $<step>.sid$` tokens. A token from a skipped or failed step fails the step, so if a dependency can be skipped or fail, give the token a default or keep the Results of earlier steps type.
 - **Skipped and failed inputs add nothing.** Only dependencies that succeeded are loaded. A step that runs after an `on_failure` connection still runs, without the failed step's rows. If no dependency succeeded, it runs on no rows.
 - **The second and later inputs are limited to 50,000 rows each.** They are appended through a subsearch, and Splunk cuts a subsearch short at that limit. When that happens the step fails with "a subsearch was cut short: ..." and Splunk's message, never with silently partial results. The first input has no such limit, so connect the largest dependency first, or summarise the inputs before they reach this step.
 
@@ -52,6 +65,8 @@ Use these in SPL, expressions and action messages:
 - `$<step>.sid$`, `$<step>.resultCount$`, `$<step>.status$`
 - `$<step>.first.<field>$`: a field from the step's first result row
 
+**Insert value** next to a search, an edge expression or an action message (the email subject and message, and the event payload) lists the tokens that exist at that point and puts the one you pick at the cursor. A selection is replaced. With no cursor in the field, the token goes at the end.
+
 **Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. A token can't sit inside a ```` ``` ```` comment or right after a backslash (put the backslash in the value), and a parameter or result value containing a backtick fails the step. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. A step can't call `| orchestrate`; use a start-job action instead. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
 
 ### Parameters
@@ -62,16 +77,18 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 | Trigger | How |
 |---|---|
-| Schedule | Cron on the Triggers tab, in the job's time zone. |
+| Schedule | On the Triggers tab, in the job's time zone. |
 | Manual | **Run now** on the Jobs page. |
 | Search | `\| orchestrate start job=<id> param.<name>=<value>` |
 | Alert | The "Start orchestrator job" alert action. The alert must be owned by a real user who may run the job, not `nobody`. |
 | REST | `POST /services/orchestrator/jobs/<id>/runs` |
 | Job completion | "After job X succeeds" or "completes". |
 
+- **Schedules** are picked from presets: **Hourly**, **Daily**, **Weekly**, **Monthly** or **Custom** (a cron expression). The editor shows a readable summary, such as "Every day at 01:00", and the next times it will fire. A cron no preset matches opens as Custom and is never rewritten. A job can have more than one schedule.
+- **Time zone** is picked from a list that includes UTC. A stored zone the list lacks stays selected; the server decides if it is valid. Empty uses the server's time zone.
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
-- **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed slot (up to 7), only the latest, or none.
+- **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed time (up to 7), only the latest, or none.
 
 ### Actions
 
@@ -92,9 +109,9 @@ On the Access tab, list roles that may start the job. **Their runs search as you
 
 On the job Settings tab:
 
-- **Hold later runs** (default): later runs wait until someone re-runs or dismisses the failed run. A rollup can't run over a window with a missing day.
+- **Wait for this run to be fixed** (default): later runs wait until someone re-runs or dismisses the failed run. A rollup can't run over a window with a missing day.
   While runs are held, runs turned away because the job's queue is full are reported in the daily hold alert, not one notification each.
-- **Continue with later runs:** later runs go ahead, so a weekly rollup may run with a day missing.
+- **Start later runs anyway:** later runs go ahead, so a weekly rollup may run with a day missing.
 
 This setting is read from the job **as it is now**, not from the run's copy. Changing it affects runs already waiting.
 
@@ -117,11 +134,11 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 
 ## Follow runs
 
-- **Jobs** shows each job's next run and last outcome, with Run now and an enable switch. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
-- **Runs** lists runs, filterable by job and state.
-- **Run detail** has a timeline, the graph, logs, actions and parameters. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
+- **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run and last outcome, with Run now and an enable switch. **Find jobs** filters by name, id, owner or description. With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
+- **Runs** lists runs, filterable by job and state. The **Needs attention** state filter shows blocked and failed runs, and runs that hold later runs back.
+- **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 
-Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish.
+Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish. A step that a branch didn't reach shows as *Skipped (branch not taken)*.
 
 | Run state | Meaning |
 |---|---|
@@ -165,3 +182,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 ## Audit events
 
 Every change is written to the `orchestrator` index. **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+
+## Help in the app
+
+**Help** in the app's navigation bar shows this guide. Many fields have a **Learn more** link that opens the matching section.

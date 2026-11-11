@@ -198,7 +198,7 @@ describe('Canvas', () => {
         });
     });
 
-    test('in the editor, a line dropped on empty canvas adds a selected From previous steps step; one undo removes it', async () => {
+    test('in the editor, a line dropped on empty canvas adds a selected Results of earlier steps step; one undo removes it', async () => {
         renderThemed(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Step Monthly rollup/ });
         expect(screen.queryByRole('button', { name: 'Auto layout' })).toBeNull();
@@ -207,7 +207,7 @@ describe('Canvas', () => {
         fireEvent.pointerUp(canvas, { clientX: 2000, clientY: 2000 });
         const added = await screen.findByRole('button', { name: /^Step step_4/ });
         expect(added).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.getByLabelText('Input (added for you)')).toHaveTextContent('| loadjob ‹monthly›');
+        expect(screen.getByLabelText('Reads results from')).toHaveTextContent('| loadjob ‹monthly›');
         expect(screen.getByRole('button', { name: /^Dependency: Monthly rollup to step_4/ })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
         await waitFor(() => expect(screen.queryByRole('button', { name: /^Step step_4/ })).toBeNull());

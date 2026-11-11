@@ -1073,10 +1073,10 @@ class Engine:
         if (info.get("exists") and info.get("owner") == owner and info.get("sharing") == "user"
                 and info.get("dispatch_as") == "owner"):
             return None
-        return ("saved search %r is no longer a private search of %s with dispatchAs = owner "
-                "(owner %s, sharing %s, dispatchAs %s), so it was not run; re-save the job to "
-                "run it through a wrapper" % (name, owner, info.get("owner"), info.get("sharing"),
-                                              info.get("dispatch_as")))
+        return ("saved search %r is no longer a private search of %s (owner %s, sharing %s, "
+                "runs as %s), so it was not run; save the job again, or make the search "
+                "private again" % (name, owner, info.get("owner"), info.get("sharing"),
+                                   info.get("dispatch_as")))
 
     def _expired_upstream(self, run, sid):
         """For a re-run: (kind, upstream step, reason) with kind "expired", "unknown"

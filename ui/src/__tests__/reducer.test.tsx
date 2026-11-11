@@ -84,7 +84,7 @@ describe('builder reducer', () => {
         expect(s.job.steps).toHaveLength(3 + 20);
     });
 
-    test('addStepFrom adds a From previous steps step reading the source, as one undo step', () => {
+    test('addStepFrom adds a Results of earlier steps step reading the source, as one undo step', () => {
         let s = reducer(initialState(job), { type: 'addStepFrom', from: 'monthly', id: 'step_4' });
         expect(s.job.steps[3]).toEqual({ id: 'step_4', name: '', type: 'previous', spl: '' });
         expect(s.job.edges?.[2]).toEqual({ from: 'monthly', to: 'step_4', condition: 'on_success' });

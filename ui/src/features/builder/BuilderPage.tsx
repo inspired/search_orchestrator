@@ -584,7 +584,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                 <Modal open onRequestClose={() => setRemoving(null)} returnFocus={returnFocus} style={{ width: '480px' }}>
                     <Modal.Header title={`Remove ${removingStep ? stepLabel(removingStep) : removing}?`} />
                     <Modal.Body>
-                        <p>Its dependencies are removed too. Undo brings it back.</p>
+                        <p>{`${removingStep ? stepLabel(removingStep) : removing} and its connections are removed. Undo brings them back.`}</p>
                     </Modal.Body>
                     <Modal.Footer>
                         <Button appearance="secondary" label="Cancel" onClick={() => setRemoving(null)} />

@@ -243,7 +243,7 @@ export default function StepPanel({
                 label="Step id"
                 labelFor={`${p}-id`}
                 labelPosition="top"
-                help={idError || 'Used in tokens such as $' + (idDraft || 'id') + '.sid$.'}
+                help={idError || 'Short name used in tokens, such as $' + (idDraft || 'id') + '.sid$. Lowercase letters, numbers and _.'}
                 error={Boolean(idError)}
             >
                 <Text
@@ -259,7 +259,12 @@ export default function StepPanel({
                     }}
                 />
             </ControlGroup>
-            <ControlGroup label="Type" labelFor={`${p}-type`} labelPosition="top">
+            <ControlGroup
+                label="Type"
+                labelFor={`${p}-type`}
+                labelPosition="top"
+                help={step.type === 'previous' ? 'Works on the rows the steps before it found, with no search of its own.' : undefined}
+            >
                 <Select
                     inputId={`${p}-type`}
                     data-testid="type-select"
@@ -268,17 +273,17 @@ export default function StepPanel({
                 >
                     <Select.Option label="Search" value="inline" />
                     <Select.Option label="Saved search" value="saved_search" />
-                    <Select.Option label="From previous steps" value="previous" />
+                    <Select.Option label="Results of earlier steps" value="previous" />
                 </Select>
             </ControlGroup>
-            {step.type === 'previous' && <LearnMore anchor="from-previous-steps" topic="From previous steps" />}
+            {step.type === 'previous' && <LearnMore anchor="results-of-earlier-steps" topic="Results of earlier steps" />}
             {step.type === 'saved_search' ? (
                 <>
                 <ControlGroup
                     label="Saved search"
                     labelFor={`${p}-ref`}
                     labelPosition="top"
-                    help="Runs directly if it is your private search with dispatchAs = owner; otherwise through a wrapper, without its own summary indexing and actions."
+                    help="If this is your own private search, it runs as saved. Otherwise its own alerts and summary indexing don't run; add collect to the step if you need them."
                 >
                     <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
                 </ControlGroup>
@@ -287,7 +292,7 @@ export default function StepPanel({
             ) : (
                 <>
                     {step.type === 'previous' && (
-                        <ControlGroup label="Input (added for you)" labelPosition="top">
+                        <ControlGroup label="Reads results from" labelPosition="top">
                             <StaticContent>
                                 <Typography as="span" variant="monoBody">
                                     {generatedInput(job, stepId)}
@@ -335,7 +340,7 @@ export default function StepPanel({
                     onChange={(earliest, latest) => set({ earliest, latest })}
                 />
             )}
-            <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Runs after these steps succeed. Steps that would make a loop are not listed.">
+            <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Starts after these steps succeed. Steps that would make a loop aren't listed.">
                 <Multiselect inputId={`${p}-depends`} values={parents} onChange={onDepends} noOptionsMessage="No other steps can come before this one.">
                     {candidates.map((s) => (
                         <Multiselect.Option key={s.id} label={stepLabel(s)} value={s.id} />

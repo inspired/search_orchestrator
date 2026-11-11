@@ -25,7 +25,7 @@ export type BuilderAction =
     /** A save went through: `job` (the definition sent) is now what the server has. */
     | { type: 'saved'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
-    /** A From previous steps step reading `from`, added with its edge as one undo step. */
+    /** A Results of earlier steps step reading `from`, added with its edge as one undo step. */
     | { type: 'addStepFrom'; from: string; id: string }
     | { type: 'removeStep'; id: string }
     | { type: 'updateStep'; id: string; changes: Partial<StepDef> }
@@ -132,8 +132,8 @@ function renameStepTokens(step: StepDef, from: string, to: string): StepDef {
     return out;
 }
 
-/** Switching a "From previous steps" step to Search writes its generated input into the
- * SPL as `$step.sid$` tokens, so it keeps working. Switching to From previous steps drops
+/** Switching a "Results of earlier steps" step to Search writes its generated input into the
+ * SPL as `$step.sid$` tokens, so it keeps working. Switching to Results of earlier steps drops
  * the time range, which it never uses. Other type switches change nothing else. */
 function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepDef {
     if (after.type === 'previous' && before.type !== 'previous') {

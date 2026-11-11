@@ -128,10 +128,10 @@ export function findIssues(job: JobDefinition): Issue[] {
         if (s.type === 'previous') {
             // model.py's checks and messages (an empty search fails the first one there too).
             if (!(s.spl || '').trimStart().startsWith('|')) {
-                out.push(issue('error', 'previous_needs_pipe', 'A From previous steps search must start with |', s.id));
+                out.push(issue('error', 'previous_needs_pipe', 'the search must start with |, such as | stats count', s.id));
             }
             if (!(job.edges || []).some((e) => e.to === s.id)) {
-                out.push(issue('error', 'previous_needs_dependency', 'A From previous steps step must depend on at least one step', s.id));
+                out.push(issue('error', 'previous_needs_dependency', 'this step needs a step before it to read from; add one in Depends on', s.id));
             }
         }
         if (s.run_when && s.run_when.kind && !(s.run_when.value || '').trim()) {

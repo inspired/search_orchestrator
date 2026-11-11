@@ -125,15 +125,15 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
                 label="When a step gives up"
                 labelFor="job-after-give-up"
                 labelPosition="top"
-                help="Hold keeps later runs of this job waiting until the run is re-run or dismissed."
+                help="Waiting stops a rollup running over a missing day. Starting anyway keeps the schedule but can leave gaps."
             >
                 <Select
                     inputId="job-after-give-up"
                     value={job.after_give_up || 'hold'}
                     onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'after_give_up', value })}
                 >
-                    <Select.Option label="Hold later runs" value="hold" />
-                    <Select.Option label="Continue with later runs" value="continue" />
+                    <Select.Option label="Wait for this run to be fixed" value="hold" />
+                    <Select.Option label="Start later runs anyway" value="continue" />
                 </Select>
             </ControlGroup>
             <LearnMore anchor="when-a-step-gives-up" topic="giving up" />

@@ -78,7 +78,7 @@ describe('previewLogic', () => {
             { id: 'b', type: 'inline', spl: '| makeresults' },
             { id: 'p', type: 'previous', spl: '| stats count' },
         ];
-        expect(generatedInput(job(steps), 'p')).toBe('(no previous steps yet)');
+        expect(generatedInput(job(steps), 'p')).toBe('(no earlier steps yet)');
         expect(generatedInput(job(steps, [{ from: 'a', to: 'p' }]), 'p')).toBe('| loadjob ‹a›');
         expect(generatedInput(job(steps, [{ from: 'b', to: 'p' }, { from: 'a', to: 'p' }]), 'p')).toBe(
             '| loadjob ‹b› | append [| loadjob ‹a›]'
