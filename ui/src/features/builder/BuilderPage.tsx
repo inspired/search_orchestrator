@@ -1,12 +1,13 @@
 /* The job builder: a graph canvas of steps with a side panel for the selected step or
- * dependency, job-level tabs, undo/redo, and Validate/Save against the server. Save checks
+ * dependency, job-level tabs, undo/redo, and automatic checking against the server, and Save. Save checks
  * first, and warns before an admin takes over someone else's job. */
-import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Modal from '@splunk/react-ui/Modal';
 import Text from '@splunk/react-ui/Text';
+import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
@@ -23,6 +24,7 @@ import { tabForIssue } from './issueTabs';
 import SetupChecklist from './SetupChecklist';
 import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
+import useAutoValidate from './useAutoValidate';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
 import { blankJob, initialState, nextStepId, reducer } from './reducer';
 import StepPanel, { IssueList } from './StepPanel';
@@ -92,8 +94,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const [alertActions, setAlertActions] = useState<AlertAction[] | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [selected, setSelected] = useState<Selection>(null);
-    const [serverIssues, setServerIssues] = useState<Issue[]>([]);
-    const [checkedJob, setCheckedJob] = useState<JobDefinition | null>(null);
     const [notice, setNotice] = useState<Notice>(null);
     const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -173,6 +173,12 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     }, []);
 
     const { job } = state;
+
+    // The job is checked against the server as it is edited, once it is ready to edit.
+    const checkJob = useCallback((j: JobDefinition) => api.validateJob({ ...j, id: jobId || undefined }), [api, jobId]);
+    const auto = useAutoValidate(job, checkJob, { enabled: !loading && !loadError && !choosingTemplate });
+    const serverIssues = auto.issues;
+    const checkedJob = auto.checkedJob;
 
     // "As if scheduled at" defaults once, when the job is ready, to its latest cron slot.
     const defaultsAsked = useRef(false);
@@ -262,31 +268,13 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const runCheck = async (): Promise<ValidateResponse | null> => {
         try {
             const res = await api.validateJob({ ...job, id: jobId || undefined });
-            setServerIssues(res.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, res);
             return res;
         } catch (err) {
             const e = err as client.ApiError;
-            setServerIssues(e.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, { issues: e.issues || [] });
             setNotice({ type: 'error', text: `The job could not be checked: ${e.message}` });
             return null;
-        }
-    };
-
-    const onValidate = async () => {
-        setBusy(true);
-        setNotice(null);
-        const res = await runCheck();
-        setBusy(false);
-        if (res) {
-            const errors = errorsIn(res.issues || []).length;
-            const warnings = (res.issues || []).length - errors;
-            setNotice(
-                errors
-                    ? { type: 'error', text: `${errors} error${errors === 1 ? '' : 's'} to fix before saving.` }
-                    : { type: 'success', text: warnings ? `No errors. ${warnings} warning${warnings === 1 ? '' : 's'}.` : 'No problems found.' }
-            );
         }
     };
 
@@ -296,8 +284,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         setNotice(null);
         try {
             const res = jobId ? await api.updateJob(jobId, job) : await api.createJob(job);
-            setServerIssues(res.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, res);
             setMeta({ owner: res.job.owner, canEdit: true });
             if (!jobId) {
                 setJobId(res.job.id);
@@ -311,8 +298,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             setNotice({ type: 'success', text: 'Saved.' });
         } catch (err) {
             const e = err as client.ApiError;
-            setServerIssues(e.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, { issues: e.issues || [] });
             setNotice({ type: 'error', text: `The job was not saved: ${e.message}` });
         } finally {
             setBusy(false);
@@ -502,7 +488,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         <>
             <Button appearance="subtle" label="Undo" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
             <Button appearance="subtle" label="Redo" disabled={!state.future.length} onClick={() => dispatch({ type: 'redo' })} />
-            <Button appearance="secondary" label="Validate" disabled={busy || loading} onClick={onValidate} />
+            {auto.checking && <Typography as="span" variant="body">Checking…</Typography>}
             <Button appearance="primary" label="Save" disabled={busy || loading || !meta.canEdit} onClick={onSave} />
         </>
     );

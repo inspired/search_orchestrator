@@ -127,13 +127,23 @@ describe('BuilderPage', () => {
         });
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
         await screen.findByRole('button', { name: /^Step Weekly rollup/ });
-        fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
-        const weekly = await screen.findByRole('button', { name: /^Step Weekly rollup, 1 warning/ });
+        expect(screen.queryByRole('button', { name: 'Validate' })).toBeNull();
+        const weekly = await screen.findByRole('button', { name: /^Step Weekly rollup, 1 warning/ }, { timeout: 3000 });
         fireEvent.keyDown(screen.getByRole('button', { name: /^Step Daily summary/ }), { key: 'Enter' });
         expect(screen.queryByText(/its own summary indexing and actions won't run/)).toBeNull();
         fireEvent.keyDown(weekly, { key: 'Enter' });
         const panel = screen.getByRole('region', { name: 'Step Weekly rollup' });
         expect(within(panel).getByText(/its own summary indexing and actions won't run/)).toBeInTheDocument();
+    });
+
+    test('shows Checking… next to Save while a check is running', async () => {
+        let resolve: (r: unknown) => void = () => undefined;
+        const api = fakeApi({ validateJob: jest.fn().mockImplementation(() => new Promise((res) => (resolve = res))) });
+        renderThemed(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        expect(await screen.findByText('Checking…', undefined, { timeout: 3000 })).toBeInTheDocument();
+        resolve({ valid: true, issues: [], owner_will_change: false, owner: 'alice' });
+        await waitFor(() => expect(screen.queryByText('Checking…')).toBeNull());
     });
 
     test('save warns before taking ownership', async () => {
