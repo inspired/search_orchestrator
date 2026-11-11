@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.8.0 (2026-11-11)
+
+Plain words, a friendlier Jobs and Runs, and help inside the app.
+
+- The Jobs page shows a summary line for each job (when it runs and how many steps), has a **Find jobs** search and a **Create job** button, and with no jobs offers the templates to start from.
+- Runs has a **Needs attention** filter. A run that needs attention says what to do next, and the button that lets held runs go ahead is now **Dismiss run**.
+- A **Help** page in the app shows the user guide, and many fields have a **Learn more** link to the matching section.
+- Wording: the step type "From previous steps" is now **Results of earlier steps** (the stored value is unchanged); "When a step gives up" offers **Wait for this run to be fixed** or **Start later runs anyway**; skipped steps read *Skipped (branch not taken)*; help texts no longer use internal words such as dispatchAs or wrapper.
+- Problem messages from the server say what to do next. Only the message text changed; the codes are the same.
+- The user guide covers templates, schedule presets, time range presets, Insert value, the setup checklist, automatic checking and the Help page.
+
 ## 1.7.0 (2026-11-11)
 
 Fewer surprises when saving or leaving the job editor.
