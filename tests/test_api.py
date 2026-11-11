@@ -1614,3 +1614,72 @@ def test_builders_list_alert_actions_with_their_own_session(w):
 
 def test_alert_actions_need_build_access(w):
     assert w.call("carol", "GET", "/orchestrator/alert_actions")[0] == 403
+
+
+# Builder readouts: schedule/next and timerange/resolve.
+
+NOV6 = 1762390800  # 2025-11-06 01:00 UTC
+
+
+def test_schedule_next_daily(w):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "UTC"})
+    assert status == 200
+    assert out["slots"] == [1762477200, 1762563600, 1762650000]
+    assert out["timezone_status"] == "ok"
+
+
+def test_schedule_next_bad_cron(w):
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "61 * * * *", "timezone": "UTC"})
+    assert status == 400 and error(out) == "bad_cron"
+
+
+def test_schedule_next_count_bounds(w):
+    for count in (6, 0):
+        status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                             {"cron": "0 1 * * *", "timezone": "UTC", "count": count})
+        assert status == 400 and error(out) == "bad_request"
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "UTC", "count": 5})
+    assert status == 200 and len(out["slots"]) == 5
+
+
+def test_schedule_next_run_only_user_forbidden(w):
+    status, out = w.call("carol", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "UTC"})
+    assert status == 403 and error(out) == "forbidden"
+
+
+def test_timerange_resolve_previous_day(w):
+    w.now = NOV6
+    w.gw.times = {("-1d@d", NOV6): 1762300800, ("@d", NOV6): 1762387200}
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1d@d", "latest": "@d", "scheduled_time": NOV6})
+    assert status == 200
+    assert out == {"earliest": 1762300800, "latest": 1762387200}
+
+
+def test_timerange_resolve_empty_values(w):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "", "latest": "", "scheduled_time": NOV6})
+    assert status == 200
+    assert out == {"earliest": None, "latest": NOV6}
+    assert not [c for c in w.calls if c[1] == "parse_times"]
+
+
+def test_timerange_resolve_bad_value(w):
+    w.now = NOV6
+    w.gw.times = {("@d", NOV6): 1762387200}
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1x", "latest": "@d", "scheduled_time": NOV6})
+    assert status == 400 and error(out) == "bad_time"
+    assert out["error"]["field"] == "earliest"
+
+
+def test_timerange_resolve_run_only_user_forbidden(w):
+    status, out = w.call("carol", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1d", "latest": "now", "scheduled_time": NOV6})
+    assert status == 403 and error(out) == "forbidden"

@@ -283,6 +283,15 @@ def saved_search_params(search, earliest, latest, description=""):
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
+def parse_timeparser(body):
+    """``{time string: epoch seconds}`` from a ``search/timeparser`` reply."""
+    try:
+        data = json.loads(body)
+        return {str(k): int(v) for k, v in data.items()}
+    except (ValueError, TypeError, AttributeError) as err:
+        raise GatewayError("unreadable time parser reply: {}".format(err))
+
+
 def parse_alert_actions(body, forms_body=None):
     """Alert actions JSON and alert form JSON (or None) -> ``[{"name", "label", "params"}]``
     by label (``params``: see ``alert_forms``). Only enabled custom actions:
@@ -383,6 +392,7 @@ class Gateway(Protocol):
     def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
     def index_exists(self, name: str) -> bool: ...
     def alert_actions(self, user: str) -> List[Dict[str, str]]: ...
+    def parse_times(self, user: str, times: List[str], now_epoch: int) -> Dict[str, int]: ...
     def read_secret(self, name: str) -> Optional[str]: ...
     def write_secret(self, name: str, value: str) -> None: ...
     def delete_secret(self, name: str) -> None: ...
@@ -631,6 +641,23 @@ class SplunkGateway:
         except Exception:  # the list is still useful, with defaults from the settings only
             forms = None
         return parse_alert_actions(body, forms)
+
+    def parse_times(self, user, times, now_epoch):
+        """Epoch seconds for each Splunk time string (``-1d@d``, ``@d``), resolved against
+        ``now_epoch``. A value Splunk rejects is a 400 GatewayError naming it."""
+        try:
+            body = self._call("get", "search/timeparser", user, time=list(times), now=now_epoch,
+                              output_time_format="%s")
+        except GatewayError:
+            raise
+        except Exception as err:
+            status = self._status(err)
+            if status == 400:
+                raise GatewayError("Splunk cannot read the time {}".format(
+                    " or ".join(repr(t) for t in times)), 400)
+            raise GatewayError("time parse failed: {}".format(err), status,
+                               is_transient_status(status))
+        return parse_timeparser(body)
 
     # KV Store.
 

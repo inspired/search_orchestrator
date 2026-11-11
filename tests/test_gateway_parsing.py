@@ -525,3 +525,29 @@ def test_alert_actions_failure_is_a_gateway_error():
     with pytest.raises(g.GatewayError) as err:
         g.SplunkGateway(StubService(down)).alert_actions("alice")
     assert err.value.status == 503 and err.value.transient
+
+
+def test_parse_timeparser():
+    assert g.parse_timeparser(fx("timeparser.json")) == {"-1d@d": 1762300800, "@d": 1762387200}
+
+
+def test_parse_times_asks_splunk_to_resolve_against_now():
+    seen = []
+
+    def handler(method, path, kw):
+        seen.append((method, path, kw))
+        return Resp(fx("timeparser.json"))
+    out = g.SplunkGateway(StubService(handler)).parse_times("alice", ["-1d@d", "@d"], 1762390800)
+    assert out == {"-1d@d": 1762300800, "@d": 1762387200}
+    method, path, kw = seen[0]
+    assert (method, path) == ("get", "search/timeparser")
+    assert kw["time"] == ["-1d@d", "@d"] and kw["now"] == 1762390800
+    assert kw["output_time_format"] == "%s" and kw["owner"] == "alice"
+
+
+def test_parse_times_rejection_is_a_400_naming_the_value():
+    def handler(method, path, kw):
+        raise FakeHTTPError(400)
+    with pytest.raises(g.GatewayError) as err:
+        g.SplunkGateway(StubService(handler)).parse_times("alice", ["-1x"], 1762390800)
+    assert err.value.status == 400 and "-1x" in str(err.value)

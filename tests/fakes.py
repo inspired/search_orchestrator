@@ -67,6 +67,7 @@ class FakeGateway:
         self.api_handler = None  # (method, path, body) -> (status, payload)
         self.search_handler = None  # (owner, query) -> rows
         self.search_log = []
+        self.times = {}  # (time string, now) -> epoch; a value not listed is one Splunk rejects
         self.preview_log = []  # preview_dispatch calls, oldest first
 
     # Scripting.
@@ -297,6 +298,14 @@ class FakeGateway:
     def alert_actions(self, user):
         self.alert_action_log.append(user)
         return list(self.alert_action_list)
+
+    def parse_times(self, user, times, now_epoch):
+        out = {}
+        for value in times:
+            if (value, now_epoch) not in self.times:
+                raise GatewayError("Splunk cannot read the time %r" % value, 400)
+            out[value] = self.times[(value, now_epoch)]
+        return out
 
     def read_secret(self, name):
         return self.secrets.get(name)

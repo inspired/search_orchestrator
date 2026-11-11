@@ -160,6 +160,8 @@ def _routes():
         (r"alert_actions", {"GET": list_alert_actions}),
         (r"health", {"GET": health}),
         (r"me", {"GET": me}),
+        (r"schedule/next", {"POST": schedule_next}),
+        (r"timerange/resolve", {"POST": resolve_timerange}),
         (r"selftest", {"POST": run_selftest}),
         (r"preview", {"POST": pv.start_preview}),
         (r"preview/defaults", {"POST": pv.preview_defaults}),
@@ -986,6 +988,56 @@ def me(ctx, body):
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
                  "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None)}
+
+
+def _may_build(ctx, action):
+    if not ctx.allowed(authz.can_edit, None) and not ctx.allowed(authz.can_admin, None):
+        raise ctx.deny(action)
+
+
+def schedule_next(ctx, body):
+    """The next ``count`` run times of a cron in a zone, for the builder's schedule readout."""
+    _may_build(ctx, "preview_schedule")
+    count = _bounded_int(body, "count", 3, 5)
+    timezone = body.get("timezone") or None
+    try:
+        spec = cronmod.parse(body.get("cron"))
+    except cronmod.CronError as err:
+        raise ApiError(400, "bad_cron", str(err))
+    slots, after = [], ctx.now + 1
+    while len(slots) < count:
+        slot = cronmod.next_slot(spec, after, timezone, NEXT_RUN_MAX_DAYS)
+        if slot is None:
+            break
+        slots.append(slot)
+        after = slot + 1
+    # No zone means server local time, which always resolves.
+    return 200, {"slots": slots,
+                 "timezone_status": cronmod.tz_status(timezone) if timezone else "ok"}
+
+
+def resolve_timerange(ctx, body):
+    """The epoch window a step's Earliest/Latest covers for a scheduled time (Splunk's own
+    time parser, relative to that time). Empty Earliest is all time, empty Latest is the
+    scheduled time itself."""
+    _may_build(ctx, "resolve_timerange")
+    scheduled = body.get("scheduled_time")
+    if isinstance(scheduled, bool) or not isinstance(scheduled, int):
+        raise ApiError(400, "bad_request", "scheduled_time must be an epoch time in seconds")
+    resolved = {}
+    for field, default in (("earliest", None), ("latest", scheduled)):
+        value = body.get(field)
+        value = value.strip() if isinstance(value, str) else ""
+        if not value:
+            resolved[field] = default
+            continue
+        try:
+            resolved[field] = ctx.user_gw.parse_times(ctx.user, [value], scheduled)[value]
+        except GatewayError as err:
+            if err.status != 400:
+                raise
+            raise ApiError(400, "bad_time", str(err), field=field)
+    return 200, resolved
 
 
 # Self-test.
