@@ -225,15 +225,3 @@ def test_previous_step_with_an_old_time_range_warns():
     del j["steps"][1]["earliest"], j["steps"][1]["latest"]
     assert "previous_old_time_range" not in codes(m.validate_job(j))
     assert m.old_time_range_issues(j) == []
-
-
-def test_read_previous_is_refused():
-    # read_previous (1.5.0) was removed: a Saved search step saved with it can't be saved.
-    j = job(edges=[("a", "b")])
-    j["steps"][1] = {"id": "b", "type": "saved_search", "saved_search_ref": "rep",
-                     "read_previous": True}
-    assert "read_previous_removed" in codes(validate_job(j))
-    j["steps"][1]["read_previous"] = False
-    assert "read_previous_removed" not in codes(validate_job(j))
-    assert "bad_shape" in codes(validate_job(dict(j, steps=[j["steps"][0], dict(
-        j["steps"][1], read_previous="true")])))

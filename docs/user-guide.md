@@ -51,8 +51,6 @@ A **Saved search** step runs a report as it is, so the same report keeps working
 - **To pass data between unchanged reports**, use the usual Splunk way: the first writes it with `outputlookup` or `collect`, and the second reads the lookup or summary index. The job makes sure they run in order.
 - **To search the previous step's results directly**, write that search in the job as a **From previous steps** step (or a Search step with `| loadjob $<step>.sid$`). Previews, validation and the job's history then cover it.
 
-Version 1.5.0 let a Saved search step read the previous step's results through `$args.so_input$`. That option was removed after 1.6.0, because the report had to be rewritten for it and then no longer ran on its own. A job saved with it can't be saved or previewed, and its runs fail that step without running the report. To move it over, change the step to **From previous steps** and paste the report's search after `| loadjob $args.so_input$`, for example `| stats count by host`.
-
 ### Tokens
 
 Use these in SPL, expressions and action messages:

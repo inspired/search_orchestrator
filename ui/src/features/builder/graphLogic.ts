@@ -196,10 +196,6 @@ export function runWhenChoice(rw: RunWhen | null | undefined): string {
     return rw.kind === 'expression' ? 'expression' : 'cron';
 }
 
-/** Mirrors `tokens.READ_PREVIOUS_REMOVED` on the server. */
-export const READ_PREVIOUS_REMOVED =
-    "Saved search steps can no longer read the previous step's results. Change this step to From previous steps and use the report's search after | loadjob $args.so_input$";
-
 const issue = (level: Issue['level'], code: string, message: string, step: string | null = null): Issue => ({
     level,
     code,
@@ -225,9 +221,6 @@ export function findIssues(job: JobDefinition): Issue[] {
         seen.add(s.id);
         if (s.type === 'saved_search' && !(s.saved_search_ref || '').trim()) {
             out.push(issue('error', 'bad_step', 'pick the saved search to run', s.id));
-        }
-        if (s.type === 'saved_search' && s.read_previous === true) {
-            out.push(issue('error', 'read_previous_removed', READ_PREVIOUS_REMOVED, s.id));
         }
         if (s.type === 'inline' && !(s.spl || '').trim()) {
             out.push(issue('error', 'bad_step', 'the search is empty', s.id));

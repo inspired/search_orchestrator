@@ -3,9 +3,9 @@
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
 unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_needs_pipe,
-previous_needs_dependency, read_previous_removed; warnings timezone_fallback,
-previous_old_time_range.
-``workload_pool`` was removed from the first version and is ignored.
+previous_needs_dependency; warnings timezone_fallback, previous_old_time_range.
+``workload_pool`` was removed from the first version and is ignored, as is a step's
+``read_previous`` (1.5.0, removed after 1.6.0).
 """
 import re
 
@@ -217,8 +217,6 @@ def _shape_issues(job):
         for k in ("spl", "saved_search_ref", "type"):
             if s.get(k) is not None and not isinstance(s[k], str):
                 bad("step %s must be a string" % k, sid)
-        if s.get("read_previous") is not None and not isinstance(s["read_previous"], bool):
-            bad("read_previous must be true or false", sid)
         rw = s.get("run_when")
         if rw is not None and not (isinstance(rw, dict) and isinstance(rw.get("kind"), (str, type(None)))
                                    and isinstance(rw.get("value"), (str, type(None)))):
@@ -301,9 +299,6 @@ def _validate(job, known_saved_searches):
                 issues.append(_issue("error", "bad_step", "saved_search step needs saved_search_ref", sid))
             elif known_saved_searches is not None and ref not in known_saved_searches:
                 issues.append(_issue("error", "unknown_saved_search", "unknown saved search %r" % ref, sid))
-            if s.get("read_previous") is True:
-                issues.append(_issue("error", "read_previous_removed",
-                                     tk.READ_PREVIOUS_REMOVED, sid))
         elif s.get("type") in ("inline", "previous"):
             if s.get("type") == "inline" and not (s.get("spl") or "").strip():
                 issues.append(_issue("error", "bad_step", "inline step needs spl", sid))

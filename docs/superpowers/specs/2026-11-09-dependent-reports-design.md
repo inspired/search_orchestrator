@@ -1,6 +1,6 @@
 # Dependent reports: design
 
-> **Removed (2026-11-12).** Shipped in 1.5.0 and taken out after it: the report had to be rewritten around `$args.so_input$` and then no longer ran outside a job, which left little reason not to keep the search in the job as a From previous steps step. Direct-mode crash recovery needed proof of each job's input from its search text, which relied on undocumented Splunk behaviour. Kept: reading `dispatch.now` from the search ID and never adopting `scheduler__` jobs (section 6). Steps saved with `read_previous` are refused (`read_previous_removed`). This document is kept as a record.
+> **Removed (2026-11-12).** Shipped in 1.5.0 and taken out after it: the report had to be rewritten around `$args.so_input$` and then no longer ran outside a job, which left little reason not to keep the search in the job as a From previous steps step. Direct-mode crash recovery needed proof of each job's input from its search text, which relied on undocumented Splunk behaviour. Kept: reading `dispatch.now` from the search ID and never adopting `scheduler__` jobs (section 6). The `read_previous` field is now ignored. This document is kept as a record.
 
 Date: 2026-11-09. Extends `2026-11-05-search-orchestrator-design.md` (the base spec) and `2026-11-06-step-preview-design.md` (From previous steps and previews). Marked **(owner)** = decided by the owner in conversation; **(builder call)** = my call, open to correction.
 

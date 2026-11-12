@@ -150,14 +150,6 @@ def input_spl(sids):
     return " ".join(parts)
 
 
-# ``read_previous`` (1.5.0) let a Saved search step read the step before it. It was
-# removed: the report had to be rewritten for it and then couldn't run on its own, so
-# the search belongs in the job. A step saved with it is refused, never run without input.
-READ_PREVIOUS_REMOVED = ("Saved search steps can no longer read the previous step's results. "
-                         "Change this step to From previous steps and use the report's "
-                         "search after | loadjob $args.so_input$")
-
-
 def step_spl(step, step_ids):
     """``(saved search text, arg names)`` for an ``inline`` or ``previous`` step. A
     ``previous`` step's search is ``| loadjob $args.so_input$ <tail>``, filled at dispatch

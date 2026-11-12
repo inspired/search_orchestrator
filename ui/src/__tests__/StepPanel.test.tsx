@@ -228,11 +228,3 @@ describe('AccessTab', () => {
         expect(screen.getByRole('combobox', { name: 'Who may run' })).toBeInTheDocument();
     });
 });
-
-test('a saved search step has no read-previous option', () => {
-    const job = threeSteps([{ from: 'a', to: 'b' }]);
-    job.steps[1] = { id: 'b', type: 'saved_search', saved_search_ref: 'rep' };
-    renderPanel(job, 'b');
-    expect(screen.queryByRole('checkbox', { name: "Reads the previous step's results" })).toBeNull();
-    expect(screen.getByLabelText('Earliest')).toBeInTheDocument();
-});

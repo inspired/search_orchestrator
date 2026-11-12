@@ -120,15 +120,8 @@ function renameStepTokens(step: StepDef, from: string, to: string): StepDef {
 
 /** Switching a "From previous steps" step to Search writes its generated input into the
  * SPL as `$step.sid$` tokens, so it keeps working. Switching to From previous steps drops
- * the time range, which it never uses. Leaving Saved search drops `read_previous`, which
- * is how a step saved with that removed option is moved over. Other type switches change
- * nothing else. */
-function convertType(job: JobDefinition, before: StepDef, changed: StepDef): StepDef {
-    let after = changed;
-    if (before.type === 'saved_search' && after.type !== 'saved_search') {
-        after = { ...after };
-        delete after.read_previous;
-    }
+ * the time range, which it never uses. Other type switches change nothing else. */
+function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepDef {
     if (after.type === 'previous' && before.type !== 'previous') {
         const out = { ...after };
         delete out.earliest;

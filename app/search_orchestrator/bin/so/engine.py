@@ -1020,9 +1020,6 @@ class Engine:
                 return self._attempt_failed(run, sid, "Could not confirm whether the results of "
                                             "step %s are still available" % up, now, pending)
             return None  # stays starting; checked again next tick
-        if sdef.get("read_previous") is True:
-            # Saved with the removed feature (1.5.0): running it would give no input.
-            return self._attempt_failed(run, sid, tokens.READ_PREVIOUS_REMOVED, now, pending)
         if sdef.get("mode") == "direct":
             problem = self._direct_problem(run, name)
             if problem is not None:

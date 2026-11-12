@@ -1617,21 +1617,6 @@ def test_alert_actions_need_build_access(w):
     assert w.call("carol", "GET", "/orchestrator/alert_actions")[0] == 403
 
 
-def test_saving_and_previewing_refuse_a_step_with_read_previous(w):
-    # read_previous (1.5.0) was removed: say how to move the step over.
-    w.gw.saved_searches[("alice", "rep")] = {"search": "| loadjob $args.so_input$ | stats count"}
-    job = job_body("daily", steps=[
-        {"id": "a", "type": "inline", "spl": "| makeresults", "earliest": "-1d", "latest": "now"},
-        {"id": "b", "type": "saved_search", "saved_search_ref": "rep", "read_previous": True}],
-        edges=[{"from": "a", "to": "b"}])
-    status, out = w.call("alice", "POST", "/orchestrator/jobs", job)
-    assert status == 400
-    assert "read_previous_removed" in [i["code"] for i in out["error"]["issues"]]
-    status, out = preview(w, job=job, step_id="b", input=live(a={"sid": "a.1"}))
-    assert status == 400
-    assert "read_previous_removed" in [i["code"] for i in out["error"]["issues"]]
-
-
 # Jobs page: search, paging and the bounded last-run read.
 
 def named(w, job_id, name, user="alice", **over):

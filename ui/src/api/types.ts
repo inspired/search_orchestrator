@@ -71,8 +71,6 @@ export interface StepDef {
     type: 'inline' | 'saved_search' | 'previous';
     spl?: string;
     saved_search_ref?: string;
-    /** Removed after 1.6.0. A step saved with it is refused until its type is changed. */
-    read_previous?: boolean;
     earliest?: string;
     latest?: string;
     run_when?: RunWhen | null;

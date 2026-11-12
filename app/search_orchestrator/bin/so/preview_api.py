@@ -268,9 +268,6 @@ def _preview_search(ctx, job, step, scheduled, params, upstream):
         spl, issues = hidden.saved_search_spl(ctx.user_gw, ctx.user, step)
         if spl is None:
             raise _invalid(issues)
-        if step.get("read_previous") is True:
-            raise _invalid([_issue("error", "read_previous_removed",
-                                   tokens.READ_PREVIOUS_REMOVED, step["id"])])
         return spl, step.get("earliest") or None, step.get("latest") or None
     ids = [s.get("id") for s in job.get("steps") or []]
     try:

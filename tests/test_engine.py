@@ -7,7 +7,7 @@ import pytest
 from fakes import FakeGateway
 from so import audit as auditmod
 from so import engine as enginemod
-from so import names, scheduler, tokens
+from so import names, scheduler
 from so.actions import ActionRunner
 from so.engine import AuthExpired, Engine
 from so.gateway import DispatchError, GatewayError, KvError
@@ -1531,24 +1531,6 @@ def test_previous_step_dispatch_sends_no_time_range_override():
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("a")] == [("-1d", "now")]
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("p")] == [(None, None)]
     assert w.step(run_id, "p")["state"] == "succeeded"
-
-
-@pytest.mark.parametrize("mode", ["wrapped", "direct"])
-def test_step_saved_with_read_previous_fails_without_dispatching(mode):
-    # read_previous (1.5.0) was removed: a run of a job saved with it must not run the
-    # report without its input.
-    w = World()
-    b = {"id": "b", "type": "saved_search", "saved_search_ref": "rep", "read_previous": True,
-         "mode": mode, "hidden_search": "rep" if mode == "direct" else "so_wrap_rep"}
-    j = w.add_job(make_job(steps=[{"id": "a"}, b], edges=[("a", "b")]),
-                  scripts={"a": {"states": ["done"], "result_count": 1}})
-    w.manual(j, scheduled_time=T0)
-    for _ in range(6):
-        w.tick(advance=5)
-    run_id = w.store.list_runs({})[0]["_key"]
-    assert [d["name"] for d in w.gw.dispatch_log] == [j["steps"][0]["hidden_search"]]
-    failed = w.audit.of("step_attempt", run_id=run_id, step_id="b", outcome="failed")
-    assert failed and failed[0]["error"] == tokens.READ_PREVIOUS_REMOVED
 
 
 # --- KV writes per pass ----------------------------------------------------------

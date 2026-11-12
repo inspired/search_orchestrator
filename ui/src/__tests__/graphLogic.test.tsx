@@ -116,11 +116,3 @@ describe('graphLogic', () => {
         ]);
     });
 });
-
-test('findIssues refuses a step saved with the removed read_previous', () => {
-    const job: JobDefinition = { name: 'j', enabled: true, edges: [{ from: 'a', to: 'b' }],
-        steps: [{ id: 'a', type: 'inline', spl: '| x' },
-                { id: 'b', type: 'saved_search', saved_search_ref: 'rep', read_previous: true }] };
-    const found = findIssues(job).filter((i) => i.code === 'read_previous_removed').map((i) => i.step);
-    expect(found).toEqual(['b']);
-});
