@@ -16,7 +16,7 @@ export default function LogsTab({ attempts }: { attempts: StepAttempt[] }) {
         (a, b) => Number(a.started_at || 0) - Number(b.started_at || 0) || a.attempt - b.attempt
     );
     return (
-        <Table stripeRows>
+        <Table>
             <Table.Head>
                 <Table.HeadCell>Step</Table.HeadCell>
                 <Table.HeadCell>Attempt</Table.HeadCell>

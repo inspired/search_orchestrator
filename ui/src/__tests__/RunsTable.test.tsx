@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import RunsTable, { filterRuns } from '../features/runs/RunsTable';
+import RunsTable, { filterRuns, stepProgress } from '../features/runs/RunsTable';
 import RunsPage, { RunsApi } from '../features/runs/RunsPage';
 import { formatTime } from '../format';
 import { NOW, renderThemed, runSummary } from './fixtures';
@@ -60,6 +60,31 @@ describe('RunsTable', () => {
         expect(screen.queryByText('All jobs')).toBeNull();
         fireEvent.change(screen.getByRole('textbox', { name: 'Search by job name' }), { target: { value: 'sales' } });
         expect(onFiltersChange).toHaveBeenCalledWith({ state: 'failed', q: 'sales' });
+    });
+});
+
+describe('Run progress', () => {
+    const steps = {
+        a: { state: 'succeeded' as const },
+        b: { state: 'skipped' as const },
+        c: { state: 'running' as const },
+        d: { state: 'waiting' as const },
+    };
+
+    test('counts finished steps for runs in progress only', () => {
+        expect(stepProgress(runSummary({ state: 'running', steps }))).toEqual({ done: 2, total: 4 });
+        expect(stepProgress(runSummary({ state: 'blocked', steps }))).toEqual({ done: 2, total: 4 });
+        expect(stepProgress(runSummary({ state: 'queued', steps }))).toBeNull();
+        expect(stepProgress(runSummary({ state: 'succeeded', steps }))).toBeNull();
+        expect(stepProgress(runSummary({ state: 'running', steps: {} }))).toBeNull();
+    });
+
+    test('shows a progress bar with the step count on running runs', () => {
+        const runs = [runSummary({ id: 'r1', state: 'running', steps }), runSummary({ id: 'r2', state: 'succeeded', steps })];
+        renderThemed(<RunsTable runs={runs} jobNames={{}} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
+        const bars = screen.getAllByTestId('run-progress');
+        expect(bars).toHaveLength(1);
+        expect(bars[0]).toHaveAttribute('aria-label', '2 of 4 steps done');
     });
 });
 

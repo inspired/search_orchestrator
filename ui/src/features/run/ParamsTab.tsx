@@ -12,7 +12,7 @@ export default function ParamsTab({ run }: { run: RunDetail }) {
         return <p>This run has no parameters.</p>;
     }
     return (
-        <Table stripeRows>
+        <Table>
             <Table.Head>
                 <Table.HeadCell>Name</Table.HeadCell>
                 <Table.HeadCell>Value</Table.HeadCell>

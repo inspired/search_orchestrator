@@ -85,7 +85,7 @@ function ResultsTable({ preview, dimmed }: { preview: PreviewView; dimmed: boole
         <div data-testid="preview-table" style={dimmed ? { opacity: 0.5 } : undefined}>
             {results.fields.length ? (
                 <div style={{ overflowX: 'auto' }}>
-                    <Table stripeRows>
+                    <Table>
                         <Table.Head>
                             {results.fields.map((f) => (
                                 <Table.HeadCell key={f}>{f}</Table.HeadCell>

@@ -2,6 +2,7 @@
 import React from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
+import Progress from '@splunk/react-ui/Progress';
 import Select from '@splunk/react-ui/Select';
 import Table from '@splunk/react-ui/Table';
 import Text from '@splunk/react-ui/Text';
@@ -16,6 +17,31 @@ export type RunsTableFilters = Pick<RunFilters, 'q' | 'state'>;
 /** The server applies the filters; this hides rows at once when the state changes. */
 export function filterRuns(runs: RunSummary[], filters: RunsTableFilters): RunSummary[] {
     return runs.filter((r) => !filters.state || r.state === filters.state);
+}
+
+const IN_PROGRESS = ['running', 'paused', 'blocked'];
+const FINISHED_STEP = ['succeeded', 'failed', 'skipped', 'cancelled', 'abandoned'];
+
+/** Steps finished out of all steps, for a run that has started and not ended; else null. */
+export function stepProgress(run: Pick<RunSummary, 'state' | 'steps'>): { done: number; total: number } | null {
+    const steps = Object.values(run.steps || {});
+    if (!IN_PROGRESS.includes(run.state) || steps.length === 0) {
+        return null;
+    }
+    return { done: steps.filter((s) => FINISHED_STEP.includes(s.state)).length, total: steps.length };
+}
+
+function RunProgress({ run }: { run: RunSummary }) {
+    const p = stepProgress(run);
+    if (!p) {
+        return null;
+    }
+    const label = `${p.done} of ${p.total} step${p.total === 1 ? '' : 's'} done`;
+    return (
+        <div style={{ marginTop: '4px', maxWidth: '160px' }} data-testid="run-progress" aria-label={label}>
+            <Progress percentage={(p.done / p.total) * 100} type={run.state === 'blocked' ? 'error' : 'info'} tooltip={label} />
+        </div>
+    );
 }
 
 function duration(run: RunSummary, now: number): string {
@@ -71,7 +97,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
             {rows.length === 0 ? (
                 <p>{runs.length || filters.q || filters.state ? 'No runs match these filters.' : 'No runs yet.'}</p>
             ) : (
-                <Table stripeRows>
+                <Table>
                     <Table.Head>
                         <Table.HeadCell>Job</Table.HeadCell>
                         <Table.HeadCell>Scheduled time</Table.HeadCell>
@@ -88,6 +114,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                 </Table.Cell>
                                 <Table.Cell>
                                     <StatusText state={run.state} delayed={isRunDelayed(run)} />
+                                    <RunProgress run={run} />
                                 </Table.Cell>
                                 <Table.Cell>{duration(run, at)}</Table.Cell>
                                 <Table.Cell>{run.catchup ? `${run.trigger} (catch-up)` : run.trigger}</Table.Cell>

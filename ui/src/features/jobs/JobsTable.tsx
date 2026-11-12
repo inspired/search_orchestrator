@@ -39,7 +39,7 @@ export default function JobsTable({ jobs, me, onRunNow, onToggleEnabled, onDelet
         return <p>No jobs yet.{me && me.can_build ? ' Use New job to build one.' : ''}</p>;
     }
     return (
-        <Table stripeRows>
+        <Table>
             <Table.Head>
                 <Table.HeadCell>Name</Table.HeadCell>
                 <Table.HeadCell>Owner</Table.HeadCell>
