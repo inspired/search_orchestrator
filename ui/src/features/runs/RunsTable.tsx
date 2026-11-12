@@ -38,7 +38,8 @@ function RunProgress({ run }: { run: RunSummary }) {
     }
     const label = `${p.done} of ${p.total} step${p.total === 1 ? '' : 's'} done`;
     return (
-        <div style={{ marginTop: '4px', maxWidth: '160px' }} data-testid="run-progress" aria-label={label}>
+        // A fixed width: the table cell lays its content out in a row, so an auto width collapses.
+        <div style={{ width: '120px', flex: '0 0 auto' }} data-testid="run-progress" aria-label={label}>
             <Progress percentage={(p.done / p.total) * 100} type={run.state === 'blocked' ? 'error' : 'info'} tooltip={label} />
         </div>
     );
@@ -113,8 +114,10 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                     <Link to={pageHref('run', { run_id: run.id })}>{formatTime(run.scheduled_time)}</Link>
                                 </Table.Cell>
                                 <Table.Cell>
-                                    <StatusText state={run.state} delayed={isRunDelayed(run)} />
-                                    <RunProgress run={run} />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <StatusText state={run.state} delayed={isRunDelayed(run)} />
+                                        <RunProgress run={run} />
+                                    </div>
                                 </Table.Cell>
                                 <Table.Cell>{duration(run, at)}</Table.Cell>
                                 <Table.Cell>{run.catchup ? `${run.trigger} (catch-up)` : run.trigger}</Table.Cell>
