@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import type { ScheduleResponse } from '../api/types';
 import RunsPage, { RunsApi } from '../features/runs/RunsPage';
 import ScheduleTimeline from '../features/schedule/ScheduleTimeline';
@@ -113,7 +113,9 @@ describe('Runs page timeline view', () => {
         // searching in the timeline doesn't load the hidden table
         const tableCalls = (api.searchRuns as jest.Mock).mock.calls.length;
         fireEvent.change(screen.getByLabelText('Search by job name'), { target: { value: 'dai' } });
-        await new Promise((r) => setTimeout(r, 400));
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 400));
+        });
         expect((api.searchRuns as jest.Mock).mock.calls.length).toBe(tableCalls);
     });
 });

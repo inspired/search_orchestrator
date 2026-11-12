@@ -25,10 +25,11 @@ export default function BusyStrip({ preview, schedule, onUseTime, dismissed, onD
     const marks = (preview.ticks || []).map(([t, label]) => ({ pct: pct(t, from, to), label }));
     const s = schedule.suggestion;
     const week = to - from > 2 * 86400;
+    const span = preview.from > preview.now + 60 ? 'the 7 days around the next run' : `next ${week ? '7 days' : '24 hours'}`;
     return (
         <div data-testid="busy-strip" style={{ margin: '4px 0 10px' }}>
             <div style={{ fontSize: '12px', color: theme.contentColorMuted, marginBottom: '2px' }}>
-                {`Concurrent searches from other jobs, next ${week ? '7 days' : '24 hours'} (${tz || "the server's time zone"}). This schedule's runs are on top.`}
+                {`Concurrent searches from other jobs, ${span} (${tz || "the server's time zone"}). This schedule's runs are on top.`}
             </div>
             <LoadRow load={load} from={from} to={to} max={max} height={32} overlay={schedule.runs} />
             <div style={{ position: 'relative', height: '14px', fontSize: '11px', color: theme.contentColorMuted }}>

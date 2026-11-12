@@ -81,7 +81,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 | Trigger | How |
 |---|---|
-| Schedule | Cron on the Triggers tab, in the job's time zone. |
+| Schedule | On the Triggers tab, in the job's time zone: **On days** (day buttons and a time), **Every…** (5 to 30 minutes or 1 to 12 hours, optionally between two hours and on some days), **Monthly** (a day of the month and a time) or **Advanced (cron)**. |
 | Manual | **Run now** on the Jobs page. |
 | Search | `\| orchestrate start job=<id> param.<name>=<value>` |
 | Alert | The "Start orchestrator job" alert action. The alert must be owned by a real user who may run the job, not `nobody`. |
@@ -91,7 +91,8 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
 - **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed slot (up to 7), only the latest, or none.
-- **Busy times:** under each schedule, a strip shows the *other* jobs' concurrent searches over the next 24 hours (7 days when the schedule, or a step's Run when, doesn't run every day), in the job's time zone, with this schedule's runs on top and a dashed line at the **Max searches** limit. For a schedule with one fixed time (such as `0 2 * * *`) it may suggest a quieter start within two hours on the same day: **Use this time** changes only the minute and hour. It is only a hint: ignore or dismiss it when a job must run at a set time.
+- **Schedules are stored as cron.** A schedule opens in the simplest form that says exactly the same thing, else in Advanced, and opening a job never rewrites it. A line under the schedule says what it means in words, with the cron beside it. One time per schedule: for 06:00 and 18:30, add two schedules.
+- **Busy times:** under each schedule, a strip shows the *other* jobs' concurrent searches over the next 24 hours (7 days when the schedule, or a step's Run when, doesn't run every day, and the 7 days around the next run when that is further away, such as a monthly schedule), in the job's time zone, with this schedule's runs on top and a dashed line at the **Max searches** limit. For a schedule with one fixed time (such as `0 2 * * *`) it may suggest a quieter start within two hours on the same day: **Use this time** changes only the minute and hour. It is only a hint: ignore or dismiss it when a job must run at a set time.
 
 ### Actions
 

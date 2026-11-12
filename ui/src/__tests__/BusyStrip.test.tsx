@@ -113,6 +113,21 @@ describe('Busy-times strip', () => {
         await waitFor(() => expect(screen.getByText(/next 24 hours \(the server's time zone\)/)).toBeInTheDocument());
     });
 
+    test('a far-off monthly run shows the days around it', async () => {
+        renderThemed(
+            <TriggersTab
+                job={job}
+                jobs={[]}
+                dispatch={jest.fn()}
+                schedulePreview={() => Promise.resolve(response({ from: NOW + 10 * 86400, to: NOW + 17 * 86400 }))}
+            />
+        );
+        await act(async () => {
+            jest.advanceTimersByTime(1000);
+        });
+        await waitFor(() => expect(screen.getByText(/the 7 days around the next run/)).toBeInTheDocument());
+    });
+
     test('no cron schedule, no request', async () => {
         const preview = jest.fn(() => Promise.resolve(response()));
         renderThemed(<TriggersTab job={{ ...job, triggers: [] }} jobs={[]} dispatch={jest.fn()} schedulePreview={preview} />);

@@ -158,3 +158,13 @@ def test_preview_ticks_and_malformed_draft(w):
     status, out = w.call("alice", "POST", "/orchestrator/schedule/preview", {"job": bad})
     assert status == 200, out
     assert out["timezone"] is None and out["schedules"][0]["index"] == 0
+
+
+def test_preview_monthly_window_is_around_the_next_run(w):
+    # T0 is Tue 1 Dec 01:00 UTC; the 20th is 19 days away
+    out = w.call("alice", "POST", "/orchestrator/schedule/preview", {"job": cron_job("m", "0 2 20 * *")})[1]
+    nxt = T0 + 19 * 86400 + 3600
+    assert out["from"] == nxt - 3 * 86400 and out["to"] == out["from"] + 7 * 86400
+    assert [r["start"] for r in out["schedules"][0]["runs"]] == [nxt]
+    soon = w.call("alice", "POST", "/orchestrator/schedule/preview", {"job": cron_job("m", "0 2 3 * *")})[1]
+    assert soon["from"] == T0

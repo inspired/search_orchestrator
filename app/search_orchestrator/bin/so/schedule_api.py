@@ -16,7 +16,7 @@ every job, so it is the true load.
 
 ``POST schedule/preview`` ``{"job": <draft>}`` (the caller must be allowed to edit the
 job) returns the load of every *other* job over the next 24 hours (7 days when the job
-doesn't run every day), in the job's time zone, plus per cron trigger
+doesn't run every day; the 7 days around its next run when that is further away), in the job's time zone, plus per cron trigger
 ``{"index", "runs": [{"start", "end"}], "suggestion": {"hour", "minute", "peak",
 "base_peak"} | null}``, and axis ``ticks`` ``[[t, label]]`` in that time zone (the
 server's own when the job has none, which is what its cron uses).
@@ -26,6 +26,7 @@ trigger are projected too. Rows of jobs the caller may not view never name an
 ``upstream``, and visible rows never point at a hidden one.
 """
 from . import authz, schedule
+from . import cron as cronmod
 from .api import ApiError, LIST_FIELDS, _deleted_job_run_visible, _is_job_id, _job_id, _settings_view
 from .store import ACTIVE_RUN_STATES
 
@@ -36,6 +37,7 @@ PROFILE_RUNS = 5  # succeeded runs read per looked-up job
 DEFAULT_BACK = 8 * 3600
 DEFAULT_AHEAD = 16 * 3600
 DAY = 86400
+NEXT_SLOT_DAYS = 400  # how far ahead the builder looks for a schedule's next run
 
 
 def _window(ctx, body):
@@ -192,8 +194,7 @@ def schedule_preview(ctx, body):
     if not ctx.allowed(authz.can_edit, stored):
         raise ctx.deny("schedule_preview", job_id=job_ref or "new")
     draft = dict(draft, enabled=True)
-    start = ctx.now
-    end = start + (DAY if schedule.is_daily(draft) else 7 * DAY)
+    start, end = _preview_window(draft, ctx.now)
     max_searches, per_job = _limits(ctx)
 
     jobs = {_job_id(j): j for j in ctx.store.list_jobs()
@@ -220,6 +221,21 @@ def schedule_preview(ctx, body):
     return 200, {"from": start, "to": end, "now": ctx.now, "timezone": tz,
                  "ticks": schedule.local_ticks(start, end, tz),
                  "max_searches": max_searches, "load": load, "schedules": schedules}
+
+
+def _preview_window(draft, now):
+    """The next 24 hours for a daily job, else the next 7 days; when no schedule runs in
+    those 7 days (a monthly job, say), the 7 days around the next run, so the strip still
+    shows that run and can suggest a time."""
+    if schedule.is_daily(draft):
+        return now, now + DAY
+    specs = schedule.scheduler.cron_specs(dict(draft, triggers=[dict(t, enabled=True) for t in draft["triggers"]]))
+    nexts = [n for n in (cronmod.next_slot(spec, now, draft.get("timezone"), NEXT_SLOT_DAYS) for spec in specs)
+             if n is not None]
+    if nexts and min(nexts) >= now + 7 * DAY:
+        start = max(now, min(nexts) - 3 * DAY)
+        return start, start + 7 * DAY
+    return now, now + 7 * DAY
 
 
 def _clean_draft(draft):

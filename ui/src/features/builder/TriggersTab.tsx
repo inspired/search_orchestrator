@@ -14,6 +14,7 @@ import type { Job, JobDefinition, SchedulePreviewResponse, Trigger } from '../..
 import useDebounced from '../../hooks/useDebounced';
 import { withTime } from '../schedule/layout';
 import BusyStrip from './BusyStrip';
+import ScheduleEditor from './ScheduleEditor';
 import type { BuilderAction } from './reducer';
 
 /** How long the schedule must stay unchanged before the busy-times strip reloads. */
@@ -80,9 +81,7 @@ export default function TriggersTab({ job, jobs, dispatch, jobId, schedulePrevie
                 const id = `trigger-${triggers.length}-${i}`;
                 return (
                     <div key={id} style={row}>
-                        <ControlGroup label="Cron" labelFor={`${id}-cron`} labelPosition="top" help="minute hour day-of-month month day-of-week, in the job's time zone.">
-                            <Text inputId={`${id}-cron`} value={t.cron || ''} placeholder="0 1 * * *" onChange={(_e: unknown, { value }: { value: string }) => update(i, { cron: value })} />
-                        </ControlGroup>
+                        <ScheduleEditor id={id} cron={t.cron || ''} timezone={job.timezone} onChange={(cron) => update(i, { cron })} />
                         {busy &&
                             (() => {
                                 const sched = busy.schedules.find((x) => x.index === i);
