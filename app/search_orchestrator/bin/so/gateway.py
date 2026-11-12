@@ -396,8 +396,6 @@ class Gateway(Protocol):
                             latest: str, description: str = "") -> None: ...
     def delete_saved_search(self, owner: str, name: str) -> None: ...
     def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
-    def report_search(self, owner: str, name: str) -> Optional[str]: ...
-    def job_search(self, sid: str) -> Optional[str]: ...
     def index_exists(self, name: str) -> bool: ...
     def alert_actions(self, user: str) -> List[Dict[str, str]]: ...
     def read_secret(self, name: str) -> Optional[str]: ...
@@ -506,23 +504,6 @@ class SplunkGateway:
             raise GatewayError("job status failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
 
-    def job_search(self, sid):
-        """The search a job ran, with its arguments filled in; None if the job is gone or
-        not readable (404/403) or doesn't say."""
-        try:
-            body = json.loads(self._call("get", "search/jobs/" + sid, "-", "-"))
-        except GatewayError:
-            raise
-        except Exception as err:
-            if self._status(err) in (403, 404):
-                return None
-            raise GatewayError("job lookup failed: {}".format(err), self._status(err),
-                               is_transient_status(self._status(err)))
-        entries = body.get("entry") or [{}]
-        content = entries[0].get("content") or {}
-        # 10.6.1.1 gives the search as the entry's name; content may also carry it.
-        text = content.get("search") or entries[0].get("name")
-        return text if isinstance(text, str) and text != sid else None
 
     def first_row(self, sid):
         try:
@@ -639,21 +620,6 @@ class SplunkGateway:
                                is_transient_status(self._status(err)))
         return parse_saved_search_info(body)
 
-    def report_search(self, owner, name):
-        """The text of saved search ``name`` as ``owner`` resolves it in this app, where
-        dispatch and ``| savedsearch`` find it (``/servicesNS/<owner>/<app>/``), or None
-        if it is missing or the session cannot read it."""
-        try:
-            body = self._call("get", encoded_path("saved/searches", name), owner)
-        except GatewayError:
-            raise
-        except Exception as err:
-            if self._status(err) in (403, 404):
-                return None
-            raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
-                               is_transient_status(self._status(err)))
-        entries = json.loads(body).get("entry") or []
-        return (entries[0].get("content") or {}).get("search") if entries else None
 
     def index_exists(self, name):
         try:

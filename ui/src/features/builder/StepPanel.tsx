@@ -3,7 +3,6 @@
  * retries and step actions, with the step's issues from the client check and the server. */
 import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
-import Checkbox from '@splunk/react-ui/Checkbox';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Multiselect from '@splunk/react-ui/Multiselect';
@@ -218,7 +217,6 @@ export default function StepPanel({
                 </Select>
             </ControlGroup>
             {step.type === 'saved_search' ? (
-                <>
                 <ControlGroup
                     label="Saved search"
                     labelFor={`${p}-ref`}
@@ -227,24 +225,6 @@ export default function StepPanel({
                 >
                     <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
                 </ControlGroup>
-                <ControlGroup
-                    label=""
-                    labelPosition="top"
-                    help={
-                        step.read_previous
-                            ? 'In the saved search, start with | loadjob $args.so_input$. Connect exactly one step before it.'
-                            : undefined
-                    }
-                >
-                    <Checkbox
-                        checked={Boolean(step.read_previous)}
-                        onChange={(_e: unknown, { checked }: { checked: boolean | 'indeterminate' }) => set({ read_previous: checked === true })}
-                        value="read_previous"
-                    >
-                        Reads the previous step's results
-                    </Checkbox>
-                </ControlGroup>
-                </>
             ) : step.type === 'previous' ? (
                 <>
                     <ControlGroup label="Input (added for you)" labelPosition="top">

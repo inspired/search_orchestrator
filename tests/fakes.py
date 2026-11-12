@@ -58,7 +58,6 @@ class FakeGateway:
         self._dispatch_errors = {}
         self._sids = itertools.count(1)
         self.history_by_search = {}
-        self.job_search_error = None
         self.clock = None  # optional callable: history records real dispatch time, like splunkd
         self.removed_users = set()  # owners whose accounts no longer exist
         self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
@@ -203,23 +202,6 @@ class FakeGateway:
                  "by_scheduler": r[1].startswith("scheduler__")}
                 for r in sorted(rows, key=lambda r: r[0], reverse=True)]
 
-    def job_search(self, sid):
-        """The report's text with the job's args filled in, as splunkd shows it. A history
-        row without args (fewer than 4 fields) stands for a job whose search can't be read."""
-        if self.job_search_error is not None:
-            raise self.job_search_error
-        for (owner, name), rows in self.history_by_search.items():
-            for r in rows:
-                if r[1] == sid:
-                    if len(r) < 4:
-                        return None
-                    text = (self.saved_searches.get((owner, name)) or {}).get("search") or ""
-                    for key, value in r[3].items():
-                        text = text.replace("$args.%s$" % key, value)
-                    return text or " ".join(r[3].values())
-        return None
-
-    # KV.
 
     def _check_kv(self, collection=None):
         if self.kv_down:
@@ -310,18 +292,6 @@ class FakeGateway:
                 "dispatch_as": entry.get("dispatch_as", "owner"),
                 "app": entry.get("app", "search_orchestrator"), "visible": visible(entry)}
 
-    def report_search(self, owner, name):
-        """A saved search's text as this app's namespace for ``owner`` resolves it: the
-        owner's own entry first, else a shared entry visible from this app."""
-        own = self.saved_searches.get((owner, name))
-        if own is not None:
-            return own.get("search")
-        for (_, n), entry in sorted(self.saved_searches.items()):
-            sharing = entry.get("sharing", "user")
-            in_app = entry.get("app", "search_orchestrator") == "search_orchestrator"
-            if n == name and (sharing == "global" or (sharing == "app" and in_app)):
-                return entry.get("search")
-        return None
 
     def index_exists(self, name):
         return name in self.indexes

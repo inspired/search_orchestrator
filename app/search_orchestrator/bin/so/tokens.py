@@ -150,29 +150,6 @@ def input_spl(sids):
     return " ".join(parts)
 
 
-def report_input_issue(ref, spl):
-    """``(code, message)`` if the saved search ``ref`` (search text ``spl``) can't read a
-    previous step's results, else None. It needs ``$args.so_input$`` outside ```` ``` ````
-    comments and not directly inside double quotes: the value carries its own quotes."""
-    placeholder = "$args.%s$" % INPUT_ARG
-    code = re.sub(r"```.*?```", "", spl or "", flags=re.S)
-    if placeholder not in code:
-        return ("report_missing_input",
-                "Saved search '%s' must read its input with | loadjob %s" % (ref, placeholder))
-    if '"%s"' % placeholder in code:
-        return ("report_input_quoted",
-                "Saved search '%s' must use %s without quotes: | loadjob %s"
-                % (ref, placeholder, placeholder))
-    return None
-
-
-def report_input_value(sids, wrapped):
-    """The ``so_input`` argument for a report that reads the previous step: ``input_spl``,
-    escaped as a string value when it goes through a ``| savedsearch`` wrapper."""
-    value = input_spl(sids)
-    return escape_spl_string(value) if wrapped else value
-
-
 def step_spl(step, step_ids):
     """``(saved search text, arg names)`` for an ``inline`` or ``previous`` step. A
     ``previous`` step's search is ``| loadjob $args.so_input$ <tail>``, filled at dispatch

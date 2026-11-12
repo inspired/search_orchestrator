@@ -222,12 +222,6 @@ export function findIssues(job: JobDefinition): Issue[] {
         if (s.type === 'saved_search' && !(s.saved_search_ref || '').trim()) {
             out.push(issue('error', 'bad_step', 'pick the saved search to run', s.id));
         }
-        if (s.type === 'saved_search' && s.read_previous) {
-            const parents = new Set((job.edges || []).filter((e) => e.to === s.id).map((e) => e.from));
-            if (parents.size !== 1) {
-                out.push(issue('error', 'report_input_needs_one', 'A report that reads the previous step needs exactly one step before it', s.id));
-            }
-        }
         if (s.type === 'inline' && !(s.spl || '').trim()) {
             out.push(issue('error', 'bad_step', 'the search is empty', s.id));
         }
