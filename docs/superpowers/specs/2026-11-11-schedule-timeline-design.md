@@ -1,6 +1,6 @@
 # Schedule timeline: design
 
-Date: 2026-11-11. Extends `2026-11-05-search-orchestrator-design.md` (the base spec). Marked **(owner)** = decided by the owner in conversation; **(builder call)** = my call, open to correction.
+Date: 2026-11-11, updated 2026-11-12 (schedule editor, section 6; wording). Extends `2026-11-05-search-orchestrator-design.md` (the base spec). Marked **(owner)** = decided by the owner in conversation; **(builder call)** = my call, open to correction.
 
 ## 1. Intent
 
@@ -8,10 +8,11 @@ Today you can see one run at a time on the run page's Timeline. Nothing shows th
 
 The main reason is **planning**. Before adding or changing a schedule, the owner wants to see where the busy and quiet times are, so they don't schedule too many things at once **(owner)**. Seeing what ran, failed or will run is the second use **(owner)**.
 
-There are two parts on one shared calculation:
+There are two parts on one shared calculation, plus a friendlier way to write the schedules they read:
 
 1. A **global timeline** on the Runs page: one row per job and one bar per run, past and future.
-2. A **busy-times strip and time suggestion** in the job builder, next to each cron schedule **(owner)**.
+2. A **busy-times strip and time suggestion** in the job builder, next to each schedule **(owner)**.
+3. A **schedule editor** that replaces typing cron: On days, Every…, Monthly, or Advanced (cron) **(owner)**.
 
 ## 2. Goals, non-goals, anti-goals
 
@@ -21,6 +22,7 @@ There are two parts on one shared calculation:
 - See at a glance how many searches overlap at each moment **(owner: a run with several searches running in parallel counts as several)**.
 - While editing a cron schedule in the builder, see the load around its slots and get a suggested quieter time nearby **(owner)**.
 - Look like the run page's Timeline and Splunk UI Toolkit / Dashboard Studio designs **(owner)**.
+- Set a schedule without knowing cron, for example "every weekday at 06:00" **(owner)**, covering times on days, intervals and monthly patterns, with raw cron still available **(owner: "all of the above")**.
 
 **Non-goals (first version)**
 
@@ -78,9 +80,9 @@ Both parts use one server-side projection over a time window `[from, to)`. Cron 
 - A vertical "now" line in `contentColorActive` (or the closest theme token) across all rows.
 - Hovering a bar shows a tooltip with the job, run state, start, end or estimated duration, and "estimated" for future bars. Clicking a past or running bar opens its run page. Future bars don't link.
 
-**Load row.** A fixed row above the job rows, labelled "Concurrent searches". It is drawn as a step shape in the track using the load series, in the same 18 px row style or a little taller (up to 36 px) so it can be read **(builder call)**. A thin line marks `max_searches`, and any part above it uses `statusColorMedium`. Hovering shows the count at that moment.
+**Load row.** A fixed row above the job rows, labelled "Concurrent searches" **(owner asked for "Concurrent searches" or "Concurrent jobs"; builder call: searches, since that is what it counts)**. It is drawn as a step shape in the track using the load series, in the same 18 px row style or a little taller (up to 36 px) so it can be read **(builder call)**. A thin line marks `max_searches`, and any part above it uses `statusColorMedium`. Hovering shows the count at that moment.
 
-**Rows.** One row per visible job that has a run or a projected run in the window, sorted by name **(builder call)**. The rows render in a plain scrolling list. Virtualise only if a live check with hundreds of jobs shows it's needed. A dependent job sits directly under its upstream job, indented with "↳". A job with several upstreams sits under the first one in name order. Jobs with nothing in the window are hidden, and a one-line note counts them. Bars that overlap in one row (a run started before the previous one ended) stack in the same track: later bars draw on top, and their outline keeps them distinguishable.
+**Rows.** One row per visible job that has a run or a projected run in the window, sorted by name **(builder call)**. The rows render in a plain scrolling list. Virtualise only if a live check with hundreds of jobs shows it's needed. A dependent job sits directly under its upstream job, indented with "↳". A job with several upstreams sits under the first one in name order. Jobs with nothing in the window are hidden, with no note about them **(owner)**. Bars that overlap in one row (a run started before the previous one ended) stack in the same track: later bars draw on top, and their outline keeps them distinguishable.
 
 **Refresh.** It polls with the same rhythm as the table: 5 s while anything is active, 30 s otherwise.
 
@@ -88,9 +90,9 @@ Both parts use one server-side projection over a time window `[from, to)`. Cron 
 
 ## 5. Part 2: busy-times strip and suggestion (job builder)
 
-**Where.** In `TriggersTab.tsx`, under each cron schedule's Cron field.
+**Where.** In `TriggersTab.tsx`, under each schedule's editor (section 6), whichever form it uses **(owner)**.
 
-**Strip.** A track in the same row style that shows the projected load from **all other jobs**, so the job being edited is left out of the count. It covers the next 24 hours, or the next 7 days when the schedule doesn't run every day (for example `0 2 * * 1`) **(builder call)**. This schedule's own projected runs are drawn on top as bars in `contentColorDefault`, using the job's own profile. The `max_searches` line is shown. It updates after the user stops typing (the existing `useDebounced`), and a cron expression that isn't valid shows nothing beyond the field's existing validation.
+**Strip.** A track in the same row style that shows the projected load from **all other jobs**, so the job being edited is left out of the count. It covers the next 24 hours, or the next 7 days when the schedule doesn't run every day (for example `0 2 * * 1`) **(builder call)**. When no schedule of the job runs within those 7 days (a monthly schedule, say), it covers the 7 days around the next run instead, starting no earlier than now, and its label says so ("the 7 days around the next run"), so the strip still shows that run and can make a suggestion **(owner)**. Axis ticks come from the server, in the time zone the cron runs in (the server's own when the job has none). This schedule's own projected runs are drawn on top as bars in `contentColorDefault`, using the job's own profile. The `max_searches` line is shown. It updates after the user stops typing (the existing `useDebounced`), and a cron expression that isn't valid shows nothing beyond the field's existing validation.
 
 The draft job may be unsaved, so the builder sends its draft (job id if saved, triggers, timezone, steps and edges) to a projection endpoint. It does not reload a saved job **(builder call)**.
 
@@ -98,27 +100,54 @@ The draft job may be unsaved, so the builder sends its draft (job id if saved, t
 
 > Quieter nearby: **02:40**, with up to 3 other searches running instead of 9. [Use this time]
 
-"Use this time" rewrites only the minute and hour fields of that cron expression. The hint can be dismissed for that schedule during the editing session. Nothing else changes, and saving is never affected (anti-goal).
+"Use this time" rewrites only the minute and hour fields of that cron expression, which the editor shows as its time field. The hint can be dismissed for that schedule during the editing session. Nothing else changes, and saving is never affected (anti-goal).
 
-## 6. API
+## 6. Part 3: the schedule editor (job builder)
+
+**Intent.** A schedule today is a cron text field. Most schedules mean "at a time on some days"; some mean "every N minutes or hours"; some are monthly; a few need cron **(owner)**.
+
+**Forms.** Each cron trigger gets a **Repeat** choice (`RadioBar`) **(owner, from the mockup)**:
+
+| Form | Fields | Cron written |
+|---|---|---|
+| **On days** | The existing `DayPicker` (with Weekdays, Weekends, Every day) and **At** (HH:MM) | `M H * * <days>` (`*` for every day) |
+| **Every…** | **Every** 5, 10, 15, 20 or 30 minutes, or 1, 2, 3, 4, 6, 8 or 12 hours; **From** and **Last hour** (00–23, default all day); days | `*/N a-b * * <days>`, or `0 a-b/N * * <days>` (`0 a-b` for every hour) |
+| **Monthly** | **On day** 1–31 and **At** | `M H D * *` |
+| **Advanced (cron)** | The cron text field | as typed |
+
+Step sizes that divide an hour or a day evenly only, so the summary is always true **(builder call)**.
+
+**Summary.** Under every form, one line says what the schedule means and in which time zone, with the cron beside it in small print: "Every weekday at 06:00 (Europe/Oslo) · cron 0 6 * * 1-5". Days 29–31 note that shorter months are skipped. Advanced reads "Custom cron schedule" **(builder call)**.
+
+**Still cron.** The stored value is cron, so the server, the engine and existing jobs are unchanged (the same approach as Run when's day buttons) **(owner agreed)**. A schedule opens in the simplest form that means *exactly* the same cron, otherwise in Advanced; opening a job never writes a schedule, and a cron is only written when a field changes. A form chosen as Advanced stays Advanced even if its cron would fit a form. A change from outside (Use this time) updates the fields.
+
+**Switching forms** carries over what it can: days and time; a new Every… starts at 15 minutes, all day; a new Monthly starts on the 1st.
+
+**One time per schedule** **(owner)**. Cron can't hold, say, 06:00 and 18:30 in one line without adding 06:30 and 18:00, so a second time is a second schedule (Add schedule).
+
+**Not included.** "Last day of the month" and "the first Monday" (cron can't say them), months other than every month, and several times per schedule.
+
+**Testing.** Pure round-trip tests (`scheduleForm.test.ts`): every form → cron → the same form, and crons no form can say exactly stay Advanced (for example `0 6,18 * * *`, `0 6 1-7 * 1`, `*/7 * * * *`, `5 */2 * * *`, `0 6 * 1 *`). Component tests: opening never writes, time and day edits write the expected cron, a half-typed time writes nothing, Advanced stays Advanced, switching keeps the time, and an outside change updates the fields.
+
+## 7. API
 
 The new route is in `api.py`'s `_routes()` **(builder call; exact names are the builder's)**:
 
 - `GET schedule?from=<epoch>&to=<epoch>` returns visible runs (actual and projected) grouped by job, the load series and `max_searches`. Window ≤ 8 days.
-- `POST schedule/preview` takes a draft job definition and a window. It returns the load series with that job left out, that job's projected runs, and a suggestion if one applies.
+- `POST schedule/preview` takes a draft job definition; the server picks the window (section 5). It returns the load series with that job left out, that job's projected runs per cron trigger, a suggestion if one applies, and axis ticks in the job's time zone. A malformed draft is tidied first (non-list fields become empty, non-object entries are dropped), so it never fails with a server error.
 
 The client functions go in `api/client.ts` and the types in `api/types.ts`. Permissions are the same as for viewing runs and editing a job, respectively.
 
-## 7. Testing
+## 8. Testing
 
 - Python unit tests for the projection: cron slots with timezones and run-when days, profile from the last succeeded run, the graph fallback, dependent chaining, the load series from overlapping intervals, the visibility filter, and suggestion scoring (including "no suggestion" when nothing is clearly quieter, and never outside ±2 h).
 - UI tests in the style of `timeline.test.tsx`. Keep the bar layout pure (like `bars.ts`) so positions, kinds and the dashed future style can be tested without rendering. Test the toggle, URL state and the builder strip's "Use this time", which must change only minute and hour.
 - A live check on a dev Splunk with a few cron jobs, recorded in docs like earlier features.
 
-## 8. Left to the builder
+## 9. Left to the builder
 
 The exact response shape, the component split, the tooltip component (prefer `@splunk/react-ui` Tooltip), the axis tick density, the visual details of the load row within the constraints above, how projections are cached per request, and the docs updates (`user-guide.md`).
 
-## 9. Open questions
+## 10. Open questions
 
 None. Visibility was settled by the owner: hidden jobs show, without names (section 3).
