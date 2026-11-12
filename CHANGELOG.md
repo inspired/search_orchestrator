@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0 (unreleased)
+
+- The Runs table shows a progress bar of finished steps for running, paused and blocked runs (red when blocked), with the count on hover.
+- Tables no longer stripe alternate rows. The toolkit's stripe colour shows with a red tint in current Chrome.
+
+- **Runs → Timeline**: every job's past, running and scheduled runs on one axis, over 24 hours or 7 days, with a **Concurrent searches** row and the Max searches limit, so busy times show before they are scheduled. Scheduled runs are projected from cron schedules (honouring step Run when days) and completion triggers, with lengths estimated from recent runs. Jobs you may not see show anonymously. Very frequent jobs are merged into spans. (`GET schedule?from=&to=`)
+- Schedules are set with **On days**, **Every…**, **Monthly** or **Advanced (cron)** instead of typing cron, with a plain-English summary. They are still stored as cron; existing schedules open in the matching form, or in Advanced, and are never rewritten just by opening them.
+- The Triggers tab shows a **busy-times strip** under each schedule, in the job's time zone (for a monthly schedule, the 7 days around its next run), and may suggest a quieter start nearby. **Use this time** changes only the minute and hour; nothing changes otherwise. (`POST schedule/preview`)
+
 ## 1.5.0 (2026-11-11)
 
 - Run when offers **Days of week**, a row of day buttons with Weekdays, Weekends and Every day shortcuts, in place of the Mondays preset. The step on the canvas reads "Mondays only", "Weekdays only" or "Mon, Wed, Fri only". Steps saved with the Mondays preset, and any cron that only limits the day of the week, open with their days on. The stored value is still a cron, so the server is unchanged.

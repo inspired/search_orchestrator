@@ -28,6 +28,8 @@ export interface JobTabsProps {
     alertActions?: AlertAction[] | null;
     /** The Steps tab: canvas and side panel. */
     steps: React.ReactNode;
+    /** The saved job's id; none for a new job. */
+    jobId?: string | null;
 }
 
 function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
@@ -118,7 +120,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps }: JobTabsProps) {
+export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps, jobId }: JobTabsProps) {
     const [tab, setTab] = useState('steps');
     return (
         <div>
@@ -132,7 +134,7 @@ export default function JobTabs({ job, dispatch, owner, roles, jobs, destination
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
-                {tab === 'triggers' && <TriggersTab job={job} jobs={jobs} dispatch={dispatch} />}
+                {tab === 'triggers' && <TriggersTab job={job} jobs={jobs} dispatch={dispatch} jobId={jobId} />}
                 {tab === 'params' && (
                     <ParamsTab params={job.params || []} onChange={(value) => dispatch({ type: 'setJobField', field: 'params', value })} />
                 )}

@@ -242,7 +242,7 @@ export default function Destinations({ destinations, fallbackName, onSave, onDel
             {destinations.length === 0 ? (
                 <p>No destinations yet.</p>
             ) : (
-                <Table stripeRows>
+                <Table>
                     <Table.Head>
                         <Table.HeadCell>Name</Table.HeadCell>
                         <Table.HeadCell>Format</Table.HeadCell>

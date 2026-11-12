@@ -1,7 +1,7 @@
 /* Triggers: cron schedules and "after job X succeeds/completes", plus the job's time zone
  * and catch-up policy for missed cron slots. Manual, REST and search-command runs need no
  * trigger. */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
@@ -9,17 +9,41 @@ import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Job, JobDefinition, Trigger } from '../../api/types';
+import * as client from '../../api/client';
+import type { Job, JobDefinition, SchedulePreviewResponse, Trigger } from '../../api/types';
+import useDebounced from '../../hooks/useDebounced';
+import { withTime } from '../schedule/layout';
+import BusyStrip from './BusyStrip';
+import ScheduleEditor from './ScheduleEditor';
 import type { BuilderAction } from './reducer';
+
+/** How long the schedule must stay unchanged before the busy-times strip reloads. */
+export const BUSY_DELAY_MS = 600;
 
 export interface TriggersTabProps {
     job: JobDefinition;
     /** Other jobs, for completion triggers. */
     jobs: Pick<Job, 'id' | 'name'>[];
     dispatch: (action: BuilderAction) => void;
+    /** The saved job's id; none for a new job. */
+    jobId?: string | null;
+    schedulePreview?: (job: JobDefinition) => Promise<SchedulePreviewResponse>;
 }
 
-export default function TriggersTab({ job, jobs, dispatch }: TriggersTabProps) {
+/** The parts of the draft the busy-times projection reads. */
+function projectionInput(job: JobDefinition, jobId?: string | null): JobDefinition {
+    return {
+        id: jobId || undefined,
+        name: job.name,
+        enabled: true,
+        timezone: job.timezone,
+        triggers: job.triggers,
+        steps: job.steps,
+        edges: job.edges,
+    };
+}
+
+export default function TriggersTab({ job, jobs, dispatch, jobId, schedulePreview = client.schedulePreview }: TriggersTabProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const triggers = job.triggers || [];
     const setTriggers = (value: Trigger[]) => dispatch({ type: 'setJobField', field: 'triggers', value });
@@ -27,6 +51,25 @@ export default function TriggersTab({ job, jobs, dispatch }: TriggersTabProps) {
     const remove = (i: number) => setTriggers(triggers.filter((_t, j) => j !== i));
     const others = jobs.filter((j) => j.id !== job.id);
     const row = { borderTop: `1px solid ${theme.borderColor}`, padding: '8px 0' };
+
+    const hasCron = triggers.some((t) => t.type === 'cron');
+    const input = useDebounced(JSON.stringify(projectionInput(job, jobId)), BUSY_DELAY_MS);
+    const [busy, setBusy] = useState<SchedulePreviewResponse | null>(null);
+    const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
+    useEffect(() => {
+        if (!hasCron) {
+            setBusy(null);
+            return undefined;
+        }
+        let live = true;
+        schedulePreview(JSON.parse(input) as JobDefinition)
+            .then((res) => live && setBusy(res))
+            .catch(() => live && setBusy(null)); // the strip is a hint: no strip on failure
+        return () => {
+            live = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [input, hasCron]);
 
     return (
         <div style={{ maxWidth: '640px' }}>
@@ -38,9 +81,24 @@ export default function TriggersTab({ job, jobs, dispatch }: TriggersTabProps) {
                 const id = `trigger-${triggers.length}-${i}`;
                 return (
                     <div key={id} style={row}>
-                        <ControlGroup label="Cron" labelFor={`${id}-cron`} labelPosition="top" help="minute hour day-of-month month day-of-week, in the job's time zone.">
-                            <Text inputId={`${id}-cron`} value={t.cron || ''} placeholder="0 1 * * *" onChange={(_e: unknown, { value }: { value: string }) => update(i, { cron: value })} />
-                        </ControlGroup>
+                        <ScheduleEditor id={id} cron={t.cron || ''} timezone={job.timezone} onChange={(cron) => update(i, { cron })} />
+                        {busy &&
+                            (() => {
+                                const sched = busy.schedules.find((x) => x.index === i);
+                                if (!sched) {
+                                    return null;
+                                }
+                                const key = `${i}:${t.cron || ''}`;
+                                return (
+                                    <BusyStrip
+                                        preview={busy}
+                                        schedule={sched}
+                                        dismissed={!!dismissed[key]}
+                                        onDismiss={() => setDismissed({ ...dismissed, [key]: true })}
+                                        onUseTime={(hour, minute) => update(i, { cron: withTime(t.cron || '', hour, minute) })}
+                                    />
+                                );
+                            })()}
                         <Switch
                             appearance="toggle"
                             selected={t.enabled !== false}

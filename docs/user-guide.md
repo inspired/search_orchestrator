@@ -81,7 +81,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 | Trigger | How |
 |---|---|
-| Schedule | Cron on the Triggers tab, in the job's time zone. |
+| Schedule | On the Triggers tab, in the job's time zone: **On days** (day buttons and a time), **Every…** (5 to 30 minutes or 1 to 12 hours, optionally between two hours and on some days), **Monthly** (a day of the month and a time) or **Advanced (cron)**. |
 | Manual | **Run now** on the Jobs page. |
 | Search | `\| orchestrate start job=<id> param.<name>=<value>` |
 | Alert | The "Start orchestrator job" alert action. The alert must be owned by a real user who may run the job, not `nobody`. |
@@ -91,6 +91,8 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
 - **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed slot (up to 7), only the latest, or none.
+- **Schedules are stored as cron.** A schedule opens in the simplest form that says exactly the same thing, else in Advanced, and opening a job never rewrites it. A line under the schedule says what it means in words, with the cron beside it. One time per schedule: for 06:00 and 18:30, add two schedules.
+- **Busy times:** under each schedule, a strip shows the *other* jobs' concurrent searches over the next 24 hours (7 days when the schedule, or a step's Run when, doesn't run every day, and the 7 days around the next run when that is further away, such as a monthly schedule), in the job's time zone, with this schedule's runs on top and a dashed line at the **Max searches** limit. For a schedule with one fixed time (such as `0 2 * * *`) it may suggest a quieter start within two hours on the same day: **Use this time** changes only the minute and hour. It is only a hint: ignore or dismiss it when a job must run at a set time.
 
 ### Actions
 
@@ -137,7 +139,8 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 ## Follow runs
 
 - **Jobs** shows each job's next run and last outcome, 50 jobs at a time, with Run now and an enable switch. **Search by name** finds jobs by any part of their name. If last runs can't be read for a moment, Last run shows Unknown. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
-- **Runs** lists runs, newest first. Search by any part of a job's name and filter by state. For a deleted job, search its exact job ID.
+- **Runs** lists runs, newest first. A running, paused or blocked run shows a progress bar of its steps (finished out of all, including skipped ones; red when blocked). Search by any part of a job's name and filter by state. For a deleted job, search its exact job ID.
+- **Runs → Timeline** shows every job's past, running and scheduled runs on one time axis, over 24 hours or 7 days (**Earlier**, **Now**, **Later** move the window). The top row, **Concurrent searches**, counts the searches running at each moment across all jobs, with a dashed line at the limit; scheduled time above the limit is drawn in the warning colour, because those searches would queue. Grey bars succeeded, red failed or were cancelled, amber were delayed, dark are running, hatched were queued, and dashed outlines are scheduled. A scheduled run's length is estimated from each step's last successful run (60 seconds for a step that never ran); steps whose Run when skips that day are left out, and steps with an expression condition are counted. A job started by another job's completion is indented under it. Jobs you may not see show as **Hidden job N**, with no name or links, so the load is the real one. Click a past run to open it.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 
 Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish.

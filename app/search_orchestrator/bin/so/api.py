@@ -22,7 +22,8 @@ queued); ``"probe"`` returns
 ``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
 ``write(event)``, which raises on failure, for the probe's audit check.
 
-Step previews: the ``preview`` routes are in ``preview_api.py``.
+Step previews: the ``preview`` routes are in ``preview_api.py``; the ``schedule`` routes
+(global timeline, builder busy-times strip) are in ``schedule_api.py``.
 
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
@@ -149,6 +150,7 @@ class _Ctx:
 
 def _routes():
     from . import preview_api as pv  # imports this module: loaded on first use, no cycle
+    from . import schedule_api as sc
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -159,6 +161,8 @@ def _routes():
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
         (r"runs/(?P<run_id>[^/]+)/rerun", {"POST": rerun}),
+        (r"schedule", {"GET": sc.get_schedule}),
+        (r"schedule/preview", {"POST": sc.schedule_preview}),
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),

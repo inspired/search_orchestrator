@@ -490,6 +490,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                         destinations={destinations}
                         alertActions={alertActions}
                         steps={stepsTab}
+                        jobId={jobId}
                     />
                 </>
             )}

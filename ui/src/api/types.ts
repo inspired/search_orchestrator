@@ -395,3 +395,73 @@ export interface PreviewResults {
     rows: Record<string, unknown>[];
     total: number;
 }
+
+/** One bar on the schedule timeline: an actual run, a projected run or a merged span. */
+export interface ScheduleBar {
+    kind?: 'span';
+    /** A run state, or "scheduled" for a projected run. */
+    state: RunState | 'scheduled';
+    start: number;
+    end: number;
+    /** When an actual run started (it was queued from `start` until then). */
+    started?: number | null;
+    /** Set for runs of jobs the caller may view. */
+    id?: string;
+    delayed?: boolean;
+    estimated?: boolean;
+    dependent?: boolean;
+    /** Runs merged into a span. */
+    count?: number;
+}
+
+export interface ScheduleJob {
+    /** The job id, or an opaque key for a job the caller may not view. */
+    key: string;
+    name: string;
+    hidden: boolean;
+    /** The key of the row this job's completion trigger follows. */
+    upstream: string | null;
+    next_run: number | null;
+    bars: ScheduleBar[];
+}
+
+/** `[time, searches]` change points: the count holds until the next point. */
+export type LoadSeries = [number, number][];
+
+export interface ScheduleResponse {
+    from: number;
+    to: number;
+    now: number;
+    max_searches: number;
+    load: LoadSeries;
+    jobs: ScheduleJob[];
+    idle_jobs: number;
+    partial: boolean;
+}
+
+export interface ScheduleSuggestion {
+    hour: number;
+    minute: number;
+    peak: number;
+    base_peak: number;
+}
+
+export interface SchedulePreview {
+    /** The index of the cron trigger in the job's triggers. */
+    index: number;
+    runs: { start: number; end: number }[];
+    suggestion: ScheduleSuggestion | null;
+}
+
+export interface SchedulePreviewResponse {
+    from: number;
+    to: number;
+    now: number;
+    /** The job's time zone; null means the server's own, which its cron uses. */
+    timezone: string | null;
+    /** Axis ticks `[time, label]` in that time zone, computed by the server. */
+    ticks: [number, string][];
+    max_searches: number;
+    load: LoadSeries;
+    schedules: SchedulePreview[];
+}
