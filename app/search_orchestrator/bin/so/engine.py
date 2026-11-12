@@ -30,14 +30,8 @@ Crash safety
   adopts the newest job, or dispatches if there is none. In direct mode (the
   owner's own saved search, which may also run on its own) only a job whose
   ``dispatch.now`` (or published time) equals the run's scheduled time is
-  adopted; other jobs there make the outcome unknown. A direct step with
-  ``read_previous`` shares its name with every other step on that report, so a
-  job must also prove its input: Splunk keeps no args on a job, so its search
-  (``gateway.job_search``) must contain this step's ``so_input`` value. One that
-  does is adopted, one that doesn't is another step's and is ignored (if every
-  job is, the step dispatches), and one whose search can't be read is never
-  adopted and leaves the outcome unknown. A job Splunk's own schedule ran is
-  never adopted. Adoption runs before
+  adopted; other jobs there make the outcome unknown. A job Splunk's own
+  schedule ran is never adopted. Adoption runs before
   evaluate, so a cancel or give-up cancels the adopted search; re-dispatch runs
   after evaluate, only if the step is still wanted. A transient history
   error leaves the step ``starting`` (in flight) and evaluate still runs, so
@@ -115,7 +109,6 @@ LEASE_RENEW_EVERY = 10
 UNKNOWN_LIMIT = 300  # seconds a dispatch's fate may stay unknown before the attempt fails
 COMMAND_ATTEMPTS = 10
 COMPLETION_STATES = {"success": ("succeeded",), "complete": ("succeeded", "failed", "cancelled")}
-LOOKUP_FAILED = "could not check saved search %r before running it: %s"
 
 
 class LeaseLost(Exception):
@@ -904,12 +897,6 @@ class Engine:
         if not name:
             return "none", None
         direct = sdef.get("mode") == "direct"
-        expected = None
-        if direct and sdef.get("read_previous"):
-            try:
-                expected = tokens.report_input_value(self._input_sids(run, sdef), False)
-            except tokens.TokenError:
-                return "none", None  # _dispatch fails the attempt
         try:
             since = st.get("intent_at") or now
             if direct:
@@ -925,27 +912,7 @@ class Engine:
             # only a job dispatched for this run's scheduled time.
             if not details:
                 return "none", None
-            matching = [d for d in details if _dispatched_for(d, run["scheduled_time"])]
-            found = [d["sid"] for d in matching]
-            if expected is not None:
-                # Splunk keeps no args on the job, only the search with them filled in.
-                texts = {}
-                for d in details:
-                    try:
-                        texts[d["sid"]] = self.gw.job_search(d["sid"])
-                    except GatewayError as err:
-                        _check_auth(err)
-                        log.warning("job %s of %s failed: %s", d["sid"], name, err)
-                        return ("unknown" if err.transient else "error"), str(err)
-                found = [d["sid"] for d in matching
-                         if texts[d["sid"]] is not None and expected in texts[d["sid"]]]
-                if not found and any(texts[d["sid"]] is None for d in matching):
-                    return "unknown", ("saved search %r has a job for this scheduled time whose "
-                                       "search can't be read, so it can't be proven to be this "
-                                       "step's" % name)
-                if not found and all(t is not None and expected not in t
-                                     for t in texts.values()):
-                    return "none", None  # every job read another step's results
+            found = [d["sid"] for d in details if _dispatched_for(d, run["scheduled_time"])]
             if not found:
                 return "unknown", ("saved search %r ran since the dispatch, but not for "
                                    "scheduled time %d" % (name, int(run["scheduled_time"])))
@@ -1009,11 +976,6 @@ class Engine:
         return sdef.get("hidden_search")
 
     def _render_args(self, run, sdef):
-        if sdef.get("read_previous"):
-            # Only the validated search ID: a stale spl from before the step changed type
-            # must not reach the report.
-            return {tokens.INPUT_ARG: tokens.report_input_value(
-                self._input_sids(run, sdef), sdef.get("mode") != "direct")}
         definition = run.get("definition") or {}
         ids = [s["id"] for s in definition.get("steps") or []]
         spl = sdef.get("spl") or ""
@@ -1058,19 +1020,11 @@ class Engine:
                 return self._attempt_failed(run, sid, "Could not confirm whether the results of "
                                             "step %s are still available" % up, now, pending)
             return None  # stays starting; checked again next tick
-        report = bool(sdef.get("read_previous"))
-        if report and not self._input_sids(run, sdef):
-            up = tokens.previous_inputs(run.get("definition") or {}, sid)[0]
-            return self._attempt_failed(run, sid, "Report step %s needs the results of step %s, "
-                                        "which did not succeed" % (sid, up), now, pending)
-        direct = sdef.get("mode") == "direct"
-        if direct or report:
-            ref = sdef.get("saved_search_ref") or name
-            problem = self._report_problem(run, ref) if report else None
-            if problem is None and direct:
-                info, problem = self._saved_info(run, ref)
-                if problem is None:
-                    problem = self._direct_problem(run, name, info)
+        if sdef.get("read_previous") is True:
+            # Saved with the removed feature (1.5.0): running it would give no input.
+            return self._attempt_failed(run, sid, tokens.READ_PREVIOUS_REMOVED, now, pending)
+        if sdef.get("mode") == "direct":
+            problem = self._direct_problem(run, name)
             if problem is not None:
                 return self._attempt_failed(run, sid, problem, now, pending)
         try:
@@ -1122,38 +1076,18 @@ class Engine:
                                           dispatch_now=int(run["scheduled_time"])))
         return None
 
-    def _saved_info(self, run, name):
-        """Look a saved search up with the system session right before a dispatch that
-        needs to re-check it: (info, None), or (None, problem) on a non-transient error."""
-        try:
-            return self.gw.saved_search_info(run.get("owner"), name), None
-        except GatewayError as err:
-            _check_auth(err)
-            if err.transient:
-                raise  # the step stays starting; checked again next tick
-            return None, LOOKUP_FAILED % (name, err)
-
-    def _report_problem(self, run, ref):
-        """Re-check a ``read_previous`` report right before its dispatch, with the text
-        that will run: why it must not run, or None. A transient lookup error raises, as
-        in ``_saved_info``."""
-        try:
-            spl = self.gw.report_search(run.get("owner"), ref)
-        except GatewayError as err:
-            _check_auth(err)
-            if err.transient:
-                raise  # the step stays starting; checked again next tick
-            return LOOKUP_FAILED % (ref, err)
-        if spl is None:
-            return "saved search '%s' was not found or can't be read, so it was not run" % ref
-        issue = tokens.report_input_issue(ref, spl)
-        return issue[1] if issue else None
-
-    def _direct_problem(self, run, name, info):
-        """Re-check a direct-mode saved search (``info`` from ``_saved_info``) right before
-        its dispatch: it must still be the owner's private search with dispatchAs = owner,
+    def _direct_problem(self, run, name):
+        """Re-check a direct-mode saved search with the system session right before its
+        dispatch: it must still be the owner's private search with dispatchAs = owner,
         or the system session's dispatch might not run as the owner. None if it is."""
         owner = run.get("owner")
+        try:
+            info = self.gw.saved_search_info(owner, name)
+        except GatewayError as err:
+            _check_auth(err)
+            if err.transient:
+                raise  # the step stays starting; checked again next tick
+            return "could not check saved search %r before running it: %s" % (name, err)
         if (info.get("exists") and info.get("owner") == owner and info.get("sharing") == "user"
                 and info.get("dispatch_as") == "owner"):
             return None

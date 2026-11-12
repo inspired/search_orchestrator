@@ -3,8 +3,8 @@
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
 unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_needs_pipe,
-previous_needs_dependency, report_input_needs_one; warnings timezone_fallback, previous_old_time_range,
-report_input_may_be_missing.
+previous_needs_dependency, read_previous_removed; warnings timezone_fallback,
+previous_old_time_range.
 ``workload_pool`` was removed from the first version and is ignored.
 """
 import re
@@ -301,14 +301,10 @@ def _validate(job, known_saved_searches):
                 issues.append(_issue("error", "bad_step", "saved_search step needs saved_search_ref", sid))
             elif known_saved_searches is not None and ref not in known_saved_searches:
                 issues.append(_issue("error", "unknown_saved_search", "unknown saved search %r" % ref, sid))
-            if s.get("read_previous") is True and len(tk.previous_inputs(job, sid)) != 1:
-                issues.append(_issue("error", "report_input_needs_one",
-                                     "A report that reads the previous step needs exactly "
-                                     "one step before it", sid))
-        elif s.get("type") in ("inline", "previous"):
             if s.get("read_previous") is True:
-                issues.append(_issue("error", "bad_step", "Only a Saved search step can read "
-                                     "the previous step's results", sid))
+                issues.append(_issue("error", "read_previous_removed",
+                                     tk.READ_PREVIOUS_REMOVED, sid))
+        elif s.get("type") in ("inline", "previous"):
             if s.get("type") == "inline" and not (s.get("spl") or "").strip():
                 issues.append(_issue("error", "bad_step", "inline step needs spl", sid))
             if _ORCHESTRATE_RE.search(s.get("spl") or ""):
@@ -393,14 +389,6 @@ def _validate(job, known_saved_searches):
         sid = s.get("id")
         if sid not in ids:
             continue
-        if s.get("type") == "saved_search" and s.get("read_previous") is True:
-            for up in tk.previous_inputs(job, sid)[:1]:
-                if up in skippable or any(e.get("from") == up and e.get("to") == sid
-                                          and e.get("condition", "on_success") != "on_success"
-                                          for e in edges):
-                    issues.append(_issue("warning", "report_input_may_be_missing",
-                                         "Step %s can be skipped or fail while this step still "
-                                         "runs; this step then fails" % up, sid))
         defaults = tk.token_defaults(s.get("spl") or "", ids)
         for name in sorted(tk.find_tokens(s.get("spl") or "", ids)):
             ref = name.split(".")[0]

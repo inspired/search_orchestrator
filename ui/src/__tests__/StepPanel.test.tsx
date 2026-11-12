@@ -229,14 +229,10 @@ describe('AccessTab', () => {
     });
 });
 
-test('a saved search step can read the previous step', () => {
+test('a saved search step has no read-previous option', () => {
     const job = threeSteps([{ from: 'a', to: 'b' }]);
     job.steps[1] = { id: 'b', type: 'saved_search', saved_search_ref: 'rep' };
-    const state = renderPanel(job, 'b');
-    const box = screen.getByRole('checkbox', { name: "Reads the previous step's results" });
-    expect(box).not.toBeChecked();
-    fireEvent.click(box);
-    expect(state().job.steps[1].read_previous).toBe(true);
-    expect(screen.getByText(/\| loadjob \$args\.so_input\$/)).toBeInTheDocument();
+    renderPanel(job, 'b');
+    expect(screen.queryByRole('checkbox', { name: "Reads the previous step's results" })).toBeNull();
     expect(screen.getByLabelText('Earliest')).toBeInTheDocument();
 });

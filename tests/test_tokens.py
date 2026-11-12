@@ -250,22 +250,3 @@ def test_fill_replaces_args_only():
         assert tk.fill(tk.step_spl(step, ["p"])[0], {"so_input": tk.input_spl(sids)}) == full
     assert tk.empty_step_spl(step, ["p"])[0] == "| makeresults | where 1=0 | stats count"
     assert tk.fill('"$args.other$"', {"so_input": "x"}) == '"$args.other$"'
-
-
-def test_report_input_issue():
-    ok = "| loadjob $args.so_input$ | stats count"
-    assert tokens.report_input_issue("rep", ok) is None
-    assert tokens.report_input_issue("rep", "index=a")[0] == "report_missing_input"
-    assert tokens.report_input_issue("rep", None)[0] == "report_missing_input"
-    assert tokens.report_input_issue("rep", '| loadjob "$args.so_input$"')[0] == "report_input_quoted"
-    commented = "``` | loadjob $args.so_input$ ``` index=a"
-    assert tokens.report_input_issue("rep", commented)[0] == "report_missing_input"
-    assert "| loadjob $args.so_input$" in tokens.report_input_issue("rep", "index=a")[1]
-    assert "rep" in tokens.report_input_issue("rep", "index=a")[1]
-
-
-def test_report_input_value():
-    assert tokens.report_input_value(["s.1"], False) == '"s.1"'
-    assert tokens.report_input_value(["s.1"], True) == '\\"s.1\\"'
-    with pytest.raises(tokens.TokenError):
-        tokens.report_input_value(['s" | delete'], True)

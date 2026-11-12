@@ -268,18 +268,9 @@ def _preview_search(ctx, job, step, scheduled, params, upstream):
         spl, issues = hidden.saved_search_spl(ctx.user_gw, ctx.user, step)
         if spl is None:
             raise _invalid(issues)
-        if step.get("read_previous"):
-            sids = preview.input_sids(job, step["id"], upstream)
-            if not sids:
-                up = tokens.previous_inputs(job, step["id"])[0]
-                raise _invalid([_issue("error", "no_input",
-                                       "Report step %s needs the results of step %s, "
-                                       "which did not succeed" % (step["id"], up), step["id"])])
-            try:
-                spl = tokens.fill(spl, {tokens.INPUT_ARG: tokens.report_input_value(sids, True)})
-            except tokens.TokenError as err:
-                raise _invalid([_issue("error", "bad_token",
-                                       "token %s: %s" % (err.token, err.reason), step["id"])])
+        if step.get("read_previous") is True:
+            raise _invalid([_issue("error", "read_previous_removed",
+                                   tokens.READ_PREVIOUS_REMOVED, step["id"])])
         return spl, step.get("earliest") or None, step.get("latest") or None
     ids = [s.get("id") for s in job.get("steps") or []]
     try:

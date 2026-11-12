@@ -147,7 +147,7 @@ describe('builder reducer', () => {
     });
 });
 
-test('leaving Saved search clears read_previous', () => {
+test('leaving Saved search clears the removed read_previous', () => {
     const job: JobDefinition = { name: 'j', enabled: true, edges: [],
         steps: [{ id: 'b', type: 'saved_search', saved_search_ref: 'rep', read_previous: true }] };
     const s = reducer(initialState(job), { type: 'updateStep', id: 'b', changes: { type: 'inline' } });
