@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.10.0 (2026-11-16)
+
+More nodes, a legend and a minimap for the flow editor, and the flow on the run page.
+
+- New **Summary index** and **Lookup** nodes write the results of earlier steps with a generated `| collect` or `| outputlookup` search. **Edit as search** turns one into a plain **Results of earlier steps** step.
+- New **Slack** action node, for a webhook destination with the Slack body format.
+- Lines that carry data are thick and lines that only signal are thin.
+- **Show node types** opens a legend of node shapes, colours and exits. A minimap helps you move around a big graph.
+- The run page has a **Graph** tab that draws the job's flow with each step's state and each action's result: Sent, Failed, Retrying or Not sent yet.
+- The user guide covers all of the above.
+
 ## 1.9.0 (2026-11-16)
 
 The job builder is a node editor: everything before, during and after a search is a node, and lines say what happens when.

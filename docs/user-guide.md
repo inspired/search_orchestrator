@@ -45,8 +45,8 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Search**, **Saved search** | rounded corners; a saved search has a second stripe | blue |
 | **Results of earlier steps** | cut corners | teal |
 | **If…** (a condition) | diamond | amber |
-| Notify: **Email**, **Webhook**, **Alert action** | notched right edge | pink |
-| Write data: **Event to an index** | cylinder | orange |
+| Notify: **Email**, **Webhook**, **Slack**, **Alert action** | notched right edge | pink |
+| Write: **Event to an index** | cylinder | orange |
 | **Start another job** | slanted sides | slate |
 | **Whole job** | double outline | grey |
 
@@ -70,9 +70,26 @@ Started, Delayed and If… show while the node is hovered or selected, or once a
 - Arrow keys move the selected node by 10 px. `Delete` or `Backspace` asks before removing it; **Undo** brings it back.
 - `F` frames the whole graph. Drag the background to pan, and use the wheel or the zoom buttons to zoom.
 
+**Data and signal lines.** A thick line carries data: it ends at a **Results of earlier steps**, **Summary index** or **Lookup** step, which read the results of the step it comes from. A thin line is a signal: it only says when something runs or fires, such as a line to an action or a dashed line from a trigger.
+
+**Node types and the minimap.** **Show node types** opens a legend with the shape and colour of each kind of node and the exits a step can have; **Hide node types** closes it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view.
+
 **Tidy up** places every node again automatically, as one undo step. Moving a node is one undo step per move.
 
 The time zone every schedule uses is on the **Settings** tab; a schedule's panel links to it.
+
+### Write results to an index or a lookup
+
+**Summary index** and **Lookup** are steps that write the results of earlier steps. Draw a thick line from the step whose results you want, then select the node. Both are **Results of earlier steps** steps underneath, and they take their input from the steps they depend on. **Depends on** in the side panel lists them.
+
+- **Summary index** has **Summary index** (the index to write to), an optional **Source**, and **Add the run id**, which is on by default. The step's search is generated from these settings, for example `| collect index=summary source="daily" marker="so_run=$run.id$"`. The marker lets you tell which run wrote each event.
+- **Lookup** has **Lookup name** (a lookup file such as `hosts.csv`, or a lookup definition) and **Append instead of replace**. The generated search is `| outputlookup hosts.csv`, or `| outputlookup append=true hosts.csv` when append is on. Without append, each run replaces the lookup's contents.
+- Index and lookup names use letters, numbers, `_`, `.`, `:` and `-`. The panel says what to fix if a name is empty or has other characters.
+- The **Search** field shows the generated search and can't be edited. **Edit as search** turns the node into a plain **Results of earlier steps** step with that search, so you can change it; the node then no longer has the summary index or lookup settings.
+
+### Slack
+
+**Slack** is an action node. It posts a message to Slack when the step or job reaches its port, like any other action. It needs a webhook destination that your admin has set up with the Slack body format (see the admin guide); pick it by name in the side panel. A Slack node is a webhook with the Slack preset, so a job saved with one shows it as **Slack** and a plain webhook as **Webhook**.
 
 ### Steps
 
@@ -135,7 +152,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 Each action is a node. Drag a line to it from a step's port, or from the **Whole job** node for a job-wide action; the port says when it fires (start, success, failure, complete or delayed). An action's **When** field moves its line from the keyboard.
 
-- **Webhook** to a destination your admin set up (Slack is a body format).
+- **Webhook** or **Slack** to a destination your admin set up (Slack is a body format).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
 
 Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
@@ -178,6 +195,17 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 - **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run and last outcome, with Run now and an enable switch. **Find jobs** filters by name, id, owner or description. With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
 - **Runs** lists runs, filterable by job and state. The **Needs attention** state filter shows blocked and failed runs, and runs that hold later runs back.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
+
+### The run graph
+
+The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Click a step to open its details. Actions say how they went in plain text:
+
+| Action state | Meaning |
+|---|---|
+| Sent | The action ran and succeeded. |
+| Failed | The action gave up. The run's outcome doesn't change; the Actions tab has the error. |
+| Retrying | An attempt failed and another is coming. |
+| Not sent yet | The step or job hasn't reached the action, or its first attempt hasn't started. |
 
 Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish. A step that a branch didn't reach shows as *Skipped (branch not taken)*.
 
