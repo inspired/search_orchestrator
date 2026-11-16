@@ -1,8 +1,20 @@
 /* The builder's state: the job being edited and undo/redo history. Where steps sit on the
  * canvas is not state: the canvas lays the graph out from the steps and edges. */
 import { toDefinition } from '../../api/client';
-import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
+import type { Action, Edge, JobDefinition, StepDef, Trigger } from '../../api/types';
 import { wouldCycle } from './graphLogic';
+import type { Pos } from './graphLogic';
+import {
+    EDGE_CONDITION_FOR_PORT,
+    HOOK_FOR_PORT,
+    actionKey,
+    canConnect,
+    condKey,
+    stepKey,
+    triggerKey,
+} from './nodeModel';
+import type { ActionScope, NodeKind, PortId } from './nodeModel';
+import { FAMILY_OF } from './nodeStyle';
 import { generatedInputSpl } from './previewLogic';
 
 interface Snapshot {
@@ -32,6 +44,16 @@ export type BuilderAction =
     | { type: 'connect'; from: string; to: string; condition?: Edge['condition'] }
     | { type: 'disconnect'; from: string; to: string }
     | { type: 'updateEdge'; from: string; to: string; changes: Partial<Edge> }
+    /** Saved positions merge into job.layout.nodes: one undo step per drop. */
+    | { type: 'moveNodes'; positions: Record<string, Pos> }
+    | { type: 'tidyLayout' }
+    | { type: 'addNode'; kind: NodeKind; at?: Pos; from?: { key: string; port: PortId } }
+    | { type: 'updateAction'; scope: ActionScope; index: number; changes: Partial<Action> }
+    | { type: 'moveAction'; scope: ActionScope; index: number; toScope: ActionScope; hook: Action['hook'] }
+    | { type: 'removeAction'; scope: ActionScope; index: number }
+    | { type: 'updateTrigger'; index: number; changes: Partial<Trigger> }
+    | { type: 'removeTrigger'; index: number }
+    | { type: 'connectPort'; from: string; port: PortId; to: string }
     | { type: 'setJobField'; field: keyof JobDefinition; value: unknown }
     | { type: 'undo' }
     | { type: 'redo' };
@@ -153,6 +175,180 @@ function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepD
     return { ...after, spl: tail ? `${input} ${tail}` : input };
 }
 
+
+// Saved positions (job.layout.nodes). Keys follow nodeModel; every edit keeps them consistent.
+
+/** The job with `nodes` as its layout; an empty map removes `layout` (the server rejects null). */
+function withNodes(job: JobDefinition, nodes: Record<string, Pos>): JobDefinition {
+    const out = { ...job };
+    if (Object.keys(nodes).length === 0) {
+        delete out.layout;
+    } else {
+        out.layout = { ...out.layout, nodes };
+    }
+    return out;
+}
+
+/** Renames (string) or drops (null) saved keys. A job without a layout is returned as it is. */
+function remapLayout(job: JobDefinition, fn: (key: string) => string | null): JobDefinition {
+    const nodes = job.layout?.nodes;
+    if (!nodes) {
+        return job;
+    }
+    const out: Record<string, Pos> = {};
+    Object.entries(nodes).forEach(([key, pos]) => {
+        const next = fn(key);
+        if (next !== null) {
+            out[next] = pos;
+        }
+    });
+    return withNodes(job, out);
+}
+
+const parseAction = (key: string): { scope: string; index: number } | null => {
+    const m = /^action:(.*):(\d+)$/.exec(key);
+    return m ? { scope: m[1], index: Number(m[2]) } : null;
+};
+
+const parseCond = (key: string): { from: string; to: string } | null => {
+    const m = /^cond:(.*)>(.*)$/.exec(key);
+    return m ? { from: m[1], to: m[2] } : null;
+};
+
+/** Drops the saved key of the action at `index` in `scope` and shifts later ones down. */
+function dropActionKey(job: JobDefinition, scope: string, index: number): JobDefinition {
+    return remapLayout(job, (key) => {
+        const a = parseAction(key);
+        if (!a || a.scope !== scope || a.index < index) {
+            return key;
+        }
+        return a.index === index ? null : actionKey(scope, a.index - 1);
+    });
+}
+
+function dropTriggerKey(job: JobDefinition, index: number): JobDefinition {
+    return remapLayout(job, (key) => {
+        const m = /^trigger:(\d+)$/.exec(key);
+        if (!m || Number(m[1]) < index) {
+            return key;
+        }
+        return Number(m[1]) === index ? null : triggerKey(Number(m[1]) - 1);
+    });
+}
+
+const dropCondKey = (job: JobDefinition, from: string, to: string) =>
+    remapLayout(job, (key) => (key === condKey(from, to) ? null : key));
+
+function renameStepKeys(job: JobDefinition, from: string, to: string): JobDefinition {
+    const swap = (id: string) => (id === from ? to : id);
+    return remapLayout(job, (key) => {
+        if (key === stepKey(from)) {
+            return stepKey(to);
+        }
+        const a = parseAction(key);
+        if (a) {
+            return a.scope === from ? actionKey(to, a.index) : key;
+        }
+        const c = parseCond(key);
+        return c ? condKey(swap(c.from), swap(c.to)) : key;
+    });
+}
+
+function dropStepKeys(job: JobDefinition, id: string): JobDefinition {
+    return remapLayout(job, (key) => {
+        if (key === stepKey(id)) {
+            return null;
+        }
+        const a = parseAction(key);
+        if (a) {
+            return a.scope === id ? null : key;
+        }
+        const c = parseCond(key);
+        return c && (c.from === id || c.to === id) ? null : key;
+    });
+}
+
+const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous'];
+const ACTION_DEFAULTS: Partial<Record<NodeKind, Omit<Action, 'hook'>>> = {
+    email: { type: 'email', to: '' },
+    webhook: { type: 'webhook', destination: '' },
+    slack: { type: 'webhook', preset: 'slack', destination: '' },
+    event: { type: 'event', index: '' },
+    alert_action: { type: 'alert_action', action: '', params: {} },
+    start_job: { type: 'start_job', job: '' },
+};
+
+/** Where a new action goes: the step the line starts from, else the whole job. */
+function actionScope(from?: { key: string; port: PortId }): ActionScope {
+    return from && from.key.startsWith('step:') ? from.key.slice(5) : 'job';
+}
+
+const actionsOf = (job: JobDefinition, scope: ActionScope): Action[] =>
+    (scope === 'job' ? job.actions : (job.steps || []).find((s) => s.id === scope)?.actions) || [];
+
+function setActions(job: JobDefinition, scope: ActionScope, actions: Action[]): JobDefinition {
+    if (scope === 'job') {
+        return { ...job, actions };
+    }
+    return { ...job, steps: (job.steps || []).map((s) => (s.id === scope ? { ...s, actions } : s)) };
+}
+
+/** The key addNode creates for the same inputs (callers select it); '' when addNode does nothing. */
+export function addNodeKey(job: JobDefinition, kind: NodeKind, from?: { key: string; port: PortId }): string {
+    if (STEP_NODE_KINDS.includes(kind)) {
+        return stepKey(nextStepId(job.steps || []));
+    }
+    if (kind === 'trigger_cron' || kind === 'trigger_completion') {
+        return triggerKey((job.triggers || []).length);
+    }
+    if (ACTION_DEFAULTS[kind]) {
+        const scope = actionScope(from);
+        return actionKey(scope, actionsOf(job, scope).length);
+    }
+    return '';
+}
+
+function addNodeJob(job: JobDefinition, kind: NodeKind, from?: { key: string; port: PortId }): JobDefinition | null {
+    const steps = job.steps || [];
+    if (STEP_NODE_KINDS.includes(kind)) {
+        const id = nextStepId(steps);
+        let step: StepDef = { id, name: '', type: 'inline', spl: '' };
+        if (kind === 'saved_search') {
+            step = { id, name: '', type: 'saved_search', saved_search_ref: '' };
+        } else if (kind === 'previous') {
+            step = { id, name: '', type: 'previous', spl: '| stats count' };
+        }
+        let edges = job.edges || [];
+        const src = from && from.key.startsWith('step:') ? from.key.slice(5) : null;
+        const condition = from ? EDGE_CONDITION_FOR_PORT[from.port] : null;
+        if (src && condition && steps.some((s) => s.id === src)) {
+            const edge: Edge = { from: src, to: id, condition };
+            if (condition === 'expression') {
+                edge.expression = '';
+            }
+            edges = [...edges, edge];
+        }
+        return { ...job, steps: [...steps, step], edges };
+    }
+    if (kind === 'trigger_cron' || kind === 'trigger_completion') {
+        const trigger: Trigger =
+            kind === 'trigger_cron'
+                ? { type: 'cron', cron: '0 6 * * *', enabled: true }
+                : { type: 'completion', job: '', on: 'success', enabled: true };
+        return { ...job, triggers: [...(job.triggers || []), trigger] };
+    }
+    const defaults = ACTION_DEFAULTS[kind];
+    if (!defaults) {
+        return null;
+    }
+    const scope = actionScope(from);
+    if (scope !== 'job' && !steps.some((s) => s.id === scope)) {
+        return null;
+    }
+    const hook = (from && HOOK_FOR_PORT[from.port]) || (FAMILY_OF[kind] === 'notify' ? 'on_failure' : 'on_success');
+    return setActions(job, scope, [...actionsOf(job, scope), { hook, ...defaults } as Action]);
+}
+
 const same = (e: Pick<Edge, 'from' | 'to'>, from: string, to: string) => e.from === from && e.to === to;
 
 export function reducer(state: BuilderState, action: BuilderAction): BuilderState {
@@ -180,11 +376,17 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return edits(state, { ...job, steps: [...steps, step], edges: [...edgeList, edge] });
         }
         case 'removeStep':
-            return edits(state, {
-                ...job,
-                steps: steps.filter((s) => s.id !== action.id),
-                edges: edgeList.filter((e) => e.from !== action.id && e.to !== action.id),
-            });
+            return edits(
+                state,
+                dropStepKeys(
+                    {
+                        ...job,
+                        steps: steps.filter((s) => s.id !== action.id),
+                        edges: edgeList.filter((e) => e.from !== action.id && e.to !== action.id),
+                    },
+                    action.id
+                )
+            );
         case 'updateStep': {
             const newId = action.changes.id;
             const renamed = newId !== undefined && newId !== action.id;
@@ -207,12 +409,16 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             });
             return edits(
                 state,
-                {
-                    ...job,
-                    steps: nextSteps.map((st) => renameStepTokens(st, action.id, to)),
-                    edges: edgesOut,
-                    actions: renameActions(job.actions, action.id, to),
-                }
+                renameStepKeys(
+                    {
+                        ...job,
+                        steps: nextSteps.map((st) => renameStepTokens(st, action.id, to)),
+                        edges: edgesOut,
+                        actions: renameActions(job.actions, action.id, to),
+                    },
+                    action.id,
+                    to
+                )
             );
         }
         case 'connect': {
@@ -228,8 +434,11 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const edge: Edge = { from: action.from, to: action.to, condition: action.condition || 'on_success' };
             return edits(state, { ...job, edges: [...edgeList, edge] });
         }
-        case 'disconnect':
-            return edits(state, { ...job, edges: edgeList.filter((e) => !same(e, action.from, action.to)) });
+        case 'disconnect': {
+            const gone = edgeList.find((e) => same(e, action.from, action.to));
+            const next = { ...job, edges: edgeList.filter((e) => !same(e, action.from, action.to)) };
+            return edits(state, gone?.condition === 'expression' ? dropCondKey(next, action.from, action.to) : next);
+        }
         case 'updateEdge':
             return edits(
                 state,
@@ -248,6 +457,130 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                 },
                 fieldKey('edge', action.from, action.to, ...Object.keys(action.changes).sort())
             );
+        case 'moveNodes': {
+            if (Object.keys(action.positions).length === 0) {
+                return state;
+            }
+            return edits(state, withNodes(job, { ...job.layout?.nodes, ...action.positions }));
+        }
+        case 'tidyLayout': {
+            if (!job.layout) {
+                return state;
+            }
+            const next = { ...job };
+            delete next.layout;
+            return edits(state, next);
+        }
+        case 'addNode': {
+            const key = addNodeKey(job, action.kind, action.from);
+            const next = addNodeJob(job, action.kind, action.from);
+            if (!next || !key) {
+                return state;
+            }
+            return edits(state, action.at ? withNodes(next, { ...next.layout?.nodes, [key]: action.at }) : next);
+        }
+        case 'updateAction': {
+            const list = actionsOf(job, action.scope);
+            if (!list[action.index]) {
+                return state;
+            }
+            const next = list.map((a, i) => (i === action.index ? ({ ...a, ...action.changes } as Action) : a));
+            return edits(
+                state,
+                setActions(job, action.scope, next),
+                fieldKey('action', action.scope, String(action.index), ...Object.keys(action.changes).sort())
+            );
+        }
+        case 'removeAction': {
+            const list = actionsOf(job, action.scope);
+            if (!list[action.index]) {
+                return state;
+            }
+            const next = setActions(job, action.scope, list.filter((_, i) => i !== action.index));
+            return edits(state, dropActionKey(next, action.scope, action.index));
+        }
+        case 'moveAction': {
+            const list = actionsOf(job, action.scope);
+            const moved = list[action.index];
+            if (!moved) {
+                return state;
+            }
+            if (action.toScope === action.scope) {
+                if (moved.hook === action.hook) {
+                    return state;
+                }
+                const next = list.map((a, i) => (i === action.index ? { ...a, hook: action.hook } : a));
+                return edits(state, setActions(job, action.scope, next));
+            }
+            if (action.toScope !== 'job' && !steps.some((s) => s.id === action.toScope)) {
+                return state;
+            }
+            const oldPos = job.layout?.nodes[actionKey(action.scope, action.index)];
+            let next = setActions(job, action.scope, list.filter((_, i) => i !== action.index));
+            next = dropActionKey(next, action.scope, action.index);
+            const target = actionsOf(next, action.toScope);
+            next = setActions(next, action.toScope, [...target, { ...moved, hook: action.hook }]);
+            if (oldPos) {
+                next = withNodes(next, { ...next.layout?.nodes, [actionKey(action.toScope, target.length)]: oldPos });
+            }
+            return edits(state, next);
+        }
+        case 'updateTrigger': {
+            const list = job.triggers || [];
+            if (!list[action.index]) {
+                return state;
+            }
+            const next = list.map((t, i) => (i === action.index ? { ...t, ...action.changes } : t));
+            return edits(
+                state,
+                { ...job, triggers: next },
+                fieldKey('trigger', String(action.index), ...Object.keys(action.changes).sort())
+            );
+        }
+        case 'removeTrigger': {
+            const list = job.triggers || [];
+            if (!list[action.index]) {
+                return state;
+            }
+            return edits(state, dropTriggerKey({ ...job, triggers: list.filter((_, i) => i !== action.index) }, action.index));
+        }
+        case 'connectPort': {
+            if (!canConnect(job, action.from, action.port, action.to).ok) {
+                return state;
+            }
+            if (action.to.startsWith('action:')) {
+                const target = parseAction(action.to);
+                const hook = HOOK_FOR_PORT[action.port];
+                const scope = actionScope({ key: action.from, port: action.port });
+                if (!target || !hook) {
+                    return state;
+                }
+                return reducer(state, { type: 'moveAction', scope: target.scope, index: target.index, toScope: scope, hook });
+            }
+            const toId = action.to.slice(5);
+            if (action.from.startsWith('cond:')) {
+                const c = parseCond(action.from);
+                const old = c && edgeList.find((e) => same(e, c.from, c.to));
+                if (!c || !old || c.to === toId || edgeList.some((e) => same(e, c.from, toId))) {
+                    return state;
+                }
+                const retargeted = { ...job, edges: edgeList.map((e) => (e === old ? { ...e, to: toId } : e)) };
+                return edits(
+                    state,
+                    remapLayout(retargeted, (key) => (key === action.from ? condKey(c.from, toId) : key))
+                );
+            }
+            const condition = EDGE_CONDITION_FOR_PORT[action.port];
+            const src = action.from.slice(5);
+            if (!condition || edgeList.some((e) => same(e, src, toId))) {
+                return state;
+            }
+            const edge: Edge = { from: src, to: toId, condition };
+            if (condition === 'expression') {
+                edge.expression = '';
+            }
+            return edits(state, { ...job, edges: [...edgeList, edge] });
+        }
         case 'setJobField':
             return edits(state, { ...job, [action.field]: action.value } as JobDefinition, fieldKey('job', action.field));
         case 'undo': {

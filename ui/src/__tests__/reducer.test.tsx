@@ -1,4 +1,5 @@
-import { blankJob, initialState, isDirty, reducer } from '../features/builder/reducer';
+import { toDefinition } from '../api/client';
+import { addNodeKey, blankJob, initialState, isDirty, reducer } from '../features/builder/reducer';
 import type { JobDefinition } from '../api/types';
 
 const job: JobDefinition = {
@@ -194,5 +195,142 @@ describe('unsaved changes', () => {
     test('a template preload is unsaved when the saved job is blank', () => {
         expect(isDirty(initialState(job, blankJob()))).toBe(true);
         expect(isDirty(initialState(job))).toBe(false);
+    });
+});
+
+describe('builder reducer: layout and node edits', () => {
+    const laid = (): JobDefinition => ({
+        name: 'L',
+        enabled: true,
+        steps: [
+            { id: 'a', type: 'inline', spl: 'x', actions: [{ hook: 'on_failure', type: 'email', to: 'x', subject: 's' }] },
+            { id: 'c', type: 'inline', spl: 'y' },
+        ],
+        edges: [{ from: 'a', to: 'c', condition: 'expression', expression: '1=1' }],
+        actions: [
+            { hook: 'on_success', type: 'email', to: 'p' },
+            { hook: 'on_success', type: 'email', to: 'q' },
+        ],
+        triggers: [{ type: 'cron', cron: '* * * * *' }, { type: 'cron', cron: '0 * * * *' }],
+        layout: {
+            nodes: {
+                'step:a': { x: 1, y: 1 },
+                'step:c': { x: 2, y: 2 },
+                'action:a:0': { x: 3, y: 3 },
+                'cond:a>c': { x: 4, y: 4 },
+                'action:job:0': { x: 5, y: 5 },
+                'action:job:1': { x: 6, y: 6 },
+                'trigger:0': { x: 7, y: 7 },
+                'trigger:1': { x: 8, y: 8 },
+            },
+        },
+    });
+
+    test('an old job has no layout and is not dirty', () => {
+        const s = initialState(job);
+        expect(isDirty(s)).toBe(false);
+        expect('layout' in toDefinition(s.job)).toBe(false);
+    });
+
+    test('moveNodes undoes exactly; tidyLayout removes layout', () => {
+        const s0 = initialState(laid());
+        const s1 = reducer(s0, { type: 'moveNodes', positions: { 'step:a': { x: 9, y: 9 } } });
+        expect(s1.job.layout?.nodes['step:a']).toEqual({ x: 9, y: 9 });
+        expect(reducer(s1, { type: 'undo' }).job).toEqual(s0.job);
+        const s2 = reducer(s1, { type: 'moveNodes', positions: { 'step:c': { x: 0, y: 0 } } });
+        expect(reducer(s2, { type: 'undo' }).job.layout?.nodes['step:c']).toEqual({ x: 2, y: 2 });
+        const t = reducer(s0, { type: 'tidyLayout' });
+        expect('layout' in t.job).toBe(false);
+        expect(reducer(t, { type: 'undo' }).job).toEqual(s0.job);
+    });
+
+    test('removeStep drops its keys and one undo restores', () => {
+        const s0 = initialState(laid());
+        const s1 = reducer(s0, { type: 'removeStep', id: 'a' });
+        const keys = Object.keys(s1.job.layout?.nodes || {});
+        expect(keys.filter((k) => /^(step:a|action:a:|cond:a>)/.test(k))).toEqual([]);
+        expect(reducer(s1, { type: 'undo' }).job).toEqual(s0.job);
+    });
+
+    test('renaming a step moves its keys', () => {
+        const s = reducer(initialState(laid()), { type: 'updateStep', id: 'a', changes: { id: 'load' } });
+        const n = s.job.layout?.nodes || {};
+        expect(n['step:load']).toEqual({ x: 1, y: 1 });
+        expect(n['action:load:0']).toEqual({ x: 3, y: 3 });
+        expect(n['cond:load>c']).toEqual({ x: 4, y: 4 });
+        expect(n['step:a']).toBeUndefined();
+    });
+
+    test('moveAction to the job moves the action and its position', () => {
+        const s = reducer(initialState(laid()), { type: 'moveAction', scope: 'a', index: 0, toScope: 'job', hook: 'on_complete' });
+        expect(s.job.actions?.[2]).toEqual({ hook: 'on_complete', type: 'email', to: 'x', subject: 's' });
+        expect(s.job.steps[0].actions).toEqual([]);
+        expect(s.job.layout?.nodes['action:a:0']).toBeUndefined();
+        expect(s.job.layout?.nodes['action:job:2']).toEqual({ x: 3, y: 3 });
+    });
+
+    test('moveAction in the same scope only changes the hook', () => {
+        const s = reducer(initialState(laid()), { type: 'moveAction', scope: 'job', index: 0, toScope: 'job', hook: 'on_failure' });
+        expect(s.job.actions?.[0].hook).toBe('on_failure');
+        expect(s.job.layout?.nodes['action:job:0']).toEqual({ x: 5, y: 5 });
+    });
+
+    test('removeAction and removeTrigger shift later keys', () => {
+        const s = reducer(initialState(laid()), { type: 'removeAction', scope: 'job', index: 0 });
+        expect(s.job.layout?.nodes['action:job:0']).toEqual({ x: 6, y: 6 });
+        expect(s.job.layout?.nodes['action:job:1']).toBeUndefined();
+        const t = reducer(initialState(laid()), { type: 'removeTrigger', index: 0 });
+        expect(t.job.layout?.nodes['trigger:0']).toEqual({ x: 8, y: 8 });
+        expect(t.job.layout?.nodes['trigger:1']).toBeUndefined();
+    });
+
+    test('disconnecting an expression edge drops its cond key; empty layout is deleted', () => {
+        const j: JobDefinition = { ...laid(), layout: { nodes: { 'cond:a>c': { x: 1, y: 1 } } } };
+        const s = reducer(initialState(j), { type: 'disconnect', from: 'a', to: 'c' });
+        expect('layout' in s.job).toBe(false);
+    });
+
+    test('addNode email from a failure port, with position, and addNodeKey agrees', () => {
+        const s0 = initialState(laid());
+        const from = { key: 'step:a', port: 'failure' as const };
+        const key = addNodeKey(s0.job, 'email', from);
+        const s = reducer(s0, { type: 'addNode', kind: 'email', at: { x: 5, y: 6 }, from });
+        expect(s.job.steps[0].actions?.[1]).toEqual({ hook: 'on_failure', type: 'email', to: '' });
+        expect(key).toBe('action:a:1');
+        expect(s.job.layout?.nodes[key]).toEqual({ x: 5, y: 6 });
+        expect(reducer(s, { type: 'undo' }).job).toEqual(s0.job);
+    });
+
+    test('addNode defaults: slack, trigger, step key', () => {
+        const s0 = initialState(job);
+        const sl = reducer(s0, { type: 'addNode', kind: 'slack' });
+        expect(sl.job.actions?.[0]).toEqual({ hook: 'on_failure', type: 'webhook', preset: 'slack', destination: '' });
+        const st = reducer(s0, { type: 'addNode', kind: 'start_job' });
+        expect(st.job.actions?.[0].hook).toBe('on_success');
+        const tr = reducer(s0, { type: 'addNode', kind: 'trigger_cron' });
+        expect(tr.job.triggers).toEqual([{ type: 'cron', cron: '0 6 * * *', enabled: true }]);
+        expect(addNodeKey(s0.job, 'search')).toBe('step:step_4');
+        expect(reducer(s0, { type: 'addNode', kind: 'lookup' })).toBe(s0);
+        expect('layout' in sl.job).toBe(false);
+    });
+
+    test('addNode search from the if port adds an expression edge', () => {
+        const s = reducer(initialState(laid()), { type: 'addNode', kind: 'search', from: { key: 'step:a', port: 'if' } });
+        expect(s.job.edges?.[1]).toEqual({ from: 'a', to: 'step_3', condition: 'expression', expression: '' });
+    });
+
+    test('connectPort that canConnect rejects returns the same state', () => {
+        const s0 = initialState(laid());
+        expect(reducer(s0, { type: 'connectPort', from: 'step:c', port: 'success', to: 'step:c' })).toBe(s0);
+    });
+
+    test('connectPort adds an edge and rehooks an action', () => {
+        const j = laid();
+        j.edges = [];
+        const s = reducer(initialState(j), { type: 'connectPort', from: 'step:a', port: 'success', to: 'step:c' });
+        expect(s.job.edges).toEqual([{ from: 'a', to: 'c', condition: 'on_success' }]);
+        const r = reducer(initialState(j), { type: 'connectPort', from: 'step:c', port: 'always', to: 'action:job:0' });
+        expect(r.job.steps[1].actions?.[0]).toMatchObject({ hook: 'on_complete', to: 'p' });
+        expect(r.job.layout?.nodes['action:c:0']).toEqual({ x: 5, y: 5 });
     });
 });
