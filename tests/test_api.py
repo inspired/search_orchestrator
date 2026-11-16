@@ -1755,3 +1755,15 @@ def test_moving_nodes_is_not_a_changed_definition(w):
     assert status == 200, out
     status, out = w.call("carol", "POST", "/orchestrator/runs/%s/rerun" % run_id, {"step": "b"})
     assert status != 409, out
+
+
+def test_layout_and_step_output_are_stored_and_returned(w):
+    body = job_body()
+    body["layout"] = {"nodes": {"step:a": {"x": 5, "y": -6.5}, "job": {"x": 0, "y": 0}}}
+    body["steps"][0]["output"] = {"kind": "lookup", "name": "x.csv", "add_run_id": False}
+    saved(w, body=body)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    assert status == 200, out
+    job = out["job"]
+    assert job["layout"] == body["layout"]
+    assert job["steps"][0]["output"] == body["steps"][0]["output"]
