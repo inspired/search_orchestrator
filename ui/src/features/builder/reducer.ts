@@ -2,18 +2,22 @@
  * are saved in job.layout; every other node is placed by the flow layout. */
 import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef, StepOutput, Trigger } from '../../api/types';
+import { layoutFlow, freeSpotRightOf } from './flowLayout';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
 import {
     EDGE_CONDITION_FOR_PORT,
     HOOK_FOR_PORT,
     actionKey,
+    buildGraph,
     canConnect,
     condKey,
     stepKey,
     triggerKey,
 } from './nodeModel';
 import type { ActionScope, NodeKind, PortId } from './nodeModel';
+import type { Outcome } from './outcomes';
+import { splicedEdges } from './splice';
 import { FAMILY_OF } from './nodeStyle';
 import { outputSpl } from './outputs';
 import { generatedInputSpl } from './previewLogic';
@@ -47,7 +51,19 @@ export type BuilderAction =
     | { type: 'moveNodes'; positions: Record<string, Pos> }
     | { type: 'tidyLayout' }
     /** With `at`, `shown` (the positions on screen) is saved too, so other nodes stay put. */
-    | { type: 'addNode'; kind: NodeKind; at?: Pos; from?: { key: string; port: PortId }; shown?: Record<string, Pos> }
+    | {
+          type: 'addNode';
+          kind: NodeKind;
+          at?: Pos;
+          from?: { key: string; port: PortId };
+          shown?: Record<string, Pos>;
+          /** Without `at`: place the node in the first free spot right of this node. */
+          rightOf?: string;
+      }
+    /** Changes the outcome of a line (its key is a FlowLink.key). */
+    | { type: 'changeOutcome'; link: string; outcome: Outcome }
+    /** Puts step `node` on the step-to-step line `link`: one undo step. */
+    | { type: 'splice'; node: string; link: string; at?: Pos; shown?: Record<string, Pos> }
     | { type: 'updateAction'; scope: ActionScope; index: number; changes: Partial<Action> }
     | { type: 'moveAction'; scope: ActionScope; index: number; toScope: ActionScope; hook: Action['hook'] }
     | { type: 'removeAction'; scope: ActionScope; index: number }
@@ -526,10 +542,66 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (!next || !key) {
                 return state;
             }
-            return edits(
-                state,
-                action.at ? withNodes(next, { ...action.shown, ...next.layout?.nodes, [key]: action.at }) : next
-            );
+            let at = action.at;
+            let shown = action.shown;
+            if (!at && action.rightOf) {
+                shown = shown || layoutFlow(buildGraph(job), job.layout?.nodes);
+                at = freeSpotRightOf(buildGraph(next), shown, action.rightOf, action.kind);
+            }
+            return edits(state, at ? withNodes(next, { ...shown, ...next.layout?.nodes, [key]: at }) : next);
+        }
+        case 'splice': {
+            const edgesOut = splicedEdges(job, action.node, action.link);
+            if (!edgesOut) {
+                return state;
+            }
+            const next = { ...job, edges: edgesOut };
+            if (!action.at) {
+                return edits(state, next);
+            }
+            const shown = action.shown || (job.layout ? undefined : layoutFlow(buildGraph(job)));
+            return edits(state, withNodes(next, { ...shown, ...next.layout?.nodes, [action.node]: action.at }));
+        }
+        case 'changeOutcome': {
+            const link = buildGraph(job).links.find((l) => l.key === action.link);
+            if (!link || link.port === action.outcome) {
+                return state;
+            }
+            if (link.kind === 'action') {
+                const target = parseAction(link.to);
+                const hook = HOOK_FOR_PORT[action.outcome];
+                if (!target || !hook) {
+                    return state;
+                }
+                return reducer(state, { type: 'moveAction', scope: target.scope, index: target.index, toScope: target.scope, hook });
+            }
+            const condition = EDGE_CONDITION_FOR_PORT[action.outcome];
+            if (!condition) {
+                return state;
+            }
+            if (link.kind === 'edge') {
+                const edge = edgeList.find((e) => stepKey(e.from) === link.from && stepKey(e.to) === link.to);
+                if (!edge) {
+                    return state;
+                }
+                const changed: Edge = { ...edge, condition };
+                if (condition === 'expression') {
+                    changed.expression = '';
+                } else {
+                    delete changed.expression;
+                }
+                return edits(state, { ...job, edges: edgeList.map((e) => (e === edge ? changed : e)) });
+            }
+            if (link.kind === 'condition' && condition !== 'expression') {
+                const c = parseCond(link.from.startsWith('cond:') ? link.from : link.to);
+                const edge = c && edgeList.find((e) => same(e, c.from, c.to));
+                if (!c || !edge) {
+                    return state;
+                }
+                const plain: Edge = { from: edge.from, to: edge.to, condition };
+                return edits(state, dropCondKey({ ...job, edges: edgeList.map((e) => (e === edge ? plain : e)) }, c.from, c.to));
+            }
+            return state;
         }
         case 'updateAction': {
             const list = actionsOf(job, action.scope);

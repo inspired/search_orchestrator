@@ -1,4 +1,5 @@
 import { toDefinition } from '../api/client';
+import { buildGraph } from '../features/builder/nodeModel';
 import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from '../features/builder/reducer';
 import type { JobDefinition } from '../api/types';
 
@@ -378,5 +379,58 @@ describe('builder reducer: layout and node edits', () => {
         const r = reducer(initialState(j), { type: 'connectPort', from: 'step:c', port: 'always', to: 'action:job:0' });
         expect(r.job.steps[1].actions?.[0]).toMatchObject({ hook: 'on_complete', to: 'p' });
         expect(r.job.layout?.nodes['action:c:0']).toEqual({ x: 5, y: 5 });
+    });
+});
+
+describe('changeOutcome', () => {
+    const j: JobDefinition = {
+        ...blankJob(),
+        name: 'j',
+        steps: [
+            { id: 'a', type: 'inline', spl: 'x', actions: [{ hook: 'on_success', type: 'email', to: 'x@y' }] },
+            { id: 'b', type: 'inline', spl: 'y' },
+            { id: 'c', type: 'inline', spl: 'z' },
+        ],
+        edges: [
+            { from: 'a', to: 'b', condition: 'on_success' },
+            { from: 'a', to: 'c', condition: 'expression', expression: '1=1' },
+        ],
+        layout: { nodes: { 'step:a': { x: 0, y: 0 }, 'cond:a>c': { x: 5, y: 5 } } },
+    };
+    const link = (from: string, to: string) => buildGraph(j).links.find((l) => l.from === from && l.to === to)!.key;
+
+    it('sets a condition on an edge', () => {
+        const s = reducer(initialState(j), { type: 'changeOutcome', link: link('step:a', 'step:b'), outcome: 'failure' });
+        expect(s.job.edges![0]).toEqual({ from: 'a', to: 'b', condition: 'on_failure' });
+    });
+    it('moves an action to another hook', () => {
+        const s = reducer(initialState(j), { type: 'changeOutcome', link: link('step:a', 'action:a:0'), outcome: 'always' });
+        expect(s.job.steps[0].actions![0].hook).toBe('on_complete');
+    });
+    it('turns a condition leg into a plain edge', () => {
+        const s = reducer(initialState(j), { type: 'changeOutcome', link: link('step:a', 'cond:a>c'), outcome: 'success' });
+        expect(s.job.edges![1]).toEqual({ from: 'a', to: 'c', condition: 'on_success' });
+        expect(s.job.layout?.nodes['cond:a>c']).toBeUndefined();
+    });
+    it('is a no-op for if on a condition leg and for the same outcome', () => {
+        const st = initialState(j);
+        expect(reducer(st, { type: 'changeOutcome', link: link('step:a', 'cond:a>c'), outcome: 'if' })).toBe(st);
+        expect(reducer(st, { type: 'changeOutcome', link: link('step:a', 'step:b'), outcome: 'success' })).toBe(st);
+    });
+    it('if on an edge writes an empty expression', () => {
+        const s = reducer(initialState(j), { type: 'changeOutcome', link: link('step:a', 'step:b'), outcome: 'if' });
+        expect(s.job.edges![0]).toEqual({ from: 'a', to: 'b', condition: 'expression', expression: '' });
+    });
+});
+
+describe('addNode rightOf', () => {
+    it('places the node right of its source and keeps others put', () => {
+        const j2: JobDefinition = { ...blankJob(), name: 'j', steps: [{ id: 'a', type: 'inline', spl: 'x' }] };
+        const s = reducer(initialState(j2), {
+            type: 'addNode', kind: 'search', rightOf: 'step:a', from: { key: 'step:a', port: 'success' },
+            shown: { 'step:a': { x: 100, y: 50 } },
+        });
+        expect(s.job.layout?.nodes['step:step_2']).toEqual({ x: 360, y: 50 });
+        expect(s.job.layout?.nodes['step:a']).toEqual({ x: 100, y: 50 });
     });
 });

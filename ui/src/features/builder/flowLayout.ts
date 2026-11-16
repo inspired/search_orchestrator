@@ -1,7 +1,7 @@
 /* Left-to-right layout for the node editor. Saved positions win; nodes without one are placed
  * next to their first upstream node, or by dagre when nothing upstream is placed. */
 import * as dagre from '@dagrejs/dagre';
-import type { FlowGraph, FlowNode } from './nodeModel';
+import type { FlowGraph, FlowNode, NodeKind } from './nodeModel';
 import { nodeSize } from './nodeStyle';
 import type { Pos, Positions } from './graphLogic';
 
@@ -135,4 +135,24 @@ export function graphBounds(graph: FlowGraph, pos: Positions): { x: number; y: n
         return { x: 0, y: 0, width: 0, height: 0 };
     }
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/** Where a new node of `kind` goes when added from the node `key`: one column to its right,
+ * moved down in steps until it overlaps no other node (with a gap). */
+export function freeSpotRightOf(graph: FlowGraph, pos: Positions, key: string, kind: NodeKind): Pos {
+    const src = pos[key] || { x: 0, y: 0 };
+    const mine = nodeSize(kind);
+    const others = graph.nodes.filter((n) => n.key !== key && pos[n.key]);
+    const x = src.x + COL_STEP;
+    let y = src.y;
+    const hits = (): boolean =>
+        others.some((n) => {
+            const q = pos[n.key];
+            const b = boxOf(n);
+            return x < q.x + b.w + GAP && q.x < x + mine.w + GAP && y < q.y + b.h + GAP && q.y < y + mine.h + GAP;
+        });
+    while (hits()) {
+        y += ROW_STEP;
+    }
+    return { x, y };
 }

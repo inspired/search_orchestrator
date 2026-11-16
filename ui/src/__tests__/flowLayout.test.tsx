@@ -1,5 +1,5 @@
 import type { JobDefinition } from '../api/types';
-import { graphBounds, layoutFlow } from '../features/builder/flowLayout';
+import { freeSpotRightOf, graphBounds, layoutFlow } from '../features/builder/flowLayout';
 import { buildGraph } from '../features/builder/nodeModel';
 
 const job: JobDefinition = {
@@ -60,5 +60,15 @@ describe('layoutFlow', () => {
             expect(p[n.key].y).toBeGreaterThanOrEqual(b.y);
         });
         expect(b.width).toBeGreaterThan(0);
+    });
+});
+
+describe('freeSpotRightOf', () => {
+    it('steps down past overlapping boxes', () => {
+        const pos = { 'step:a': { x: 0, y: 0 }, 'step:b': { x: 260, y: 0 }, 'step:c': { x: 260, y: 80 } };
+        const p = freeSpotRightOf(g, pos, 'step:a', 'search');
+        expect(p.x).toBe(260);
+        expect(p.y).toBeGreaterThanOrEqual(160);
+        expect(freeSpotRightOf(g, { 'step:a': { x: 0, y: 0 } }, 'step:a', 'search')).toEqual({ x: 260, y: 0 });
     });
 });
