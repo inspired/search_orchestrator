@@ -5,7 +5,6 @@ import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
-import ComboBox from '@splunk/react-ui/ComboBox';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
@@ -13,7 +12,6 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Job, JobDefinition, Trigger } from '../../api/types';
 import type { BuilderAction } from './reducer';
 import ScheduleEditor, { NextSlots } from './ScheduleEditor';
-import { timeZoneOptions } from './schedule';
 
 export interface TriggersTabProps {
     job: JobDefinition;
@@ -101,31 +99,6 @@ export default function TriggersTab({ job, jobs, dispatch, nextSlots }: Triggers
                 label="Add job completion trigger"
                 onClick={() => setTriggers([...triggers, { type: 'completion', job: '', on: 'success' }])}
             />
-
-            <Heading level={3}>Schedule options</Heading>
-            <ControlGroup label="Time zone" labelFor="job-timezone" labelPosition="top" help="An IANA name such as Europe/Oslo. Empty uses the server's time zone.">
-                <ComboBox
-                    inputId="job-timezone"
-                    value={job.timezone || ''}
-                    placeholder="Server time zone"
-                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'timezone', value: String(value) || undefined })}
-                >
-                    {timeZoneOptions(job.timezone).map((z) => (
-                        <ComboBox.Option key={z} value={z} />
-                    ))}
-                </ComboBox>
-            </ControlGroup>
-            <ControlGroup label="Missed runs" labelFor="job-catchup" labelPosition="top" help="What to do with scheduled times missed while Splunk or the engine was down.">
-                <Select
-                    inputId="job-catchup"
-                    value={job.catchup || 'all'}
-                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'catchup', value })}
-                >
-                    <Select.Option label="Run each missed time (up to 7)" value="all" />
-                    <Select.Option label="Run only the latest missed time" value="latest" />
-                    <Select.Option label="Skip missed times" value="none" />
-                </Select>
-            </ControlGroup>
         </div>
     );
 }

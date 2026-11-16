@@ -32,6 +32,12 @@ function renderPanel(job: JobDefinition, stepId: string) {
 }
 
 describe('StepPanel', () => {
+    test('no longer renders a Step actions section', () => {
+        renderPanel(threeSteps([]), 'a');
+        expect(screen.queryByText('Step actions')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Add action' })).not.toBeInTheDocument();
+    });
+
     test('depends-on multiselect creates edge', () => {
         const state = renderPanel(threeSteps([]), 'c');
         const input = screen.getByRole('combobox', { name: 'Depends on' });

@@ -16,7 +16,6 @@ import type { AlertAction, Destination, Issue, JobDefinition, StepDef } from '..
 import { DURATION_UNITS, DurationUnit, formatDuration, splitDuration, toSeconds } from './duration';
 import type { BuilderApi } from './BuilderPage';
 import TimeRangeField from './TimeRangeField';
-import ActionsEditor from './ActionsEditor';
 import { TokenInput } from './InsertToken';
 import { availableTokens } from './tokens';
 import LearnMore from '../../components/LearnMore';
@@ -145,7 +144,8 @@ export interface StepPanelProps {
     stepId: string;
     issues: Issue[];
     dispatch: (action: BuilderAction) => void;
-    destinations: Destination[];
+    /** No longer used here: actions are edited in their own node's panel. */
+    destinations?: Destination[];
     alertActions?: AlertAction[] | null;
     onRename?: (from: string, to: string) => void;
     onRequestRemove?: (id: string) => void;
@@ -165,8 +165,6 @@ export default function StepPanel({
     stepId,
     issues,
     dispatch,
-    destinations,
-    alertActions,
     onRename,
     onRequestRemove,
     onPreview,
@@ -415,15 +413,6 @@ export default function StepPanel({
                     A retry runs the search again, which can write duplicates to a summary index.
                 </Message>
             )}
-            <Heading level={3}>Step actions</Heading>
-            <ActionsEditor
-                idPrefix={`${p}-action`}
-                actions={step.actions || []}
-                destinations={destinations}
-                alertActions={alertActions}
-                tokenGroups={tokenGroups}
-                onChange={(actions) => set({ actions })}
-            />
             {onRequestRemove && (
                 <div style={{ marginTop: '12px' }}>
                     <Button appearance="destructive" label="Remove this step" onClick={() => onRequestRemove(stepId)} />

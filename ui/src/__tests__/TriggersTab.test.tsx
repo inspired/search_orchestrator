@@ -123,11 +123,6 @@ describe('TriggersTab schedules', () => {
         expect(await screen.findByText('Cron needs five fields.')).toBeInTheDocument();
     });
 
-    test('a stored time zone the browser does not list stays selected', () => {
-        setup(jobWith([{ type: 'cron', cron: '0 1 * * *' }], 'Etc/Unknown'));
-        expect(screen.getByLabelText('Time zone')).toHaveValue('Etc/Unknown');
-    });
-
     test('Add schedule adds the daily default', () => {
         const { dispatch } = setup(jobWith([]));
         fireEvent.click(screen.getByRole('button', { name: 'Add schedule' }));

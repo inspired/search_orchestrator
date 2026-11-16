@@ -1,6 +1,7 @@
 /* The builder's tabs: Steps (the canvas and side panel), Triggers, Parameters, job-level
  * Actions, Access (who may run) and Settings (description, step defaults, after give-up). */
 import React from 'react';
+import ComboBox from '@splunk/react-ui/ComboBox';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Message from '@splunk/react-ui/Message';
@@ -21,6 +22,7 @@ import type { NextSlots } from './ScheduleEditor';
 import TriggersTab from './TriggersTab';
 import LearnMore from '../../components/LearnMore';
 import { issueCounts } from './issueTabs';
+import { timeZoneOptions } from './schedule';
 
 export type TabId = 'steps' | 'triggers' | 'params' | 'actions' | 'access' | 'settings';
 
@@ -79,6 +81,29 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
             >
                 Enabled (schedules and completion triggers start runs)
             </Switch>
+            <ControlGroup label="Time zone" labelFor="job-timezone" labelPosition="top" help="Used by every schedule and Run when in this job.">
+                <ComboBox
+                    inputId="job-timezone"
+                    value={job.timezone || ''}
+                    placeholder="Server time zone"
+                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'timezone', value: String(value) || undefined })}
+                >
+                    {timeZoneOptions(job.timezone).map((z) => (
+                        <ComboBox.Option key={z} value={z} />
+                    ))}
+                </ComboBox>
+            </ControlGroup>
+            <ControlGroup label="Missed runs" labelFor="job-catchup" labelPosition="top" help="What to do with scheduled times missed while Splunk or the engine was down.">
+                <Select
+                    inputId="job-catchup"
+                    value={job.catchup || 'all'}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'catchup', value })}
+                >
+                    <Select.Option label="Run each missed time (up to 7)" value="all" />
+                    <Select.Option label="Run only the latest missed time" value="latest" />
+                    <Select.Option label="Skip missed times" value="none" />
+                </Select>
+            </ControlGroup>
             <Heading level={3}>Step defaults</Heading>
             <p>Steps that leave these empty use them.</p>
             <DurationField
