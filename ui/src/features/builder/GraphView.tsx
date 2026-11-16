@@ -1,13 +1,11 @@
 /* The step graph, read-only: dagre top-to-bottom layout, each node with its name and either
- * its run status (plain text with an icon) or its step type. Used by the run page; the
+ * shared drawing helpers (edges, node boxes, types) the node editor still uses.
  * builder's Canvas draws with the same primitives. All colour comes from theme tokens. */
-import React, { useMemo } from 'react';
+import React from 'react';
 import styled from 'styled-components';
 import { variables } from '@splunk/themes';
-import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Edge, StepDef, StepStatus } from '../../api/types';
-import { isStepDelayed, statusIcon, statusLabel } from '../../components/StatusText';
-import { autoLayout, NODE_H, NODE_W, Pos, Positions } from './graphLogic';
+import type { Edge, StepDef } from '../../api/types';
+import { NODE_H, NODE_W, Pos, Positions } from './graphLogic';
 
 export type Theme = Record<string, string>;
 
@@ -162,77 +160,4 @@ export function stepTypeLabel(step: GraphStep): string {
         return step.saved_search_ref ? `Saved search: ${step.saved_search_ref}` : 'Saved search';
     }
     return 'Search';
-}
-
-export interface GraphViewProps {
-    steps: GraphStep[];
-    edges: GraphEdge[];
-    statusByStep?: Record<string, StepStatus | undefined>;
-    onSelect?: (id: string) => void;
-    selected?: string | null;
-}
-
-export default function GraphView({ steps, edges, statusByStep, onSelect, selected = null }: GraphViewProps) {
-    const theme = useSplunkTheme() as unknown as Theme;
-    const positions = useMemo(() => autoLayout(steps, edges), [steps, edges]);
-    const { width, height } = extent(positions);
-    const markerId = 'so-graph-arrow';
-
-    return (
-        <svg role="group" aria-label="Step graph" width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ maxWidth: '100%' }}>
-            <ArrowMarker id={markerId} theme={theme} />
-            {edges.map((e) =>
-                positions[e.from] && positions[e.to] ? (
-                    <EdgeLine key={`${e.from}>${e.to}`} edge={e} a={positions[e.from]} b={positions[e.to]} theme={theme} markerId={markerId} />
-                ) : null
-            )}
-            {steps.map((s) => {
-                const st = statusByStep ? statusByStep[s.id] : undefined;
-                const delayed = st ? isStepDelayed(st) : false;
-                let color: string | undefined;
-                if (delayed) {
-                    color = theme.statusColorMedium;
-                } else if (st && st.state === 'failed') {
-                    color = theme.statusColorHigh;
-                }
-                const detail = statusByStep
-                    ? statusLabel(st ? st.state : 'waiting', delayed, st && st.skip_kind)
-                    : stepTypeLabel(s);
-                const select = onSelect ? () => onSelect(s.id) : undefined;
-                return (
-                    <NodeGroup
-                        key={s.id}
-                        data-testid={`node-${s.id}`}
-                        transform={`translate(${positions[s.id].x},${positions[s.id].y})`}
-                        role={select ? 'button' : undefined}
-                        tabIndex={select ? 0 : undefined}
-                        aria-label={select ? `Step ${stepLabel(s)}, ${detail}` : undefined}
-                        aria-pressed={select ? selected === s.id : undefined}
-                        onClick={select}
-                        onKeyDown={
-                            select
-                                ? (ev) => {
-                                      if (ev.key === 'Enter' || ev.key === ' ') {
-                                          ev.preventDefault();
-                                          select();
-                                      }
-                                  }
-                                : undefined
-                        }
-                        style={{ cursor: select ? 'pointer' : undefined }}
-                    >
-                        <NodeBox
-                            step={s}
-                            theme={theme}
-                            detail={detail}
-                            detailColor={color}
-                            icon={statusByStep ? statusIcon(st ? st.state : 'waiting', delayed) : undefined}
-                            stroke={color}
-                            selected={selected === s.id}
-                        />
-                    </NodeGroup>
-                );
-            })}
-        </svg>
-    );
 }

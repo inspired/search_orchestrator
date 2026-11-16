@@ -116,9 +116,9 @@ function RunPage() {
                     )}
                     {tab === 'graph' && (
                         <RunGraph
-                            nodes={(run.definition.steps || []).map((s) => ({ id: s.id, label: s.name || s.id }))}
-                            edges={run.definition.edges || []}
+                            definition={run.definition}
                             states={run.steps}
+                            actions={detail.actions || []}
                             onSelect={setSelected}
                             selected={selected}
                         />
