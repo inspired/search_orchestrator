@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.9.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.10.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -46,7 +46,7 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Results of earlier steps** | cut corners | teal |
 | **If…** (a condition) | diamond | amber |
 | Notify: **Email**, **Webhook**, **Slack**, **Alert action** | notched right edge | pink |
-| Write: **Event to an index** | cylinder | orange |
+| Write: **Summary index**, **Lookup**, **Event to an index** | cylinder | orange |
 | **Start another job** | slanted sides | slate |
 | **Whole job** | double outline | grey |
 
@@ -185,6 +185,7 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
   - **Live previews** (default): the previews you made in this editor. If a step before this one has no current preview, it is previewed first, in order. A failed step is treated as a run would treat it: a step reached from it by an `on_success` connection isn't previewed ("... failed, so a run would not reach this step"), and you fix that step first; a step reached by an `on_failure` or `always` connection is previewed. Live previews are kept only in your browser tab; leaving the editor drops them.
   - **A past run:** the results that run saved for the earlier steps. The list shows the job's 20 most recent runs, and is refreshed when you save and when you open it. A run that ended longer ago than the result retention (24 hours by default) is greyed out and marked "(results expired)". Choosing a run also sets the time and parameters to that run's. If the run's step results have expired or the step isn't in the run, the preview fails and says so. It never falls back to a live preview. If Splunk won't let you read a step's results from that run, the preview fails with "you may not read <step>'s results from that run; only its owner or an admin can".
 - **Result:** a line with the row count, time and input, then a table of the first 100 rows. The input part names every earlier step the preview read, through a connection or a token, as the server used it: "daily preview, 2 min ago" (the time updates each minute), "weekly skipped" for a step a run would skip (even one you previewed anyway), or "daily failed preview" for a failed step an `on_failure` or `always` connection still reads. Search errors and warnings show above the table. An ERROR message fails the preview, as in a run.
+- **Steps that write:** previews never write to an index or a lookup. A **Summary index** or **Lookup** step can't be previewed (preview the step before it), and a live preview of a step after one is refused and names it. Previewing from a past run still works, since nothing before the step runs.
 - **Skipped steps:** if a run at that time would skip the step, you see "Would be skipped" and why. Steps after it treat it as skipped. **Preview anyway** runs it once with its inputs; steps after it still treat it as skipped, as a run would.
 - **Job-wide errors:** a dependency cycle or a malformed job blocks every preview, since the editor can't work out which steps come first. The preview says which, for example "the job has a cycle: a → b → a; fix it before previewing". Other errors block only the previews of steps they touch.
 - **Out of date:** changing a step, the time, the parameters or the input marks that step's preview and the ones after it "Out of date". The old table stays greyed until you preview again.
@@ -196,17 +197,6 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 - **Runs** lists runs, filterable by job and state. The **Needs attention** state filter shows blocked and failed runs, and runs that hold later runs back.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 
-### The run graph
-
-The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Click a step to open its details. Actions say how they went in plain text:
-
-| Action state | Meaning |
-|---|---|
-| Sent | The action ran and succeeded. |
-| Failed | The action gave up. The run's outcome doesn't change; the Actions tab has the error. |
-| Retrying | An attempt failed and another is coming. |
-| Not sent yet | The step or job hasn't reached the action, or its first attempt hasn't started. |
-
 Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish. A step that a branch didn't reach shows as *Skipped (branch not taken)*.
 
 | Run state | Meaning |
@@ -216,6 +206,17 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 | Blocked | A step failed with nothing to handle it. The run waits for a re-run, cancel or its deadline. |
 | Paused | No new steps start; running searches carry on. |
 | Succeeded, Failed, Cancelled | Finished. |
+
+### The run graph
+
+The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Click a step to open its details. Actions say how they went in plain text, with the same icons as step states (a clock for Retrying):
+
+| Action state | Meaning |
+|---|---|
+| Sent | The action ran and succeeded. |
+| Failed | The action gave up. The run's outcome doesn't change; the Actions tab has the error. |
+| Retrying | An attempt failed and another is coming. |
+| Not sent yet | The step or job hasn't reached the action, or its first attempt hasn't started. |
 
 ## Re-run from a step
 

@@ -9,6 +9,9 @@ More nodes, a legend and a minimap for the flow editor, and the flow on the run 
 - Lines that carry data are thick and lines that only signal are thin.
 - **Show node types** opens a legend of node shapes, colours and exits. A minimap helps you move around a big graph.
 - The run page has a **Graph** tab that draws the job's flow with each step's state and each action's result: Sent, Failed, Retrying or Not sent yet.
+- Previews never write: a **Summary index** or **Lookup** step can't be previewed, and neither can a live preview downstream of one.
+- Moving or adding the first node in a job without saved positions keeps every other node where it was.
+- Save problems about an action or a trigger select that action or trigger, and the action's panel lists them.
 - The user guide covers all of the above.
 
 ## 1.9.0 (2026-11-16)
