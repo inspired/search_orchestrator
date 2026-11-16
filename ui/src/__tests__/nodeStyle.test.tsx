@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import type { FlowNode, NodeKind, PortId } from '../features/builder/nodeModel';
-import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, inputOffset, nodeSize, portOffset, shapePath } from '../features/builder/nodeStyle';
+import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, HANDLE_R, handleOffset, inputOffset, nodeSize, portOffset, shapePath, tabOffset } from '../features/builder/nodeStyle';
 import { NodeShape, PortHandle } from '../features/builder/NodeShape';
 
 const theme: Record<string, string> = {
@@ -96,5 +96,23 @@ describe('nodeStyle', () => {
         );
         expect(screen.getByText('Email')).toBeInTheDocument();
         expect(container.querySelector('[data-testid="node-stripe"]')?.getAttribute('fill')).toBe('#a5a5a5');
+    });
+});
+
+describe('handle and tab geometry', () => {
+    it('puts the handle on the right edge at mid height', () => {
+        const { w, h } = nodeSize('search');
+        expect(handleOffset('search')).toEqual({ x: w, y: h / 2 });
+        expect(HANDLE_R).toBe(13);
+    });
+    it('stacks tabs upward, 22 px apart, clear of the handle', () => {
+        const h = handleOffset('search');
+        const t = [0, 1, 2].map((i) => tabOffset('search', i, 3));
+        expect(t[1].y - t[0].y).toBe(-22);
+        expect(t[2].y - t[1].y).toBe(-22);
+        t.forEach((p) => {
+            expect(p.x).toBe(h.x);
+            expect(h.y - p.y).toBeGreaterThan(HANDLE_R);
+        });
     });
 });

@@ -1,7 +1,8 @@
 import type { JobDefinition } from '../api/types';
+import { handleOffset, tabOffset } from '../features/builder/nodeStyle';
 import { buildGraph } from '../features/builder/nodeModel';
 import {
-    clampZoom, frameView, linkEnds, linkedPorts, linkPath, nodeAt, snap, visiblePorts,
+    clampZoom, frameView, linkEnds, linkedPorts, tabLinkEnds, linkPath, nodeAt, snap, visiblePorts,
 } from '../features/builder/flowCanvasGeometry';
 
 const job: JobDefinition = {
@@ -60,5 +61,21 @@ describe('flowCanvasGeometry', () => {
         expect(v.zoom).toBeCloseTo(0.5);
         expect(v.pan.x).toBeCloseTo(240 - 400 * 0.5);
         expect(v.pan.y).toBeCloseTo(150 - 134 * 0.5);
+    });
+});
+
+describe('tabLinkEnds', () => {
+    it('starts at the tab anchor and ends at the input', () => {
+        const g = buildGraph(job);
+        const l = g.links.find((k) => k.port)!;
+        const from = g.nodes.find((n) => n.key === l.from)!;
+        const to = g.nodes.find((n) => n.key === l.to)!;
+        const pos = { [from.key]: { x: 10, y: 20 }, [to.key]: { x: 300, y: 40 } };
+        const e = tabLinkEnds(l, from, to, pos, 1, 2)!;
+        const t = tabOffset(from.kind, 1, 2);
+        expect(e.a).toEqual({ x: 10 + t.x, y: 20 + t.y });
+        expect(e.b.x).toBe(300);
+        expect(handleOffset(from.kind).x).toBe(t.x);
+        expect(tabLinkEnds(l, from, to, {}, 0, 1)).toBeNull();
     });
 });

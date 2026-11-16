@@ -1,0 +1,105 @@
+/* Pure outcome model for the + handle: what a node can do "when" something happens, which
+ * outcomes are used, and how lines are labelled. */
+import type { JobDefinition } from '../../api/types';
+import type { FlowGraph, FlowLink, PortId } from './nodeModel';
+import { JOB_KEY, buildGraph, canConnect, nodeKindOfStep, outputPorts } from './nodeModel';
+import { PORT_STYLE } from './nodeStyle';
+
+export type Outcome = Exclude<PortId, 'then'>;
+
+export interface WhenOption {
+    outcome: Outcome;
+    label: string;
+    glyph: string;
+    count: number;
+    note?: string;
+}
+
+export const OUTCOME_LABEL: Record<Outcome, string> = {
+    success: 'Succeeds',
+    failure: 'Fails',
+    always: 'Finishes either way',
+    start: 'Starts',
+    delayed: 'Is delayed',
+    if: 'If a condition is true',
+};
+
+const MAX_EXPR = 24;
+
+function kindOf(job: JobDefinition, key: string) {
+    if (key === JOB_KEY) {
+        return 'job' as const;
+    }
+    if (key.startsWith('step:')) {
+        const step = (job.steps || []).find((s) => s.id === key.slice(5));
+        return step ? nodeKindOfStep(step) : null;
+    }
+    return null;
+}
+
+function outcomesOf(job: JobDefinition, key: string): Outcome[] {
+    const kind = kindOf(job, key);
+    return kind ? (outputPorts(kind).filter((p) => p !== 'then') as Outcome[]) : [];
+}
+
+export function whenOptions(job: JobDefinition, from: string, to?: string | null): WhenOption[] {
+    const graph = buildGraph(job);
+    return outcomesOf(job, from)
+        .filter((o) => !to || canConnect(job, from, o, to).ok)
+        .map((o) => {
+            const opt: WhenOption = {
+                outcome: o,
+                label: OUTCOME_LABEL[o],
+                glyph: PORT_STYLE[o].glyph,
+                count: graph.links.filter((l) => l.from === from && l.port === o).length,
+            };
+            if (!to && (o === 'start' || o === 'delayed')) {
+                opt.note = 'actions only';
+            }
+            return opt;
+        });
+}
+
+const ORDER: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'if', 'then'];
+
+export function usedOutcomes(graph: FlowGraph, key: string): PortId[] {
+    const used = new Set<PortId>();
+    graph.links.forEach((l) => {
+        if (l.from === key && l.port) {
+            used.add(l.port);
+        }
+    });
+    return ORDER.filter((p) => used.has(p));
+}
+
+function conditionText(job: JobDefinition, key: string): string {
+    const m = /^cond:(.*)>(.*)$/.exec(key);
+    const edge = m && (job.edges || []).find((e) => e.from === m[1] && e.to === m[2] && e.condition === 'expression');
+    const expr = ((edge && edge.expression) || '').trim();
+    if (!expr) {
+        return OUTCOME_LABEL.if;
+    }
+    return expr.length > MAX_EXPR ? `${expr.slice(0, MAX_EXPR)}…` : expr;
+}
+
+export function linkLabel(job: JobDefinition, link: FlowLink): string {
+    if (link.kind === 'trigger' || !link.port) {
+        return '';
+    }
+    if (link.kind === 'condition') {
+        return conditionText(job, link.from.startsWith('cond:') ? link.from : link.to);
+    }
+    return `${PORT_STYLE[link.port].glyph} ${OUTCOME_LABEL[link.port as Outcome]}`;
+}
+
+export function lineMenuOutcomes(job: JobDefinition, link: FlowLink): Outcome[] {
+    if (link.kind === 'trigger') {
+        return [];
+    }
+    if (link.kind === 'condition') {
+        const cond = link.from.startsWith('cond:') ? link.from : link.to;
+        const m = /^cond:(.*)>(.*)$/.exec(cond);
+        return m ? outcomesOf(job, `step:${m[1]}`) : [];
+    }
+    return whenOptions(job, link.from, link.to).map((o) => o.outcome);
+}

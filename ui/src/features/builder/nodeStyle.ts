@@ -103,6 +103,21 @@ export function portOffset(kind: NodeKind, port: PortId): { x: number; y: number
     return { x: w, y: (h * (i + 1)) / (slots.length + 1) };
 }
 
+export const HANDLE_R = 13;
+const TAB_GAP = 22;
+
+/** Centre of the single + handle: right edge, vertical centre. */
+export function handleOffset(kind: NodeKind): { x: number; y: number } {
+    const { w, h } = nodeSize(kind);
+    return { x: w, y: h / 2 };
+}
+
+/** Anchor of the `index`th outcome tab (0 nearest): stacked above the handle, 22 px apart. */
+export function tabOffset(kind: NodeKind, index: number, _count: number): { x: number; y: number } {
+    const o = handleOffset(kind);
+    return { x: o.x, y: o.y - HANDLE_R - TAB_GAP / 2 - index * TAB_GAP };
+}
+
 /** Input handle: left centre; null for kinds that cannot be wired into. */
 export function inputOffset(kind: NodeKind): { x: number; y: number } | null {
     if (FAMILY_OF[kind] === 'trigger' || kind === 'job') {

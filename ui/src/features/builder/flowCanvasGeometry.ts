@@ -3,7 +3,7 @@
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, FlowLink, FlowNode, NodeKind, PortId } from './nodeModel';
 import { outputPorts } from './nodeModel';
-import { inputOffset, nodeSize, portOffset } from './nodeStyle';
+import { inputOffset, nodeSize, portOffset, tabOffset } from './nodeStyle';
 import { graphBounds } from './flowLayout';
 
 export const MIN_ZOOM = 0.4;
@@ -58,6 +58,24 @@ export function linkEnds(
     }
     const i = inputOffset(to.kind) || { x: 0, y: nodeSize(to.kind).h / 2 };
     return { a: start, b: { x: pb.x + i.x, y: pb.y + i.y } };
+}
+
+/** Like `linkEnds`, but the line starts at the outcome tab `index` of `count` instead of a port slot. */
+export function tabLinkEnds(
+    link: FlowLink,
+    from: FlowNode,
+    to: FlowNode,
+    pos: Positions,
+    index: number,
+    count: number
+): { a: Pos; b: Pos } | null {
+    const base = linkEnds(link, from, to, pos);
+    const pa = pos[from.key];
+    if (!base || !pa) {
+        return null;
+    }
+    const o = tabOffset(from.kind, index, count);
+    return { a: { x: pa.x + o.x, y: pa.y + o.y }, b: base.b };
 }
 
 /** The topmost node whose box contains `pt` (later nodes are drawn on top). */
