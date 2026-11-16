@@ -1,4 +1,5 @@
 import type { JobDefinition } from '../api/types';
+import { canInsert } from '../features/builder/flowEdits';
 import { buildGraph } from '../features/builder/nodeModel';
 import { blankJob, initialState, reducer } from '../features/builder/reducer';
 import { canSplice, spliceMessage } from '../features/builder/splice';
@@ -97,5 +98,18 @@ describe('reducer insertNode', () => {
         const start = initialState(job);
         expect(reducer(start, { type: 'insertNode', kind: 'email', link: lk(job, 'step:a', 'step:b') })).toBe(start);
         expect(reducer(start, { type: 'insertNode', kind: 'search', link: lk(job, 'step:b', 'cond:b>c') })).toBe(start);
+    });
+});
+
+describe('canInsert', () => {
+    it('allows step kinds on a line between two steps', () => {
+        const l = lk(job, 'step:a', 'step:b');
+        ['search', 'saved_search', 'previous', 'summary_index', 'lookup'].forEach((k) => expect(canInsert(job, l, k as never)).toBe(true));
+    });
+    it('refuses actions, triggers, condition lines and action lines', () => {
+        expect(canInsert(job, lk(job, 'step:a', 'step:b'), 'email')).toBe(false);
+        expect(canInsert(job, lk(job, 'step:a', 'step:b'), 'trigger_cron')).toBe(false);
+        expect(canInsert(job, lk(job, 'step:b', 'cond:b>c'), 'search')).toBe(false);
+        expect(canInsert(job, lk(job, 'step:a', 'action:a:0'), 'search')).toBe(false);
     });
 });

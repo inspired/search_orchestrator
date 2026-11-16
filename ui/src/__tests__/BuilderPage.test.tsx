@@ -471,6 +471,57 @@ describe('BuilderPage flow', () => {
         expect(screen.getByTestId('flow-area').style.position).toBe('fixed');
     });
 
+    it('Escape during a drag in full screen cancels the drag and stays in full screen', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        const before = translate('step:weekly');
+        fireEvent.pointerDown(screen.getByTestId('node-step:weekly'), { clientX: 100, clientY: 100 });
+        fireEvent.pointerMove(canvas, { clientX: 160, clientY: 100 });
+        fireEvent.keyDown(canvas, { key: 'Escape' });
+        expect(screen.getByTestId('flow-area').style.position).toBe('fixed');
+        fireEvent.pointerUp(canvas, { clientX: 160, clientY: 100 });
+        expect(translate('step:weekly')).toEqual(before);
+        expect(screen.getByRole('button', { name: 'Undo' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('a popup opened near the bottom of the canvas stays inside it', async () => {
+        const job = rollupJob({ layout: { nodes: { 'step:daily': { x: 40, y: 440 } } } });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const svg = screen.getByRole('group', { name: /^Job flow/ });
+        Object.defineProperty(svg, 'clientHeight', { configurable: true, value: 500 });
+        Object.defineProperty(svg, 'clientWidth', { configurable: true, value: 900 });
+        clickPlus('step:daily');
+        const popup = screen.getByRole('listbox', { name: 'When' }).parentElement as HTMLElement;
+        const top = parseFloat(popup.style.top);
+        expect(top).toBeGreaterThanOrEqual(0);
+        // The anchor is at y ≈ 478; the list (six rows, then the search box) must fit above 500.
+        expect(top).toBeLessThan(100);
+    });
+
+    it('after changing an action line the action stays selected; a line changed to If selects its condition', async () => {
+        const job = rollupJob({ steps: [...rollupJob().steps.slice(0, 2), { ...rollupJob().steps[2], actions: [{ hook: 'on_success', type: 'email', to: 'a@example.com' }] }] });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByTestId('line-label-step:monthly-success->action:monthly:0'));
+        fireEvent.click(screen.getByRole('option', { name: 'Change to Fails' }));
+        expect(screen.getByTestId('node-action:monthly:0')).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByRole('option', { name: 'Change to If a condition is true' }));
+        expect(screen.getByTestId('node-cond:daily>weekly')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('Shift+Tab in the When search box goes back to the outcomes', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        clickPlus('step:daily');
+        fireEvent.click(screen.getByRole('option', { name: /^Fails/ }));
+        fireEvent.keyDown(screen.getByRole('combobox', { name: 'Add a node' }), { key: 'Tab', shiftKey: true });
+        expect(screen.getByRole('listbox', { name: 'When' })).toHaveFocus();
+    });
+
     it('the canvas fills the window below its top, at least 480 px', async () => {
         const before = window.innerHeight;
         try {

@@ -3,10 +3,10 @@
 import type { Edge, JobDefinition } from '../../api/types';
 import { layoutFlow, freeSpotRightOf } from './flowLayout';
 import type { Pos } from './graphLogic';
-import { EDGE_CONDITION_FOR_PORT, actionKey, buildGraph, canConnect, condKey, stepKey, triggerKey } from './nodeModel';
+import { EDGE_CONDITION_FOR_PORT, actionKey, buildGraph, canConnect, condKey, outputPorts, stepKey, triggerKey } from './nodeModel';
 import type { NodeKind } from './nodeModel';
 import type { Outcome } from './outcomes';
-import { splicedEdges } from './splice';
+import { canSplice, splicedEdges } from './splice';
 
 // Saved positions (job.layout.nodes). Keys follow nodeModel; every edit keeps them consistent.
 
@@ -157,12 +157,23 @@ export function spliceJob(job: JobDefinition, node: string, link: string, at?: P
     return withPlacedNode(next, node, at, shown || (job.layout ? undefined : layoutFlow(buildGraph(job))));
 }
 
-/** `added` (the job with new step `node`) with that step on `link` of `job`: only where both
- * halves are lines `canConnect` allows. Null when it cannot be. */
-export function insertJob(job: JobDefinition, added: JobDefinition, node: string, link: string, at?: Pos, shown?: Record<string, Pos>): JobDefinition | null {
-    const l = buildGraph(job).links.find((x) => x.key === link);
-    if (!l || !l.port || !canConnect(added, l.from, l.port, node).ok || !canConnect(added, node, 'success', l.to).ok) {
-        return null;
+/** A new step of `kind` can go on step-to-step `link` ("Insert a node"): both halves are lines
+ * `canConnect` allows. */
+export function canInsert(job: JobDefinition, link: string, kind: NodeKind): boolean {
+    // Only step kinds have an If output.
+    if (!outputPorts(kind).includes('if')) {
+        return false;
     }
-    return spliceJob(added, node, link, at, shown);
+    const l = buildGraph(job).links.find((x) => x.key === link);
+    if (!l || l.kind !== 'edge' || !l.port) {
+        return false;
+    }
+    const node = stepKey('__insert');
+    const probe: JobDefinition = { ...job, steps: [...(job.steps || []), { id: '__insert', type: 'inline', spl: '' }] };
+    return canSplice(probe, node, link).ok && canConnect(probe, l.from, l.port, node).ok && canConnect(probe, node, 'success', l.to).ok;
+}
+
+/** `added` (`job` with the new step `node` of `kind`) with that step on `link`; null when it cannot be. */
+export function insertJob(job: JobDefinition, added: JobDefinition, kind: NodeKind, node: string, link: string, at?: Pos, shown?: Record<string, Pos>): JobDefinition | null {
+    return canInsert(job, link, kind) ? spliceJob(added, node, link, at, shown) : null;
 }

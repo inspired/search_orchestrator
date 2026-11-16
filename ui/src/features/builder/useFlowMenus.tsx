@@ -9,16 +9,17 @@ import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
 import type { JobDefinition } from '../../api/types';
 import type { FlowSelection, ScreenPoint } from './FlowCanvas';
-import { parseCond } from './flowEdits';
+import { canInsert, parseCond } from './flowEdits';
 import type { Pos, Positions } from './graphLogic';
 import LineMenu, { LineChoice } from './LineMenu';
 import { targetKinds } from './nodeCatalog';
+import { condKey } from './nodeModel';
 import type { FlowGraph, FlowLink, NodeKind, PortId } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
 import { OUTCOME_LABEL, lineMenuOutcomes, whenOptions } from './outcomes';
 import type { Outcome } from './outcomes';
 import QuickAdd from './QuickAdd';
-import { addNodeKey, initialState, reducer } from './reducer';
+import { addNodeKey } from './reducer';
 import type { BuilderAction } from './reducer';
 import { canSplice, spliceMessage } from './splice';
 import WhenMenu from './WhenMenu';
@@ -27,7 +28,11 @@ import WhenMenu from './WhenMenu';
 export const SPLICE_MESSAGE_MS = 10000;
 const POPUP_W = 320;
 const LINE_MENU_W = 240;
-const LINE_ROW_H = 32;
+const ROW_H = 32;
+/** The When list's heading and padding. */
+const WHEN_CHROME = 34;
+/** The node search: its box and the list below it (at most 320 px). */
+const SEARCH_H = 370;
 
 /** An open quick-add box: which kinds it offers, the line it continues, and where. */
 export interface QuickAddState {
@@ -80,18 +85,16 @@ function insertKinds(job: JobDefinition, graph: FlowGraph, link: FlowLink): Node
         return [];
     }
     const from = graph.nodes.find((n) => n.key === link.from);
-    const start = initialState(job);
-    return targetKinds(link.port, from ? from.kind : null).filter(
-        (kind) => reducer(start, { type: 'insertNode', kind, link: link.key }) !== start
-    );
+    return targetKinds(link.port, from ? from.kind : null).filter((kind) => canInsert(job, link.key, kind));
 }
 
 export default function useFlowMenus(opts: FlowMenusOptions) {
     const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas } = opts;
     const [menu, setMenu] = useState<Menu | null>(null);
     const [message, setMessage] = useState<string | null>(null);
-    /** The job just after the splice the message is about; another edit hides the message. */
-    const messageJob = useRef<JobDefinition | null>(null);
+    /** The job just before the splice the message is about, then the job just after it: if the
+     * splice changed nothing, or once the job is edited again, the message goes. */
+    const messageJob = useRef<{ before: JobDefinition; after: JobDefinition | null } | null>(null);
 
     useEffect(() => {
         if (!message) {
@@ -101,17 +104,18 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         return () => window.clearTimeout(timer);
     }, [message]);
     useEffect(() => {
-        if (!message) {
+        const m = messageJob.current;
+        if (!message || !m) {
             return;
         }
-        if (messageJob.current === null) {
-            messageJob.current = job;
-        } else if (messageJob.current !== job) {
+        if (m.after === null && m.before !== job) {
+            m.after = job;
+        } else if (m.after !== job) {
             setMessage(null);
         }
     }, [job, message]);
     const showMessage = (text: string) => {
-        messageJob.current = null;
+        messageJob.current = { before: job, after: null };
         setMessage(text);
     };
 
@@ -148,7 +152,9 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             const b = link && positions[link.to];
             const at = a && b ? { x: Math.round((a.x + b.x) / 2), y: Math.round((a.y + b.y) / 2) } : undefined;
             const id = key.slice('step:'.length);
-            showMessage(spliceMessage({ ...job, steps: [...(job.steps || []), { id, name: '', type: 'inline' }] }, key, q.insert));
+            if (canInsert(job, q.insert, kind)) {
+                showMessage(spliceMessage({ ...job, steps: [...(job.steps || []), { id, name: '', type: 'inline' }] }, key, q.insert));
+            }
             dispatch({ type: 'insertNode', kind, link: q.insert, at, shown: at ? positions : undefined });
             select({ kind: 'node', key });
             focusNode(key);
@@ -198,7 +204,9 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
     const onLineMenu = (link: string, screen: ScreenPoint) => open({ kind: 'line', link, screen });
 
     const onSplice = (node: string, link: string, at: Pos) => {
-        showMessage(spliceMessage(job, node, link));
+        if (canSplice(job, node, link).ok) {
+            showMessage(spliceMessage(job, node, link));
+        }
         dispatch({ type: 'splice', node, link, at, shown: positions });
     };
 
@@ -211,8 +219,13 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         }
         if (choice.kind === 'outcome') {
             dispatch({ type: 'changeOutcome', link: link.key, outcome: choice.outcome });
-            // A line's key names its outcome: keep the changed line selected.
-            if (link.kind === 'edge' && choice.outcome !== 'if') {
+            // A line's key names its outcome: keep the changed line (or its action) selected; a
+            // line turned into a condition selects the condition, to type its expression.
+            if (link.kind === 'action') {
+                select({ kind: 'node', key: link.to });
+            } else if (link.kind === 'edge' && choice.outcome === 'if') {
+                select({ kind: 'node', key: condKey(link.from.slice(5), link.to.slice(5)) });
+            } else if (link.kind === 'edge') {
                 select({ kind: 'link', key: `${link.from}-${choice.outcome}->${link.to}` });
             }
         } else {
@@ -229,7 +242,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         overlay = (
             <QuickAdd
                 open
-                at={clampInto(menu.screen, POPUP_W, 0, canvas())}
+                at={clampInto(menu.screen, POPUP_W, SEARCH_H, canvas())}
                 kinds={menu.kinds}
                 onChoose={(kind) => addNode(kind, menu)}
                 onClose={finish}
@@ -238,11 +251,13 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
     } else if (menu && menu.kind === 'when') {
         const { from, to, at } = menu;
         const fromKind = kindOf(from) || null;
+        const options = whenOptions(job, from, to);
+        const height = WHEN_CHROME + Math.max(1, options.length) * ROW_H + (to ? 0 : SEARCH_H);
         overlay = (
             <WhenMenu
                 open
-                at={clampInto(menu.screen, POPUP_W, 0, canvas())}
-                options={whenOptions(job, from, to)}
+                at={clampInto(menu.screen, POPUP_W, height, canvas())}
+                options={options}
                 withSearch={to ? undefined : { kinds: (o: Outcome) => targetKinds(o, fromKind) }}
                 onChoose={(o, kind) => {
                     if (to) {
@@ -268,7 +283,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             overlay = (
                 <LineMenu
                     open
-                    at={clampInto(menu.screen, LINE_MENU_W, Math.max(1, rows) * LINE_ROW_H + 8, canvas())}
+                    at={clampInto(menu.screen, LINE_MENU_W, Math.max(1, rows) * ROW_H + 8, canvas())}
                     outcomes={outcomes}
                     canInsert={canInsert}
                     canRemove={canRemove}
@@ -299,7 +314,6 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
     return {
         overlay,
         notice,
-        open: menu !== null,
         /** Closes any popup without moving focus (the selection changed). */
         close: () => setMenu(null),
         openQuick,

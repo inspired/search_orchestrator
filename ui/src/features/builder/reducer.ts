@@ -465,7 +465,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         }
         case 'insertNode': {
             const added = STEP_NODE_KINDS.includes(action.kind) ? addNodeJob(job, action.kind) : null;
-            const next = added && insertJob(job, added, addNodeKey(job, action.kind), action.link, action.at, action.shown);
+            const next = added && insertJob(job, added, action.kind, addNodeKey(job, action.kind), action.link, action.at, action.shown);
             return next ? edits(state, next) : state;
         }
         case 'changeOutcome': {

@@ -102,8 +102,9 @@ export default function useCanvasGestures(opts: GestureOptions) {
                 endGesture();
             }
         };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
+        // Capture, so it runs before other window listeners (full screen leaves on Escape).
+        window.addEventListener('keydown', onKey, { capture: true });
+        return () => window.removeEventListener('keydown', onKey, { capture: true });
     }, [dragging]);
 
     const shown: Positions =
