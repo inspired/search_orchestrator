@@ -1,7 +1,7 @@
 /* The builder's state: the job being edited and undo/redo history. Positions a person chose
  * are saved in job.layout; every other node is placed by the flow layout. */
 import { toDefinition } from '../../api/client';
-import type { Action, Edge, JobDefinition, StepDef, Trigger } from '../../api/types';
+import type { Action, Edge, JobDefinition, StepDef, StepOutput, Trigger } from '../../api/types';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
 import {
@@ -15,6 +15,7 @@ import {
 } from './nodeModel';
 import type { ActionScope, NodeKind, PortId } from './nodeModel';
 import { FAMILY_OF } from './nodeStyle';
+import { outputSpl } from './outputs';
 import { generatedInputSpl } from './previewLogic';
 
 interface Snapshot {
@@ -90,8 +91,17 @@ export function isDirty(state: BuilderState): boolean {
 }
 
 /** The id addStep gives a new step: step_<n>, unused. */
-export function nextStepId(steps: StepDef[]): string {
+export function nextStepId(steps: StepDef[], prefix?: string): string {
     const ids = new Set(steps.map((s) => s.id));
+    if (prefix) {
+        let k = 1;
+        let id = prefix;
+        while (ids.has(id)) {
+            k += 1;
+            id = `${prefix}_${k}`;
+        }
+        return id;
+    }
     let n = steps.length + 1;
     while (ids.has(`step_${n}`)) {
         n += 1;
@@ -268,7 +278,9 @@ function dropStepKeys(job: JobDefinition, id: string): JobDefinition {
     });
 }
 
-const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous'];
+const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
+const ID_PREFIX: Partial<Record<NodeKind, string>> = { summary_index: 'summary', lookup: 'lookup' };
+const newStepId = (steps: StepDef[], kind: NodeKind) => nextStepId(steps, ID_PREFIX[kind]);
 const ACTION_DEFAULTS: Partial<Record<NodeKind, Omit<Action, 'hook'>>> = {
     email: { type: 'email', to: '' },
     webhook: { type: 'webhook', destination: '' },
@@ -296,7 +308,7 @@ function setActions(job: JobDefinition, scope: ActionScope, actions: Action[]): 
 /** The key addNode creates for the same inputs (callers select it); '' when addNode does nothing. */
 export function addNodeKey(job: JobDefinition, kind: NodeKind, from?: { key: string; port: PortId }): string {
     if (STEP_NODE_KINDS.includes(kind)) {
-        return stepKey(nextStepId(job.steps || []));
+        return stepKey(newStepId(job.steps || [], kind));
     }
     if (kind === 'trigger_cron' || kind === 'trigger_completion') {
         return triggerKey((job.triggers || []).length);
@@ -311,12 +323,16 @@ export function addNodeKey(job: JobDefinition, kind: NodeKind, from?: { key: str
 function addNodeJob(job: JobDefinition, kind: NodeKind, from?: { key: string; port: PortId }): JobDefinition | null {
     const steps = job.steps || [];
     if (STEP_NODE_KINDS.includes(kind)) {
-        const id = nextStepId(steps);
+        const id = newStepId(steps, kind);
         let step: StepDef = { id, name: '', type: 'inline', spl: '' };
         if (kind === 'saved_search') {
             step = { id, name: '', type: 'saved_search', saved_search_ref: '' };
         } else if (kind === 'previous') {
             step = { id, name: '', type: 'previous', spl: '| stats count' };
+        } else if (kind === 'summary_index' || kind === 'lookup') {
+            const output: StepOutput =
+                kind === 'summary_index' ? { kind, index: '', add_run_id: true } : { kind, name: '' };
+            step = { id, name: '', type: 'previous', spl: outputSpl(output), output };
         }
         let edges = job.edges || [];
         const src = from && from.key.startsWith('step:') ? from.key.slice(5) : null;
@@ -404,7 +420,16 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (renamed && steps.some((s) => s.id === newId)) {
                 return state;
             }
-            const nextSteps = steps.map((s) => (s.id === action.id ? convertType(job, s, { ...s, ...action.changes }) : s));
+            const nextSteps = steps.map((s) => {
+                if (s.id !== action.id) {
+                    return s;
+                }
+                const merged = convertType(job, s, { ...s, ...action.changes });
+                if (merged.output === undefined) {
+                    delete merged.output;
+                }
+                return merged;
+            });
             if (!renamed) {
                 const key = fieldKey('step', action.id, ...Object.keys(action.changes).sort());
                 return edits(state, { ...job, steps: nextSteps }, key);

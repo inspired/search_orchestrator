@@ -10,8 +10,20 @@ describe('nodeCatalog', () => {
         expect(searchCatalog('mail')[0].kind).toBe('email');
         expect(searchCatalog('MAIL')[0].kind).toBe('email');
     });
-    it('has no summary entry in phase 1', () => {
-        expect(searchCatalog('summary')).toEqual([]);
+    it('finds the output and Slack nodes', () => {
+        expect(searchCatalog('summary')[0].kind).toBe('summary_index');
+        expect(searchCatalog('lookup')[0].kind).toBe('lookup');
+        expect(searchCatalog('slack')[0].kind).toBe('slack');
+        expect(CATALOG.find((e) => e.kind === 'summary_index')?.label).toBe('Summary index');
+    });
+    it('offers summary and lookup as steps and Slack as an action', () => {
+        expect(targetKinds('success', 'search')).toEqual(expect.arrayContaining(['summary_index', 'lookup', 'slack']));
+        expect(targetKinds('delayed', 'search')).toContain('slack');
+        expect(targetKinds('delayed', 'search')).not.toContain('summary_index');
+        expect(targetKinds('success', 'job')).toContain('slack');
+        expect(targetKinds('success', 'job')).not.toContain('lookup');
+        expect(targetKinds('then', 'condition')).toContain('lookup');
+        expect(targetKinds('then', 'condition')).not.toContain('slack');
     });
     it('returns everything for an empty query, filtered by kinds', () => {
         expect(searchCatalog('')).toEqual(CATALOG);

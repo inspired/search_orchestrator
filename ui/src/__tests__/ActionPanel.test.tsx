@@ -78,4 +78,13 @@ describe('JobNodePanel', () => {
         fireEvent.click(screen.getByRole('button', { name: /Failed: Webhook/ }));
         expect(onSelect).toHaveBeenCalledWith('action:job:0');
     });
+
+    test('a webhook with the Slack preset shows its type as Slack and keeps the destination', () => {
+        const dispatch = jest.fn();
+        const j = job();
+        j.actions = [{ hook: 'on_failure', type: 'webhook', preset: 'slack', destination: 'slack-ops' }];
+        renderThemed(<ActionPanel job={j} scope="job" index={0} destinations={[{ name: 'slack-ops' } as never]} alertActions={[]} tokenGroups={[]} dispatch={dispatch} onMoved={jest.fn()} onRequestRemove={jest.fn()} />);
+        expect(screen.getByRole('combobox', { name: 'Do' })).toHaveTextContent('Slack');
+        expect(screen.getByRole('combobox', { name: 'Destination' })).toHaveTextContent('slack-ops');
+    });
 });

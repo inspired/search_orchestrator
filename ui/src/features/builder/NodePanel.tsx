@@ -8,6 +8,7 @@ import ActionPanel from './ActionPanel';
 import type { BuilderApi } from './BuilderPage';
 import EdgePanel from './EdgePanel';
 import type { FlowSelection } from './FlowCanvas';
+import OutputPanel from './OutputPanel';
 import JobNodePanel from './JobNodePanel';
 import { FlowGraph, JOB_KEY, stepKey } from './nodeModel';
 import type { BuilderAction } from './reducer';
@@ -76,6 +77,18 @@ export default function NodePanel(props: NodePanelProps) {
     const node = selection && selection.kind === 'node' ? graph.nodes.find((n) => n.key === selection.key) : undefined;
     if (node && node.stepId) {
         const id = node.stepId;
+        if (node.kind === 'summary_index' || node.kind === 'lookup') {
+            return (
+                <OutputPanel
+                    key={node.key}
+                    job={job}
+                    stepId={id}
+                    issues={byStep[id] || []}
+                    dispatch={dispatch}
+                    onRequestRemove={(stepId) => onRequestRemove(stepKey(stepId))}
+                />
+            );
+        }
         return (
             <StepPanel
                 key={node.key}

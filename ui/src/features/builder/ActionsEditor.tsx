@@ -10,9 +10,11 @@ import { TokenInput } from './InsertToken';
 import type { TokenGroup } from './tokens';
 import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
 
-const TYPES: { value: Action['type']; label: string }[] = [
+/** A webhook with the Slack preset is shown, and picked, as its own type. */
+const TYPES: { value: string; label: string }[] = [
     { value: 'email', label: 'Email' },
     { value: 'webhook', label: 'Webhook' },
+    { value: 'slack', label: 'Slack' },
     { value: 'event', label: 'Event to an index' },
     { value: 'start_job', label: 'Start another job' },
     { value: 'alert_action', label: 'Alert action' },
@@ -150,6 +152,7 @@ export interface ActionFieldsProps {
 
 /** One action's kind and the fields that kind needs (everything but its hook). */
 export function ActionFields({ action: a, onChange, destinations, alertActions = null, idPrefix, tokenGroups }: ActionFieldsProps) {
+    const isSlack = a.type === 'webhook' && a.preset === 'slack';
     const typeId = `${idPrefix}-type`;
     const destId = `${idPrefix}-destination`;
     const presetId = `${idPrefix}-preset`;
@@ -184,9 +187,13 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
             <ControlGroup label="Do" labelFor={typeId} labelPosition="top">
                 <Select
                     inputId={typeId}
-                    value={a.type}
+                    value={isSlack ? 'slack' : a.type}
                     onChange={(_e: unknown, { value }: { value: unknown }) =>
-                        onChange({ hook: a.hook, type: value as Action['type'] })
+                        onChange(
+                            value === 'slack'
+                                ? { hook: a.hook, type: 'webhook', preset: 'slack', destination: str(a.destination) }
+                                : { hook: a.hook, type: value as Action['type'] }
+                        )
                     }
                 >
                     {TYPES.map((t) => (
@@ -220,6 +227,7 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                             ))}
                         </Select>
                     </ControlGroup>
+                    {!isSlack && (
                     <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
                         <Select
                             inputId={presetId}
@@ -234,6 +242,7 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                             <Select.Option label="Generic JSON" value="generic" />
                         </Select>
                     </ControlGroup>
+                    )}
                 </>
             )}
             {a.type === 'event' && (

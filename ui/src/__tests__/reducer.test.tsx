@@ -317,8 +317,35 @@ describe('builder reducer: layout and node edits', () => {
         const tr = reducer(s0, { type: 'addNode', kind: 'trigger_cron' });
         expect(tr.job.triggers).toEqual([{ type: 'cron', cron: '0 6 * * *', enabled: true }]);
         expect(addNodeKey(s0.job, 'search')).toBe('step:step_4');
-        expect(reducer(s0, { type: 'addNode', kind: 'lookup' })).toBe(s0);
         expect('layout' in sl.job).toBe(false);
+    });
+
+    test('addNode summary_index and lookup create output steps, ids and keys agree', () => {
+        const s0 = initialState(laid());
+        const from = { key: 'step:a', port: 'success' as const };
+        const key = addNodeKey(s0.job, 'summary_index', from);
+        expect(key).toBe('step:summary');
+        const s1 = reducer(s0, { type: 'addNode', kind: 'summary_index', from });
+        const step = s1.job.steps.find((x) => x.id === 'summary');
+        expect(step).toEqual({
+            id: 'summary',
+            name: '',
+            type: 'previous',
+            spl: '| collect index= marker="so_run=$run.id$"',
+            output: { kind: 'summary_index', index: '', add_run_id: true },
+        });
+        expect(s1.job.edges).toContainEqual({ from: 'a', to: 'summary', condition: 'on_success' });
+        expect(addNodeKey(s1.job, 'summary_index')).toBe('step:summary_2');
+        const s2 = reducer(s1, { type: 'addNode', kind: 'lookup', at: { x: 1, y: 2 } });
+        expect(s2.job.steps.find((x) => x.id === 'lookup')).toMatchObject({ type: 'previous', spl: '| outputlookup', output: { kind: 'lookup', name: '' } });
+        expect(s2.job.layout?.nodes['step:lookup']).toEqual({ x: 1, y: 2 });
+        expect(addNodeKey(s2.job, 'lookup')).toBe('step:lookup_2');
+    });
+
+    test('updateStep with output undefined drops the key', () => {
+        const s1 = reducer(initialState(laid()), { type: 'addNode', kind: 'lookup' });
+        const s2 = reducer(s1, { type: 'updateStep', id: 'lookup', changes: { output: undefined } });
+        expect('output' in s2.job.steps.find((x) => x.id === 'lookup')!).toBe(false);
     });
 
     test('addNode search from the if port adds an expression edge', () => {

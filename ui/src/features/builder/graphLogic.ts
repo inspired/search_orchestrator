@@ -1,6 +1,7 @@
 /* Pure graph helpers for the builder: cycle checks, dagre layout, run-when presets and a
  * light client-side check. The server's POST jobs/validate is authoritative. */
 import * as dagre from '@dagrejs/dagre';
+import { outputIssue } from './outputs';
 import type { Edge, Issue, JobDefinition, RunWhen, StepDef } from '../../api/types';
 
 export interface Pos {
@@ -109,6 +110,7 @@ const CLIENT_CODES = [
     'unknown_edge_step',
     'cycle',
     'bad_expression',
+    'bad_output',
 ] as const;
 type ClientCode = (typeof CLIENT_CODES)[number];
 export const CLIENT_ISSUE_CODES: ReadonlySet<string> = new Set<string>(CLIENT_CODES);
@@ -150,6 +152,10 @@ export function findIssues(job: JobDefinition): Issue[] {
             if (!(job.edges || []).some((e) => e.to === s.id)) {
                 out.push(issue('error', 'previous_needs_dependency', 'this step needs a step before it to read from; add one in Depends on', s.id));
             }
+        }
+        const outputProblem = s.output ? outputIssue(s.output) : null;
+        if (outputProblem) {
+            out.push(issue('error', 'bad_output', outputProblem, s.id));
         }
         if (s.run_when && s.run_when.kind && !(s.run_when.value || '').trim()) {
             out.push(issue('error', 'bad_run_when', 'run when is empty; fill it in or turn Run when off', s.id));
