@@ -6,6 +6,7 @@ import {
     PreviewContext,
     previewKey,
     previewKeys,
+    previewRefusal,
     toBeRun,
     upstreamOf,
 } from '../features/builder/previewLogic';
@@ -196,5 +197,34 @@ describe('previewLogic', () => {
         expect(previewKeys(edited, run, p1).b).toBe(previewKeys(j, run, p1).b);
         expect(previewKeys(j, ctx, p1).b).not.toBe(previewKeys(j, ctx, p2).b);
         expect(previewKeys(edited, ctx, p1).b).not.toBe(previewKeys(j, ctx, p1).b);
+    });
+});
+
+describe('previewRefusal', () => {
+    const j = job(
+        [
+            { id: 'a', type: 'inline', spl: '| makeresults' },
+            { id: 'w', name: 'Write summary', type: 'previous', spl: '| collect index=summary', output: { kind: 'summary_index', index: 'summary' } },
+            { id: 'c', type: 'previous', spl: '| stats count' },
+            { id: 'd', type: 'inline', spl: '| makeresults' },
+        ],
+        [
+            { from: 'a', to: 'w', condition: 'on_success' },
+            { from: 'w', to: 'c', condition: 'on_success' },
+        ]
+    );
+    test('an output step is never previewed', () => {
+        expect(previewRefusal(j, 'w', true)).toBe("Previews don't write to indexes or lookups; preview the step before it.");
+        expect(previewRefusal(j, 'w', false)).toBe("Previews don't write to indexes or lookups; preview the step before it.");
+    });
+    test('a live preview downstream of an output step is refused, naming it', () => {
+        expect(previewRefusal(j, 'c', true)).toBe("Previews don't write to indexes or lookups; Write summary is upstream of this step.");
+    });
+    test('previewing from a run reads stored results, so nothing upstream runs', () => {
+        expect(previewRefusal(j, 'c', false)).toBeNull();
+    });
+    test('other steps are previewed', () => {
+        expect(previewRefusal(j, 'a', true)).toBeNull();
+        expect(previewRefusal(j, 'd', true)).toBeNull();
     });
 });

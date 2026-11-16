@@ -13,6 +13,7 @@ import type { Issue, JobDefinition, StepOutput } from '../../api/types';
 import { stepLabel } from './GraphView';
 import { parentsOf, wouldCycle } from './graphLogic';
 import { outputIssue, outputSpl } from './outputs';
+import { previewRefusal } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { IssueList } from './StepPanel';
 
@@ -101,6 +102,12 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
                     </Typography>
                 </StaticContent>
             </ControlGroup>
+            <div style={{ marginBottom: '12px' }}>
+                <Button appearance="secondary" label="Preview step" disabled />
+                <Typography as="p" variant="body">
+                    {previewRefusal(job, stepId, true)}
+                </Typography>
+            </div>
             <div style={{ marginBottom: '12px' }}>
                 <Button appearance="secondary" label="Edit as search" onClick={() => dispatch({ type: 'updateStep', id: stepId, changes: { output: undefined } })} />
             </div>

@@ -82,6 +82,11 @@ describe('OutputPanel', () => {
         expect(step().spl).toBe('| collect index=summary marker="so_run=$run.id$"');
         expect(screen.queryByText('Type the summary index to write to')).not.toBeInTheDocument();
     });
+    test('Preview step is turned off with the reason', () => {
+        setup();
+        expect(screen.getByRole('button', { name: 'Preview step' })).toHaveAttribute('aria-disabled', 'true');
+        expect(screen.getByText("Previews don't write to indexes or lookups; preview the step before it.")).toBeInTheDocument();
+    });
     test('Edit as search removes output and keeps spl', () => {
         const step = setup();
         fireEvent.change(screen.getByLabelText('Summary index'), { target: { value: 'summary' } });

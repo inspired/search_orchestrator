@@ -290,3 +290,22 @@ export function toBeRun(
     });
     return [...out, stepId];
 }
+
+const NO_WRITES = "Previews don't write to indexes or lookups";
+
+/** Why the step can't be previewed, or null. A preview never runs a step that writes to a
+ * summary index or lookup: not the step itself, and (live, where upstream steps are previewed
+ * first) not one upstream of it. */
+export function previewRefusal(job: JobDefinition, stepId: string, live: boolean): string | null {
+    const steps = job.steps || [];
+    const step = steps.find((s) => s.id === stepId);
+    if (step && step.output) {
+        return `${NO_WRITES}; preview the step before it.`;
+    }
+    if (!live) {
+        return null;
+    }
+    const ups = upstreamOf(job, stepId);
+    const writer = steps.find((s) => s.output && ups.includes(s.id));
+    return writer ? `${NO_WRITES}; ${writer.name || writer.id} is upstream of this step.` : null;
+}

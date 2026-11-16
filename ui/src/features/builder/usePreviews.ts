@@ -4,11 +4,11 @@
  * server keeps them. Cancelling a step also cancels the running upstream previews its
  * chain started, unless another chain is waiting on them. Everything lives in this hook:
  * unmounting discards it and cancels running previews, best effort. Nothing here blocks
- * editing. */
+ * editing. A preview never runs a step that writes to an index or lookup (previewRefusal). */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../../api/client';
 import type { JobDefinition, PreviewInput, PreviewInputRead, PreviewRequest, PreviewResults, PreviewStatus, SkipKind } from '../../api/types';
-import { BUILTIN_DEFAULTS, isStale, LivePreview, PreviewContext, previewKeys, previousInputs, toBeRun, upstreamOf } from './previewLogic';
+import { BUILTIN_DEFAULTS, isStale, LivePreview, PreviewContext, previewKeys, previewRefusal, previousInputs, toBeRun, upstreamOf } from './previewLogic';
 
 export interface PreviewApi {
     startPreview: typeof client.startPreview;
@@ -335,6 +335,13 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         const anyway = Boolean(opts.anyway);
         const keys = previewKeys(jobSnap, ctxSnap, store.current);
         const live = ctxSnap.source === 'live';
+        const refused = previewRefusal(jobSnap, stepId, live);
+        if (refused) {
+            const t = claim(stepId, jobSnap, ctxSnap);
+            delete pending.current[stepId];
+            patch(stepId, t, { state: 'failed', error: refused });
+            return Promise.resolve();
+        }
         const order = live ? toBeRun(jobSnap, stepId, store.current, (id) => keys[id] || '') : [stepId];
         const toRun = order.slice(0, -1);
         const before = live ? upstreamOf(jobSnap, stepId).filter((u) => toRun.includes(u) || runningNow(u, jobSnap, ctxSnap)) : [];

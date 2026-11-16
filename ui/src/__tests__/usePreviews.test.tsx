@@ -50,6 +50,35 @@ beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
 describe('usePreviews', () => {
+    const written: JobDefinition = {
+        ...job,
+        steps: [
+            { id: 'a', type: 'inline', spl: '| makeresults' },
+            { id: 'w', name: 'Write lookup', type: 'previous', spl: '| outputlookup hosts.csv', output: { kind: 'lookup', name: 'hosts.csv' } },
+            { id: 'b', type: 'previous', spl: '| stats count' },
+        ],
+        edges: [
+            { from: 'a', to: 'w', condition: 'on_success' },
+            { from: 'w', to: 'b', condition: 'on_success' },
+        ],
+    };
+    test('an output step, or a step downstream of one, is refused without starting anything', async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(written, ctx, api));
+        act(() => {
+            result.current.preview('w');
+        });
+        await settle();
+        expect(result.current.previews.w.state).toBe('failed');
+        expect(result.current.previews.w.error).toBe("Previews don't write to indexes or lookups; preview the step before it.");
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle();
+        expect(result.current.previews.b.error).toBe("Previews don't write to indexes or lookups; Write lookup is upstream of this step.");
+        expect(api.startPreview).not.toHaveBeenCalled();
+    });
+
     test('previewing b with no preview of a starts a, then b with a as input', async () => {
         const api = fakeApi();
         const { result } = renderHook(() => usePreviews(job, ctx, api));
