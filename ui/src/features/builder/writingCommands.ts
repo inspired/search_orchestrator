@@ -20,7 +20,8 @@ export function writingCommand(spl: string): string | null {
         } else if (c === '`') {
             const close = spl.startsWith('```', i) ? '```' : '`';
             const end = spl.indexOf(close, i + close.length);
-            i = end < 0 ? n : end + close.length;
+            // An unterminated backtick is a plain character; keep scanning after it.
+            i = end < 0 ? i + 1 : end + close.length;
         } else if (c === '|') {
             if (spl[i + 1] === '|') {
                 i += 2; // the eval "or" operator, not a pipe

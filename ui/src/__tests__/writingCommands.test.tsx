@@ -13,6 +13,7 @@ describe('writingCommand', () => {
         ['index=a | collectfoo', null],
         ['index=a | stats count', null],
         ['', null],
+        ['index=a `m | collect index=s', 'collect'],
     ])('%s', (spl, expected) => {
         expect(writingCommand(spl)).toBe(expected);
     });
