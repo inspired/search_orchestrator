@@ -48,10 +48,12 @@ export interface NodeSearchListProps {
     kinds?: NodeKind[];
     onChoose: (kind: NodeKind) => void;
     onClose: () => void;
+    /** Shift+Tab, or ArrowLeft in an empty box: go back to whatever came before (the When list). */
+    onBack?: () => void;
 }
 
 /** The search box and grouped node list; focuses its box when it mounts. */
-export function NodeSearchList({ kinds, onChoose, onClose }: NodeSearchListProps) {
+export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchListProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(0);
@@ -89,7 +91,10 @@ export function NodeSearchList({ kinds, onChoose, onClose }: NodeSearchListProps
     const activeEntry: CatalogEntry | undefined = results[Math.min(active, results.length - 1)];
 
     const onKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'ArrowDown') {
+        if (onBack && ((e.key === 'Tab' && e.shiftKey) || (e.key === 'ArrowLeft' && query === ''))) {
+            e.preventDefault();
+            onBack();
+        } else if (e.key === 'ArrowDown') {
             e.preventDefault();
             setActive((a) => Math.min(a + 1, results.length - 1));
         } else if (e.key === 'ArrowUp') {

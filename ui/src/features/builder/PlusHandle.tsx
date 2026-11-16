@@ -20,6 +20,12 @@ export function tabLabel(outcome: PortId): string {
     return outcome === 'then' ? `${glyph} ${PORT_STYLE.then.label}` : `${glyph} ${OUTCOME_LABEL[outcome as Outcome]}`;
 }
 
+/** A tab's box relative to the node's top-left: just outside the right edge, at `tabOffset`. */
+export function tabBox(kind: NodeKind, index: number, count: number, outcome: PortId): { x: number; y: number; w: number; h: number } {
+    const o = tabOffset(kind, index, count);
+    return { x: o.x + 2, y: o.y - TAB_H / 2, w: Math.round(tabLabel(outcome).length * CHAR_W + 2 * TAB_PAD), h: TAB_H };
+}
+
 export interface PlusHandleProps {
     nodeKey: string;
     kind: NodeKind;
@@ -38,9 +44,8 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
     return (
         <>
             {tabs.map((outcome, i) => {
-                const o = tabOffset(kind, i, tabs.length);
                 const label = tabLabel(outcome);
-                const width = Math.round(label.length * CHAR_W + 2 * TAB_PAD);
+                const box = tabBox(kind, i, tabs.length, outcome);
                 const color = theme[PORT_STYLE[outcome].colorToken];
                 return (
                     <g
@@ -58,16 +63,16 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
                         }
                     >
                         <rect
-                            x={o.x + 2}
-                            y={o.y - TAB_H / 2}
-                            width={width}
-                            height={TAB_H}
+                            x={box.x}
+                            y={box.y}
+                            width={box.w}
+                            height={box.h}
                             rx={4}
                             fill={theme.backgroundColorSection}
                             stroke={color}
                             strokeWidth={1.5}
                         />
-                        <text x={o.x + 2 + TAB_PAD} y={o.y + 4} fontSize={11} fill={theme.contentColorDefault} fontFamily={theme.fontFamily}>
+                        <text x={box.x + TAB_PAD} y={box.y + TAB_H / 2 + 4} fontSize={11} fill={theme.contentColorDefault} fontFamily={theme.fontFamily}>
                             {label}
                         </text>
                     </g>

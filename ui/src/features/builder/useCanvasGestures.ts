@@ -2,12 +2,15 @@
  * line drag from the + handle or an outcome tab. A press that moves less than 4 px is a click:
  * on a node it selects, on the + it asks for a "when" (`onPlus`), on the background it clears
  * the selection. A line released on a node reports that node (never its own source), anywhere
- * else the canvas point. `onDragMove` is the hook point for auto-pan while dragging. */
+ * else the canvas point; released on the source's own + or tabs, nothing. Escape cancels a
+ * drag. `onDragMove` is the hook point for auto-pan while dragging. */
 import React, { useEffect, useRef, useState } from 'react';
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, PortId } from './nodeModel';
 import { HANDLE_R, handleOffset } from './nodeStyle';
 import { clampZoom, nodeAt, snap } from './flowCanvasGeometry';
+import { usedOutcomes } from './outcomes';
+import { tabBox } from './PlusHandle';
 
 export type ScreenPoint = { left: number; top: number };
 
@@ -35,6 +38,8 @@ export interface GestureOptions {
 }
 
 const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
+/** Extra reach around the + for "released on the source". */
+const HANDLE_SLOP = 4;
 
 export default function useCanvasGestures(opts: GestureOptions) {
     const { svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onDragMove } = opts;
@@ -61,6 +66,24 @@ export default function useCanvasGestures(opts: GestureOptions) {
         svg.addEventListener('wheel', onWheel, { passive: false });
         return () => svg.removeEventListener('wheel', onWheel);
     }, [svgRef]);
+
+    // Escape cancels any drag: no callbacks, and a dragged node goes back where it was.
+    const dragging = gesture !== null;
+    useEffect(() => {
+        if (!dragging) {
+            return undefined;
+        }
+        const onKey = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                setGesture(null);
+                setDrag(null);
+                setCursor(null);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [dragging]);
 
     const shown: Positions =
         gesture && gesture.kind === 'node' && drag && positions[gesture.key]
@@ -149,29 +172,40 @@ export default function useCanvasGestures(opts: GestureOptions) {
         }
     };
 
+    /** `pt` is on the + or one of the outcome tabs of node `key`, which stick out past its box. */
+    const onOwnHandle = (key: string, pt: Pos): boolean => {
+        const n = graph.nodes.find((x) => x.key === key);
+        const p = shown[key];
+        if (!n || !p) {
+            return false;
+        }
+        const h = handleOffset(n.kind);
+        if (Math.hypot(pt.x - (p.x + h.x), pt.y - (p.y + h.y)) <= HANDLE_R + HANDLE_SLOP) {
+            return true;
+        }
+        const tabs = n.kind === 'condition' ? [] : usedOutcomes(graph, key);
+        return tabs.some((o, i) => {
+            const b = tabBox(n.kind, i, tabs.length, o);
+            return pt.x >= p.x + b.x && pt.x <= p.x + b.x + b.w && pt.y >= p.y + b.y && pt.y <= p.y + b.y + b.h;
+        });
+    };
+
     const dropLine = (g: Extract<Gesture, { kind: 'line' }>, clientX: number, clientY: number) => {
         const end = toCanvas(clientX, clientY);
         const target = nodeAt(graph, shown, end);
-        if (target === g.from) {
+        if (target === g.from || onOwnHandle(g.from, end)) {
             return;
         }
         const screen = toScreen(end);
+        const outcome: [PortId?] = g.outcome ? [g.outcome] : [];
         if (target) {
             if (onDropOnNode) {
-                if (g.outcome) {
-                    onDropOnNode(g.from, target, screen, g.outcome);
-                } else {
-                    onDropOnNode(g.from, target, screen);
-                }
+                onDropOnNode(g.from, target, screen, ...outcome);
             } else if (g.outcome && onConnect) {
                 onConnect(g.from, g.outcome, target);
             }
         } else if (onDropOnCanvas) {
-            if (g.outcome) {
-                onDropOnCanvas(g.from, end, screen, g.outcome);
-            } else {
-                onDropOnCanvas(g.from, end, screen);
-            }
+            onDropOnCanvas(g.from, end, screen, ...outcome);
         }
     };
 

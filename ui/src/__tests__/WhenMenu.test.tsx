@@ -68,6 +68,23 @@ describe('WhenMenu', () => {
         expect(screen.getAllByRole('option').filter((o) => o.closest('[aria-label="Nodes"]'))).toHaveLength(2);
     });
 
+    it('with search, Shift+Tab or ArrowLeft in an empty box goes back to the outcomes', async () => {
+        render(<WhenMenu {...base} withSearch={{ kinds: () => ['email'] }} />);
+        const list = screen.getByRole('listbox', { name: 'When' });
+        await userEvent.type(list, '{ArrowDown}{Enter}');
+        await userEvent.tab({ shift: true });
+        expect(list).toHaveFocus();
+        await userEvent.type(list, '{Enter}');
+        const box = screen.getByRole('combobox', { name: 'Add a node' });
+        expect(box).toHaveFocus();
+        await userEvent.type(box, 'm{ArrowLeft}');
+        expect(box).toHaveFocus();
+        await userEvent.clear(box);
+        await userEvent.type(box, '{ArrowLeft}');
+        expect(list).toHaveFocus();
+        expect(base.onChoose).not.toHaveBeenCalled();
+    });
+
     it('Escape closes, in the outcomes and in the search', async () => {
         render(<WhenMenu {...base} withSearch={{ kinds: () => ['email'] }} />);
         await userEvent.type(screen.getByRole('listbox', { name: 'When' }), '{Escape}');

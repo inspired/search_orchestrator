@@ -230,7 +230,8 @@ export default function FlowCanvas({
             return;
         }
         if (ev.key === 'Escape') {
-            if (selected) {
+            // During a drag, Escape cancels the drag only (useCanvasGestures).
+            if (selected && !gesture) {
                 ev.preventDefault();
                 onSelect(null);
             }

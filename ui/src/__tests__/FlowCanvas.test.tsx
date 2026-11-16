@@ -143,6 +143,47 @@ describe('FlowCanvas', () => {
         expect(props.onConnect).not.toHaveBeenCalled();
     });
 
+    test('a short drag released on its own + or tab does nothing', () => {
+        const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
+        fireEvent.pointerMove(canvas, { clientX: 458, clientY: 138 });
+        fireEvent.pointerUp(canvas, { clientX: 458, clientY: 138 });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerMove(canvas, { clientX: 468, clientY: 92 });
+        fireEvent.pointerUp(canvas, { clientX: 468, clientY: 92 });
+        expect(props.onPlus).not.toHaveBeenCalled();
+        expect(props.onDropOnNode).not.toHaveBeenCalled();
+        expect(props.onDropOnCanvas).not.toHaveBeenCalled();
+        expect(props.onConnect).not.toHaveBeenCalled();
+    });
+
+    test('Escape cancels a line drag', () => {
+        const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
+        fireEvent.pointerMove(canvas, { clientX: 900, clientY: 700 });
+        expect(screen.getByTestId('link-draft')).toBeInTheDocument();
+        fireEvent.keyDown(document.body, { key: 'Escape' });
+        expect(screen.queryByTestId('link-draft')).toBeNull();
+        fireEvent.pointerUp(canvas, { clientX: 900, clientY: 700 });
+        expect(props.onDropOnCanvas).not.toHaveBeenCalled();
+        expect(props.onDropOnNode).not.toHaveBeenCalled();
+        expect(props.onPlus).not.toHaveBeenCalled();
+    });
+
+    test('Escape cancels a node drag and puts the node back', () => {
+        const { props, canvas } = setup();
+        const node = screen.getByTestId('node-step:a');
+        const c = centre('step:a');
+        fireEvent.pointerDown(node, c);
+        fireEvent.pointerMove(canvas, { clientX: c.clientX + 50, clientY: c.clientY });
+        expect(node).toHaveAttribute('transform', 'translate(300,100)');
+        fireEvent.keyDown(canvas, { key: 'Escape' });
+        expect(node).toHaveAttribute('transform', 'translate(250,100)');
+        fireEvent.pointerUp(canvas, { clientX: c.clientX + 50, clientY: c.clientY });
+        expect(props.onMove).not.toHaveBeenCalled();
+        expect(props.onSelect).not.toHaveBeenCalled();
+    });
+
     test('a line from + dropped on empty canvas reports the point without an outcome', () => {
         const { props, canvas } = setup();
         fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);

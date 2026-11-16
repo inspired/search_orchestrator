@@ -2,7 +2,8 @@
  * Is delayed, If a condition is true. Each row shows its glyph, how many lines already use it,
  * and "actions only" where only actions can follow. Arrows move, Enter or a click chooses,
  * Escape closes. With `withSearch`, choosing an outcome moves on to the node search below,
- * offering only the kinds that outcome can lead to; choosing a node then reports both. */
+ * offering only the kinds that outcome can lead to; choosing a node then reports both.
+ * Shift+Tab (or ArrowLeft in an empty search box) goes back to the outcomes. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { NodeKind } from './nodeModel';
@@ -125,7 +126,16 @@ export default function WhenMenu({ open, at, options, withSearch, onChoose, onCl
             </div>
             {withSearch && chosen && (
                 <div style={{ borderTop: `1px solid ${theme.borderColorStrong}` }}>
-                    <NodeSearchList key={chosen} kinds={kinds} onChoose={(kind) => onChoose(chosen, kind)} onClose={onClose} />
+                    <NodeSearchList
+                        key={chosen}
+                        kinds={kinds}
+                        onChoose={(kind) => onChoose(chosen, kind)}
+                        onClose={onClose}
+                        onBack={() => {
+                            setChosen(null);
+                            list.current?.focus();
+                        }}
+                    />
                 </div>
             )}
         </div>
