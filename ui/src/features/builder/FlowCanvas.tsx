@@ -1,11 +1,13 @@
 /* The node editor canvas: an SVG with pan (drag the background) and zoom (wheel or buttons).
- * Nodes sit where `positions` puts them and can be dragged; lines leave a port on the right of a
- * node and enter the input on the left of another. Dragging from a port onto a node connects
- * them; dropping it on empty canvas reports the point so the caller can offer new nodes there.
- * Keyboard: Tab through nodes, Enter selects, arrows nudge, Delete asks to remove, F frames
- * everything, / (with focus in the canvas or its toolbar, or Tab while the pointer is over the
- * canvas) opens quick-add. The toolbar adds Add node and Tidy up when the caller handles them.
- * Colours come from theme tokens only. */
+ * Nodes sit where `positions` puts them and can be dragged; every node with outcomes has one +
+ * on its right edge, and each outcome in use shows as a tab above it, where its lines leave.
+ * Clicking the + asks the caller for a "when" (`onPlus`); dragging it or a tab draws a line,
+ * reported on release over a node (`onDropOnNode`) or empty canvas (`onDropOnCanvas`), with
+ * the tab's outcome when it came from a tab. Gestures live in useCanvasGestures.
+ * Keyboard: Tab through nodes, Enter selects, + or Shift+Enter opens the When list, arrows
+ * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
+ * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
+ * node and Tidy up when the caller handles them. Colours come from theme tokens only. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -15,13 +17,16 @@ import type { Issue } from '../../api/types';
 import { issuesByStep, Pos, Positions } from './graphLogic';
 import { NodeGroup, Theme } from './GraphView';
 import { FlowGraph, FlowLink, FlowNode, JOB_KEY, PortId } from './nodeModel';
-import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, nodeSize, portOffset } from './nodeStyle';
-import { NodeShape, PortHandle } from './NodeShape';
+import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, handleOffset, hasHandle, nodeSize, tabOffset } from './nodeStyle';
+import { NodeShape } from './NodeShape';
+import PlusHandle from './PlusHandle';
 import Legend from './Legend';
 import Minimap, { exceedsView } from './Minimap';
-import {
-    clampZoom, frameView, linkEnds, linkedPorts, linkPath, nodeAt, snap, visiblePorts,
-} from './flowCanvasGeometry';
+import { usedOutcomes } from './outcomes';
+import { clampZoom, frameView, linkEnds, linkPath } from './flowCanvasGeometry';
+import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
+
+export type { ScreenPoint };
 
 export type FlowSelection = { kind: 'node'; key: string } | { kind: 'link'; key: string } | null;
 
@@ -32,17 +37,22 @@ export interface FlowCanvasProps {
     issues: Issue[];
     /** A short preview note under each previewed step, by step id, such as "✓ 7 rows". */
     notes?: Record<string, { text: string; failed?: boolean } | null | undefined>;
-    /** No ports, no moving: for the run page. */
+    /** No + handles, no moving: for the run page. */
     readOnly?: boolean;
     /** Replaces a node's detail line, by node key. `icon` is drawn in a 24×24 viewBox. */
     status?: Record<string, { text: string; icon?: React.ReactNode; color?: string } | undefined>;
     onSelect: (sel: FlowSelection) => void;
     /** New top-left positions, called once when a drag ends or a node is nudged. */
     onMove?: (positions: Record<string, Pos>) => void;
-    onConnect?: (from: string, port: PortId, to: string) => void;
+    /** A line from a tab released on a node, when there is no `onDropOnNode`. */
+    onConnect?: (from: string, outcome: PortId, to: string) => void;
+    /** A click on a node's + (or + / Shift+Enter on it): the caller opens the When list at `screen`. */
+    onPlus?: (from: string, screen: ScreenPoint) => void;
+    /** A line released on another node: from the + (no outcome, the caller asks) or a tab. */
+    onDropOnNode?: (from: string, to: string, screen: ScreenPoint, outcome?: PortId) => void;
     /** `at` is in canvas coordinates; `screen` is the same point relative to the canvas' top-left
      * corner on screen, for placing the quick-add box (see `overlay`). */
-    onDropOnCanvas?: (from: string, port: PortId, at: Pos, screen: ScreenPoint) => void;
+    onDropOnCanvas?: (from: string, at: Pos, screen: ScreenPoint, outcome?: PortId) => void;
     onRequestRemove?: (key: string) => void;
     /** Also adds an "Add node" button to the toolbar, which opens it at the view centre. */
     onQuickAdd?: (at: Pos, screen: ScreenPoint) => void;
@@ -52,18 +62,8 @@ export interface FlowCanvasProps {
     overlay?: React.ReactNode;
 }
 
-export type ScreenPoint = { left: number; top: number };
-
-type Gesture =
-    | { kind: 'pan'; startX: number; startY: number; origin: Pos; moved: boolean }
-    | { kind: 'node'; key: string; startX: number; startY: number; moved: boolean }
-    | { kind: 'link'; from: string; port: PortId; start: Pos };
-
-const CLICK_SLOP = 3;
-const DRAW_SLOP = 12;
 const NUDGE = 10;
 const CONDITION_LABEL = 36;
-const NO_PORTS: ReadonlySet<PortId> = new Set<PortId>();
 const ARROWS: Record<string, Pos> = {
     ArrowLeft: { x: -NUDGE, y: 0 },
     ArrowRight: { x: NUDGE, y: 0 },
@@ -91,6 +91,8 @@ export default function FlowCanvas({
     onSelect,
     onMove,
     onConnect,
+    onPlus,
+    onDropOnNode,
     onDropOnCanvas,
     onRequestRemove,
     onQuickAdd,
@@ -100,36 +102,22 @@ export default function FlowCanvas({
     const theme = useSplunkTheme() as unknown as Theme;
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
     const svgRef = useRef<SVGSVGElement | null>(null);
-    const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
-    const [zoom, setZoom] = useState(1);
-    const [gesture, setGesture] = useState<Gesture | null>(null);
-    const [drag, setDrag] = useState<Pos | null>(null);
-    const [cursor, setCursor] = useState<Pos | null>(null);
-    const [hovered, setHovered] = useState<string | null>(null);
     const [legendOpen, setLegendOpen] = useState(false);
     const [size, setSize] = useState({ w: 0, h: 0 });
-    const over = useRef(false);
-    const pointer = useRef<{ clientX: number; clientY: number } | null>(null);
-    const view = useRef({ pan, zoom });
-    view.current = { pan, zoom };
 
     const canMove = !readOnly && !!onMove;
+    const g = useCanvasGestures({ svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas });
+    const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
-    const linked = useMemo(() => linkedPorts(graph), [graph]);
+    // Outcome tabs per node, nearest the + first; conditions have only their "Then" and no tabs.
+    const tabsOf = useMemo(() => {
+        const out: Record<string, PortId[]> = {};
+        graph.nodes.forEach((n) => {
+            out[n.key] = n.kind === 'condition' ? [] : usedOutcomes(graph, n.key);
+        });
+        return out;
+    }, [graph]);
     const selectedNode = selected && selected.kind === 'node' ? selected.key : null;
-    const shown: Positions = useMemo(() => {
-        if (gesture && gesture.kind === 'node' && drag && positions[gesture.key]) {
-            const p = positions[gesture.key];
-            return { ...positions, [gesture.key]: { x: p.x + drag.x, y: p.y + drag.y } };
-        }
-        return positions;
-    }, [positions, gesture, drag]);
-
-    const portsOf = (n: FlowNode): PortId[] => {
-        const drawing = gesture !== null && gesture.kind === 'link' && gesture.from === n.key;
-        const expanded = !readOnly && (hovered === n.key || selectedNode === n.key || drawing);
-        return visiblePorts(n.kind, expanded, linked[n.key] || NO_PORTS);
-    };
 
     // Keep the selected node in view, for example a node just added outside the visible area.
     useEffect(() => {
@@ -168,31 +156,6 @@ export default function FlowCanvas({
         return () => window.removeEventListener('resize', measure);
     }, []);
 
-    // Wheel zoom needs a non-passive listener so the page does not scroll as well.
-    useEffect(() => {
-        const svg = svgRef.current;
-        if (!svg) {
-            return undefined;
-        }
-        const onWheel = (ev: WheelEvent) => {
-            ev.preventDefault();
-            setZoom((z) => clampZoom(z * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)));
-        };
-        svg.addEventListener('wheel', onWheel, { passive: false });
-        return () => svg.removeEventListener('wheel', onWheel);
-    }, []);
-
-    const toCanvas = (clientX: number, clientY: number): Pos => {
-        const rect = svgRef.current ? svgRef.current.getBoundingClientRect() : { left: 0, top: 0 };
-        const { pan: p, zoom: z } = view.current;
-        return { x: (clientX - rect.left - p.x) / z, y: (clientY - rect.top - p.y) / z };
-    };
-
-    const toScreen = (at: Pos): ScreenPoint => {
-        const { pan: p, zoom: z } = view.current;
-        return { left: at.x * z + p.x, top: at.y * z + p.y };
-    };
-
     const openQuickAdd = (centre = false) => {
         if (onQuickAdd) {
             const at = quickAddAt(centre);
@@ -225,80 +188,6 @@ export default function FlowCanvas({
         onSelect(l.kind === 'action' ? { kind: 'node', key: l.to } : { kind: 'link', key: l.key });
     };
 
-    const capture = (ev: React.PointerEvent) => {
-        if (svgRef.current && svgRef.current.setPointerCapture) {
-            try {
-                svgRef.current.setPointerCapture(ev.pointerId);
-            } catch (err) {
-                // capture is a nicety; dragging still works inside the canvas
-            }
-        }
-    };
-
-    const endGesture = () => {
-        setGesture(null);
-        setDrag(null);
-        setCursor(null);
-    };
-
-    const onPointerMove = (ev: React.PointerEvent) => {
-        over.current = true;
-        pointer.current = { clientX: ev.clientX, clientY: ev.clientY };
-        if (!gesture) {
-            return;
-        }
-        if (gesture.kind === 'pan') {
-            const dx = ev.clientX - gesture.startX;
-            const dy = ev.clientY - gesture.startY;
-            setPan({ x: gesture.origin.x + dx, y: gesture.origin.y + dy });
-            if (!gesture.moved && Math.abs(dx) + Math.abs(dy) > CLICK_SLOP) {
-                setGesture({ ...gesture, moved: true });
-            }
-        } else if (gesture.kind === 'node') {
-            const dx = ev.clientX - gesture.startX;
-            const dy = ev.clientY - gesture.startY;
-            const moved = gesture.moved || Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
-            if (moved && canMove) {
-                const z = view.current.zoom;
-                setDrag({ x: dx / z, y: dy / z });
-                if (!gesture.moved) {
-                    setGesture({ ...gesture, moved: true });
-                }
-            }
-        } else {
-            setCursor(toCanvas(ev.clientX, ev.clientY));
-        }
-    };
-
-    const onPointerUp = (ev: React.PointerEvent) => {
-        if (gesture && gesture.kind === 'node') {
-            const dx = ev.clientX - gesture.startX;
-            const dy = ev.clientY - gesture.startY;
-            const moved = gesture.moved || Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
-            const p = positions[gesture.key];
-            if (moved && canMove && p && onMove) {
-                const z = view.current.zoom;
-                onMove({ [gesture.key]: { x: snap(p.x + dx / z), y: snap(p.y + dy / z) } });
-            } else if (!moved || !canMove) {
-                onSelect({ kind: 'node', key: gesture.key });
-            }
-        } else if (gesture && gesture.kind === 'link') {
-            const end = toCanvas(ev.clientX, ev.clientY);
-            const target = nodeAt(graph, shown, end);
-            const drawn = Math.abs(end.x - gesture.start.x) + Math.abs(end.y - gesture.start.y) > DRAW_SLOP;
-            if (target) {
-                if (target !== gesture.from && onConnect) {
-                    onConnect(gesture.from, gesture.port, target);
-                }
-            } else if (drawn && onDropOnCanvas) {
-                onDropOnCanvas(gesture.from, gesture.port, end, toScreen(end));
-            }
-        } else if (gesture && !gesture.moved) {
-            onSelect(null);
-        }
-        endGesture();
-    };
-
     const onKeyDown = (ev: React.KeyboardEvent) => {
         const el = ev.target as Element;
         const focusedNode = el.closest ? el.closest('[data-node-key]')?.getAttribute('data-node-key') || null : null;
@@ -317,6 +206,15 @@ export default function FlowCanvas({
             if (onQuickAdd) {
                 ev.preventDefault();
                 openQuickAdd();
+            }
+            return;
+        }
+        if (ev.key === '+' || (ev.key === 'Enter' && ev.shiftKey)) {
+            const n = focusedNode ? byKey.get(focusedNode) : undefined;
+            const at = n && hasHandle(n.kind) ? g.plusScreen(n.key) : null;
+            if (n && at && !readOnly && onPlus) {
+                ev.preventDefault();
+                onPlus(n.key, at);
             }
             return;
         }
@@ -395,7 +293,7 @@ export default function FlowCanvas({
     };
 
     const draft = (() => {
-        if (!gesture || gesture.kind !== 'link' || !cursor) {
+        if (!gesture || gesture.kind !== 'line' || !cursor) {
             return null;
         }
         const n = byKey.get(gesture.from);
@@ -403,7 +301,9 @@ export default function FlowCanvas({
         if (!n || !p) {
             return null;
         }
-        const o = portOffset(n.kind, gesture.port);
+        const tabs = tabsOf[n.key] || [];
+        const i = gesture.outcome ? tabs.indexOf(gesture.outcome) : -1;
+        const o = i >= 0 ? tabOffset(n.kind, i, tabs.length) : handleOffset(n.kind);
         return (
             <path
                 data-testid="link-draft"
@@ -421,14 +321,14 @@ export default function FlowCanvas({
         .map((l) => {
             const from = byKey.get(l.from);
             const to = byKey.get(l.to);
-            const ends = from && to ? linkEnds(l, from, to, shown) : null;
+            const ends = from && to ? linkEnds(l, from, to, shown, tabsOf[l.from]) : null;
             return from && to && ends ? { l, from, to, d: linkPath(ends.a, ends.b) } : null;
         })
         .filter((x): x is { l: FlowLink; from: FlowNode; to: FlowNode; d: string } => x !== null);
 
     const help = readOnly
         ? 'Job flow. Tab to a node, Enter to select it, F to frame all.'
-        : 'Job flow. Tab to a node, Enter to select it, arrow keys to move it, Delete to remove it, / to add a node, F to frame all.';
+        : 'Job flow. Tab to a node, Enter to select it, + to choose what happens next, arrow keys to move it, Delete to remove it, / to add a node, F to frame all.';
 
     return (
         <div>
@@ -481,13 +381,10 @@ export default function FlowCanvas({
                     over.current = false;
                     pointer.current = null;
                 }}
-                onPointerDown={(ev) => {
-                    capture(ev);
-                    setGesture({ kind: 'pan', startX: ev.clientX, startY: ev.clientY, origin: pan, moved: false });
-                }}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={endGesture}
+                onPointerDown={g.startPan}
+                onPointerMove={g.onPointerMove}
+                onPointerUp={g.onPointerUp}
+                onPointerCancel={g.endGesture}
                 onKeyDown={onKeyDown}
             >
                 <defs>
@@ -543,8 +440,6 @@ export default function FlowCanvas({
                         const { detail, counts } = detailOf(n);
                         const note = n.stepId ? notes[n.stepId] : undefined;
                         const { h } = nodeSize(n.kind);
-                        const ports = readOnly ? [] : portsOf(n);
-                        const mine = linked[n.key] || NO_PORTS;
                         return (
                             <NodeGroup
                                 key={n.key}
@@ -557,11 +452,8 @@ export default function FlowCanvas({
                                 aria-pressed={isSelected}
                                 onPointerDown={(ev) => {
                                     ev.stopPropagation();
-                                    capture(ev);
-                                    setGesture({ kind: 'node', key: n.key, startX: ev.clientX, startY: ev.clientY, moved: false });
+                                    g.startNode(ev, n.key);
                                 }}
-                                onPointerEnter={() => setHovered(n.key)}
-                                onPointerLeave={() => setHovered((k) => (k === n.key ? null : k))}
                                 style={{ cursor: canMove ? 'move' : 'pointer' }}
                             >
                                 <NodeShape
@@ -585,27 +477,17 @@ export default function FlowCanvas({
                                         {note.text}
                                     </text>
                                 )}
-                                {ports.map((port) => {
-                                    const o = portOffset(n.kind, port);
-                                    return (
-                                        <g
-                                            key={port}
-                                            data-testid={`port-${n.key}-${port}`}
-                                            aria-hidden
-                                            style={{ cursor: 'crosshair' }}
-                                            onPointerDown={(ev) => {
-                                                ev.stopPropagation();
-                                                capture(ev);
-                                                const start = toCanvas(ev.clientX, ev.clientY);
-                                                setGesture({ kind: 'link', from: n.key, port, start });
-                                                setCursor(start);
-                                            }}
-                                        >
-                                            <PortHandle port={port} x={o.x} y={o.y} theme={theme} connected={mine.has(port)} />
-                                            <circle cx={o.x} cy={o.y} r={10} fill={theme.backgroundColorSection} fillOpacity={0} />
-                                        </g>
-                                    );
-                                })}
+                                {hasHandle(n.kind) && (
+                                    <PlusHandle
+                                        nodeKey={n.key}
+                                        kind={n.kind}
+                                        theme={theme}
+                                        tabs={tabsOf[n.key] || []}
+                                        plus={!readOnly}
+                                        onPlusDown={readOnly ? undefined : (ev) => g.startLine(ev, n.key)}
+                                        onTabDown={readOnly ? undefined : (ev, outcome) => g.startLine(ev, n.key, outcome)}
+                                    />
+                                )}
                             </NodeGroup>
                         );
                     })}

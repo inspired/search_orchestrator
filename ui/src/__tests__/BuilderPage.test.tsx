@@ -137,17 +137,18 @@ describe('BuilderPage flow', () => {
         ).toBeInTheDocument();
     });
 
-    it('a line from a Failed port dropped on empty canvas adds an email there, and Save sends it', async () => {
+    it('a line from + dropped on empty canvas adds an email there, and Save sends it', async () => {
         const api = fakeApi();
         await show(<BuilderPage jobId="rollups" api={api} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
         const canvas = screen.getByRole('group', { name: /^Job flow/ });
-        fireEvent.pointerDown(screen.getByTestId('port-step:daily-failure'), { clientX: 0, clientY: 0 });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), { clientX: 0, clientY: 0 });
         fireEvent.pointerMove(canvas, { clientX: 3000, clientY: 3000 });
         fireEvent.pointerUp(canvas, { clientX: 3000, clientY: 3000 });
         const box = screen.getByRole('combobox', { name: 'Add a node' });
         expect(box).toHaveFocus();
-        // Only nodes a Failed line can go to: no triggers.
+        // Only nodes a line can go to: no triggers. (Until the When list is wired in, a line
+        // from + is Succeeds.)
         expect(screen.queryByRole('option', { name: /^Schedule/ })).toBeNull();
         fireEvent.change(box, { target: { value: 'email' } });
         fireEvent.keyDown(box, { key: 'Enter' });
@@ -158,7 +159,7 @@ describe('BuilderPage flow', () => {
         await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
         const saved = (api.updateJob as jest.Mock).mock.calls[0][1];
         const daily = saved.steps.find((st: { id: string }) => st.id === 'daily');
-        expect(daily.actions).toEqual([expect.objectContaining({ hook: 'on_failure', type: 'email' })]);
+        expect(daily.actions).toEqual([expect.objectContaining({ hook: 'on_success', type: 'email' })]);
         expect(saved.layout.nodes['action:daily:0']).toEqual({ x: 3000, y: 3000 });
     });
 
@@ -180,11 +181,11 @@ describe('BuilderPage flow', () => {
             const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(screen.getByTestId(`node-${key}`).getAttribute('transform') || '');
             return { clientX: Number(m?.[1]) + 20, clientY: Number(m?.[2]) + 20 };
         };
-        fireEvent.pointerDown(screen.getByTestId('port-step:daily-success'), centre('step:daily'));
+        fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), centre('step:daily'));
         fireEvent.pointerUp(canvas, centre('step:weekly'));
         expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
         // A trigger cannot be the end of a line.
-        fireEvent.pointerDown(screen.getByTestId('port-step:weekly-success'), centre('step:weekly'));
+        fireEvent.pointerDown(screen.getByTestId('plus-step:weekly'), centre('step:weekly'));
         fireEvent.pointerUp(canvas, centre('trigger:0'));
         expect(screen.queryByRole('dialog')).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -207,7 +208,7 @@ describe('BuilderPage flow', () => {
         };
         fireEvent.keyDown(screen.getByTestId('node-action:job:0'), { key: 'Enter' });
         expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'true');
-        fireEvent.pointerDown(screen.getByTestId('port-step:daily-failure'), centre('step:daily'));
+        fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), centre('step:daily'));
         fireEvent.pointerUp(canvas, centre('action:job:0'));
         expect(screen.getByTestId('node-action:daily:0')).toHaveAttribute('aria-pressed', 'true');
         expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'false');
@@ -253,7 +254,7 @@ describe('BuilderPage flow', () => {
         const keys = ['step:daily', 'step:weekly', 'step:monthly', 'trigger:0'];
         const before = Object.fromEntries(keys.map((k) => [k, translate(k)]));
         const canvas = screen.getByRole('group', { name: /^Job flow/ });
-        fireEvent.pointerDown(screen.getByTestId('port-step:daily-failure'), { clientX: 0, clientY: 0 });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), { clientX: 0, clientY: 0 });
         fireEvent.pointerMove(canvas, { clientX: 3000, clientY: 3000 });
         fireEvent.pointerUp(canvas, { clientX: 3000, clientY: 3000 });
         const box = screen.getByRole('combobox', { name: 'Add a node' });

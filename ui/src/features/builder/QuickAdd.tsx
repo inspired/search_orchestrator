@@ -15,7 +15,43 @@ export interface QuickAddProps {
     onClose: () => void;
 }
 
+/** The popup frame shared with the When list: positioned from the canvas' top-left corner. */
+export function popupStyle(theme: Record<string, string>, at: { left: number; top: number }): React.CSSProperties {
+    return {
+        position: 'absolute',
+        left: at.left,
+        top: at.top,
+        zIndex: 10,
+        width: 320,
+        background: theme.backgroundColorPopup,
+        color: theme.contentColorDefault,
+        border: `1px solid ${theme.borderColorStrong}`,
+        borderRadius: 4,
+        boxShadow: theme.overlayShadow,
+        fontFamily: theme.fontFamily,
+    };
+}
+
 export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAddProps) {
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
+    if (!open) {
+        return null;
+    }
+    return (
+        <div style={popupStyle(theme, at)}>
+            <NodeSearchList kinds={kinds} onChoose={onChoose} onClose={onClose} />
+        </div>
+    );
+}
+
+export interface NodeSearchListProps {
+    kinds?: NodeKind[];
+    onChoose: (kind: NodeKind) => void;
+    onClose: () => void;
+}
+
+/** The search box and grouped node list; focuses its box when it mounts. */
+export function NodeSearchList({ kinds, onChoose, onClose }: NodeSearchListProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(0);
@@ -24,12 +60,8 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
     const listId = `${uid}-list`;
 
     useEffect(() => {
-        if (open) {
-            setQuery('');
-            setActive(0);
-            input.current?.focus();
-        }
-    }, [open]);
+        input.current?.focus();
+    }, []);
 
     // Group by family (a heading sits at its best result), so arrow order matches what is on screen.
     const { results, families } = useMemo(() => {
@@ -48,14 +80,10 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
 
     const activeKind = results[Math.min(active, results.length - 1)]?.kind;
     useEffect(() => {
-        if (open && activeKind) {
+        if (activeKind) {
             document.getElementById(`${uid}-opt-${activeKind}`)?.scrollIntoView?.({ block: 'nearest' });
         }
-    }, [open, activeKind, uid]);
-
-    if (!open) {
-        return null;
-    }
+    }, [activeKind, uid]);
 
     const optionId = (kind: NodeKind): string => `${uid}-opt-${kind}`;
     const activeEntry: CatalogEntry | undefined = results[Math.min(active, results.length - 1)];
@@ -79,21 +107,7 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
     };
 
     return (
-        <div
-            style={{
-                position: 'absolute',
-                left: at.left,
-                top: at.top,
-                zIndex: 10,
-                width: 320,
-                background: theme.backgroundColorPopup,
-                color: theme.contentColorDefault,
-                border: `1px solid ${theme.borderColorStrong}`,
-                borderRadius: 4,
-                boxShadow: theme.overlayShadow,
-                fontFamily: theme.fontFamily,
-            }}
-        >
+        <>
             <input
                 ref={input}
                 type="text"
@@ -155,7 +169,7 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
                     </div>
                 ))}
             </div>
-        </div>
+        </>
     );
 }
 

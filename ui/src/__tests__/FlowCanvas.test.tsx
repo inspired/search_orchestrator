@@ -101,73 +101,123 @@ describe('FlowCanvas', () => {
         expect(props.onSelect).not.toHaveBeenCalled();
     });
 
-    test('a line from a port dropped on another node connects them', () => {
-        const { props, canvas } = setup();
-        fireEvent.pointerDown(screen.getByTestId('port-step:a-failure'), { clientX: 450, clientY: 138 });
+    const plusAt = { clientX: 450, clientY: 138 };
+
+    test('a click on + calls onPlus, and a 3 px movement still counts as a click', () => {
+        const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
+        fireEvent.pointerUp(canvas, plusAt);
+        expect(props.onPlus).toHaveBeenCalledTimes(1);
+        expect(props.onPlus).toHaveBeenCalledWith('step:a', { left: 463, top: 138 });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
+        fireEvent.pointerMove(canvas, { clientX: 453, clientY: 135 });
+        fireEvent.pointerUp(canvas, { clientX: 453, clientY: 135 });
+        expect(props.onPlus).toHaveBeenCalledTimes(2);
+        expect(props.onSelect).not.toHaveBeenCalled();
+        expect(props.onDropOnNode).not.toHaveBeenCalled();
+        expect(props.onDropOnCanvas).not.toHaveBeenCalled();
+    });
+
+    test('a line from + dropped on another node calls onDropOnNode without an outcome', () => {
+        const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
         fireEvent.pointerMove(canvas, centre('step:b'));
         expect(screen.getByTestId('link-draft')).toBeInTheDocument();
         fireEvent.pointerUp(canvas, centre('step:b'));
-        expect(props.onConnect).toHaveBeenCalledWith('step:a', 'failure', 'step:b');
+        expect(props.onDropOnNode).toHaveBeenCalledWith('step:a', 'step:b', { left: 650, top: 130 });
+        expect(props.onPlus).not.toHaveBeenCalled();
+        expect(props.onConnect).not.toHaveBeenCalled();
         expect(props.onDropOnCanvas).not.toHaveBeenCalled();
         expect(props.onSelect).not.toHaveBeenCalled();
         expect(screen.queryByTestId('link-draft')).toBeNull();
     });
 
-    test('a line dropped on empty canvas reports the canvas point', () => {
+    test('a line from + released on its own node does nothing', () => {
+        const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
+        fireEvent.pointerMove(canvas, centre('step:a'));
+        fireEvent.pointerUp(canvas, centre('step:a'));
+        expect(props.onPlus).not.toHaveBeenCalled();
+        expect(props.onDropOnNode).not.toHaveBeenCalled();
+        expect(props.onDropOnCanvas).not.toHaveBeenCalled();
+        expect(props.onConnect).not.toHaveBeenCalled();
+    });
+
+    test('a line from + dropped on empty canvas reports the point without an outcome', () => {
         const { props, canvas } = setup();
-        fireEvent.pointerDown(screen.getByTestId('port-step:a-failure'), { clientX: 450, clientY: 138 });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
         fireEvent.pointerMove(canvas, { clientX: 900, clientY: 700 });
         fireEvent.pointerUp(canvas, { clientX: 900, clientY: 700 });
-        expect(props.onDropOnCanvas).toHaveBeenCalledWith('step:a', 'failure', { x: 900, y: 700 }, { left: 900, top: 700 });
-        expect(props.onConnect).not.toHaveBeenCalled();
+        expect(props.onDropOnCanvas).toHaveBeenCalledWith('step:a', { x: 900, y: 700 }, { left: 900, top: 700 });
     });
 
-    test('a line dropped on its own node, or a click on a port, does nothing', () => {
+    test('a line from a tab carries its outcome, onto the canvas or a node', () => {
+        const { props, canvas } = setup({ onDropOnNode: jest.fn() });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerMove(canvas, { clientX: 900, clientY: 700 });
+        fireEvent.pointerUp(canvas, { clientX: 900, clientY: 700 });
+        expect(props.onDropOnCanvas).toHaveBeenCalledWith('step:a', { x: 900, y: 700 }, { left: 900, top: 700 }, 'failure');
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerUp(canvas, centre('step:b'));
+        expect(props.onDropOnNode).toHaveBeenCalledWith('step:a', 'step:b', { left: 650, top: 130 }, 'failure');
+    });
+
+    test('without onDropOnNode, a tab dropped on a node connects with its outcome', () => {
         const { props, canvas } = setup();
-        fireEvent.pointerDown(screen.getByTestId('port-step:a-failure'), { clientX: 450, clientY: 138 });
-        fireEvent.pointerUp(canvas, centre('step:a'));
-        fireEvent.pointerDown(screen.getByTestId('port-step:a-failure'), { clientX: 450, clientY: 138 });
-        fireEvent.pointerUp(canvas, { clientX: 452, clientY: 138 });
-        expect(props.onConnect).not.toHaveBeenCalled();
-        expect(props.onDropOnCanvas).not.toHaveBeenCalled();
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerUp(canvas, centre('step:b'));
+        expect(props.onConnect).toHaveBeenCalledWith('step:a', 'failure', 'step:b');
     });
 
-    test('Started, Delayed and If… show only on hover or selection', () => {
+    test('tabs show only the outcomes in use, labelled with glyph and word', () => {
         setup();
-        const a = screen.getByTestId('node-step:a');
-        expect(screen.getByTestId('port-step:a-success')).toBeInTheDocument();
-        expect(screen.getByTestId('port-step:a-always')).toBeInTheDocument();
-        expect(screen.queryByTestId('port-step:a-start')).toBeNull();
-        expect(screen.queryByTestId('port-step:a-if')).toBeNull();
-        fireEvent.pointerEnter(a);
-        expect(screen.getByTestId('port-step:a-start')).toBeInTheDocument();
-        expect(screen.getByTestId('port-step:a-delayed')).toBeInTheDocument();
-        expect(screen.getByTestId('port-step:a-if')).toBeInTheDocument();
-        fireEvent.pointerLeave(a);
-        expect(screen.queryByTestId('port-step:a-start')).toBeNull();
+        expect(screen.getByTestId('tab-step:a-success')).toHaveTextContent('✓ Succeeds');
+        expect(screen.getByTestId('tab-step:a-failure')).toHaveTextContent('✗ Fails');
+        expect(screen.queryByTestId('tab-step:a-always')).toBeNull();
+        expect(screen.queryByTestId('tab-step:a-start')).toBeNull();
+        expect(screen.queryAllByTestId(/^tab-step:b-/)).toHaveLength(0);
+        expect(screen.queryAllByTestId(/^tab-job-/)).toHaveLength(0);
+        expect(screen.queryAllByTestId(/^port-/)).toHaveLength(0);
     });
 
-    test('a selected node shows its Started port; a linked port always shows', () => {
-        const linked = buildGraph({ ...job, actions: [{ hook: 'on_start', type: 'email', to: 'z' }] });
+    test('+ or Shift+Enter on a focused node calls onPlus; Enter still selects', () => {
+        const { props } = setup({ onPlus: jest.fn() });
+        const a = screen.getByTestId('node-step:a');
+        expect(fireEvent.keyDown(a, { key: '+' })).toBe(false);
+        expect(props.onPlus).toHaveBeenCalledWith('step:a', { left: 463, top: 138 });
+        fireEvent.keyDown(a, { key: 'Enter', shiftKey: true });
+        expect(props.onPlus).toHaveBeenCalledTimes(2);
+        expect(props.onSelect).not.toHaveBeenCalled();
+        fireEvent.keyDown(a, { key: 'Enter' });
+        expect(props.onSelect).toHaveBeenCalledWith({ kind: 'node', key: 'step:a' });
+        fireEvent.keyDown(screen.getByTestId('node-action:a:0'), { key: '+' });
+        expect(props.onPlus).toHaveBeenCalledTimes(2);
+    });
+
+    test('steps, the whole job and conditions have a +; triggers and actions do not', () => {
+        const withCond = buildGraph({ ...job, edges: [{ from: 'a', to: 'b', condition: 'expression', expression: 'x > 1' }] });
         renderThemed(
             <FlowCanvas
-                graph={linked}
-                positions={{ ...positions, 'action:job:0': { x: 300, y: 500 } }}
-                selected={{ kind: 'node', key: 'step:b' }}
+                graph={withCond}
+                positions={{ ...positions, 'cond:a>b': { x: 480, y: 250 } }}
+                selected={null}
                 issues={[]}
                 onSelect={jest.fn()}
+                onPlus={jest.fn()}
             />
         );
-        expect(screen.getByTestId('port-step:b-start')).toBeInTheDocument();
-        expect(screen.queryByTestId('port-step:a-start')).toBeNull();
-        expect(screen.getByTestId('port-job-start')).toBeInTheDocument();
+        expect(screen.getByTestId('plus-step:a')).toBeInTheDocument();
+        expect(screen.getByTestId('plus-step:b')).toBeInTheDocument();
+        expect(screen.getByTestId('plus-job')).toBeInTheDocument();
+        expect(screen.getByTestId('plus-cond:a>b')).toBeInTheDocument();
+        expect(screen.queryByTestId('plus-trigger:0')).toBeNull();
+        expect(screen.queryByTestId('plus-action:a:0')).toBeNull();
+        expect(screen.getByTestId('tab-step:a-if')).toHaveTextContent('◇ If');
     });
 
-    test('readOnly renders no ports and does not move nodes', () => {
+    test('readOnly renders no + and does not move nodes', () => {
         const { props, canvas } = setup({ readOnly: true });
-        expect(screen.queryAllByTestId(/^port-/)).toHaveLength(0);
-        fireEvent.pointerEnter(screen.getByTestId('node-step:a'));
-        expect(screen.queryAllByTestId(/^port-/)).toHaveLength(0);
+        expect(screen.queryAllByTestId(/^plus-/)).toHaveLength(0);
         const c = centre('step:a');
         fireEvent.pointerDown(screen.getByTestId('node-step:a'), c);
         fireEvent.pointerMove(canvas, { clientX: c.clientX + 100, clientY: c.clientY });
@@ -179,13 +229,13 @@ describe('FlowCanvas', () => {
     });
 
     describe('links', () => {
-        test('a link is coloured by its port and clicking it selects it', () => {
+        test('a link is coloured by its outcome and clicking it selects it', () => {
             const { props } = setup();
             const key = 'step:a-success->step:b';
             const link = screen.getByTestId(`link-${key}`);
             const stroke = link.querySelector('path')!.getAttribute('stroke');
-            const portRing = screen.getByTestId('port-step:a-success').querySelector('circle')!.getAttribute('stroke');
-            expect(stroke).toBe(portRing);
+            const tabRing = screen.getByTestId('tab-step:a-success').querySelector('rect')!.getAttribute('stroke');
+            expect(stroke).toBe(tabRing);
             const failure = screen.getByTestId('link-step:a-failure->action:a:0').querySelector('path')!.getAttribute('stroke');
             expect(failure).not.toBe(stroke);
             fireEvent.click(link);
@@ -213,12 +263,14 @@ describe('FlowCanvas', () => {
             expect(props.onSelect).toHaveBeenCalledWith({ kind: 'link', key: 'step:a-success->step:b' });
         });
 
-        test('a link starts at its port and ends at the input', () => {
+        test('a link starts at the tab of its outcome and ends at the input', () => {
             setup();
             const d = screen.getByTestId('link-step:a-success->step:b').querySelector('path')!.getAttribute('d') || '';
-            // step size 200×76; six fixed port slots → success at y = 76/7, shown or not.
-            expect(d.startsWith(`M450,${100 + 76 / 7} `)).toBe(true);
+            // step 200×76: + at y 38; tab 0 sits 13 + 11 px above it, tab 1 another 22 px up.
+            expect(d.startsWith('M450,114 ')).toBe(true);
             expect(d.endsWith('550,138')).toBe(true);
+            const f = screen.getByTestId('link-step:a-failure->action:a:0').querySelector('path')!.getAttribute('d') || '';
+            expect(f.startsWith('M450,92 ')).toBe(true);
         });
 
         test('a data link is drawn thicker than a signal link', () => {

@@ -2,7 +2,7 @@ import type { JobDefinition } from '../api/types';
 import { handleOffset, tabOffset } from '../features/builder/nodeStyle';
 import { buildGraph } from '../features/builder/nodeModel';
 import {
-    clampZoom, frameView, linkEnds, linkedPorts, tabLinkEnds, linkPath, nodeAt, snap, visiblePorts,
+    clampZoom, frameView, linkEnds, linkPath, nodeAt, snap,
 } from '../features/builder/flowCanvasGeometry';
 
 const job: JobDefinition = {
@@ -24,15 +24,6 @@ describe('flowCanvasGeometry', () => {
         expect(snap(105)).toBe(110);
         expect(clampZoom(5)).toBe(2);
         expect(clampZoom(0.1)).toBe(0.4);
-    });
-
-    it('shows Started, Delayed and If… only when expanded or linked', () => {
-        expect(visiblePorts('search', false, new Set())).toEqual(['success', 'failure', 'always']);
-        expect(visiblePorts('search', true, new Set())).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'if']);
-        expect(visiblePorts('search', false, new Set(['delayed']))).toEqual(['success', 'failure', 'always', 'delayed']);
-        expect(visiblePorts('job', true, new Set())).not.toContain('if');
-        expect(visiblePorts('email', true, new Set())).toEqual([]);
-        expect(linkedPorts(graph)['step:a']).toEqual(new Set(['success', 'start']));
     });
 
     it('draws a horizontal bezier', () => {
@@ -64,18 +55,35 @@ describe('flowCanvasGeometry', () => {
     });
 });
 
-describe('tabLinkEnds', () => {
-    it('starts at the tab anchor and ends at the input', () => {
+describe('linkEnds from tabs', () => {
+    it('starts at the tab of its outcome and ends at the input', () => {
         const g = buildGraph(job);
-        const l = g.links.find((k) => k.port)!;
+        const l = g.links.find((k) => k.port === 'success')!;
         const from = g.nodes.find((n) => n.key === l.from)!;
         const to = g.nodes.find((n) => n.key === l.to)!;
         const pos = { [from.key]: { x: 10, y: 20 }, [to.key]: { x: 300, y: 40 } };
-        const e = tabLinkEnds(l, from, to, pos, 1, 2)!;
+        const e = linkEnds(l, from, to, pos, ['start', 'success'])!;
         const t = tabOffset(from.kind, 1, 2);
         expect(e.a).toEqual({ x: 10 + t.x, y: 20 + t.y });
-        expect(e.b.x).toBe(300);
+        expect(e.b).toEqual({ x: 300, y: 40 + 38 });
         expect(handleOffset(from.kind).x).toBe(t.x);
-        expect(tabLinkEnds(l, from, to, {}, 0, 1)).toBeNull();
+        expect(linkEnds(l, from, to, {}, ['success'])).toBeNull();
+    });
+    it('falls back to the + when the outcome has no tab', () => {
+        const g = buildGraph(job);
+        const l = g.links.find((k) => k.port === 'success')!;
+        const from = g.nodes.find((n) => n.key === l.from)!;
+        const to = g.nodes.find((n) => n.key === l.to)!;
+        const pos = { [from.key]: { x: 10, y: 20 }, [to.key]: { x: 300, y: 40 } };
+        const h = handleOffset(from.kind);
+        expect(linkEnds(l, from, to, pos)!.a).toEqual({ x: 10 + h.x, y: 20 + h.y });
+    });
+    it('starts a condition line at the right tip of the diamond', () => {
+        const g = buildGraph({ ...job, edges: [{ from: 'a', to: 'b', condition: 'expression', expression: 'x' }] });
+        const l = g.links.find((k) => k.port === 'then')!;
+        const from = g.nodes.find((n) => n.key === l.from)!;
+        const to = g.nodes.find((n) => n.key === l.to)!;
+        const pos = { [from.key]: { x: 100, y: 100 }, [to.key]: { x: 300, y: 40 } };
+        expect(linkEnds(l, from, to, pos, ['then'])!.a).toEqual({ x: 164, y: 132 });
     });
 });

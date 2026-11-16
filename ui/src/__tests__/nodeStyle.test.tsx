@@ -1,8 +1,8 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import type { FlowNode, NodeKind, PortId } from '../features/builder/nodeModel';
-import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, HANDLE_R, handleOffset, inputOffset, nodeSize, portOffset, shapePath, tabOffset } from '../features/builder/nodeStyle';
-import { NodeShape, PortHandle } from '../features/builder/NodeShape';
+import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, HANDLE_R, handleOffset, hasHandle, inputOffset, nodeSize, shapePath, tabOffset } from '../features/builder/nodeStyle';
+import { NodeShape } from '../features/builder/NodeShape';
 
 const theme: Record<string, string> = {
     categoricalA5Strong: '#a5a5a5',
@@ -61,37 +61,26 @@ describe('nodeStyle', () => {
             expect(d.trim().endsWith('Z')).toBe(true);
         });
     });
-    it('places ports and inputs', () => {
+    it('places inputs', () => {
         expect(inputOffset('trigger_cron')).toBeNull();
         expect(inputOffset('trigger_completion')).toBeNull();
         expect(inputOffset('job')).toBeNull();
-        const { w, h } = nodeSize('search');
+        const { h } = nodeSize('search');
         expect(inputOffset('search')).toEqual({ x: 0, y: h / 2 });
         const d = nodeSize('condition');
         expect(inputOffset('condition')).toEqual({ x: 0, y: d.h / 2 });
-        expect(portOffset('condition', 'then')).toEqual({ x: d.w, y: d.h / 2 });
-        const all: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'if'];
-        const ys = all.map((p) => portOffset('search', p).y);
-        ys.slice(1).forEach((y, i) => expect(y).toBeGreaterThan(ys[i]));
-        expect(ys[1] - ys[0]).toBeCloseTo(ys[5] - ys[4]);
-        expect(portOffset('search', 'success').x).toBe(w);
     });
-    it('keeps each port in its own slot whether or not the others are shown', () => {
-        const { h } = nodeSize('search');
-        // Six slots on a step: Succeeded first, If… last, never moved by hiding Started or Delayed.
-        expect(portOffset('search', 'success').y).toBeCloseTo(h / 7);
-        expect(portOffset('search', 'if').y).toBeCloseTo((6 * h) / 7);
-        const job = nodeSize('job');
-        expect(portOffset('job', 'delayed').y).toBeCloseTo((5 * job.h) / 6);
-        const kinds: NodeKind[] = ['search', 'job'];
-        kinds.forEach((k) => expect(nodeSize(k).w).toBeGreaterThan(0));
+    it('gives a + to steps, the whole job and conditions only', () => {
+        const yes: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup', 'job', 'condition'];
+        const no: NodeKind[] = ['trigger_cron', 'trigger_completion', 'email', 'webhook', 'slack', 'event', 'alert_action', 'start_job'];
+        yes.forEach((k) => expect(hasHandle(k)).toBe(true));
+        no.forEach((k) => expect(hasHandle(k)).toBe(false));
     });
     it('renders a node with its family stripe', () => {
         const node: FlowNode = { key: 'action:job:0', kind: 'email', label: 'Email', detail: 'a@b.c' };
         const { container } = render(
             <svg>
                 <NodeShape node={node} theme={theme} />
-                <PortHandle port="success" x={10} y={10} theme={theme} connected={false} />
             </svg>
         );
         expect(screen.getByText('Email')).toBeInTheDocument();

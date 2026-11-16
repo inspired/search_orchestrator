@@ -19,6 +19,10 @@ export const NodeGroup = styled.g`
         stroke: ${variables.focusColor};
         stroke-width: 3px;
     }
+    /* The + handle of a focused node is ringed as on hover (PlusHandle). */
+    &:focus-visible [data-plus-ring] {
+        stroke-opacity: 1;
+    }
 `;
 
 export const stepLabel = (s: GraphStep) => s.name || s.id;

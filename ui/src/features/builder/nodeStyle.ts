@@ -1,4 +1,4 @@
-/* Visual identity of each node family: shape, colour token, port glyphs and geometry.
+/* Visual identity of each node family: shape, colour token, outcome glyphs and geometry.
  * Colours are theme token names, resolved by the caller from useSplunkTheme(). */
 import type { NodeKind, PortId } from './nodeModel';
 import { outputPorts } from './nodeModel';
@@ -91,16 +91,9 @@ export function shapePath(shape: Shape, w: number, h: number): string {
     }
 }
 
-/** Port centre relative to the node's top-left, on the right edge. Each port keeps its own slot
- * from `outputPorts(kind)` whether or not the others are shown, so lines never jump on hover. */
-export function portOffset(kind: NodeKind, port: PortId): { x: number; y: number } {
-    const { w, h } = nodeSize(kind);
-    const slots = outputPorts(kind);
-    if (kind === 'condition' || slots.length < 2) {
-        return { x: w, y: h / 2 };
-    }
-    const i = Math.max(0, slots.indexOf(port));
-    return { x: w, y: (h * (i + 1)) / (slots.length + 1) };
+/** Nodes with outcomes get the + handle: steps, the whole job and conditions. */
+export function hasHandle(kind: NodeKind): boolean {
+    return outputPorts(kind).length > 0;
 }
 
 export const HANDLE_R = 13;

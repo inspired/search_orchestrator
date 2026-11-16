@@ -25,6 +25,7 @@ import IssueSummary from './IssueSummary';
 import { nodeForIssue, tabForIssue } from './issueTabs';
 import { targetKinds } from './nodeCatalog';
 import { JOB_KEY, buildGraph, stepKey } from './nodeModel';
+import { whenOptions } from './outcomes';
 import type { NodeKind, PortId } from './nodeModel';
 import NodePanel from './NodePanel';
 import QuickAdd from './QuickAdd';
@@ -90,6 +91,8 @@ interface QuickAddState {
     from?: { key: string; port: PortId };
     /** Canvas point for the new node; none lets the layout place it. */
     at?: Pos;
+    /** Without `at`: put the new node in the first free spot right of this node. */
+    rightOf?: string;
     screen: ScreenPoint;
 }
 
@@ -460,7 +463,14 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             return;
         }
         const key = addNodeKey(job, kind, quick.from);
-        dispatch({ type: 'addNode', kind, at: quick.at, from: quick.from, shown: quick.at ? positions : undefined });
+        dispatch({
+            type: 'addNode',
+            kind,
+            at: quick.at,
+            from: quick.from,
+            rightOf: quick.rightOf,
+            shown: quick.at || quick.rightOf ? positions : undefined,
+        });
         returnFocus.current = null;
         setQuick(null);
         if (key) {
@@ -468,6 +478,22 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             setFocusNext({ key });
         }
     };
+
+    // A line onto an action can move it to another list: keep the selection on it.
+    const connectLine = (from: string, port: PortId, to: string) => {
+        if (selection && selection.kind === 'node') {
+            const next = keyAfterConnect(job, { from, port, to }, selection.key);
+            if (next !== selection.key) {
+                setSelectedState({ kind: 'node', key: next });
+            }
+        }
+        dispatch({ type: 'connectPort', from, port, to });
+    };
+
+    // Until the When list is wired in (Task 6), a line from the + takes the first outcome allowed.
+    const kindOf = (key: string) => graph.nodes.find((n) => n.key === key)?.kind;
+    const firstOutcome = (from: string, to?: string): PortId | undefined =>
+        kindOf(from) === 'condition' ? 'then' : to ? whenOptions(job, from, to)[0]?.outcome : 'success';
 
     const openQuick = (state: QuickAddState) => {
         if (state.kinds && !state.kinds.length) {
@@ -506,21 +532,25 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     // Every shown position is written with the move, so nodes the layout placed
                     // stay where they are instead of being placed again around the moved one.
                     onMove={(moved) => dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } })}
-                    onConnect={(from, port, to) => {
-                        // A line onto an action can move it to another list: keep the selection on it.
-                        if (selection && selection.kind === 'node') {
-                            const next = keyAfterConnect(job, { from, port, to }, selection.key);
-                            if (next !== selection.key) {
-                                setSelectedState({ kind: 'node', key: next });
-                            }
+                    onConnect={connectLine}
+                    onDropOnNode={(from, to, _screen, outcome) => {
+                        const port = outcome || firstOutcome(from, to);
+                        if (port) {
+                            connectLine(from, port, to);
                         }
-                        dispatch({ type: 'connectPort', from, port, to });
                     }}
-                    onDropOnCanvas={(from, port, at, screen) => {
-                        const node = graph.nodes.find((n) => n.key === from);
+                    onPlus={(from, screen) => {
+                        const kind = kindOf(from);
                         // A condition already leads somewhere; its line is moved, not continued.
-                        if (node && node.kind !== 'condition') {
-                            openQuick({ kinds: targetKinds(port, node.kind), from: { key: from, port }, at, screen });
+                        if (kind && kind !== 'condition') {
+                            openQuick({ kinds: targetKinds('success', kind), from: { key: from, port: 'success' }, rightOf: from, screen });
+                        }
+                    }}
+                    onDropOnCanvas={(from, at, screen, outcome) => {
+                        const kind = kindOf(from);
+                        const port = outcome || firstOutcome(from);
+                        if (kind && kind !== 'condition' && port) {
+                            openQuick({ kinds: targetKinds(port, kind), from: { key: from, port }, at, screen });
                         }
                     }}
                     onRequestRemove={requestRemove}

@@ -1,5 +1,5 @@
 /* Draws one node of the editor canvas: its family shape, a coloured stripe on the left clipped to
- * the shape, an icon, a label and a detail line; and the round handles for its ports. */
+ * the shape, an icon, a label and a detail line. The + handle and outcome tabs are PlusHandle.tsx. */
 import React from 'react';
 import Bell from '@splunk/react-icons/Bell';
 import Briefcase from '@splunk/react-icons/Briefcase';
@@ -10,8 +10,8 @@ import Filter from '@splunk/react-icons/Filter';
 import Magnifier from '@splunk/react-icons/Magnifier';
 import ArrowRight from '@splunk/react-icons/ArrowRight';
 import type { Theme } from './GraphView';
-import type { FlowNode, PortId } from './nodeModel';
-import { FAMILY_OF, FAMILY_STYLE, Family, PORT_STYLE, nodeSize, shapePath } from './nodeStyle';
+import type { FlowNode } from './nodeModel';
+import { FAMILY_OF, FAMILY_STYLE, Family, nodeSize, shapePath } from './nodeStyle';
 
 type Icon = React.ComponentType<React.SVGProps<SVGSVGElement> & { 'aria-hidden'?: boolean }>;
 const ICON: Record<Family, Icon> = {
@@ -110,27 +110,5 @@ export function NodeShape({ node, theme, selected = false, stroke, status, statu
                 </>
             )}
         </>
-    );
-}
-
-export interface PortHandleProps {
-    port: PortId;
-    x: number;
-    y: number;
-    theme: Theme;
-    connected: boolean;
-}
-
-export function PortHandle({ port, x, y, theme, connected }: PortHandleProps) {
-    const style = PORT_STYLE[port];
-    const color = theme[style.colorToken];
-    return (
-        <g data-testid={`port-${port}`}>
-            <title>{style.label}</title>
-            <text x={x - 9} y={y + 3} textAnchor="end" fontSize={9} fill={color} fontFamily={theme.fontFamily} aria-hidden>
-                {style.glyph}
-            </text>
-            <circle cx={x} cy={y} r={5} fill={connected ? color : theme.backgroundColorSection} stroke={color} strokeWidth={1.5} />
-        </g>
     );
 }
