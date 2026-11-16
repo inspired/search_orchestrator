@@ -79,7 +79,26 @@ function conditionText(job: JobDefinition, key: string): string {
     if (!expr) {
         return OUTCOME_LABEL.if;
     }
-    return expr.length > MAX_EXPR ? `${expr.slice(0, MAX_EXPR)}…` : expr;
+    return shorten(expr);
+}
+
+const shorten = (text: string) => (text.length > MAX_EXPR ? `${text.slice(0, MAX_EXPR)}…` : text);
+
+/** The label the canvas draws on a line, from the graph alone: the glyph and word ("✗ Fails"),
+ * "◇ If" on a step-to-condition line, and the condition's expression (shortened) on the line
+ * from the diamond to its target. Trigger lines have none. */
+export function flowLinkLabel(graph: FlowGraph, link: FlowLink): string {
+    if (link.kind === 'trigger' || !link.port) {
+        return '';
+    }
+    if (link.port === 'then') {
+        const cond = graph.nodes.find((n) => n.key === link.from);
+        return shorten(((cond && cond.detail) || OUTCOME_LABEL.if).trim());
+    }
+    if (link.port === 'if') {
+        return `${PORT_STYLE.if.glyph} If`;
+    }
+    return `${PORT_STYLE[link.port].glyph} ${OUTCOME_LABEL[link.port as Outcome]}`;
 }
 
 export function linkLabel(job: JobDefinition, link: FlowLink): string {

@@ -1,8 +1,9 @@
 import type { JobDefinition } from '../api/types';
 import { handleOffset, tabOffset } from '../features/builder/nodeStyle';
 import { buildGraph } from '../features/builder/nodeModel';
+import { usedOutcomes } from '../features/builder/outcomes';
 import {
-    clampZoom, frameView, linkEnds, linkPath, nodeAt, snap,
+    bezierAt, clampZoom, frameView, linkAt, linkEnds, linkPath, nodeAt, snap,
 } from '../features/builder/flowCanvasGeometry';
 
 const job: JobDefinition = {
@@ -85,5 +86,39 @@ describe('linkEnds from tabs', () => {
         const to = g.nodes.find((n) => n.key === l.to)!;
         const pos = { [from.key]: { x: 100, y: 100 }, [to.key]: { x: 300, y: 40 } };
         expect(linkEnds(l, from, to, pos, ['then'])!.a).toEqual({ x: 164, y: 132 });
+    });
+});
+
+describe('linkAt and bezierAt', () => {
+    const ab = graph.links.find((l) => l.from === 'step:a' && l.to === 'step:b')!;
+    const mid = () => {
+        const from = graph.nodes.find((n) => n.key === 'step:a')!;
+        const to = graph.nodes.find((n) => n.key === 'step:b')!;
+        const ends = linkEnds(ab, from, to, pos, usedOutcomes(graph, 'step:a'))!;
+        return bezierAt(ends.a, ends.b, 0.5);
+    };
+
+    test('bezierAt runs from one end to the other along the drawn curve', () => {
+        const a = { x: 0, y: 0 };
+        const b = { x: 200, y: 100 };
+        expect(bezierAt(a, b, 0)).toEqual(a);
+        expect(bezierAt(a, b, 1)).toEqual(b);
+        expect(bezierAt(a, b, 0.5)).toEqual({ x: 100, y: 50 });
+    });
+
+    test('finds the line under a point, within the tolerance', () => {
+        const m = mid();
+        expect(linkAt(graph, pos, m)).toBe(ab.key);
+        expect(linkAt(graph, pos, { x: m.x, y: m.y - 6 })).toBe(ab.key);
+        expect(linkAt(graph, pos, { x: m.x, y: m.y - 20 })).toBeNull();
+        expect(linkAt(graph, pos, { x: m.x, y: m.y - 20 }, 25)).toBe(ab.key);
+    });
+
+    test('ignores trigger lines', () => {
+        const t = graph.links.find((l) => l.kind === 'trigger')!;
+        const from = graph.nodes.find((n) => n.key === t.from)!;
+        const to = graph.nodes.find((n) => n.key === t.to)!;
+        const ends = linkEnds(t, from, to, pos)!;
+        expect(linkAt(graph, pos, bezierAt(ends.a, ends.b, 0.5))).toBeNull();
     });
 });

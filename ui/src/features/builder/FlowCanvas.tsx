@@ -3,8 +3,12 @@
  * on its right edge, and each outcome in use shows as a tab above it, where its lines leave.
  * Clicking the + asks the caller for a "when" (`onPlus`); dragging it or a tab draws a line,
  * reported on release over a node (`onDropOnNode`) or empty canvas (`onDropOnCanvas`), with
- * the tab's outcome when it came from a tab. Gestures live in useCanvasGestures.
- * Keyboard: Tab through nodes, Enter selects, + or Shift+Enter opens the When list, arrows
+ * the tab's outcome when it came from a tab. Each line carries a label at its midpoint
+ * (LineLabel; hidden below 70 % zoom except on the selected line): clicking it, or Enter on a
+ * focused line, selects the line and asks for its menu (`onLineMenu`). A node with no lines
+ * dropped on a line the caller allows is spliced in (`onSplice`). Gestures, including auto-pan
+ * near the edge, live in useCanvasGestures.
+ * Keyboard: Tab through nodes, then lines; Enter selects, + or Shift+Enter opens the When list, arrows
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
  * node and Tidy up when the caller handles them. Colours come from theme tokens only. */
@@ -22,8 +26,9 @@ import { NodeShape } from './NodeShape';
 import PlusHandle from './PlusHandle';
 import Legend from './Legend';
 import Minimap, { exceedsView } from './Minimap';
-import { usedOutcomes } from './outcomes';
-import { clampZoom, frameView, linkEnds, linkPath } from './flowCanvasGeometry';
+import { flowLinkLabel, usedOutcomes } from './outcomes';
+import { bezierAt, clampZoom, frameView, linkEnds, linkPath } from './flowCanvasGeometry';
+import LineLabel, { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 
 export type { ScreenPoint };
@@ -60,10 +65,18 @@ export interface FlowCanvasProps {
     onTidy?: () => void;
     /** Drawn over the canvas, positioned from its top-left corner (the quick-add box). */
     overlay?: React.ReactNode;
+    /** A click on a line's label, or Enter on a focused line: the caller opens the line menu at
+     * `screen` (just below the label, relative to the canvas' top-left). */
+    onLineMenu?: (link: string, screen: ScreenPoint) => void;
+    /** A node with no lines dropped onto a line that `canSpliceNode` allows. */
+    onSplice?: (node: string, link: string) => void;
+    canSpliceNode?: (node: string, link: string) => boolean;
 }
 
 const NUDGE = 10;
 const CONDITION_LABEL = 36;
+/** Below this zoom, line labels show only on the selected line. */
+const LABEL_ZOOM = 0.7;
 const ARROWS: Record<string, Pos> = {
     ArrowLeft: { x: -NUDGE, y: 0 },
     ArrowRight: { x: NUDGE, y: 0 },
@@ -73,6 +86,14 @@ const ARROWS: Record<string, Pos> = {
 const TRIGGER_TOKEN = 'categoricalA1Strong';
 const MARKER_TOKENS = Array.from(new Set([...Object.values(PORT_STYLE).map((p) => p.colorToken), TRIGGER_TOKEN, 'focusColor']));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+interface LinkGeometry {
+    l: FlowLink;
+    from: FlowNode;
+    to: FlowNode;
+    d: string;
+    mid: Pos;
+}
 
 interface Detail {
     text: string;
@@ -98,6 +119,9 @@ export default function FlowCanvas({
     onQuickAdd,
     onTidy,
     overlay,
+    onLineMenu,
+    onSplice,
+    canSpliceNode,
 }: FlowCanvasProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
@@ -106,8 +130,10 @@ export default function FlowCanvas({
     const [size, setSize] = useState({ w: 0, h: 0 });
 
     const canMove = !readOnly && !!onMove;
-    const g = useCanvasGestures({ svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas });
-    const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, over, pointer, toCanvas, toScreen } = g;
+    const g = useCanvasGestures({
+        svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode,
+    });
+    const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
     // Outcome tabs per node, nearest the + first; conditions have only their "Then" and no tabs.
     const tabsOf = useMemo(() => {
@@ -219,13 +245,17 @@ export default function FlowCanvas({
             return;
         }
         if (ev.key === 'Enter' || ev.key === ' ') {
-            const link = focusedLink ? graph.links.find((l) => l.key === focusedLink) : undefined;
+            const link = focusedLink ? linkGeometry.find((x) => x.l.key === focusedLink) : undefined;
             if (focusedNode) {
                 ev.preventDefault();
                 onSelect({ kind: 'node', key: focusedNode });
             } else if (link) {
                 ev.preventDefault();
-                selectLink(link);
+                if (ev.key === 'Enter') {
+                    pickLine(link);
+                } else {
+                    selectLink(link.l);
+                }
             }
             return;
         }
@@ -255,6 +285,24 @@ export default function FlowCanvas({
         if (step && target && p && canMove && onMove) {
             ev.preventDefault();
             onMove({ [target]: { x: p.x + step.x, y: p.y + step.y } });
+        }
+    };
+
+    const linkGeometry = graph.links
+        .map((l) => {
+            const from = byKey.get(l.from);
+            const to = byKey.get(l.to);
+            const ends = from && to ? linkEnds(l, from, to, shown, tabsOf[l.from]) : null;
+            return from && to && ends ? { l, from, to, d: linkPath(ends.a, ends.b), mid: bezierAt(ends.a, ends.b, 0.5) } : null;
+        })
+        .filter((x): x is LinkGeometry => x !== null);
+
+    /** Select a line and ask for its menu, just below its label. */
+    const pickLine = ({ l, mid }: LinkGeometry) => {
+        selectLink(l);
+        if (onLineMenu && !readOnly) {
+            const b = labelBox(flowLinkLabel(graph, l), mid);
+            onLineMenu(l.key, toScreen({ x: b.x, y: b.y + b.h + 4 }));
         }
     };
 
@@ -318,14 +366,6 @@ export default function FlowCanvas({
         );
     })();
 
-    const linkGeometry = graph.links
-        .map((l) => {
-            const from = byKey.get(l.from);
-            const to = byKey.get(l.to);
-            const ends = from && to ? linkEnds(l, from, to, shown, tabsOf[l.from]) : null;
-            return from && to && ends ? { l, from, to, d: linkPath(ends.a, ends.b) } : null;
-        })
-        .filter((x): x is { l: FlowLink; from: FlowNode; to: FlowNode; d: string } => x !== null);
 
     const help = readOnly
         ? 'Job flow. Tab to a node, Enter to select it, F to frame all.'
@@ -408,8 +448,9 @@ export default function FlowCanvas({
                     {linkGeometry.map(({ l, d }) => {
                         const trigger = l.kind === 'trigger' || !l.port;
                         const isSel = !trigger && isSelectedLink(l);
-                        const token = isSel ? 'focusColor' : trigger || !l.port ? TRIGGER_TOKEN : PORT_STYLE[l.port].colorToken;
-                        const width = (l.data ? 3 : 1.5) + (isSel ? 1 : 0);
+                        const into = spliceLink === l.key;
+                        const token = isSel || into ? 'focusColor' : trigger || !l.port ? TRIGGER_TOKEN : PORT_STYLE[l.port].colorToken;
+                        const width = into ? 3 : (l.data ? 3 : 1.5) + (isSel ? 1 : 0);
                         return (
                             <g
                                 key={l.key}
@@ -429,6 +470,26 @@ export default function FlowCanvas({
                                 />
                                 {!trigger && <path d={d} fill="none" stroke={theme[token]} strokeOpacity={0} strokeWidth={12} pointerEvents="stroke" />}
                             </g>
+                        );
+                    })}
+                    {linkGeometry.map((geo) => {
+                        const { l, mid } = geo;
+                        const text = flowLinkLabel(graph, l);
+                        const isSel = isSelectedLink(l);
+                        if (!text || (zoom < LABEL_ZOOM && !isSel)) {
+                            return null;
+                        }
+                        const token = isSel || spliceLink === l.key ? 'focusColor' : PORT_STYLE[l.port as PortId].colorToken;
+                        return (
+                            <LineLabel
+                                key={l.key}
+                                linkKey={l.key}
+                                text={text}
+                                at={mid}
+                                theme={theme}
+                                colorToken={token}
+                                onPick={() => pickLine(geo)}
+                            />
                         );
                     })}
                     {draft}

@@ -1,9 +1,10 @@
-/* Pure geometry for the flow canvas: where links start and end, which node is under a point,
- * snapping, and the view that frames the whole graph. */
+/* Pure geometry for the flow canvas: where links start and end, which node or line is under a
+ * point, snapping, and the view that frames the whole graph. */
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, FlowLink, FlowNode, PortId } from './nodeModel';
 import { handleOffset, inputOffset, nodeSize, tabOffset } from './nodeStyle';
 import { graphBounds } from './flowLayout';
+import { usedOutcomes } from './outcomes';
 
 export const MIN_ZOOM = 0.4;
 export const MAX_ZOOM = 2;
@@ -11,10 +12,22 @@ export const SNAP = 10;
 export const clampZoom = (z: number): number => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 export const snap = (v: number): number => Math.round(v / SNAP) * SNAP;
 
+const reach = (a: Pos, b: Pos) => Math.max(40, Math.abs(b.x - a.x) / 2);
+
 /** A horizontal bezier from `a` (leaving right) to `b` (entering left). */
 export function linkPath(a: Pos, b: Pos): string {
-    const dx = Math.max(40, Math.abs(b.x - a.x) / 2);
+    const dx = reach(a, b);
     return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`;
+}
+
+/** The point at `t` (0 to 1) along the curve `linkPath(a, b)` draws. */
+export function bezierAt(a: Pos, b: Pos, t: number): Pos {
+    const dx = reach(a, b);
+    const u = 1 - t;
+    const w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+    const xs = [a.x, a.x + dx, b.x - dx, b.x];
+    const ys = [a.y, a.y, b.y, b.y];
+    return { x: w.reduce((s, k, i) => s + k * xs[i], 0), y: w.reduce((s, k, i) => s + k * ys[i], 0) };
 }
 
 /** Start and end of a link in canvas coordinates; null when either end has no position.
@@ -56,6 +69,41 @@ export function nodeAt(graph: FlowGraph, pos: Positions, pt: Pos): string | null
         }
     }
     return null;
+}
+
+const SAMPLES = 24;
+
+function distToSegment(p: Pos, a: Pos, b: Pos): number {
+    const vx = b.x - a.x;
+    const vy = b.y - a.y;
+    const len = vx * vx + vy * vy;
+    const t = len ? Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len)) : 0;
+    return Math.hypot(p.x - (a.x + t * vx), p.y - (a.y + t * vy));
+}
+
+/** The line nearest `pt` within `tolerance` canvas px, sampling each curve at 24 points; trigger
+ * lines (which cannot be selected) are skipped. */
+export function linkAt(graph: FlowGraph, pos: Positions, pt: Pos, tolerance = 8): string | null {
+    const byKey = new Map(graph.nodes.map((n) => [n.key, n] as const));
+    let best: { key: string; d: number } | null = null;
+    graph.links.forEach((l) => {
+        const from = byKey.get(l.from);
+        const to = byKey.get(l.to);
+        const ends = l.kind !== 'trigger' && from && to ? linkEnds(l, from, to, pos, usedOutcomes(graph, l.from)) : null;
+        if (!ends) {
+            return;
+        }
+        let prev = ends.a;
+        for (let i = 1; i <= SAMPLES; i += 1) {
+            const next = bezierAt(ends.a, ends.b, i / SAMPLES);
+            const d = distToSegment(pt, prev, next);
+            if (d <= tolerance && (!best || d < best.d)) {
+                best = { key: l.key, d };
+            }
+            prev = next;
+        }
+    });
+    return best ? (best as { key: string }).key : null;
 }
 
 /** Pan and zoom that fit every node in a view of `width` × `height`, never zooming past 1. */

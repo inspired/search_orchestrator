@@ -2,13 +2,17 @@
  * line drag from the + handle or an outcome tab. A press that moves less than 4 px is a click:
  * on a node it selects, on the + it asks for a "when" (`onPlus`), on the background it clears
  * the selection. A line released on a node reports that node (never its own source), anywhere
- * else the canvas point; released on the source's own + or tabs, nothing. Escape cancels a
- * drag. `onDragMove` is the hook point for auto-pan while dragging. */
+ * else the canvas point; released on the source's own + or tabs, nothing. A node with no lines
+ * dragged with its centre over a line the caller allows (`canSpliceNode`) marks that line
+ * (`spliceLink`) and, dropped there, is reported with `onSplice` instead of `onMove`. Escape
+ * cancels a drag. While a node or line is dragged near the canvas edge, a requestAnimationFrame
+ * loop scrolls the view (`autoPanStep`) and keeps the dragged item under the pointer. */
 import React, { useEffect, useRef, useState } from 'react';
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, PortId } from './nodeModel';
-import { HANDLE_R, handleOffset } from './nodeStyle';
-import { clampZoom, nodeAt, snap } from './flowCanvasGeometry';
+import { HANDLE_R, handleOffset, nodeSize } from './nodeStyle';
+import { clampZoom, linkAt, nodeAt, snap } from './flowCanvasGeometry';
+import { autoPanStep } from './autoPan';
 import { usedOutcomes } from './outcomes';
 import { tabBox } from './PlusHandle';
 
@@ -33,8 +37,9 @@ export interface GestureOptions {
     onConnect?: (from: string, outcome: PortId, to: string) => void;
     onDropOnNode?: (from: string, to: string, screen: ScreenPoint, outcome?: PortId) => void;
     onDropOnCanvas?: (from: string, at: Pos, screen: ScreenPoint, outcome?: PortId) => void;
-    /** Called on every pointer move of a node or line drag (auto-pan, Task 5). */
-    onDragMove?: (clientX: number, clientY: number) => void;
+    /** A node with no lines dropped on line `link`; only offered when `canSpliceNode` says yes. */
+    onSplice?: (node: string, link: string) => void;
+    canSpliceNode?: (node: string, link: string) => boolean;
 }
 
 const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
@@ -42,16 +47,23 @@ const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)
 const HANDLE_SLOP = 4;
 
 export default function useCanvasGestures(opts: GestureOptions) {
-    const { svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onDragMove } = opts;
+    const { svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode } = opts;
     const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [gesture, setGesture] = useState<Gesture | null>(null);
     const [drag, setDrag] = useState<Pos | null>(null);
     const [cursor, setCursor] = useState<Pos | null>(null);
+    const [spliceLink, setSpliceLink] = useState<string | null>(null);
     const over = useRef(false);
     const pointer = useRef<{ clientX: number; clientY: number } | null>(null);
+    /** The last pointer position of the current drag, kept even if the pointer leaves the canvas. */
+    const dragPointer = useRef<{ clientX: number; clientY: number } | null>(null);
+    /** How far auto-pan has moved the view during the current drag, in screen px. */
+    const panned = useRef<Pos>({ x: 0, y: 0 });
     const view = useRef({ pan, zoom });
     view.current = { pan, zoom };
+    const live = useRef<Gesture | null>(null);
+    live.current = gesture;
 
     // Wheel zoom needs a non-passive listener so the page does not scroll as well.
     useEffect(() => {
@@ -67,6 +79,16 @@ export default function useCanvasGestures(opts: GestureOptions) {
         return () => svg.removeEventListener('wheel', onWheel);
     }, [svgRef]);
 
+    function endGesture() {
+        live.current = null;
+        setGesture(null);
+        setDrag(null);
+        setCursor(null);
+        setSpliceLink(null);
+        dragPointer.current = null;
+        panned.current = { x: 0, y: 0 };
+    }
+
     // Escape cancels any drag: no callbacks, and a dragged node goes back where it was.
     const dragging = gesture !== null;
     useEffect(() => {
@@ -76,9 +98,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         const onKey = (ev: KeyboardEvent) => {
             if (ev.key === 'Escape') {
                 ev.preventDefault();
-                setGesture(null);
-                setDrag(null);
-                setCursor(null);
+                endGesture();
             }
         };
         window.addEventListener('keydown', onKey);
@@ -124,23 +144,56 @@ export default function useCanvasGestures(opts: GestureOptions) {
 
     const startPan = (ev: React.PointerEvent) => {
         capture(ev);
+        panned.current = { x: 0, y: 0 };
         setGesture({ kind: 'pan', startX: ev.clientX, startY: ev.clientY, origin: view.current.pan, moved: false });
     };
 
     const startNode = (ev: React.PointerEvent, key: string) => {
         capture(ev);
+        panned.current = { x: 0, y: 0 };
         setGesture({ kind: 'node', key, startX: ev.clientX, startY: ev.clientY, moved: false });
     };
 
     const startLine = (ev: React.PointerEvent, from: string, outcome?: PortId) => {
         capture(ev);
+        panned.current = { x: 0, y: 0 };
         setGesture({ kind: 'line', from, outcome, startX: ev.clientX, startY: ev.clientY, moved: false });
     };
 
-    const endGesture = () => {
-        setGesture(null);
-        setDrag(null);
-        setCursor(null);
+
+    /** A dragged node's offset in canvas units for a pointer at clientX/Y, auto-pan included. */
+    const nodeOffset = (g: Gesture, clientX: number, clientY: number): Pos => {
+        const z = view.current.zoom;
+        return { x: (clientX - g.startX - panned.current.x) / z, y: (clientY - g.startY - panned.current.y) / z };
+    };
+
+    /** The line a lineless node dragged by `offset` would be spliced into, if the caller allows. */
+    const spliceTarget = (key: string, offset: Pos): string | null => {
+        const n = graph.nodes.find((x) => x.key === key);
+        const p = positions[key];
+        if (!n || !p || !onSplice || !canSpliceNode || !canMove) {
+            return null;
+        }
+        if (graph.links.some((l) => l.kind !== 'trigger' && (l.from === key || l.to === key))) {
+            return null;
+        }
+        const { w, h } = nodeSize(n.kind);
+        const link = linkAt(graph, positions, { x: p.x + offset.x + w / 2, y: p.y + offset.y + h / 2 });
+        return link && canSpliceNode(key, link) ? link : null;
+    };
+
+    /** Follow the pointer with the dragged node or line end. */
+    const follow = (g: Gesture, clientX: number, clientY: number) => {
+        if (g.kind === 'node') {
+            if (canMove) {
+                const offset = nodeOffset(g, clientX, clientY);
+                setDrag(offset);
+                const target = spliceTarget(g.key, offset);
+                setSpliceLink((cur) => (cur === target ? cur : target));
+            }
+        } else if (g.kind === 'line') {
+            setCursor(toCanvas(clientX, clientY));
+        }
     };
 
     const onPointerMove = (ev: React.PointerEvent) => {
@@ -149,6 +202,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (!gesture) {
             return;
         }
+        dragPointer.current = { clientX: ev.clientX, clientY: ev.clientY };
         const dx = ev.clientX - gesture.startX;
         const dy = ev.clientY - gesture.startY;
         const moved = gesture.moved || movedFar(dx, dy);
@@ -159,18 +213,48 @@ export default function useCanvasGestures(opts: GestureOptions) {
             setPan({ x: gesture.origin.x + dx, y: gesture.origin.y + dy });
             return;
         }
-        if (moved && onDragMove) {
-            onDragMove(ev.clientX, ev.clientY);
-        }
-        if (gesture.kind === 'node') {
-            if (moved && canMove) {
-                const z = view.current.zoom;
-                setDrag({ x: dx / z, y: dy / z });
-            }
-        } else if (moved) {
-            setCursor(toCanvas(ev.clientX, ev.clientY));
+        if (moved) {
+            follow(gesture, ev.clientX, ev.clientY);
         }
     };
+
+    // Auto-pan: while a node or line drag is under way, every frame with the pointer near an edge
+    // scrolls the view and moves the dragged item with it, so it stays under the pointer.
+    const autoPanning = gesture !== null && gesture.kind !== 'pan' && gesture.moved;
+    const followRef = useRef(follow);
+    followRef.current = follow;
+    useEffect(() => {
+        if (!autoPanning || typeof window.requestAnimationFrame !== 'function') {
+            return undefined;
+        }
+        let stopped = false;
+        let id = 0;
+        const tick = () => {
+            if (stopped) {
+                return;
+            }
+            const g = live.current;
+            const ptr = dragPointer.current;
+            const svg = svgRef.current;
+            if (g && g.kind !== 'pan' && ptr && svg) {
+                const r = svg.getBoundingClientRect();
+                const step = autoPanStep({ x: ptr.clientX - r.left, y: ptr.clientY - r.top }, { w: r.width, h: r.height });
+                if (step.x || step.y) {
+                    const next = { x: view.current.pan.x - step.x, y: view.current.pan.y - step.y };
+                    panned.current = { x: panned.current.x + next.x - view.current.pan.x, y: panned.current.y + next.y - view.current.pan.y };
+                    view.current = { ...view.current, pan: next };
+                    setPan(next);
+                    followRef.current(g, ptr.clientX, ptr.clientY);
+                }
+            }
+            id = window.requestAnimationFrame(tick);
+        };
+        id = window.requestAnimationFrame(tick);
+        return () => {
+            stopped = true;
+            window.cancelAnimationFrame(id);
+        };
+    }, [autoPanning]);
 
     /** `pt` is on the + or one of the outcome tabs of node `key`, which stick out past its box. */
     const onOwnHandle = (key: string, pt: Pos): boolean => {
@@ -215,9 +299,12 @@ export default function useCanvasGestures(opts: GestureOptions) {
             const moved = g.moved || movedFar(ev.clientX - g.startX, ev.clientY - g.startY);
             if (g.kind === 'node') {
                 const p = positions[g.key];
-                if (moved && canMove && p && onMove) {
-                    const z = view.current.zoom;
-                    onMove({ [g.key]: { x: snap(p.x + (ev.clientX - g.startX) / z), y: snap(p.y + (ev.clientY - g.startY) / z) } });
+                const offset = nodeOffset(g, ev.clientX, ev.clientY);
+                const into = moved ? spliceTarget(g.key, offset) : null;
+                if (into && onSplice) {
+                    onSplice(g.key, into);
+                } else if (moved && canMove && p && onMove) {
+                    onMove({ [g.key]: { x: snap(p.x + offset.x), y: snap(p.y + offset.y) } });
                 } else if (!moved || !canMove) {
                     onSelect({ kind: 'node', key: g.key });
                 }
@@ -238,7 +325,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
     };
 
     return {
-        pan, setPan, zoom, setZoom, view, gesture, shown, cursor, over, pointer,
+        pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, over, pointer,
         toCanvas, toScreen, plusScreen, startPan, startNode, startLine, endGesture, onPointerMove, onPointerUp,
     };
 }
