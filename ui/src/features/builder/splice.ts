@@ -1,7 +1,6 @@
 /* Putting a node on an existing line: A -> B becomes A -> N (the old outcome) and N -> B (on success). */
-import type { Edge, JobDefinition } from '../../api/types';
+import type { Edge, JobDefinition, StepDef } from '../../api/types';
 import { stepLabel } from './GraphView';
-import { wouldCycle } from './graphLogic';
 import { buildGraph } from './nodeModel';
 import type { FlowLink } from './nodeModel';
 
@@ -40,11 +39,6 @@ export function canSplice(job: JobDefinition, node: string, link: string): Check
     if (edge.condition === 'expression') {
         return no("Lines with a condition can't be split; remove the condition first");
     }
-    const rest = (job.edges || []).filter((e) => e !== edge);
-    const id = step.id;
-    if (id === edge.from || id === edge.to || wouldCycle(rest, edge.from, id) || wouldCycle([...rest, { ...edge, to: id }], id, edge.to)) {
-        return no('This would make a loop');
-    }
     return { ok: true };
 }
 
@@ -66,6 +60,6 @@ export function spliceMessage(job: JobDefinition, node: string, link: string): s
     const l = findLink(job, link);
     const n = steps.find((s) => `step:${s.id}` === node);
     const b = l && steps.find((s) => `step:${s.id}` === l.to);
-    const name = (s?: { id: string; name?: string }) => (s ? stepLabel(s as never) : '');
+    const name = (s?: StepDef) => (s ? stepLabel(s) : '');
     return `${name(b)} now runs after ${name(n)} succeeds. Undo brings back the old line.`;
 }

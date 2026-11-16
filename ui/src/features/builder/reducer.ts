@@ -2,7 +2,8 @@
  * are saved in job.layout; every other node is placed by the flow layout. */
 import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef, StepOutput, Trigger } from '../../api/types';
-import { layoutFlow, freeSpotRightOf } from './flowLayout';
+import { changeLineOutcome, dropActionKey, dropCondKey, dropStepKeys, dropTriggerKey, parseAction, parseCond } from './flowEdits';
+import { remapLayout, renameStepKeys, spliceJob, spotRightOf, withNodes, withPlacedNode } from './flowEdits';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
 import {
@@ -17,7 +18,6 @@ import {
 } from './nodeModel';
 import type { ActionScope, NodeKind, PortId } from './nodeModel';
 import type { Outcome } from './outcomes';
-import { splicedEdges } from './splice';
 import { FAMILY_OF } from './nodeStyle';
 import { outputSpl } from './outputs';
 import { generatedInputSpl } from './previewLogic';
@@ -201,97 +201,6 @@ function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepD
 }
 
 
-// Saved positions (job.layout.nodes). Keys follow nodeModel; every edit keeps them consistent.
-
-/** The job with `nodes` as its layout; an empty map removes `layout` (the server rejects null). */
-function withNodes(job: JobDefinition, nodes: Record<string, Pos>): JobDefinition {
-    const out = { ...job };
-    if (Object.keys(nodes).length === 0) {
-        delete out.layout;
-    } else {
-        out.layout = { ...out.layout, nodes };
-    }
-    return out;
-}
-
-/** Renames (string) or drops (null) saved keys. A job without a layout is returned as it is. */
-function remapLayout(job: JobDefinition, fn: (key: string) => string | null): JobDefinition {
-    const nodes = job.layout?.nodes;
-    if (!nodes) {
-        return job;
-    }
-    const out: Record<string, Pos> = {};
-    Object.entries(nodes).forEach(([key, pos]) => {
-        const next = fn(key);
-        if (next !== null) {
-            out[next] = pos;
-        }
-    });
-    return withNodes(job, out);
-}
-
-const parseAction = (key: string): { scope: string; index: number } | null => {
-    const m = /^action:(.*):(\d+)$/.exec(key);
-    return m ? { scope: m[1], index: Number(m[2]) } : null;
-};
-
-const parseCond = (key: string): { from: string; to: string } | null => {
-    const m = /^cond:(.*)>(.*)$/.exec(key);
-    return m ? { from: m[1], to: m[2] } : null;
-};
-
-/** Drops the saved key of the action at `index` in `scope` and shifts later ones down. */
-function dropActionKey(job: JobDefinition, scope: string, index: number): JobDefinition {
-    return remapLayout(job, (key) => {
-        const a = parseAction(key);
-        if (!a || a.scope !== scope || a.index < index) {
-            return key;
-        }
-        return a.index === index ? null : actionKey(scope, a.index - 1);
-    });
-}
-
-function dropTriggerKey(job: JobDefinition, index: number): JobDefinition {
-    return remapLayout(job, (key) => {
-        const m = /^trigger:(\d+)$/.exec(key);
-        if (!m || Number(m[1]) < index) {
-            return key;
-        }
-        return Number(m[1]) === index ? null : triggerKey(Number(m[1]) - 1);
-    });
-}
-
-const dropCondKey = (job: JobDefinition, from: string, to: string) =>
-    remapLayout(job, (key) => (key === condKey(from, to) ? null : key));
-
-function renameStepKeys(job: JobDefinition, from: string, to: string): JobDefinition {
-    const swap = (id: string) => (id === from ? to : id);
-    return remapLayout(job, (key) => {
-        if (key === stepKey(from)) {
-            return stepKey(to);
-        }
-        const a = parseAction(key);
-        if (a) {
-            return a.scope === from ? actionKey(to, a.index) : key;
-        }
-        const c = parseCond(key);
-        return c ? condKey(swap(c.from), swap(c.to)) : key;
-    });
-}
-
-function dropStepKeys(job: JobDefinition, id: string): JobDefinition {
-    return remapLayout(job, (key) => {
-        if (key === stepKey(id)) {
-            return null;
-        }
-        const a = parseAction(key);
-        if (a) {
-            return a.scope === id ? null : key;
-        }
-        const c = parseCond(key);
-        return c && (c.from === id || c.to === id) ? null : key;
-    });
-}
 
 const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
 const ID_PREFIX: Partial<Record<NodeKind, string>> = { summary_index: 'summary', lookup: 'lookup' };
@@ -542,32 +451,19 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (!next || !key) {
                 return state;
             }
-            let at = action.at;
-            let shown = action.shown;
+            let { at, shown } = action;
             if (!at && action.rightOf) {
-                shown = shown || layoutFlow(buildGraph(job), job.layout?.nodes);
-                at = freeSpotRightOf(buildGraph(next), shown, action.rightOf, action.kind);
+                ({ at, shown } = spotRightOf(job, next, action.rightOf, action.kind, shown));
             }
-            return edits(state, at ? withNodes(next, { ...shown, ...next.layout?.nodes, [key]: at }) : next);
+            return edits(state, at ? withPlacedNode(next, key, at, shown) : next);
         }
         case 'splice': {
-            const edgesOut = splicedEdges(job, action.node, action.link);
-            if (!edgesOut) {
-                return state;
-            }
-            const next = { ...job, edges: edgesOut };
-            if (!action.at) {
-                return edits(state, next);
-            }
-            const shown = action.shown || (job.layout ? undefined : layoutFlow(buildGraph(job)));
-            return edits(state, withNodes(next, { ...shown, ...next.layout?.nodes, [action.node]: action.at }));
+            const next = spliceJob(job, action.node, action.link, action.at, action.shown);
+            return next ? edits(state, next) : state;
         }
         case 'changeOutcome': {
             const link = buildGraph(job).links.find((l) => l.key === action.link);
-            if (!link || link.port === action.outcome) {
-                return state;
-            }
-            if (link.kind === 'action') {
+            if (link && link.kind === 'action') {
                 const target = parseAction(link.to);
                 const hook = HOOK_FOR_PORT[action.outcome];
                 if (!target || !hook) {
@@ -575,33 +471,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                 }
                 return reducer(state, { type: 'moveAction', scope: target.scope, index: target.index, toScope: target.scope, hook });
             }
-            const condition = EDGE_CONDITION_FOR_PORT[action.outcome];
-            if (!condition) {
-                return state;
-            }
-            if (link.kind === 'edge') {
-                const edge = edgeList.find((e) => stepKey(e.from) === link.from && stepKey(e.to) === link.to);
-                if (!edge) {
-                    return state;
-                }
-                const changed: Edge = { ...edge, condition };
-                if (condition === 'expression') {
-                    changed.expression = '';
-                } else {
-                    delete changed.expression;
-                }
-                return edits(state, { ...job, edges: edgeList.map((e) => (e === edge ? changed : e)) });
-            }
-            if (link.kind === 'condition' && condition !== 'expression') {
-                const c = parseCond(link.from.startsWith('cond:') ? link.from : link.to);
-                const edge = c && edgeList.find((e) => same(e, c.from, c.to));
-                if (!c || !edge) {
-                    return state;
-                }
-                const plain: Edge = { from: edge.from, to: edge.to, condition };
-                return edits(state, dropCondKey({ ...job, edges: edgeList.map((e) => (e === edge ? plain : e)) }, c.from, c.to));
-            }
-            return state;
+            const next = changeLineOutcome(job, action.link, action.outcome);
+            return next ? edits(state, next) : state;
         }
         case 'updateAction': {
             const list = actionsOf(job, action.scope);

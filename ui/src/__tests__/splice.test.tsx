@@ -39,10 +39,16 @@ describe('canSplice', () => {
         const r = canSplice(job, 'step:n', lk(job, 'step:b', 'cond:b>c'));
         expect(r).toEqual({ ok: false, reason: "Lines with a condition can't be split; remove the condition first" });
     });
-    it('refuses a loop', () => {
+    it('refuses a node that already has lines, so a line can never loop', () => {
         const j: JobDefinition = { ...job, edges: [{ from: 'a', to: 'b', condition: 'on_success' }, { from: 'n', to: 'a', condition: 'on_success' }] };
-        const r = canSplice({ ...j, steps: j.steps }, 'step:n', lk(j, 'step:a', 'step:b'));
-        expect(r.ok).toBe(false);
+        expect(canSplice(j, 'step:n', lk(j, 'step:a', 'step:b'))).toEqual({
+            ok: false,
+            reason: 'Disconnect this node first, then drop it on the line',
+        });
+    });
+    it('refuses a line from a node to an action', () => {
+        const r = canSplice(job, 'step:n', lk(job, 'step:a', 'action:a:0'));
+        expect(r).toEqual({ ok: false, reason: 'Only a line between two steps can be split' });
     });
 });
 
