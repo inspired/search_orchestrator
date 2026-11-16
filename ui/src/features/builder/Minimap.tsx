@@ -1,0 +1,105 @@
+/* A small map of the whole graph, bottom-right of the canvas: each node as a rect in its family
+ * colour and the visible view as an outline. Click a point to centre the view there. Hidden from
+ * screen readers; "Frame all" and the F key are the accessible equivalent. */
+import React from 'react';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import type { Pos, Positions } from './graphLogic';
+import { Theme } from './GraphView';
+import type { FlowGraph } from './nodeModel';
+import { FAMILY_OF, FAMILY_STYLE, nodeSize } from './nodeStyle';
+import { graphBounds } from './flowLayout';
+
+export const MINIMAP_W = 160;
+export const MINIMAP_H = 100;
+const PAD = 6;
+
+export interface MinimapProps {
+    graph: FlowGraph;
+    positions: Positions;
+    pan: Pos;
+    zoom: number;
+    /** Visible canvas size in pixels. */
+    width: number;
+    height: number;
+    /** Called with the pan that centres the clicked point. */
+    onPan: (pan: Pos) => void;
+}
+
+/** True when the graph, at this zoom, does not fit the visible canvas. */
+export function exceedsView(graph: FlowGraph, positions: Positions, zoom: number, width: number, height: number): boolean {
+    if (!width || !height) {
+        return false;
+    }
+    const b = graphBounds(graph, positions);
+    return b.width * zoom > width || b.height * zoom > height;
+}
+
+export default function Minimap({ graph, positions, pan, zoom, width, height, onPan }: MinimapProps) {
+    const theme = useSplunkTheme() as unknown as Theme;
+    const b = graphBounds(graph, positions);
+    const view = { x: -pan.x / zoom, y: -pan.y / zoom, w: width / zoom, h: height / zoom };
+    // The map covers the graph and the view, so the outline is always on it.
+    const minX = Math.min(b.x, view.x);
+    const minY = Math.min(b.y, view.y);
+    const maxX = Math.max(b.x + b.width, view.x + view.w);
+    const maxY = Math.max(b.y + b.height, view.y + view.h);
+    const scale = Math.min((MINIMAP_W - 2 * PAD) / Math.max(1, maxX - minX), (MINIMAP_H - 2 * PAD) / Math.max(1, maxY - minY));
+    const ox = (MINIMAP_W - (maxX - minX) * scale) / 2 - minX * scale;
+    const oy = (MINIMAP_H - (maxY - minY) * scale) / 2 - minY * scale;
+
+    const click = (ev: React.MouseEvent<SVGSVGElement>) => {
+        const rect = ev.currentTarget.getBoundingClientRect();
+        const wx = (ev.clientX - rect.left - ox) / scale;
+        const wy = (ev.clientY - rect.top - oy) / scale;
+        onPan({ x: width / 2 - wx * zoom, y: height / 2 - wy * zoom });
+    };
+
+    return (
+        <svg
+            data-testid="minimap"
+            aria-hidden="true"
+            width={MINIMAP_W}
+            height={MINIMAP_H}
+            onClick={click}
+            onPointerDown={(ev) => ev.stopPropagation()}
+            style={{
+                position: 'absolute',
+                right: 8,
+                bottom: 8,
+                background: theme.backgroundColorSection,
+                border: `1px solid ${theme.borderColor}`,
+                borderRadius: '4px',
+                cursor: 'pointer',
+            }}
+        >
+            {graph.nodes.map((n) => {
+                const p = positions[n.key];
+                if (!p) {
+                    return null;
+                }
+                const { w, h } = nodeSize(n.kind);
+                return (
+                    <rect
+                        key={n.key}
+                        data-node={n.key}
+                        x={ox + p.x * scale}
+                        y={oy + p.y * scale}
+                        width={Math.max(2, w * scale)}
+                        height={Math.max(2, h * scale)}
+                        fill={theme[FAMILY_STYLE[FAMILY_OF[n.kind]].colorToken]}
+                    />
+                );
+            })}
+            <rect
+                data-viewport="true"
+                x={ox + view.x * scale}
+                y={oy + view.y * scale}
+                width={view.w * scale}
+                height={view.h * scale}
+                fill="none"
+                stroke={theme.focusColor}
+                strokeWidth={1.5}
+            />
+        </svg>
+    );
+}

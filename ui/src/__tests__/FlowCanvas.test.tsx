@@ -229,6 +229,73 @@ describe('FlowCanvas', () => {
         });
     });
 
+    describe('line widths', () => {
+        test('data links are 3 px, signal links 1.5 px and trigger links dashed', () => {
+            const data = buildGraph({ ...job, steps: [job.steps[0], { id: 'b', type: 'previous', spl: '| head 1' }] });
+            renderThemed(<FlowCanvas graph={data} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
+            const path = (key: string) => screen.getByTestId(`link-${key}`).querySelector('path') as SVGPathElement;
+            expect(path('step:a-success->step:b').getAttribute('stroke-width')).toBe('3');
+            expect(path('step:a-success->step:b').getAttribute('stroke-dasharray')).toBeNull();
+            expect(path('step:a-failure->action:a:0').getAttribute('stroke-width')).toBe('1.5');
+            expect(path('trigger:0->step:a').getAttribute('stroke-dasharray')).toBeTruthy();
+        });
+    });
+
+    describe('legend and minimap', () => {
+        const original = {
+            w: Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth') as PropertyDescriptor,
+            h: Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight') as PropertyDescriptor,
+        };
+        const size = (w: number, h: number) => {
+            Object.defineProperty(Element.prototype, 'clientWidth', { value: w, configurable: true });
+            Object.defineProperty(Element.prototype, 'clientHeight', { value: h, configurable: true });
+        };
+        afterEach(() => {
+            Object.defineProperty(Element.prototype, 'clientWidth', original.w);
+            Object.defineProperty(Element.prototype, 'clientHeight', original.h);
+        });
+
+        test('Show node types toggles the legend', () => {
+            setup();
+            expect(screen.queryByTestId('legend')).toBeNull();
+            fireEvent.click(screen.getByRole('button', { name: 'Show node types' }));
+            expect(screen.getByTestId('legend')).toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'Hide node types' }));
+            expect(screen.queryByTestId('legend')).toBeNull();
+        });
+
+        test('no minimap when the whole graph is in view', () => {
+            size(1200, 600);
+            setup();
+            expect(screen.queryByTestId('minimap')).toBeNull();
+        });
+
+        test('a small two-node graph has no minimap', () => {
+            size(300, 300);
+            const two = buildGraph({ ...job, triggers: [], steps: [{ id: 'a', type: 'inline', spl: 'search x' }], edges: [] });
+            renderThemed(<FlowCanvas graph={two} positions={{ job: { x: 0, y: 200 }, 'step:a': { x: 10, y: 10 } }} selected={null} issues={[]} onSelect={jest.fn()} />);
+            expect(screen.queryByTestId('minimap')).toBeNull();
+        });
+
+        test('minimap shows when the graph exceeds the view; clicking pans there', () => {
+            size(400, 300);
+            const { view } = setup();
+            const map = screen.getByTestId('minimap');
+            expect(map).toHaveAttribute('aria-hidden', 'true');
+            expect(map.querySelectorAll('rect[data-node]')).toHaveLength(graph.nodes.length);
+            expect(map.querySelector('rect[data-viewport]')).not.toBeNull();
+            const before = view().getAttribute('transform');
+            fireEvent.click(map, { clientX: 140, clientY: 80 });
+            expect(view().getAttribute('transform')).not.toBe(before);
+        });
+
+        test('minimap also shows in read-only mode', () => {
+            size(400, 300);
+            setup({ readOnly: true });
+            expect(screen.getByTestId('minimap')).toBeInTheDocument();
+        });
+    });
+
     describe('keyboard', () => {
         test('/ opens quick-add at the pointer', () => {
             const { props, canvas } = setup();

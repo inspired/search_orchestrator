@@ -17,6 +17,8 @@ import { NodeGroup, Theme } from './GraphView';
 import { FlowGraph, FlowLink, FlowNode, JOB_KEY, PortId } from './nodeModel';
 import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, nodeSize, portOffset } from './nodeStyle';
 import { NodeShape, PortHandle } from './NodeShape';
+import Legend from './Legend';
+import Minimap, { exceedsView } from './Minimap';
 import {
     clampZoom, frameView, linkEnds, linkedPorts, linkPath, nodeAt, snap, visiblePorts,
 } from './flowCanvasGeometry';
@@ -104,6 +106,8 @@ export default function FlowCanvas({
     const [drag, setDrag] = useState<Pos | null>(null);
     const [cursor, setCursor] = useState<Pos | null>(null);
     const [hovered, setHovered] = useState<string | null>(null);
+    const [legendOpen, setLegendOpen] = useState(false);
+    const [size, setSize] = useState({ w: 0, h: 0 });
     const over = useRef(false);
     const pointer = useRef<{ clientX: number; clientY: number } | null>(null);
     const view = useRef({ pan, zoom });
@@ -150,6 +154,19 @@ export default function FlowCanvas({
             setPan({ x: at.x + dx, y: at.y + dy });
         }
     }, [selectedNode, positions, byKey]);
+
+    // Track the visible canvas size for the minimap: after every render, and when the window resizes.
+    const measure = () => {
+        const svg = svgRef.current;
+        const w = svg ? svg.clientWidth : 0;
+        const h = svg ? svg.clientHeight : 0;
+        setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
+    };
+    useEffect(measure);
+    useEffect(() => {
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
 
     // Wheel zoom needs a non-passive listener so the page does not scroll as well.
     useEffect(() => {
@@ -438,6 +455,7 @@ export default function FlowCanvas({
                     }}
                 />
                 <Button appearance="subtle" label="Frame all" onClick={frameAll} />
+                <Button appearance="subtle" label={legendOpen ? 'Hide node types' : 'Show node types'} onClick={() => setLegendOpen((o) => !o)} />
             </div>
             <div style={{ position: 'relative' }}>
             <svg
@@ -609,6 +627,14 @@ export default function FlowCanvas({
                         ))}
                 </g>
             </svg>
+            {legendOpen && (
+                <div style={{ position: 'absolute', top: 8, right: 8 }}>
+                    <Legend />
+                </div>
+            )}
+            {exceedsView(graph, shown, zoom, size.w, size.h) && (
+                <Minimap graph={graph} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={setPan} />
+            )}
             {overlay}
             </div>
         </div>
