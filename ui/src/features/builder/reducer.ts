@@ -38,8 +38,6 @@ export type BuilderAction =
     /** A save went through: `job` (the definition sent) is now what the server has. */
     | { type: 'saved'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
-    /** A Results of earlier steps step reading `from`, added with its edge as one undo step. */
-    | { type: 'addStepFrom'; from: string; id: string }
     | { type: 'removeStep'; id: string }
     | { type: 'updateStep'; id: string; changes: Partial<StepDef> }
     | { type: 'connect'; from: string; to: string; condition?: Edge['condition'] }
@@ -416,14 +414,6 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const id = action.step?.id || nextStepId(steps);
             const step: StepDef = { id, name: '', type: 'inline', spl: '', ...action.step };
             return edits(state, { ...job, steps: [...steps, step] });
-        }
-        case 'addStepFrom': {
-            if (!steps.some((s) => s.id === action.from) || steps.some((s) => s.id === action.id)) {
-                return state;
-            }
-            const step: StepDef = { id: action.id, name: '', type: 'previous', spl: '' };
-            const edge: Edge = { from: action.from, to: action.id, condition: 'on_success' };
-            return edits(state, { ...job, steps: [...steps, step], edges: [...edgeList, edge] });
         }
         case 'removeStep':
             return edits(

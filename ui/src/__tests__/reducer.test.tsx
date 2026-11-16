@@ -85,19 +85,6 @@ describe('builder reducer', () => {
         expect(s.job.steps).toHaveLength(3 + 20);
     });
 
-    test('addStepFrom adds a Results of earlier steps step reading the source, as one undo step', () => {
-        let s = reducer(initialState(job), { type: 'addStepFrom', from: 'monthly', id: 'step_4' });
-        expect(s.job.steps[3]).toEqual({ id: 'step_4', name: '', type: 'previous', spl: '' });
-        expect(s.job.edges?.[2]).toEqual({ from: 'monthly', to: 'step_4', condition: 'on_success' });
-        s = reducer(s, { type: 'undo' });
-        expect(s.job).toEqual(job);
-    });
-
-    test('addStepFrom ignores an unknown source or a taken id', () => {
-        const s0 = initialState(job);
-        expect(reducer(s0, { type: 'addStepFrom', from: 'nope', id: 'step_4' })).toBe(s0);
-        expect(reducer(s0, { type: 'addStepFrom', from: 'daily', id: 'weekly' })).toBe(s0);
-    });
     test('switching previous → inline writes loadjob tokens in edge order', () => {
         const prev: JobDefinition = {
             name: 'P',
