@@ -27,6 +27,24 @@ function setup(scope: string, index: number) {
 }
 
 describe('ActionPanel', () => {
+    test('shows the issues given for the action', () => {
+        renderThemed(
+            <ActionPanel
+                job={job()}
+                scope="job"
+                index={0}
+                destinations={[]}
+                alertActions={[]}
+                tokenGroups={[]}
+                issues={[{ level: 'error', code: 'unknown_destination', message: "webhook destination 'slack-ops' doesn't exist; pick another", step: null }]}
+                dispatch={jest.fn()}
+                onMoved={jest.fn()}
+                onRequestRemove={jest.fn()}
+            />
+        );
+        expect(screen.getByText("webhook destination 'slack-ops' doesn't exist; pick another")).toBeInTheDocument();
+    });
+
     test('moving to Whole job · Finished either way dispatches moveAction and reports the new key', () => {
         const { dispatch, onMoved } = setup('a', 0);
         fireEvent.click(screen.getByRole('combobox', { name: 'When' }));

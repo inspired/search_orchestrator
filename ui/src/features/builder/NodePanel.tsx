@@ -7,6 +7,7 @@ import type { AlertAction, Destination, Issue, Job, JobDefinition } from '../../
 import ActionPanel from './ActionPanel';
 import type { BuilderApi } from './BuilderPage';
 import EdgePanel from './EdgePanel';
+import { issuesForAction } from './issueTabs';
 import type { FlowSelection } from './FlowCanvas';
 import OutputPanel from './OutputPanel';
 import JobNodePanel from './JobNodePanel';
@@ -118,6 +119,7 @@ export default function NodePanel(props: NodePanelProps) {
                 destinations={props.destinations}
                 alertActions={props.alertActions}
                 tokenGroups={availableTokens(job, scope === 'job' ? null : scope, previewFields)}
+                issues={issuesForAction(job, byStep[scope === 'job' ? '' : scope] || [], scope, index)}
                 dispatch={dispatch}
                 onMoved={selectNode}
                 onRequestRemove={onRequestRemove}

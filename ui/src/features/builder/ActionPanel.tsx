@@ -5,9 +5,10 @@ import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
-import type { Action, AlertAction, Destination, JobDefinition } from '../../api/types';
+import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
 import { ActionFields } from './ActionsEditor';
 import { stepLabel } from './GraphView';
+import { IssueList } from './StepPanel';
 import { ActionScope, HOOK_FOR_PORT, PortId, actionKey } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
 import type { BuilderAction } from './reducer';
@@ -20,6 +21,8 @@ export interface ActionPanelProps {
     destinations: Destination[];
     alertActions?: AlertAction[] | null;
     tokenGroups?: TokenGroup[];
+    /** Problems the check found with this action. */
+    issues?: Issue[];
     dispatch: React.Dispatch<BuilderAction>;
     /** Called with the node key the action has after a move, so the page can keep it selected. */
     onMoved: (key: string) => void;
@@ -50,7 +53,7 @@ function diff(from: Action, to: Action): Partial<Action> {
     return changes as Partial<Action>;
 }
 
-export default function ActionPanel({ job, scope, index, destinations, alertActions, tokenGroups, dispatch, onMoved, onRequestRemove }: ActionPanelProps) {
+export default function ActionPanel({ job, scope, index, destinations, alertActions, tokenGroups, issues = [], dispatch, onMoved, onRequestRemove }: ActionPanelProps) {
     const steps = job.steps || [];
     const list = (s: ActionScope): Action[] => (s === 'job' ? job.actions : steps.find((x) => x.id === s)?.actions) || [];
     const action = list(scope)[index];
@@ -73,6 +76,7 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
     return (
         <section aria-label="Action">
             <Heading level={2}>Action</Heading>
+            <IssueList issues={issues} />
             <ControlGroup label="When" labelFor="action-when" labelPosition="top">
                 <Select inputId="action-when" value={current} onChange={(_e: unknown, { value }: { value: unknown }) => onWhen(String(value))}>
                     {sources.map((src) =>
