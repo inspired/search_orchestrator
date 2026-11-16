@@ -1,6 +1,5 @@
-/* The step graph, read-only: dagre top-to-bottom layout, each node with its name and either
- * shared drawing helpers (edges, node boxes, types) the node editor still uses.
- * builder's Canvas draws with the same primitives. All colour comes from theme tokens. */
+/* Shared drawing helpers for the flow graph (edges, node boxes, labels, types). All colour comes
+ * from theme tokens. */
 import React from 'react';
 import styled from 'styled-components';
 import { variables } from '@splunk/themes';
