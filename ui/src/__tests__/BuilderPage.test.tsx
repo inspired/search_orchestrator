@@ -296,6 +296,32 @@ describe('BuilderPage removing nodes', () => {
         await waitFor(() => expect(screen.queryByRole('button', { name: /^Search Weekly rollup/ })).toBeNull());
     });
 
+    it('removing a step with actions says its actions go too', async () => {
+        const job = rollupJob({
+            steps: rollupJob().steps.map((st) => (st.id === 'weekly' ? { ...st, actions: [{ hook: 'on_failure', type: 'email', to: 'ops@example.com' }] } : st)),
+        });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        fireEvent.keyDown(await screen.findByRole('button', { name: /^Search Weekly rollup/ }), { key: 'Delete' });
+        expect(screen.getByText('Remove Weekly rollup?')).toBeInTheDocument();
+        expect(screen.getByText('Weekly rollup, its actions and its connections are removed. Undo brings them back.')).toBeInTheDocument();
+    });
+
+    it('a Slack action keeps its capital and an action with nothing filled in has no detail', async () => {
+        const job = rollupJob({
+            actions: [
+                { hook: 'on_failure', type: 'webhook', preset: 'slack', destination: 'ops-channel' },
+                { hook: 'on_failure', type: 'email', to: '' },
+            ],
+        });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.keyDown(screen.getByTestId('node-action:job:0'), { key: 'Delete' });
+        expect(screen.getByText('Remove Slack (ops-channel)?')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        fireEvent.keyDown(screen.getByTestId('node-action:job:1'), { key: 'Delete' });
+        expect(screen.getByText('Remove email?')).toBeInTheDocument();
+    });
+
     it('focus moves to the next step after a delete, or the canvas when none remain', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         const weekly = await screen.findByRole('button', { name: /^Search Weekly rollup/ });
@@ -325,8 +351,8 @@ describe('BuilderPage removing nodes', () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
         const cases: [string, string, string, string][] = [
-            ['action:job:0', 'Remove Email?', 'Email is removed. Undo brings it back.', 'Remove action'],
-            ['trigger:0', 'Remove Schedule?', 'Schedule is removed. Undo brings it back.', 'Remove trigger'],
+            ['action:job:0', 'Remove email (a@b.c)?', 'Email (a@b.c) is removed. Undo brings it back.', 'Remove action'],
+            ['trigger:0', 'Remove schedule (Every day at 01:00)?', 'Schedule (Every day at 01:00) is removed. Undo brings it back.', 'Remove trigger'],
             [
                 'cond:daily>weekly',
                 'Remove the condition from Daily summary to Weekly rollup?',
