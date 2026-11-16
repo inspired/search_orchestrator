@@ -1,6 +1,7 @@
-/* The job builder: a graph canvas of steps with a side panel for the selected step or
- * dependency, job-level tabs, undo/redo, and automatic checking against the server, and Save. Save checks
- * first, and warns before an admin takes over someone else's job. */
+/* The job builder: the Flow tab's node editor (steps, triggers, actions, conditions and the
+ * whole job) with a side panel for the selected node, the other job tabs, undo/redo, automatic
+ * checking against the server, and Save. Save checks first, and warns before an admin takes
+ * over someone else's job. */
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -13,21 +14,29 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
 import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
-import Canvas, { Selection } from './Canvas';
-import EdgePanel from './EdgePanel';
+import FlowCanvas, { FlowSelection, ScreenPoint } from './FlowCanvas';
+import { layoutFlow } from './flowLayout';
 import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
+import type { Pos } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
-import { readiness } from './readiness';
+import { ChecklistItem, readiness } from './readiness';
 import IssueSummary from './IssueSummary';
-import { tabForIssue } from './issueTabs';
+import { nodeForIssue, tabForIssue } from './issueTabs';
+import { targetKinds } from './nodeCatalog';
+import { JOB_KEY, buildGraph, stepKey } from './nodeModel';
+import type { NodeKind, PortId } from './nodeModel';
+import NodePanel from './NodePanel';
+import QuickAdd from './QuickAdd';
+import RemoveNodeModal from './RemoveNodeModal';
 import SetupChecklist from './SetupChecklist';
 import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
-import { blankJob, initialState, isDirty, nextStepId, reducer } from './reducer';
-import StepPanel, { IssueList } from './StepPanel';
+import { addNodeKey, blankJob, initialState, isDirty, reducer } from './reducer';
+import type { BuilderAction } from './reducer';
+import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
 import { JobTemplate, templateByKey } from './templates';
 
@@ -75,6 +84,15 @@ export interface BuilderPageProps {
 
 type Notice = { type: 'success' | 'error' | 'info'; text: string } | null;
 
+/** An open quick-add box: which kinds it offers, the line it continues, and where. */
+interface QuickAddState {
+    kinds?: NodeKind[];
+    from?: { key: string; port: PortId };
+    /** Canvas point for the new node; none lets the layout place it. */
+    at?: Pos;
+    screen: ScreenPoint;
+}
+
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
@@ -93,7 +111,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const [destinations, setDestinations] = useState<Destination[]>([]);
     const [alertActions, setAlertActions] = useState<AlertAction[] | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
-    const [selected, setSelected] = useState<Selection>(null);
+    const [selected, setSelectedState] = useState<FlowSelection>(null);
+    const [quick, setQuick] = useState<QuickAddState | null>(null);
     const [notice, setNotice] = useState<Notice>(null);
     const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -109,12 +128,18 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const rememberFocus = () => {
         returnFocus.current = document.activeElement as HTMLElement | null;
     };
-    const setRemoving = (id: string | null) => {
-        if (id) {
+    const setRemoving = (key: string | null) => {
+        if (key) {
             rememberFocus();
         }
-        setRemovingState(id);
+        setRemovingState(key);
     };
+    // Selecting anything (or clicking the empty canvas) closes the quick-add box.
+    const setSelected = (sel: FlowSelection) => {
+        setQuick(null);
+        setSelectedState(sel);
+    };
+    const selectNode = (key: string) => setSelected({ kind: 'node', key });
 
     /** This job's recent runs for "Input from": loaded with the job, after a save, and
      * each time the list is opened. */
@@ -248,10 +273,28 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const jobLevel = byStep[''] || [];
     const errorIssues = errorsIn(issues);
     const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
+    const graph = useMemo(() => buildGraph(job), [job]);
+    const positions = useMemo(() => layoutFlow(graph, job.layout?.nodes), [graph, job.layout]);
+    // A selection whose node or line is gone (removed, undone, renamed) counts as none.
+    const selection: FlowSelection =
+        selected &&
+        (selected.kind === 'node' ? graph.nodes.some((n) => n.key === selected.key) : graph.links.some((l) => l.key === selected.key))
+            ? selected
+            : null;
     const goToIssue = (issue: Issue) => {
         setActiveTab(tabForIssue(issue));
-        if (issue.step) {
-            setSelected({ kind: 'step', id: issue.step });
+        const key = nodeForIssue(job, issue);
+        if (key) {
+            selectNode(key);
+        }
+    };
+    const goToItem = (item: ChecklistItem) => {
+        setActiveTab(item.tab);
+        if (item.node) {
+            selectNode(item.node);
+        } else if (item.addKinds) {
+            rememberFocus();
+            setQuick({ kinds: item.addKinds, screen: { left: 8, top: 8 } });
         }
     };
     // The list stays until the next save attempt or until nothing is left to fix: no live
@@ -263,11 +306,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     }, [showSummary, errorIssues.length]);
 
     const owner = meta.owner || (me ? me.user : '');
-    const selectedStep = selected && selected.kind === 'step' && job.steps.some((s) => s.id === selected.id) ? selected.id : null;
-    const selectedEdge =
-        selected && selected.kind === 'edge' && (job.edges || []).some((e) => e.from === selected.from && e.to === selected.to)
-            ? selected
-            : null;
 
     const runCheck = async (): Promise<ValidateResponse | null> => {
         try {
@@ -350,9 +388,10 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
 
     const canvasArea = useRef<HTMLDivElement | null>(null);
 
-    // After a confirmed delete, focus moves to the next step, else the previous one, else
-    // the canvas. Applied once the modal has closed and handed focus back.
-    const [focusNext, setFocusNext] = useState<{ id: string | null } | null>(null);
+    // After a confirmed delete, focus moves to the next step, else the previous one, else the
+    // canvas; after adding a node, to the new node. Applied once the modal or quick-add box has
+    // closed and handed focus back.
+    const [focusNext, setFocusNext] = useState<{ key: string | null } | null>(null);
     useEffect(() => {
         if (!focusNext || removing) {
             return undefined;
@@ -360,8 +399,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         const timer = window.setTimeout(() => {
             const area = canvasArea.current;
             if (area) {
-                const nodes = Array.from(area.querySelectorAll<HTMLElement>('[data-node-id]'));
-                const node = nodes.find((n) => n.getAttribute('data-node-id') === focusNext.id);
+                const nodes = Array.from(area.querySelectorAll<HTMLElement>('[data-node-key]'));
+                const node = nodes.find((n) => n.getAttribute('data-node-key') === focusNext.key);
                 const target = node || area.querySelector<HTMLElement>('[data-canvas]');
                 if (target) {
                     target.focus();
@@ -372,70 +411,70 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         return () => window.clearTimeout(timer);
     }, [focusNext, removing]);
 
-    const confirmRemove = () => {
+    const requestRemove = (key: string) => {
+        if (key !== JOB_KEY) {
+            setRemoving(key);
+        }
+    };
+
+    const confirmRemove = (action: BuilderAction) => {
         if (removing) {
-            const ids = job.steps.map((s) => s.id);
-            const at = ids.indexOf(removing);
-            const next = ids[at + 1] !== undefined ? ids[at + 1] : ids[at - 1];
+            let next: string | null = null;
+            if (action.type === 'removeStep') {
+                const ids = job.steps.map((s) => s.id);
+                const at = ids.indexOf(action.id);
+                const id = ids[at + 1] !== undefined ? ids[at + 1] : ids[at - 1];
+                next = id === undefined ? null : stepKey(id);
+            }
             returnFocus.current = null;
-            setFocusNext({ id: next === undefined ? null : next });
-            dispatch({ type: 'removeStep', id: removing });
-            if (selected && selected.kind === 'step' && selected.id === removing) {
+            setFocusNext({ key: next });
+            dispatch(action);
+            // Later actions in the same list, and later triggers, move down a place, so a
+            // selection among them would point at a different node: drop it.
+            const shifting = removing.startsWith('action:')
+                ? removing.slice(0, removing.lastIndexOf(':') + 1)
+                : removing.startsWith('trigger:')
+                  ? 'trigger:'
+                  : null;
+            const key = selection && selection.kind === 'node' ? selection.key : null;
+            if (key && (key === removing || (shifting && key.startsWith(shifting)))) {
                 setSelected(null);
             }
         }
         setRemoving(null);
     };
 
-    const removingStep = removing ? job.steps.find((s) => s.id === removing) : undefined;
+    const closeQuick = () => {
+        setQuick(null);
+        const back = returnFocus.current;
+        returnFocus.current = null;
+        if (back && back.isConnected) {
+            back.focus();
+        } else {
+            setFocusNext({ key: null });
+        }
+    };
 
-    const sidePanel = () => {
-        if (selectedStep) {
-            return (
-                <StepPanel
-                    key={selectedStep}
-                    job={job}
-                    stepId={selectedStep}
-                    scheduledTime={scheduledTime}
-                    resolveTimeRange={api.resolveTimeRange}
-                    issues={byStep[selectedStep] || []}
-                    dispatch={dispatch}
-                    destinations={destinations}
-                    alertActions={alertActions}
-                    onRename={(_from, to) => setSelected({ kind: 'step', id: to })}
-                    onRequestRemove={setRemoving}
-                    preview={previews.previews[selectedStep]}
-                    onPreview={
-                        meta.canEdit
-                            ? (id, opts) => {
-                                  previews.preview(id, opts);
-                              }
-                            : undefined
-                    }
-                    onCancelPreview={previews.cancel}
-                    previewFields={previewFields}
-                />
-            );
+    const chooseNode = (kind: NodeKind) => {
+        if (!quick) {
+            return;
         }
-        if (selectedEdge) {
-            return (
-                <EdgePanel
-                    job={job}
-                    from={selectedEdge.from}
-                    to={selectedEdge.to}
-                    issues={(byStep[selectedEdge.to] || []).filter((i) => i.code === 'bad_expression' || i.code === 'unknown_token')}
-                    dispatch={dispatch}
-                    onRemoved={() => setSelected(null)}
-                    previewFields={previewFields}
-                />
-            );
+        const key = addNodeKey(job, kind, quick.from);
+        dispatch({ type: 'addNode', kind, at: quick.at, from: quick.from });
+        returnFocus.current = null;
+        setQuick(null);
+        if (key) {
+            setSelectedState({ kind: 'node', key });
+            setFocusNext({ key });
         }
-        return (
-            <p style={{ color: theme.contentColorMuted }}>
-                Select a step to edit it, or add one. Drag from the circle under a step onto another step to make it depend on that step, or use
-                the step&apos;s &quot;Depends on&quot; field.
-            </p>
-        );
+    };
+
+    const openQuick = (state: QuickAddState) => {
+        if (state.kinds && !state.kinds.length) {
+            return;
+        }
+        rememberFocus();
+        setQuick(state);
     };
 
     const stepsTab = (
@@ -456,35 +495,38 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             resultRetention={resultRetention}
         />
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                    <Button
-                        appearance="secondary"
-                        label="Add step"
-                        onClick={() => {
-                            const id = nextStepId(job.steps);
-                            dispatch({ type: 'addStep', step: { id } });
-                            setSelected({ kind: 'step', id });
-                        }}
-                    />
-                </div>
-                <div ref={canvasArea}>
-                <Canvas
-                    steps={job.steps}
-                    edges={job.edges || []}
-                    selected={selected}
+            <div ref={canvasArea} style={{ flex: 1, minWidth: 0 }}>
+                <FlowCanvas
+                    graph={graph}
+                    positions={positions}
+                    selected={selection}
                     issues={issues}
-                    onSelect={setSelected}
-                    onConnect={(from, to) => dispatch({ type: 'connect', from, to })}
-                    onAddFrom={(from) => {
-                        const id = nextStepId(job.steps);
-                        dispatch({ type: 'addStepFrom', from, id });
-                        setSelected({ kind: 'step', id });
-                    }}
-                    onRequestRemove={setRemoving}
                     notes={notes}
+                    onSelect={setSelected}
+                    onMove={(moved) => dispatch({ type: 'moveNodes', positions: moved })}
+                    onConnect={(from, port, to) => dispatch({ type: 'connectPort', from, port, to })}
+                    onDropOnCanvas={(from, port, at, screen) => {
+                        const node = graph.nodes.find((n) => n.key === from);
+                        // A condition already leads somewhere; its line is moved, not continued.
+                        if (node && node.kind !== 'condition') {
+                            openQuick({ kinds: targetKinds(port, node.kind), from: { key: from, port }, at, screen });
+                        }
+                    }}
+                    onRequestRemove={requestRemove}
+                    onQuickAdd={(at, screen) => openQuick({ at, screen })}
+                    onTidy={() => dispatch({ type: 'tidyLayout' })}
+                    overlay={
+                        quick && (
+                            <QuickAdd
+                                open
+                                at={{ left: Math.max(0, quick.screen.left), top: Math.max(0, quick.screen.top) }}
+                                kinds={quick.kinds}
+                                onChoose={chooseNode}
+                                onClose={closeQuick}
+                            />
+                        )
+                    }
                 />
-                </div>
             </div>
             <div
                 style={{
@@ -496,7 +538,32 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     overflowY: 'auto',
                 }}
             >
-                {sidePanel()}
+                <NodePanel
+                    job={job}
+                    graph={graph}
+                    selection={selection}
+                    byStep={byStep}
+                    dispatch={dispatch}
+                    onSelect={setSelected}
+                    onRequestRemove={requestRemove}
+                    onOpenSettings={() => setActiveTab('settings')}
+                    destinations={destinations}
+                    alertActions={alertActions}
+                    jobs={jobs}
+                    nextSlots={api.nextSlots}
+                    previewFields={previewFields}
+                    scheduledTime={scheduledTime}
+                    resolveTimeRange={api.resolveTimeRange}
+                    previews={previews.previews}
+                    onPreview={
+                        meta.canEdit
+                            ? (id, opts) => {
+                                  previews.preview(id, opts);
+                              }
+                            : undefined
+                    }
+                    onCancelPreview={previews.cancel}
+                />
             </div>
         </div>
         </>
@@ -539,7 +606,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         dispatch({ type: 'applyTemplate', job: built });
                         setChoosingTemplate(false);
                         if (built.steps.length) {
-                            setSelected({ kind: 'step', id: built.steps[0].id });
+                            selectNode(stepKey(built.steps[0].id));
                         }
                     }}
                 />
@@ -552,7 +619,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                             onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'name', value })}
                         />
                     </ControlGroup>
-                    {!checklistDismissed && !allReady && <SetupChecklist items={checklist} onTabChange={setActiveTab} onHide={() => setChecklistDismissed(true)} />}
+                    {!checklistDismissed && !allReady && <SetupChecklist items={checklist} onGo={goToItem} onHide={() => setChecklistDismissed(true)} />}
                     <JobTabs
                         activeTab={activeTab}
                         onTabChange={setActiveTab}
@@ -560,12 +627,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         dispatch={dispatch}
                         owner={owner}
                         roles={me ? me.roles : []}
-                        jobs={jobs}
-                        destinations={destinations}
-                        alertActions={alertActions}
                         steps={stepsTab}
-                        nextSlots={api.nextSlots}
-                        previewFields={previewFields}
                         issues={issues}
                     />
                 </>
@@ -585,16 +647,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                 </Modal>
             )}
             {removing && (
-                <Modal open onRequestClose={() => setRemoving(null)} returnFocus={returnFocus} style={{ width: '480px' }}>
-                    <Modal.Header title={`Remove ${removingStep ? stepLabel(removingStep) : removing}?`} />
-                    <Modal.Body>
-                        <p>{`${removingStep ? stepLabel(removingStep) : removing} and its connections are removed. Undo brings them back.`}</p>
-                    </Modal.Body>
-                    <Modal.Footer>
-                        <Button appearance="secondary" label="Cancel" onClick={() => setRemoving(null)} />
-                        <Button appearance="destructive" label="Remove step" onClick={confirmRemove} />
-                    </Modal.Footer>
-                </Modal>
+                <RemoveNodeModal job={job} nodeKey={removing} returnFocus={returnFocus} onCancel={() => setRemoving(null)} onConfirm={confirmRemove} />
             )}
         </PageShell>
     );

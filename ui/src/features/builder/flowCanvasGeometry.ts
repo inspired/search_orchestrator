@@ -41,8 +41,7 @@ export function linkEnds(
     link: FlowLink,
     from: FlowNode,
     to: FlowNode,
-    pos: Positions,
-    portsOf: (node: FlowNode) => PortId[]
+    pos: Positions
 ): { a: Pos; b: Pos } | null {
     const pa = pos[from.key];
     const pb = pos[to.key];
@@ -51,7 +50,7 @@ export function linkEnds(
     }
     let start: Pos;
     if (link.port) {
-        const o = portOffset(from.kind, link.port, portsOf(from));
+        const o = portOffset(from.kind, link.port);
         start = { x: pa.x + o.x, y: pa.y + o.y };
     } else {
         const s = nodeSize(from.kind);

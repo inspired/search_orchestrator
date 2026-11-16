@@ -22,7 +22,7 @@ const threeSteps = (edges: JobDefinition['edges']): JobDefinition => ({
 function Harness({ job, stepId, onState }: { job: JobDefinition; stepId: string; onState: (s: BuilderState) => void }) {
     const [state, dispatch] = useReducer(reducer, job, initialState);
     onState(state);
-    return <StepPanel job={state.job} stepId={stepId} issues={[]} dispatch={dispatch} destinations={[]} scheduledTime={1762390800} resolveTimeRange={jest.fn().mockResolvedValue({ earliest: 1762300800, latest: 1762387200 })} />;
+    return <StepPanel job={state.job} stepId={stepId} issues={[]} dispatch={dispatch} scheduledTime={1762390800} resolveTimeRange={jest.fn().mockResolvedValue({ earliest: 1762300800, latest: 1762387200 })} />;
 }
 
 function renderPanel(job: JobDefinition, stepId: string) {
@@ -147,10 +147,10 @@ describe('BuilderPage', () => {
             }),
         });
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
-        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
         expect(screen.queryByRole('button', { name: 'Validate' })).toBeNull();
-        const weekly = await screen.findByRole('button', { name: /^Step Weekly rollup, 1 warning/ }, { timeout: 3000 });
-        fireEvent.keyDown(screen.getByRole('button', { name: /^Step Daily summary/ }), { key: 'Enter' });
+        const weekly = await screen.findByRole('button', { name: /^Search Weekly rollup, .*1 warning/ }, { timeout: 3000 });
+        fireEvent.keyDown(screen.getByRole('button', { name: /^Search Daily summary/ }), { key: 'Enter' });
         expect(screen.queryByText(/isn't a private search of alice/)).toBeNull();
         fireEvent.keyDown(weekly, { key: 'Enter' });
         const panel = screen.getByRole('region', { name: 'Step Weekly rollup' });
@@ -161,7 +161,7 @@ describe('BuilderPage', () => {
         let resolve: (r: unknown) => void = () => undefined;
         const api = fakeApi({ validateJob: jest.fn().mockImplementation(() => new Promise((res) => (resolve = res))) });
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
-        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
         expect(await screen.findByText('Checking…', undefined, { timeout: 3000 })).toBeInTheDocument();
         resolve({ valid: true, issues: [], owner_will_change: false, owner: 'alice' });
         await waitFor(() => expect(screen.queryByText('Checking…')).toBeNull());
@@ -173,7 +173,7 @@ describe('BuilderPage', () => {
             validateJob: jest.fn().mockResolvedValue({ valid: true, issues: [], owner_will_change: true, owner: 'alice' }),
         });
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
-        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         expect(await screen.findByText(/This job belongs to bob/)).toBeInTheDocument();
         expect(api.updateJob).not.toHaveBeenCalled();
@@ -191,10 +191,10 @@ describe('BuilderPage save checks', () => {
             validateJob: jest.fn().mockResolvedValue({ valid: false, issues: [issue('error')], owner_will_change: false, owner: 'alice' }),
         });
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
-        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         expect(await screen.findByText('Fix 1 problem before saving')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^Step Weekly rollup, 1 error/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Search Weekly rollup, .*1 error/ })).toBeInTheDocument();
         expect(api.updateJob).not.toHaveBeenCalled();
     });
 
@@ -203,7 +203,7 @@ describe('BuilderPage save checks', () => {
             validateJob: jest.fn().mockResolvedValue({ valid: true, issues: [issue('warning')], owner_will_change: false, owner: 'alice' }),
         });
         renderThemed(<BuilderPage jobId="rollups" api={api} />);
-        await screen.findByRole('button', { name: /^Step Weekly rollup/ });
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
         expect(await screen.findByText('Saved.')).toBeInTheDocument();

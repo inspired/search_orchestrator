@@ -1,6 +1,7 @@
 /* The side panel for the selected step: search, time range, "Depends on" (so steps can be
- * connected without a pointer), run when, delayed after, give up after, max runtime,
- * retries and step actions, with the step's issues from the client check and the server. */
+ * connected without a pointer), run when, delayed after, give up after, max runtime and
+ * retries, with the step's issues from the client check and the server. Its actions are
+ * nodes of their own. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -12,7 +13,7 @@ import Text from '@splunk/react-ui/Text';
 import Heading from '@splunk/react-ui/Heading';
 import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
-import type { AlertAction, Destination, Issue, JobDefinition, StepDef } from '../../api/types';
+import type { Issue, JobDefinition, StepDef } from '../../api/types';
 import { DURATION_UNITS, DurationUnit, formatDuration, splitDuration, toSeconds } from './duration';
 import type { BuilderApi } from './BuilderPage';
 import TimeRangeField from './TimeRangeField';
@@ -144,9 +145,6 @@ export interface StepPanelProps {
     stepId: string;
     issues: Issue[];
     dispatch: (action: BuilderAction) => void;
-    /** No longer used here: actions are edited in their own node's panel. */
-    destinations?: Destination[];
-    alertActions?: AlertAction[] | null;
     onRename?: (from: string, to: string) => void;
     onRequestRemove?: (id: string) => void;
     /** Shows "Preview step" and the step's preview result when given. */

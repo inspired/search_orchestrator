@@ -1,5 +1,5 @@
-/* The builder's state: the job being edited and undo/redo history. Where steps sit on the
- * canvas is not state: the canvas lays the graph out from the steps and edges. */
+/* The builder's state: the job being edited and undo/redo history. Positions a person chose
+ * are saved in job.layout; every other node is placed by the flow layout. */
 import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef, Trigger } from '../../api/types';
 import { wouldCycle } from './graphLogic';
@@ -349,6 +349,17 @@ function addNodeJob(job: JobDefinition, kind: NodeKind, from?: { key: string; po
     return setActions(job, scope, [...actionsOf(job, scope), { hook, ...defaults } as Action]);
 }
 
+/** The action with `changes` applied; a field set to undefined is removed, not stored. */
+function withChanges(a: Action, changes: Partial<Action>): Action {
+    const out: Record<string, unknown> = { ...a, ...changes };
+    Object.keys(changes).forEach((k) => {
+        if (changes[k] === undefined) {
+            delete out[k];
+        }
+    });
+    return out as Action;
+}
+
 const same = (e: Pick<Edge, 'from' | 'to'>, from: string, to: string) => e.from === from && e.to === to;
 
 export function reducer(state: BuilderState, action: BuilderAction): BuilderState {
@@ -484,7 +495,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (!list[action.index]) {
                 return state;
             }
-            const next = list.map((a, i) => (i === action.index ? ({ ...a, ...action.changes } as Action) : a));
+            const next = list.map((a, i) => (i === action.index ? withChanges(a, action.changes) : a));
             return edits(
                 state,
                 setActions(job, action.scope, next),

@@ -21,7 +21,10 @@ describe('readiness', () => {
     it('a blank job has nothing done', () => {
         const items = readiness(blankJob());
         expect(items.map((i) => i.label)).toEqual(['Give the job a name', 'Add a step', "Write each step's search", SCHEDULE, NOTIFY]);
-        expect(items.map((i) => i.tab)).toEqual(['steps', 'steps', 'steps', 'triggers', 'actions']);
+        expect(items.map((i) => i.tab)).toEqual(['steps', 'steps', 'steps', 'steps', 'steps']);
+        expect(items[3].addKinds).toEqual(['trigger_cron', 'trigger_completion']);
+        expect(items[3].node).toBeUndefined();
+        expect(items[4].node).toBe('job');
         expect(items.map((i) => i.optional)).toEqual([false, false, false, true, true]);
         expect(items.every((i) => !i.done)).toBe(true);
     });
@@ -39,6 +42,12 @@ describe('readiness', () => {
     it('a saved search step without a reference is not done', () => {
         const job = { ...blankJob(), name: 'j', steps: [{ id: 'a', type: 'saved_search' as const }] };
         expect(done(job).searches).toBe(false);
+    });
+
+    it('with a trigger the schedule item points at the first trigger node', () => {
+        const item = readiness(full()).find((i) => i.key === 'schedule');
+        expect(item?.node).toBe('trigger:0');
+        expect(item?.addKinds).toBeUndefined();
     });
 
     it('a completion trigger counts as a schedule', () => {
@@ -63,32 +72,33 @@ describe('readiness', () => {
 });
 
 describe('SetupChecklist', () => {
-    it('shows the count and goes to the item tab', () => {
-        const onTabChange = jest.fn();
+    it('shows the count and goes to the item', () => {
+        const onGo = jest.fn();
         const job = { ...full(), name: '', triggers: [] };
-        renderThemed(<SetupChecklist items={readiness(job)} onTabChange={onTabChange} />);
+        const items = readiness(job);
+        renderThemed(<SetupChecklist items={items} onGo={onGo} />);
         expect(screen.getByText('3 of 5 done')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: `Go to Triggers: ${SCHEDULE}` }));
-        expect(onTabChange).toHaveBeenCalledWith('triggers');
+        fireEvent.click(screen.getByRole('button', { name: `Go to Flow: ${SCHEDULE}` }));
+        expect(onGo).toHaveBeenCalledWith(items[3]);
         expect(screen.getAllByText('Done').length).toBe(3);
         expect(screen.getAllByText('Not done').length).toBe(2);
     });
 
     it('shows 0 of 5 for a blank job', () => {
-        renderThemed(<SetupChecklist items={readiness(blankJob())} onTabChange={jest.fn()} />);
+        renderThemed(<SetupChecklist items={readiness(blankJob())} onGo={jest.fn()} />);
         expect(screen.getByText('0 of 5 done')).toBeInTheDocument();
     });
 
     it('offers no Go to button for a done item', () => {
-        renderThemed(<SetupChecklist items={readiness(full())} onTabChange={jest.fn()} />);
+        renderThemed(<SetupChecklist items={readiness(full())} onGo={jest.fn()} />);
         expect(screen.queryByRole('button', { name: /Go to/ })).toBeNull();
     });
 
     it('offers Hide checklist only once the required items are done', () => {
-        const { unmount } = renderThemed(<SetupChecklist items={readiness(blankJob())} onTabChange={jest.fn()} onHide={jest.fn()} />);
+        const { unmount } = renderThemed(<SetupChecklist items={readiness(blankJob())} onGo={jest.fn()} onHide={jest.fn()} />);
         expect(screen.queryByRole('button', { name: 'Hide checklist' })).toBeNull();
         unmount();
-        renderThemed(<SetupChecklist items={readiness(base())} onTabChange={jest.fn()} onHide={jest.fn()} />);
+        renderThemed(<SetupChecklist items={readiness(base())} onGo={jest.fn()} onHide={jest.fn()} />);
         expect(screen.getByRole('button', { name: 'Hide checklist' })).toBeInTheDocument();
     });
 });
@@ -106,22 +116,48 @@ describe('BuilderPage checklist', () => {
         expect(screen.queryByText(/of 5 done/)).toBeNull();
     });
 
-    it('shows for a new blank job and Go to switches tab', async () => {
+    it('shows for a new blank job; the schedule item opens quick-add with the two trigger kinds', async () => {
         await show(<BuilderPage api={fakeApi()} template="blank" />);
         expect(screen.getByText('0 of 5 done')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Hide checklist' })).toBeNull();
-        fireEvent.click(screen.getByRole('button', { name: `Go to Triggers: ${SCHEDULE}` }));
-        expect(screen.getByRole('tab', { name: 'Triggers', selected: true })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('tab', { name: /^Settings/ }));
+        fireEvent.click(screen.getByRole('button', { name: `Go to Flow: ${SCHEDULE}` }));
+        expect(screen.getByRole('tab', { name: /^Flow/, selected: true })).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: 'Add a node' })).toHaveFocus();
+        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+            'ScheduleStart the job on a schedule.',
+            'After another jobStart the job when another job finishes.',
+        ]);
+        fireEvent.keyDown(screen.getByRole('combobox', { name: 'Add a node' }), { key: 'Enter' });
+        expect(screen.getByTestId('node-trigger:0')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByText('1 of 5 done')).toBeInTheDocument();
     });
 
     it('a templated job named by the user keeps the notice item until hidden', async () => {
         await show(<BuilderPage api={fakeApi()} template="rollup" />);
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Mine' } });
-        expect(screen.getByRole('button', { name: `Go to Actions: ${NOTIFY}` })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: `Go to Flow: ${NOTIFY}` })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Hide checklist' }));
         expect(screen.queryByText(/of 5 done/)).toBeNull();
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: '' } });
         expect(screen.queryByText(/of 5 done/)).toBeNull();
+    });
+
+    it('the failure-notification item selects the Whole job node', async () => {
+        const api = fakeApi({
+            validateJob: jest.fn().mockResolvedValue({
+                valid: true,
+                issues: [{ level: 'warning', code: 'no_failure_notification', message: 'No one hears about failures', step: null }],
+                owner_will_change: false,
+                owner: 'alice',
+            }),
+        });
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.click(screen.getByRole('tab', { name: /^Parameters/ }));
+        fireEvent.click(screen.getByRole('button', { name: `Go to Flow: ${NOTIFY}` }));
+        expect(screen.getByRole('tab', { name: /^Flow/, selected: true })).toBeInTheDocument();
+        expect(screen.getByTestId('node-job')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('region', { name: 'Whole job' })).toBeInTheDocument();
     });
 
     it('a loaded job with a schedule but no failure action offers Hide checklist', async () => {

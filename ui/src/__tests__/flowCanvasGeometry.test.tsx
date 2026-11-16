@@ -42,9 +42,9 @@ describe('flowCanvasGeometry', () => {
     it('starts a trigger line at the right middle of the trigger', () => {
         const l = graph.links.find((x) => x.kind === 'trigger')!;
         const by = new Map(graph.nodes.map((n) => [n.key, n]));
-        const ends = linkEnds(l, by.get(l.from)!, by.get(l.to)!, pos, () => []);
+        const ends = linkEnds(l, by.get(l.from)!, by.get(l.to)!, pos);
         expect(ends).toEqual({ a: { x: 180, y: 22 }, b: { x: 300, y: 38 } });
-        expect(linkEnds(l, by.get(l.from)!, by.get(l.to)!, {}, () => [])).toBeNull();
+        expect(linkEnds(l, by.get(l.from)!, by.get(l.to)!, {})).toBeNull();
     });
 
     it('finds the node under a point', () => {

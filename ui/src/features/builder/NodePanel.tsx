@@ -1,0 +1,135 @@
+/* The Flow tab's side panel: the editor for whatever is selected on the canvas (a step, an
+ * action, a trigger, a condition, a step-to-step line or the whole job), or a hint when nothing
+ * is. Each editor is keyed by the selection so its drafts never carry over to another node. */
+import React from 'react';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import type { AlertAction, Destination, Issue, Job, JobDefinition } from '../../api/types';
+import ActionPanel from './ActionPanel';
+import type { BuilderApi } from './BuilderPage';
+import EdgePanel from './EdgePanel';
+import type { FlowSelection } from './FlowCanvas';
+import JobNodePanel from './JobNodePanel';
+import { FlowGraph, JOB_KEY, stepKey } from './nodeModel';
+import type { BuilderAction } from './reducer';
+import type { NextSlots } from './ScheduleEditor';
+import StepPanel from './StepPanel';
+import { availableTokens } from './tokens';
+import TriggerPanel from './TriggerPanel';
+import type { PreviewView } from './usePreviews';
+
+export const EMPTY_HINT = 'Select a node to edit it. Drag from a port on the right of a node to connect it, or press / to add a node.';
+
+const EXPRESSION_CODES = ['bad_expression', 'unknown_token'];
+
+export interface NodePanelProps {
+    job: JobDefinition;
+    graph: FlowGraph;
+    selection: FlowSelection;
+    /** Issues grouped by step id. */
+    byStep: Record<string, Issue[]>;
+    dispatch: React.Dispatch<BuilderAction>;
+    onSelect: (sel: FlowSelection) => void;
+    /** The page confirms, then removes the node with this key. */
+    onRequestRemove: (key: string) => void;
+    onOpenSettings: () => void;
+    destinations: Destination[];
+    alertActions: AlertAction[] | null;
+    jobs: Pick<Job, 'id' | 'name'>[];
+    nextSlots?: NextSlots;
+    previewFields: Record<string, string[]>;
+    scheduledTime: number;
+    resolveTimeRange: BuilderApi['resolveTimeRange'];
+    previews: Record<string, PreviewView | undefined>;
+    onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
+    onCancelPreview?: (stepId: string) => void;
+}
+
+export default function NodePanel(props: NodePanelProps) {
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
+    const { job, graph, selection, byStep, dispatch, onSelect, onRequestRemove, previewFields } = props;
+    const selectNode = (key: string) => onSelect({ kind: 'node', key });
+
+    const edgePanel = (key: string, edge: { from: string; to: string }) => (
+        <EdgePanel
+            key={key}
+            job={job}
+            from={edge.from}
+            to={edge.to}
+            issues={(byStep[edge.to] || []).filter((i) => EXPRESSION_CODES.includes(i.code))}
+            dispatch={dispatch}
+            onRemoved={() => onSelect(null)}
+            previewFields={previewFields}
+        />
+    );
+
+    if (selection && selection.kind === 'link') {
+        const link = graph.links.find((l) => l.key === selection.key);
+        if (link && link.kind === 'edge') {
+            return edgePanel(selection.key, { from: link.from.slice('step:'.length), to: link.to.slice('step:'.length) });
+        }
+        const cond = link && link.kind === 'condition' ? graph.nodes.find((n) => n.edge && (n.key === link.from || n.key === link.to)) : undefined;
+        if (cond && cond.edge) {
+            return edgePanel(selection.key, cond.edge);
+        }
+    }
+
+    const node = selection && selection.kind === 'node' ? graph.nodes.find((n) => n.key === selection.key) : undefined;
+    if (node && node.stepId) {
+        const id = node.stepId;
+        return (
+            <StepPanel
+                key={node.key}
+                job={job}
+                stepId={id}
+                scheduledTime={props.scheduledTime}
+                resolveTimeRange={props.resolveTimeRange}
+                issues={byStep[id] || []}
+                dispatch={dispatch}
+                onRename={(_from, to) => selectNode(stepKey(to))}
+                onRequestRemove={(stepId) => onRequestRemove(stepKey(stepId))}
+                preview={props.previews[id]}
+                onPreview={props.onPreview}
+                onCancelPreview={props.onCancelPreview}
+                previewFields={previewFields}
+            />
+        );
+    }
+    if (node && node.action) {
+        const { scope, index } = node.action;
+        return (
+            <ActionPanel
+                key={node.key}
+                job={job}
+                scope={scope}
+                index={index}
+                destinations={props.destinations}
+                alertActions={props.alertActions}
+                tokenGroups={availableTokens(job, scope === 'job' ? null : scope, previewFields)}
+                dispatch={dispatch}
+                onMoved={selectNode}
+                onRequestRemove={onRequestRemove}
+            />
+        );
+    }
+    if (node && node.trigger !== undefined) {
+        return (
+            <TriggerPanel
+                key={node.key}
+                job={job}
+                index={node.trigger}
+                jobs={props.jobs}
+                nextSlots={props.nextSlots}
+                dispatch={dispatch}
+                onRequestRemove={onRequestRemove}
+                onOpenSettings={props.onOpenSettings}
+            />
+        );
+    }
+    if (node && node.edge) {
+        return edgePanel(node.key, node.edge);
+    }
+    if (node && node.key === JOB_KEY) {
+        return <JobNodePanel key={node.key} job={job} onSelect={selectNode} />;
+    }
+    return <p style={{ color: theme.contentColorMuted }}>{EMPTY_HINT}</p>;
+}

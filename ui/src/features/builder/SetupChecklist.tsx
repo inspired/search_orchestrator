@@ -1,5 +1,5 @@
-/* A short list above the tabs of what the job still needs, with a button to the tab that
- * fixes each item. Not a step bar: items can be done in any order. */
+/* A short list above the tabs of what the job still needs, with a button to the tab (and the
+ * node) that fixes each item. Not a step bar: items can be done in any order. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import List from '@splunk/react-ui/List';
@@ -8,16 +8,17 @@ import Typography from '@splunk/react-ui/Typography';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
 import Circle from '@splunk/react-icons/Circle';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import { TAB_LABELS, TabId } from './JobTabs';
+import { TAB_LABELS } from './JobTabs';
 import type { ChecklistItem } from './readiness';
 
 export interface SetupChecklistProps {
     items: ChecklistItem[];
-    onTabChange: (tab: TabId) => void;
+    /** Opens the item's tab and selects its node, or offers the nodes that would do it. */
+    onGo: (item: ChecklistItem) => void;
     onHide?: () => void;
 }
 
-export default function SetupChecklist({ items, onTabChange, onHide }: SetupChecklistProps) {
+export default function SetupChecklist({ items, onGo, onHide }: SetupChecklistProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const count = items.filter((i) => i.done).length;
     const requiredDone = items.every((i) => i.optional || i.done);
@@ -38,7 +39,7 @@ export default function SetupChecklist({ items, onTabChange, onHide }: SetupChec
                                 <span>{item.label}</span>
                                 {!item.done && (
                                     <Button appearance="subtle" label={`Go to ${TAB_LABELS[item.tab]}`}
-                                        aria-label={`Go to ${TAB_LABELS[item.tab]}: ${item.label}`} onClick={() => onTabChange(item.tab)} />
+                                        aria-label={`Go to ${TAB_LABELS[item.tab]}: ${item.label}`} onClick={() => onGo(item)} />
                                 )}
                             </span>
                         </List.Item>

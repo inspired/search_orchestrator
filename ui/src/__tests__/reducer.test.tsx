@@ -275,6 +275,13 @@ describe('builder reducer: layout and node edits', () => {
         expect(s.job.layout?.nodes['action:job:0']).toEqual({ x: 5, y: 5 });
     });
 
+    test('updateAction with a field set to undefined deletes that field', () => {
+        const s = reducer(initialState(laid()), { type: 'updateAction', scope: 'a', index: 0, changes: { subject: undefined, to: 'y' } });
+        const a = s.job.steps[0].actions?.[0] as Record<string, unknown>;
+        expect(a).toEqual({ hook: 'on_failure', type: 'email', to: 'y' });
+        expect('subject' in a).toBe(false);
+    });
+
     test('removeAction and removeTrigger shift later keys', () => {
         const s = reducer(initialState(laid()), { type: 'removeAction', scope: 'job', index: 0 });
         expect(s.job.layout?.nodes['action:job:0']).toEqual({ x: 6, y: 6 });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import TriggerPanel from '../features/builder/TriggerPanel';
+import { formatSlot, zoneLabel } from '../features/builder/ScheduleEditor';
 import type { JobDefinition } from '../api/types';
 import { ApiError } from '../api/client';
 import { renderThemed } from './fixtures';
@@ -135,5 +136,22 @@ describe('TriggerPanel completion', () => {
         fireEvent.click(screen.getByRole('combobox', { name: 'Start when it' }));
         fireEvent.click(screen.getByRole('option', { name: 'Completes (success or failure)' }));
         expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateTrigger', index: 0, changes: { on: 'complete' } });
+    });
+});
+
+describe('next-run formatting', () => {
+    test('formatSlot shows the wall time at the given offset', () => {
+        expect(formatSlot(1762390800, 0)).toBe('Thu, 6 Nov 2025, 01:00');
+        expect(formatSlot(1762390800, 3600)).toBe('Thu, 6 Nov 2025, 02:00');
+        expect(formatSlot(1762390800, -18000)).toBe('Wed, 5 Nov 2025, 20:00');
+        expect(formatSlot(1762390800, 19800)).toBe('Thu, 6 Nov 2025, 06:30');
+    });
+
+    test('zoneLabel names the zone, or the server zone with its offset', () => {
+        expect(zoneLabel('Europe/Oslo', 3600)).toBe('in Europe/Oslo');
+        expect(zoneLabel(null, 3600)).toBe("in the server's time zone (UTC+01:00)");
+        expect(zoneLabel(null, -16200)).toBe("in the server's time zone (UTC-04:30)");
+        expect(zoneLabel(null, 0)).toBe("in the server's time zone (UTC+00:00)");
+        expect(zoneLabel(null, null)).toBe("in the server's time zone");
     });
 });

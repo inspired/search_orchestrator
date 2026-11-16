@@ -1,5 +1,6 @@
-/* The builder's tabs: Steps (the canvas and side panel), Triggers, Parameters, job-level
- * Actions, Access (who may run) and Settings (description, step defaults, after give-up). */
+/* The builder's tabs: Flow (the node editor and its side panel), Parameters, Access (who may
+ * run) and Settings (description, time zone, missed runs, step defaults, after give-up).
+ * Triggers and actions are nodes in Flow. */
 import React from 'react';
 import ComboBox from '@splunk/react-ui/ComboBox';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -10,27 +11,21 @@ import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import type { AlertAction, Issue, Defaults, Destination, Job, JobDefinition } from '../../api/types';
+import type { Issue, Defaults, JobDefinition } from '../../api/types';
 import AccessTab from './AccessTab';
-import ActionsEditor from './ActionsEditor';
-import { availableTokens } from './tokens';
 import ParamsTab from './ParamsTab';
 import type { BuilderAction } from './reducer';
 import { BUILTIN_DEFAULTS } from './previewLogic';
 import { DurationField } from './StepPanel';
-import type { NextSlots } from './ScheduleEditor';
-import TriggersTab from './TriggersTab';
 import LearnMore from '../../components/LearnMore';
 import { issueCounts } from './issueTabs';
 import { timeZoneOptions } from './schedule';
 
-export type TabId = 'steps' | 'triggers' | 'params' | 'actions' | 'access' | 'settings';
+export type TabId = 'steps' | 'params' | 'access' | 'settings';
 
 export const TAB_LABELS: Record<TabId, string> = {
-    steps: 'Steps',
-    triggers: 'Triggers',
+    steps: 'Flow',
     params: 'Parameters',
-    actions: 'Actions',
     access: 'Access',
     settings: 'Settings',
 };
@@ -42,14 +37,8 @@ export interface JobTabsProps {
     dispatch: (action: BuilderAction) => void;
     owner: string;
     roles: string[];
-    jobs: Pick<Job, 'id' | 'name'>[];
-    destinations: Destination[];
-    alertActions?: AlertAction[] | null;
-    /** The Steps tab: canvas and side panel. */
+    /** The Flow tab: canvas and side panel. */
     steps: React.ReactNode;
-    nextSlots?: NextSlots;
-    /** Field names of each step's current preview, for the first-row tokens. */
-    previewFields?: Record<string, string[]>;
     /** Every current issue; each tab shows how many errors it holds. */
     issues?: Issue[];
 }
@@ -166,7 +155,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, jobs, destinations, alertActions, steps, nextSlots, previewFields = {}, issues = [] }: JobTabsProps) {
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [] }: JobTabsProps) {
     const counts = issueCounts(issues);
     return (
         <div>
@@ -177,22 +166,8 @@ export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, ow
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
-                {tab === 'triggers' && <TriggersTab job={job} jobs={jobs} dispatch={dispatch} nextSlots={nextSlots} />}
                 {tab === 'params' && (
                     <ParamsTab params={job.params || []} onChange={(value) => dispatch({ type: 'setJobField', field: 'params', value })} />
-                )}
-                {tab === 'actions' && (
-                    <div style={{ maxWidth: '640px' }}>
-                        <p>Job actions fire for the whole run. Without an on-failure action, the fallback notification in Settings is used.</p>
-                        <ActionsEditor
-                            idPrefix="job-action"
-                            actions={job.actions || []}
-                            destinations={destinations}
-                            alertActions={alertActions}
-                            tokenGroups={availableTokens(job, null, previewFields)}
-                            onChange={(value) => dispatch({ type: 'setJobField', field: 'actions', value })}
-                        />
-                    </div>
                 )}
                 {tab === 'access' && (
                     <AccessTab

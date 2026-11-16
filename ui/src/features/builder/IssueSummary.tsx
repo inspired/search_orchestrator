@@ -1,4 +1,4 @@
-/* The errors that stopped a save, each with a button to the step or tab that fixes it. */
+/* The errors that stopped a save, each with a button to the step, node or tab that fixes it. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import List from '@splunk/react-ui/List';

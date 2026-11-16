@@ -1,24 +1,14 @@
-/* Step or job actions: a hook (on_start ... on_delayed) and one of webhook, email, event,
- * start_job or alert_action with its fields (see bin/so/actions.py). Webhooks pick a named
- * destination; the URL and headers stay on the server and are never shown. */
+/* The fields of one action: webhook, email, event, start_job or alert_action (see
+ * bin/so/actions.py). When it fires is the action node's line, set in ActionPanel. Webhooks
+ * pick a named destination; the URL and headers stay on the server and are never shown. */
 import React, { useState } from 'react';
-import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
 import { TokenInput } from './InsertToken';
 import type { TokenGroup } from './tokens';
-import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
-
-const HOOKS: { value: Action['hook']; label: string }[] = [
-    { value: 'on_start', label: 'On start' },
-    { value: 'on_success', label: 'On success' },
-    { value: 'on_failure', label: 'On failure' },
-    { value: 'on_complete', label: 'On complete' },
-    { value: 'on_delayed', label: 'On delayed' },
-];
 
 const TYPES: { value: Action['type']; label: string }[] = [
     { value: 'email', label: 'Email' },
@@ -135,18 +125,6 @@ function AlertParams({ id, action, value, onChange }: { id: string; action?: Ale
             </ControlGroup>
         </>
     );
-}
-
-export interface ActionsEditorProps {
-    actions: Action[];
-    onChange: (actions: Action[]) => void;
-    destinations: Destination[];
-    /** The alert actions to pick from. Null while unknown: the name is typed instead. */
-    alertActions?: AlertAction[] | null;
-    /** Prefix for input ids, unique per editor on the page. */
-    idPrefix: string;
-    /** Values the message fields can insert. Without them the fields are plain. */
-    tokenGroups?: TokenGroup[];
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -301,50 +279,5 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                 </>
             )}
         </>
-    );
-}
-
-export default function ActionsEditor({ actions, onChange, destinations, alertActions = null, idPrefix, tokenGroups }: ActionsEditorProps) {
-    const theme = useSplunkTheme() as unknown as Record<string, string>;
-    const update = (i: number, next: Action) => onChange(actions.map((a, j) => (j === i ? next : a)));
-    const remove = (i: number) => onChange(actions.filter((_a, j) => j !== i));
-    const add = () => onChange([...actions, { hook: 'on_failure', type: 'email', to: '' }]);
-
-    return (
-        <div>
-            {actions.length === 0 && <p style={{ color: theme.contentColorMuted }}>No actions.</p>}
-            {actions.map((a, i) => {
-                const hookId = `${idPrefix}-${i}-hook`;
-                return (
-                    // Keyed by count too, so drafts re-read their action after a removal.
-                    <div
-                        key={`${actions.length}-${i}`}
-                        style={{ borderTop: `1px solid ${theme.borderColor}`, padding: '8px 0', marginBottom: '4px' }}
-                    >
-                        <ControlGroup label="When" labelFor={hookId} labelPosition="top">
-                            <Select
-                                inputId={hookId}
-                                value={a.hook}
-                                onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, hook: value as Action['hook'] })}
-                            >
-                                {HOOKS.map((h) => (
-                                    <Select.Option key={h.value} label={h.label} value={h.value} />
-                                ))}
-                            </Select>
-                        </ControlGroup>
-                        <ActionFields
-                            action={a}
-                            idPrefix={`${idPrefix}-${i}`}
-                            destinations={destinations}
-                            alertActions={alertActions}
-                            tokenGroups={tokenGroups}
-                            onChange={(next) => update(i, next)}
-                        />
-                        <Button appearance="subtle" label="Remove action" onClick={() => remove(i)} />
-                    </div>
-                );
-            })}
-            <Button appearance="secondary" label="Add action" onClick={add} />
-        </div>
     );
 }

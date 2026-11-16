@@ -3,7 +3,8 @@
  * node and enter the input on the left of another. Dragging from a port onto a node connects
  * them; dropping it on empty canvas reports the point so the caller can offer new nodes there.
  * Keyboard: Tab through nodes, Enter selects, arrows nudge, Delete asks to remove, F frames
- * everything, / (or Tab while the pointer is over the canvas) opens quick-add.
+ * everything, / (with focus in the canvas or its toolbar, or Tab while the pointer is over the
+ * canvas) opens quick-add. The toolbar adds Add node and Tidy up when the caller handles them.
  * Colours come from theme tokens only. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -37,10 +38,19 @@ export interface FlowCanvasProps {
     /** New top-left positions, called once when a drag ends or a node is nudged. */
     onMove?: (positions: Record<string, Pos>) => void;
     onConnect?: (from: string, port: PortId, to: string) => void;
-    onDropOnCanvas?: (from: string, port: PortId, at: Pos) => void;
+    /** `at` is in canvas coordinates; `screen` is the same point relative to the canvas' top-left
+     * corner on screen, for placing the quick-add box (see `overlay`). */
+    onDropOnCanvas?: (from: string, port: PortId, at: Pos, screen: ScreenPoint) => void;
     onRequestRemove?: (key: string) => void;
-    onQuickAdd?: (at: Pos) => void;
+    /** Also adds an "Add node" button to the toolbar, which opens it at the view centre. */
+    onQuickAdd?: (at: Pos, screen: ScreenPoint) => void;
+    /** Adds a "Tidy up" button to the toolbar. */
+    onTidy?: () => void;
+    /** Drawn over the canvas, positioned from its top-left corner (the quick-add box). */
+    overlay?: React.ReactNode;
 }
+
+export type ScreenPoint = { left: number; top: number };
 
 type Gesture =
     | { kind: 'pan'; startX: number; startY: number; origin: Pos; moved: boolean }
@@ -82,6 +92,8 @@ export default function FlowCanvas({
     onDropOnCanvas,
     onRequestRemove,
     onQuickAdd,
+    onTidy,
+    overlay,
 }: FlowCanvasProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
@@ -159,8 +171,20 @@ export default function FlowCanvas({
         return { x: (clientX - rect.left - p.x) / z, y: (clientY - rect.top - p.y) / z };
     };
 
-    const quickAddAt = (): Pos => {
-        if (pointer.current) {
+    const toScreen = (at: Pos): ScreenPoint => {
+        const { pan: p, zoom: z } = view.current;
+        return { left: at.x * z + p.x, top: at.y * z + p.y };
+    };
+
+    const openQuickAdd = (centre = false) => {
+        if (onQuickAdd) {
+            const at = quickAddAt(centre);
+            onQuickAdd(at, toScreen(at));
+        }
+    };
+
+    const quickAddAt = (centre: boolean): Pos => {
+        if (pointer.current && !centre) {
             return toCanvas(pointer.current.clientX, pointer.current.clientY);
         }
         const svg = svgRef.current;
@@ -250,7 +274,7 @@ export default function FlowCanvas({
                     onConnect(gesture.from, gesture.port, target);
                 }
             } else if (drawn && onDropOnCanvas) {
-                onDropOnCanvas(gesture.from, gesture.port, end);
+                onDropOnCanvas(gesture.from, gesture.port, end, toScreen(end));
             }
         } else if (gesture && !gesture.moved) {
             onSelect(null);
@@ -265,7 +289,7 @@ export default function FlowCanvas({
         if (ev.key === 'Tab') {
             if (!ev.shiftKey && over.current && onQuickAdd) {
                 ev.preventDefault();
-                onQuickAdd(quickAddAt());
+                openQuickAdd();
             }
             return;
         }
@@ -275,7 +299,7 @@ export default function FlowCanvas({
         if (ev.key === '/') {
             if (onQuickAdd) {
                 ev.preventDefault();
-                onQuickAdd(quickAddAt());
+                openQuickAdd();
             }
             return;
         }
@@ -362,7 +386,7 @@ export default function FlowCanvas({
         if (!n || !p) {
             return null;
         }
-        const o = portOffset(n.kind, gesture.port, portsOf(n));
+        const o = portOffset(n.kind, gesture.port);
         return (
             <path
                 data-testid="link-draft"
@@ -380,7 +404,7 @@ export default function FlowCanvas({
         .map((l) => {
             const from = byKey.get(l.from);
             const to = byKey.get(l.to);
-            const ends = from && to ? linkEnds(l, from, to, shown, portsOf) : null;
+            const ends = from && to ? linkEnds(l, from, to, shown) : null;
             return from && to && ends ? { l, from, to, d: linkPath(ends.a, ends.b) } : null;
         })
         .filter((x): x is { l: FlowLink; from: FlowNode; to: FlowNode; d: string } => x !== null);
@@ -391,7 +415,18 @@ export default function FlowCanvas({
 
     return (
         <div>
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+            {/* "/" opens quick-add from the toolbar too. */}
+            <div
+                style={{ display: 'flex', gap: '4px', marginBottom: '4px', flexWrap: 'wrap' }}
+                onKeyDown={(ev) => {
+                    if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && onQuickAdd && !readOnly) {
+                        ev.preventDefault();
+                        openQuickAdd(true);
+                    }
+                }}
+            >
+                {!readOnly && onQuickAdd && <Button appearance="secondary" label="Add node" onClick={() => openQuickAdd(true)} />}
+                {!readOnly && onTidy && <Button appearance="subtle" label="Tidy up" onClick={onTidy} />}
                 <Button appearance="subtle" label="Zoom in" onClick={() => setZoom((z) => clampZoom(z * 1.2))} />
                 <Button appearance="subtle" label="Zoom out" onClick={() => setZoom((z) => clampZoom(z / 1.2))} />
                 <Button
@@ -404,6 +439,7 @@ export default function FlowCanvas({
                 />
                 <Button appearance="subtle" label="Frame all" onClick={frameAll} />
             </div>
+            <div style={{ position: 'relative' }}>
             <svg
                 ref={svgRef}
                 data-canvas="true"
@@ -425,6 +461,7 @@ export default function FlowCanvas({
                 }}
                 onPointerLeave={() => {
                     over.current = false;
+                    pointer.current = null;
                 }}
                 onPointerDown={(ev) => {
                     capture(ev);
@@ -531,7 +568,7 @@ export default function FlowCanvas({
                                     </text>
                                 )}
                                 {ports.map((port) => {
-                                    const o = portOffset(n.kind, port, ports);
+                                    const o = portOffset(n.kind, port);
                                     return (
                                         <g
                                             key={port}
@@ -572,6 +609,8 @@ export default function FlowCanvas({
                         ))}
                 </g>
             </svg>
+            {overlay}
+            </div>
         </div>
     );
 }

@@ -118,7 +118,7 @@ describe('FlowCanvas', () => {
         fireEvent.pointerDown(screen.getByTestId('port-step:a-failure'), { clientX: 450, clientY: 138 });
         fireEvent.pointerMove(canvas, { clientX: 900, clientY: 700 });
         fireEvent.pointerUp(canvas, { clientX: 900, clientY: 700 });
-        expect(props.onDropOnCanvas).toHaveBeenCalledWith('step:a', 'failure', { x: 900, y: 700 });
+        expect(props.onDropOnCanvas).toHaveBeenCalledWith('step:a', 'failure', { x: 900, y: 700 }, { left: 900, top: 700 });
         expect(props.onConnect).not.toHaveBeenCalled();
     });
 
@@ -216,8 +216,8 @@ describe('FlowCanvas', () => {
         test('a link starts at its port and ends at the input', () => {
             setup();
             const d = screen.getByTestId('link-step:a-success->step:b').querySelector('path')!.getAttribute('d') || '';
-            // step size 200×76; visible ports success, failure, always → success at y = 76/4.
-            expect(d.startsWith('M450,119')).toBe(true);
+            // step size 200×76; six fixed port slots → success at y = 76/7, shown or not.
+            expect(d.startsWith(`M450,${100 + 76 / 7} `)).toBe(true);
             expect(d.endsWith('550,138')).toBe(true);
         });
 
@@ -235,7 +235,7 @@ describe('FlowCanvas', () => {
             fireEvent.pointerMove(canvas, { clientX: 300, clientY: 220 });
             const notPrevented = fireEvent.keyDown(canvas, { key: '/' });
             expect(notPrevented).toBe(false);
-            expect(props.onQuickAdd).toHaveBeenCalledWith({ x: 300, y: 220 });
+            expect(props.onQuickAdd).toHaveBeenCalledWith({ x: 300, y: 220 }, { left: 300, top: 220 });
         });
 
         test('/ without a pointer opens quick-add at the view centre', () => {
@@ -244,6 +244,32 @@ describe('FlowCanvas', () => {
             expect(props.onQuickAdd).toHaveBeenCalledTimes(1);
             const at = (props.onQuickAdd as jest.Mock).mock.calls[0][0];
             expect(Number.isFinite(at.x) && Number.isFinite(at.y)).toBe(true);
+        });
+
+        test('once the pointer leaves, / opens quick-add at the view centre, not where the pointer was', () => {
+            const { props, canvas } = setup();
+            fireEvent.pointerMove(canvas, { clientX: 300, clientY: 220 });
+            fireEvent.pointerLeave(canvas);
+            fireEvent.keyDown(canvas, { key: '/' });
+            // jsdom gives the svg no size, so the centre of the view is 0,0.
+            expect(props.onQuickAdd).toHaveBeenCalledWith({ x: 0, y: 0 }, { left: 0, top: 0 });
+        });
+
+        test('/ also works with focus in the toolbar; Add node opens quick-add at the view centre', () => {
+            const { props } = setup();
+            const zoomIn = screen.getByRole('button', { name: 'Zoom in' });
+            expect(fireEvent.keyDown(zoomIn, { key: '/' })).toBe(false);
+            expect(props.onQuickAdd).toHaveBeenCalledTimes(1);
+            fireEvent.click(screen.getByRole('button', { name: 'Add node' }));
+            expect(props.onQuickAdd).toHaveBeenCalledTimes(2);
+            expect(props.onQuickAdd).toHaveBeenLastCalledWith({ x: 0, y: 0 }, { left: 0, top: 0 });
+        });
+
+        test('Tidy up shows only with onTidy and calls it', () => {
+            const onTidy = jest.fn();
+            setup({ onTidy });
+            fireEvent.click(screen.getByRole('button', { name: 'Tidy up' }));
+            expect(onTidy).toHaveBeenCalledTimes(1);
         });
 
         test('Tab opens quick-add only while the pointer is over the canvas, never Shift+Tab', () => {
