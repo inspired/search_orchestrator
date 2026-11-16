@@ -72,7 +72,7 @@ Colours are Splunk's categorical palette A from `@splunk/themes` (`categoricalA1
 | Search, Saved search | rounded rectangle; Saved search has a second inner stripe | `categoricalA2Strong` (blue) |
 | Results of earlier steps | rectangle with cut corners | `categoricalA3Strong` (teal) |
 | Condition | diamond | `categoricalA4Strong` (amber) |
-| Notify: Email, Webhook, Slack, Alert action | rectangle with a notched left edge (a flag) | `categoricalA5Strong` (pink) |
+| Notify: Email, Webhook, Slack, Alert action | rectangle with a notched right edge (a swallowtail flag; the left edge holds the input) | `categoricalA5Strong` (pink) |
 | Write data: Summary index, Lookup, Event to an index | cylinder | `categoricalA7Strong` (orange) |
 | Start another job | parallelogram | `categoricalA6Strong` (slate) |
 | Whole job | wide rounded rectangle with a double outline | `borderColorStrong` (neutral) |
