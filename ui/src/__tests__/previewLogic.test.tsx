@@ -227,4 +227,31 @@ describe('previewRefusal', () => {
         expect(previewRefusal(j, 'a', true)).toBeNull();
         expect(previewRefusal(j, 'd', true)).toBeNull();
     });
+    describe('writing commands in the SPL', () => {
+        const w = job(
+            [
+                { id: 'a', name: 'Load', type: 'inline', spl: 'index=a | outputlookup x.csv' },
+                { id: 'b', type: 'previous', spl: '| stats count' },
+                { id: 'c', type: 'inline', spl: 'index=a | collect index=s' },
+                { id: 's', type: 'saved_search', spl: 'collect' },
+                { id: 'd', type: 'previous', spl: '| stats count' },
+            ],
+            [
+                { from: 'a', to: 'b', condition: 'on_success' },
+                { from: 's', to: 'd', condition: 'on_success' },
+            ]
+        );
+        test('the step itself', () => {
+            expect(previewRefusal(w, 'c', true)).toBe("Previews don't write to indexes or lookups; remove collect to preview this step.");
+            expect(previewRefusal(w, 'c', false)).toBe("Previews don't write to indexes or lookups; remove collect to preview this step.");
+        });
+        test('an upstream step, live only', () => {
+            expect(previewRefusal(w, 'b', true)).toBe("Previews don't write to indexes or lookups; Load runs outputlookup first.");
+            expect(previewRefusal(w, 'b', false)).toBeNull();
+        });
+        test('a saved search is not inspected', () => {
+            expect(previewRefusal(w, 's', true)).toBeNull();
+            expect(previewRefusal(w, 'd', true)).toBeNull();
+        });
+    });
 });

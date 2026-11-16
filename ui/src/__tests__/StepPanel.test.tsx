@@ -237,3 +237,18 @@ describe('AccessTab', () => {
         expect(state().job.steps.find((s) => s.id === 'monthly')?.spl).toBe('$weekly.resultCount$');
     });
 });
+
+describe('StepPanel preview refusal', () => {
+    test('Preview step is dimmed with the reason when the SPL writes', () => {
+        const onPreview = jest.fn();
+        const job: JobDefinition = { name: 'j', enabled: true, steps: [{ id: 'a', type: 'inline', spl: 'index=a | collect index=s' }], edges: [] };
+        renderThemed(
+            <StepPanel job={job} stepId="a" issues={[]} dispatch={jest.fn()} onPreview={onPreview} scheduledTime={1} resolveTimeRange={jest.fn()} />
+        );
+        const button = screen.getByRole('button', { name: 'Preview step' });
+        expect(button).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(button);
+        expect(onPreview).not.toHaveBeenCalled();
+        expect(screen.getByText("Previews don't write to indexes or lookups; remove collect to preview this step.")).toBeInTheDocument();
+    });
+});

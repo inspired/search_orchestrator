@@ -23,7 +23,7 @@ import LearnMore from '../../components/LearnMore';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
 import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
-import { BUILTIN_DEFAULTS, generatedInput } from './previewLogic';
+import { BUILTIN_DEFAULTS, generatedInput, previewRefusal } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
 
@@ -180,6 +180,7 @@ export default function StepPanel({
     if (!step) {
         return null;
     }
+    const refusal = onPreview ? previewRefusal(job, stepId, true) : null;
     const p = `step-${stepId}`;
     const tokenGroups = availableTokens(job, stepId, previewFields);
     const set = (changes: Partial<StepDef>) => dispatch({ type: 'updateStep', id: stepId, changes });
@@ -317,7 +318,16 @@ export default function StepPanel({
             )}
             {onPreview && (
                 <div style={{ marginBottom: '12px' }}>
-                    <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
+                    {refusal ? (
+                        <>
+                            <Button appearance="secondary" label="Preview step" disabled="dimmed" />
+                            <Typography as="p" variant="body">
+                                {refusal}
+                            </Typography>
+                        </>
+                    ) : (
+                        <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
+                    )}
                     <PreviewResult
                         preview={preview}
                         onCancel={() => onCancelPreview && onCancelPreview(stepId)}
