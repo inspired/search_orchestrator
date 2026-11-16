@@ -202,6 +202,56 @@ describe('BuilderPage flow', () => {
         expect(screen.getByTestId('node-step:daily')).toHaveAttribute('transform', 'translate(900,900)');
     });
 
+    const translate = (key: string) => {
+        const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(screen.getByTestId(`node-${key}`).getAttribute('transform') || '');
+        return { x: Number(m?.[1]), y: Number(m?.[2]) };
+    };
+
+    it('the first drag in a job without a layout keeps every other node where it was, as one undo step', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const keys = ['step:daily', 'step:weekly', 'step:monthly', 'trigger:0'];
+        const before = Object.fromEntries(keys.map((k) => [k, translate(k)]));
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.pointerDown(screen.getByTestId('node-step:weekly'), { clientX: 100, clientY: 100 });
+        fireEvent.pointerMove(canvas, { clientX: 120, clientY: 100 });
+        fireEvent.pointerUp(canvas, { clientX: 120, clientY: 100 });
+        expect(translate('step:weekly')).not.toEqual(before['step:weekly']);
+        ['step:daily', 'step:monthly', 'trigger:0'].forEach((k) => expect(translate(k)).toEqual(before[k]));
+        fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        keys.forEach((k) => expect(translate(k)).toEqual(before[k]));
+        expect(screen.getByRole('button', { name: 'Undo' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('adding a node at a point in a job without a layout keeps every other node where it was', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const keys = ['step:daily', 'step:weekly', 'step:monthly', 'trigger:0'];
+        const before = Object.fromEntries(keys.map((k) => [k, translate(k)]));
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.pointerDown(screen.getByTestId('port-step:daily-failure'), { clientX: 0, clientY: 0 });
+        fireEvent.pointerMove(canvas, { clientX: 3000, clientY: 3000 });
+        fireEvent.pointerUp(canvas, { clientX: 3000, clientY: 3000 });
+        const box = screen.getByRole('combobox', { name: 'Add a node' });
+        fireEvent.change(box, { target: { value: 'email' } });
+        fireEvent.keyDown(box, { key: 'Enter' });
+        expect(translate('action:daily:0')).toEqual({ x: 3000, y: 3000 });
+        keys.forEach((k) => expect(translate(k)).toEqual(before[k]));
+    });
+
+    it('saving an old job without moving anything sends no layout', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        const saved = (api.updateJob as jest.Mock).mock.calls[0][1];
+        expect(saved.name).toBe('Renamed');
+        expect(saved).not.toHaveProperty('layout');
+    });
+
     it('switching between two nodes of the same kind shows the second one', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         fireEvent.keyDown(await screen.findByRole('button', { name: /^Search Daily summary/ }), { key: 'Enter' });

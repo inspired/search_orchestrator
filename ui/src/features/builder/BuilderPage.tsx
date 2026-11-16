@@ -460,7 +460,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             return;
         }
         const key = addNodeKey(job, kind, quick.from);
-        dispatch({ type: 'addNode', kind, at: quick.at, from: quick.from });
+        dispatch({ type: 'addNode', kind, at: quick.at, from: quick.from, shown: quick.at ? positions : undefined });
         returnFocus.current = null;
         setQuick(null);
         if (key) {
@@ -503,7 +503,9 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     issues={issues}
                     notes={notes}
                     onSelect={setSelected}
-                    onMove={(moved) => dispatch({ type: 'moveNodes', positions: moved })}
+                    // Every shown position is written with the move, so nodes the layout placed
+                    // stay where they are instead of being placed again around the moved one.
+                    onMove={(moved) => dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } })}
                     onConnect={(from, port, to) => dispatch({ type: 'connectPort', from, port, to })}
                     onDropOnCanvas={(from, port, at, screen) => {
                         const node = graph.nodes.find((n) => n.key === from);

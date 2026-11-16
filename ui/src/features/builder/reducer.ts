@@ -48,7 +48,8 @@ export type BuilderAction =
     /** Saved positions merge into job.layout.nodes: one undo step per drop. */
     | { type: 'moveNodes'; positions: Record<string, Pos> }
     | { type: 'tidyLayout' }
-    | { type: 'addNode'; kind: NodeKind; at?: Pos; from?: { key: string; port: PortId } }
+    /** With `at`, `shown` (the positions on screen) is saved too, so other nodes stay put. */
+    | { type: 'addNode'; kind: NodeKind; at?: Pos; from?: { key: string; port: PortId }; shown?: Record<string, Pos> }
     | { type: 'updateAction'; scope: ActionScope; index: number; changes: Partial<Action> }
     | { type: 'moveAction'; scope: ActionScope; index: number; toScope: ActionScope; hook: Action['hook'] }
     | { type: 'removeAction'; scope: ActionScope; index: number }
@@ -513,7 +514,10 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (!next || !key) {
                 return state;
             }
-            return edits(state, action.at ? withNodes(next, { ...next.layout?.nodes, [key]: action.at }) : next);
+            return edits(
+                state,
+                action.at ? withNodes(next, { ...action.shown, ...next.layout?.nodes, [key]: action.at }) : next
+            );
         }
         case 'updateAction': {
             const list = actionsOf(job, action.scope);

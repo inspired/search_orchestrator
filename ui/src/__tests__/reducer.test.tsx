@@ -308,6 +308,15 @@ describe('builder reducer: layout and node edits', () => {
         expect(reducer(s, { type: 'undo' }).job).toEqual(s0.job);
     });
 
+    test('addNode at a point also saves the shown positions; without a point it saves none', () => {
+        const s0 = initialState(job);
+        const shown = { 'step:daily': { x: 1, y: 2 }, 'step:weekly': { x: 3, y: 4 } };
+        const s = reducer(s0, { type: 'addNode', kind: 'email', at: { x: 5, y: 6 }, shown });
+        expect(s.job.layout?.nodes).toEqual({ ...shown, 'action:job:0': { x: 5, y: 6 } });
+        expect(reducer(s, { type: 'undo' }).job).toEqual(s0.job);
+        expect('layout' in reducer(s0, { type: 'addNode', kind: 'email', shown }).job).toBe(false);
+    });
+
     test('addNode defaults: slack, trigger, step key', () => {
         const s0 = initialState(job);
         const sl = reducer(s0, { type: 'addNode', kind: 'slack' });
