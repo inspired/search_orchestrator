@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.10.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.11.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -37,7 +37,7 @@ Where you put nodes is saved with the job. Nodes you never moved are placed for 
 
 ### The flow editor
 
-Each kind of node has its own shape and colour. The colour is a stripe on the left, the icon and the port rings; it never says whether something worked.
+Each kind of node has its own shape and colour. The colour is a stripe on the left and the icon; it never says whether something worked.
 
 | Node | Shape | Colour |
 |---|---|---|
@@ -50,29 +50,47 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Start another job** | slanted sides | slate |
 | **Whole job** | double outline | grey |
 
-**Ports.** A step has one input on its left and these outputs on its right, top to bottom. Each port shows a symbol and a name as well as a colour.
+**The + handle.** A step has one input on its left and one round **+** on its right edge. The **Whole job** node and each **If…** node have a + too.
 
-| Port | Symbol | A line to a step | A line to an action |
+- **Click +** to open the **When** list: what has to happen to this node for the next one to run or fire. Each row shows how many lines already use it, for example "2 lines". Choose one, then pick a node in the search box below it: the new node is placed to the right of this one, in the first free spot, and connected with that outcome. `Escape` closes the list at any point.
+- **Drag from +** to draw a line. Drop it on another node and the When list opens with only the outcomes that can go there; when only one can, the line is made without asking. Drop it on empty canvas and the When list and the search box open together; the new node lands where you dropped the line.
+
+| When this node… | Symbol | A line to a step | A line to an action |
 |---|---|---|---|
-| Succeeded | ✓ | runs it when this step succeeds | fires on success |
-| Failed | ✗ | runs it when this step fails | fires on failure |
-| Finished either way | ∞ | runs it whenever this step finishes | fires on complete |
-| Started | ▶ | not allowed | fires on start |
-| Delayed | ⏱ | not allowed | fires when the step is delayed |
-| If… | ◇ | adds an **If…** node; the next step runs when its expression is true | not allowed |
+| Succeeds | ✓ | runs it when this step succeeds | fires on success |
+| Fails | ✗ | runs it when this step fails | fires on failure |
+| Finishes either way | ∞ | runs it whenever this step finishes | fires on complete |
+| Starts | ▶ | not allowed (actions only) | fires on start |
+| Is delayed | ⏱ | not allowed (actions only) | fires when the step is delayed |
+| If a condition is true | ◇ | adds an **If…** node; the next step runs when its expression is true | not allowed |
 
-Started, Delayed and If… show while the node is hovered or selected, or once a line leaves them. The **Whole job** node has the same outputs except If…; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no ports: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't drawn.
+The **Whole job** list has no "If a condition is true"; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no +: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't made.
+
+**Outcome tabs.** Every outcome a node already uses shows as a tab on its right edge, such as "✓ Succeeds" or "✗ Fails", with a ring in the outcome's colour. Its lines leave from that tab. Dragging from a tab draws another line with that outcome, without the When list. The first four tabs sit above the +, any more below it.
+
+**Line labels and the line menu.** Each line has a label in the middle with its outcome ("✗ Fails"); a line out of an **If…** node shows its expression, shortened. Labels hide when you zoom out below 70 %, except on the selected line. Click a label, or press `Enter` on a focused line, to select the line and open its menu:
+
+- **Change to …** gives the line another outcome. On a line to an action this changes when the action fires; it stays on the same node. "If a condition is true" turns a line between steps into an **If…** node. On the line into an **If…** node, choosing another outcome turns it back into a plain line and drops the expression. Each change is one undo step.
+- **Insert a node** (lines between two steps) opens the search box and puts the new step on the line.
+- **Remove line** (lines between steps and **If…** lines). An action's line can't be removed, because an action always belongs to a step or the whole job; change its outcome instead, or move it in the action's panel.
+
+**Put a node on a line.** Drag a step that has no lines yet onto a line between two steps: the line lights up, and when you drop the step, A → B becomes A → new step → B. A → new step keeps the line's outcome; new step → B is Succeeds. A line out of an **If…** node can't be split. Because B now runs after the new step, and reads its results if the line carries data, a message says what changed, for example "Weekly rollup now runs after Filter hosts succeeds. Undo brings back the old line." The message has an **Undo** button and goes away after 10 seconds. **Insert a node** in the line menu does the same.
+
+**Auto-pan.** While you drag a node or a line near the edge of the canvas, the canvas scrolls toward that edge, faster the closer you are.
+
+**Full screen.** The canvas fills the window below the page header (at least 480 px tall), and the side panel scrolls beside it. **Full screen** in the toolbar shows the canvas and the side panel over the whole page; **Leave full screen** or `Escape` goes back. `Escape` first closes an open list or menu, or clears the selection.
 
 **Keys**, with the canvas focused:
 
-- `Tab` moves through the nodes, then the lines. `Enter` selects the focused one.
+- `Tab` moves through the nodes, then the lines. `Enter` selects the focused one. On a focused line, `Enter` also opens its menu.
+- `+` or `Shift+Enter` on a focused node opens its When list. Arrow keys move in the list, `Enter` chooses, then the search box takes over; `Shift+Tab` goes back to the list.
 - `/` opens the add-node box, also from the toolbar. `Tab` opens it too while the pointer is over the canvas. Type to filter, arrow keys to move, `Enter` to add, `Escape` to close.
 - Arrow keys move the selected node by 10 px. `Delete` or `Backspace` asks before removing it; **Undo** brings it back.
 - `F` frames the whole graph. Drag the background to pan, and use the wheel or the zoom buttons to zoom.
 
 **Data and signal lines.** A thick line carries data: it ends at a **Results of earlier steps**, **Summary index** or **Lookup** step, which read the results of the step it comes from. A thin line is a signal: it only says when something runs or fires, such as a line to an action or a dashed line from a trigger.
 
-**Node types and the minimap.** **Show node types** opens a legend with the shape and colour of each kind of node and the exits a step can have; **Hide node types** closes it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view.
+**Node types and the minimap.** **Show node types** opens a legend with the shape and colour of each kind of node, the When outcomes with their symbols, and an example + and tab; **Hide node types** closes it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view.
 
 **Tidy up** places every node again automatically, as one undo step. Moving a node is one undo step per move.
 
@@ -185,7 +203,7 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
   - **Live previews** (default): the previews you made in this editor. If a step before this one has no current preview, it is previewed first, in order. A failed step is treated as a run would treat it: a step reached from it by an `on_success` connection isn't previewed ("... failed, so a run would not reach this step"), and you fix that step first; a step reached by an `on_failure` or `always` connection is previewed. Live previews are kept only in your browser tab; leaving the editor drops them.
   - **A past run:** the results that run saved for the earlier steps. The list shows the job's 20 most recent runs, and is refreshed when you save and when you open it. A run that ended longer ago than the result retention (24 hours by default) is greyed out and marked "(results expired)". Choosing a run also sets the time and parameters to that run's. If the run's step results have expired or the step isn't in the run, the preview fails and says so. It never falls back to a live preview. If Splunk won't let you read a step's results from that run, the preview fails with "you may not read <step>'s results from that run; only its owner or an admin can".
 - **Result:** a line with the row count, time and input, then a table of the first 100 rows. The input part names every earlier step the preview read, through a connection or a token, as the server used it: "daily preview, 2 min ago" (the time updates each minute), "weekly skipped" for a step a run would skip (even one you previewed anyway), or "daily failed preview" for a failed step an `on_failure` or `always` connection still reads. Search errors and warnings show above the table. An ERROR message fails the preview, as in a run.
-- **Steps that write:** previews never write to an index or a lookup. A **Summary index** or **Lookup** step can't be previewed (preview the step before it), and a live preview of a step after one is refused and names it. Previewing from a past run still works, since nothing before the step runs.
+- **Steps that write:** previews never write to an index or a lookup. A **Summary index** or **Lookup** step can't be previewed (preview the step before it), and neither can a step whose search uses a command that writes: `collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail` or `delete`, after a pipe, also inside a subsearch `[ ... ]`. **Preview step** is dimmed and says why, for example "Previews don't write to indexes or lookups; remove collect to preview this step." With **Input from** set to live previews, the same goes for any step that would run first. Previewing from a past run still works when only an earlier step writes, since nothing before the step runs. Saved searches and macros are not expanded, so a writing command inside one is not caught: check them yourself before you preview.
 - **Skipped steps:** if a run at that time would skip the step, you see "Would be skipped" and why. Steps after it treat it as skipped. **Preview anyway** runs it once with its inputs; steps after it still treat it as skipped, as a run would.
 - **Job-wide errors:** a dependency cycle or a malformed job blocks every preview, since the editor can't work out which steps come first. The preview says which, for example "the job has a cycle: a → b → a; fix it before previewing". Other errors block only the previews of steps they touch.
 - **Out of date:** changing a step, the time, the parameters or the input marks that step's preview and the ones after it "Out of date". The old table stays greyed until you preview again.

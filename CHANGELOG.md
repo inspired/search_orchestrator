@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.11.0 (2026-11-16)
+
+Connecting nodes in the flow editor: one + handle, outcome tabs and line labels.
+
+- The six ports on each step are replaced by one **+** on its right edge. Click it to choose **When**: Succeeds, Fails, Finishes either way, Starts, Is delayed or If a condition is true, each with how many lines already use it. Then pick the next node; it is placed to the right and connected.
+- Drag from **+** to a node and choose the outcome (or, when only one is allowed, the line is made at once). Drop it on empty canvas to pick the outcome and the new node together.
+- Each outcome in use shows as a tab on the node, where its lines leave. Drag from a tab to draw another line with that outcome.
+- Lines carry a label with their outcome. Click it for a menu: change the outcome, insert a node, or remove the line (lines to actions can't be removed).
+- Drag a step with no lines onto a line between two steps to put it in between. A message with **Undo** says what changed.
+- The canvas scrolls while you drag near its edge, fills the window height, and has a **Full screen** mode with the side panel; `Escape` leaves it.
+- Previews never run a search that writes: a step whose search uses `collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail` or `delete` can't be previewed, nor can a live preview after one. Saved searches and macros are not checked.
+- The legend shows the When outcomes, an example + and tab; the user guide's flow editor section is rewritten for all of the above.
+
 ## 1.10.0 (2026-11-16)
 
 More nodes, a legend and a minimap for the flow editor, and the flow on the run page.
