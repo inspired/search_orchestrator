@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1 (2026-11-16)
+
+- **Fixed: Search steps that start with `search` found nothing in runs.** Splunk adds a `search` command to every saved search that doesn't start with `|`, so `search index=main ...` ran as `search search index=main ...` and matched only events containing the word "search", without an error. A leading `search` is now dropped from the step's hidden saved search, and previews add one when the SPL doesn't start with `|` (they used to fail with "Unknown search command 'index'"). A step now means the same in a preview and a run, written with or without `search`. Existing jobs are fixed the next time they are saved.
+
 ## 1.7.0 (2026-11-12)
 
 - **Removed: Saved search steps that read the previous step's results** (added in 1.5.0). The report had to be rewritten around `$args.so_input$` and then no longer ran outside a job, so the search belongs in the job as a From previous steps step. The `read_previous` field is now ignored. Saved search steps that run a report unchanged are as before, and finding a direct search's job by the run time in its search ID stays.

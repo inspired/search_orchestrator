@@ -121,7 +121,7 @@ def test_upsert_never_sends_scheduling_arguments():
     g.SplunkGateway(svc).upsert_saved_search("alice", "_so_j_s", "search *", "-1h", "now", "d")
     kw = svc.calls[0][2]
     assert "is_scheduled" not in kw and "dispatchAs" not in kw
-    assert kw["is_visible"] == 0 and kw["search"] == "search *"
+    assert kw["is_visible"] == 0 and kw["search"] == "*"
 
 
 def test_upsert_creates_on_404():
@@ -541,3 +541,29 @@ def test_alert_actions_failure_is_a_gateway_error():
     with pytest.raises(g.GatewayError) as err:
         g.SplunkGateway(StubService(down)).alert_actions("alice")
     assert err.value.status == 503 and err.value.transient
+
+
+# Splunk prepends "search " to a saved search that doesn't start with "|", and runs ad hoc
+# jobs as written. The same step SPL must mean the same in a run and in a preview.
+
+@pytest.mark.parametrize("spl, stored", [
+    ("search index=main | stats count", "index=main | stats count"),
+    ("  SEARCH index=main", "index=main"),
+    ("search\nindex=main", "index=main"),
+    ("index=main | stats count", "index=main | stats count"),
+    ("| tstats count", "| tstats count"),
+    ("searchtext index=main", "searchtext index=main"),
+])
+def test_saved_search_drops_a_leading_search_command(spl, stored):
+    assert g.saved_search_params(spl, "-1d@d", "@d")["search"] == stored
+
+
+@pytest.mark.parametrize("spl, sent", [
+    ("index=main | stats count", "search index=main | stats count"),
+    ("search index=main | stats count", "search index=main | stats count"),
+    ("  Search index=main", "search index=main"),
+    ("| tstats count", "| tstats count"),
+    ("  | loadjob x", "  | loadjob x"),
+])
+def test_preview_runs_the_search_a_run_would(spl, sent):
+    assert g.preview_dispatch_params(spl, None, None, 0, "sid")["search"] == sent

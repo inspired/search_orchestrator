@@ -192,9 +192,24 @@ def parse_preview_results(body):
     return {"fields": fields, "rows": list(data.get("results") or [])}
 
 
+_LEADING_SEARCH = re.compile(r"\s*search\s+", re.IGNORECASE)
+
+
+def _without_search_command(spl):
+    """``spl`` without a leading ``search`` command: Splunk prepends one to every saved
+    search that doesn't start with ``|``, so ``search index=x`` would run as
+    ``search search index=x`` and match only events with the word "search"."""
+    match = _LEADING_SEARCH.match(spl)
+    return spl[match.end():] if match else spl
+
+
 def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
     """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
-    sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s."""
+    sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s.
+    An ad hoc job runs as written, so the search gets the ``search`` command a run's saved
+    search gets from Splunk: a step means the same in a preview and a run."""
+    if not spl.lstrip().startswith("|"):
+        spl = "search " + _without_search_command(spl)
     params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 180,
               "timeout": 1800, "exec_mode": "normal"}
     if earliest:
@@ -293,8 +308,9 @@ def dispatch_params(now_epoch, args, earliest=None, latest=None, trigger_actions
 
 
 def saved_search_params(search, earliest, latest, description=""):
-    """Never include is_scheduled or dispatchAs (HTTP 400 for restricted users)."""
-    return {"search": search, "dispatch.earliest_time": earliest,
+    """Never include is_scheduled or dispatchAs (HTTP 400 for restricted users). A leading
+    ``search`` command is dropped, since Splunk adds its own when the job runs."""
+    return {"search": _without_search_command(search), "dispatch.earliest_time": earliest,
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
