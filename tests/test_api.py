@@ -1743,3 +1743,15 @@ def test_timerange_resolve_run_only_user_forbidden(w):
     status, out = w.call("carol", "POST", "/orchestrator/timerange/resolve",
                          {"earliest": "-1d", "latest": "now", "scheduled_time": NOV6})
     assert status == 403 and error(out) == "forbidden"
+
+
+def test_moving_nodes_is_not_a_changed_definition(w):
+    saved(w)
+    run_id = start(w)
+    fail_run(w, run_id)
+    body = job_body()
+    body["layout"] = {"nodes": {"step:a": {"x": 5, "y": 6}}}
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", body)
+    assert status == 200, out
+    status, out = w.call("carol", "POST", "/orchestrator/runs/%s/rerun" % run_id, {"step": "b"})
+    assert status != 409, out

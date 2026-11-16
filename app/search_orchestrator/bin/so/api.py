@@ -682,7 +682,7 @@ def _deleted_job_run_visible(ctx, row):
 
 
 def _definition(doc):
-    return {k: v for k, v in (doc or {}).items() if k not in _META}
+    return {k: v for k, v in (doc or {}).items() if k not in _META and k != "layout"}
 
 
 def _ancestors(definition, step_id):

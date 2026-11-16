@@ -248,3 +248,36 @@ def test_issue_messages_use_no_internal_words():
     for i in validate_job(j):
         for word in ("dispatchAs", "wrapper", "KV Store", "From previous steps"):
             assert word not in i["message"], i
+
+
+def test_layout_and_output_shapes_are_accepted():
+    j = job(edges=[("a", "b")])
+    j["layout"] = {"nodes": {"step:a": {"x": 10, "y": -5.5}, "job": {"x": 0, "y": 0}}}
+    j["steps"][0]["output"] = {"kind": "summary_index", "index": "summary", "source": "",
+                               "add_run_id": True}
+    assert "bad_shape" not in codes(validate_job(j))
+
+
+def test_bad_layout_or_output_is_bad_shape():
+    import copy
+    good = job(edges=[("a", "b")])
+    big = {"nodes": {"k%d" % i: {"x": 0, "y": 0} for i in range(1001)}}
+    cases = [
+        ("layout", []), ("layout", {"nodes": []}),
+        ("layout", {"nodes": {"k": {"x": "1", "y": 0}}}),
+        ("layout", {"nodes": {"k": {"x": True, "y": 0}}}),
+        ("layout", {"nodes": {"k": {"x": float("nan"), "y": 0}}}),
+        ("layout", {"nodes": {"k": {"x": 2_000_000, "y": 0}}}),
+        ("layout", big),
+        ("output", "x"), ("output", {"kind": "csv"}), ("output", {"kind": "lookup", "name": 5}),
+    ]
+    for field, value in cases:
+        j = copy.deepcopy(good)
+        if field == "layout":
+            j["layout"] = value
+        else:
+            j["steps"][0]["output"] = value
+        bad = [i for i in validate_job(j) if i["code"] == "bad_shape"]
+        assert len(bad) == 1, (field, value, bad)
+        if field == "layout":
+            assert "Tidy up" in bad[0]["message"]

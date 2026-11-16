@@ -184,6 +184,26 @@ def _lst(job, key):
     return v if isinstance(v, list) else []
 
 
+def _coord_ok(v):
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and math.isfinite(v) and abs(v) <= 1_000_000)
+
+
+def _layout_ok(layout):
+    if not isinstance(layout, dict):
+        return False
+    nodes = layout.get("nodes")
+    if not isinstance(nodes, dict) or len(nodes) > 1000:
+        return False
+    return all(isinstance(p, dict) and _coord_ok(p.get("x")) and _coord_ok(p.get("y"))
+               for p in nodes.values())
+
+
+def _output_ok(out):
+    return (isinstance(out, dict) and out.get("kind") in ("summary_index", "lookup")
+            and all(isinstance(v, (str, bool)) for v in out.values()))
+
+
 def _shape_issues(job):
     out = []
 
@@ -201,6 +221,9 @@ def _shape_issues(job):
     if job.get("timezone") is not None and not isinstance(job["timezone"], str):
         bad("timezone must be a string")
 
+    if "layout" in job and not _layout_ok(job["layout"]):
+        bad("layout is broken; use Tidy up and save again")
+
     def check_durations(d, where, step=None):
         for k in BUILTIN_DEFAULTS:
             if d.get(k) is not None and not _is_int(d[k]):
@@ -216,6 +239,8 @@ def _shape_issues(job):
         for k in ("spl", "saved_search_ref", "type"):
             if s.get(k) is not None and not isinstance(s[k], str):
                 bad("step %s must be a string" % k, sid)
+        if "output" in s and not _output_ok(s["output"]):
+            bad("step output must be a summary index or lookup; open the node and set it again", sid)
         rw = s.get("run_when")
         if rw is not None and not (isinstance(rw, dict) and isinstance(rw.get("kind"), (str, type(None)))
                                    and isinstance(rw.get("value"), (str, type(None)))):
