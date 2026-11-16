@@ -64,6 +64,10 @@ export interface Action {
     [field: string]: unknown;
 }
 
+export type StepOutput =
+    | { kind: 'summary_index'; index: string; source?: string; add_run_id?: boolean }
+    | { kind: 'lookup'; name: string; append?: boolean };
+
 export interface StepDef {
     id: string;
     name?: string;
@@ -79,6 +83,7 @@ export interface StepDef {
     max_runtime?: number | null;
     retries?: number | null;
     actions?: Action[];
+    output?: StepOutput;
 }
 
 export interface Edge {
@@ -119,6 +124,8 @@ export interface JobDefinition {
     actions?: Action[];
     defaults?: Defaults;
     run_roles?: string[];
+    /** Node positions on the canvas, by node key. Omit when unset; the server rejects null. */
+    layout?: { nodes: Record<string, { x: number; y: number }> };
 }
 
 export interface JobPermissions {
