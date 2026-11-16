@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.8.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.9.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -21,17 +21,58 @@ A new job starts from a template. Pick one and its steps are filled in, and one 
 - **Run searches side by side, then combine:** two searches run at once, and a third works on both their results.
 - **Blank job:** an empty canvas.
 
-Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button to the right tab. It goes away once the job is ready, or sooner with **Hide checklist**.
+Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button that opens the right tab and selects the node to change; for a job with no schedule yet, it opens the add-node box with the two trigger nodes. It goes away once the job is ready, or sooner with **Hide checklist**.
 
-1. **Add steps** with **Add step**, or by dragging a line from a step's handle (the circle at its bottom edge) and letting go on empty canvas: that adds a **Results of earlier steps** step that reads the first step's results, and selects it. Let go on another step instead to make that step depend on the first. Steps are arranged automatically, top to bottom, every time the graph changes, so there is nothing to place. Keyboard and screen-reader users can use **Depends on** in the side panel instead.
-2. **Select a step** to edit it in the side panel: its search, time range, run-when rule, delay and give-up times, retries and actions.
-3. **Select an edge** to choose when it lets the next step start: on success (the default), on failure, always, or an expression such as `$daily.resultCount$ > 0`.
-4. Use the job tabs for triggers, parameters, actions, who may run and job-wide defaults.
+The job is drawn on the **Flow** tab as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor).
+
+1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from a port on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
+2. **Connect nodes** by dragging from a port onto another node. A line between two steps makes the second depend on the first; a line to an action says when the action fires. Keyboard and screen-reader users can use **Depends on** in a step's panel, and **When** in an action's panel.
+3. **Select a node** to edit it in the side panel: a step's search, time range, run-when rule, delay and give-up times and retries; an action's fields; a trigger's schedule; a condition's expression.
+4. Use the other tabs for parameters, who may run, and job-wide settings such as the time zone and step defaults.
 5. **Save.** The builder checks for cycles, unknown tokens, bad cron, unreadable saved searches and tokens from steps that might be skipped.
 
-**The job is checked as you edit it**, so there is no Validate button. Each tab shows how many problems it has. If a save fails, every problem is listed with a **Go to ...** button that opens the right tab and step. If you leave with unsaved changes, the builder asks first.
+**The job is checked as you edit it**, so there is no Validate button. Each tab shows how many problems it has. If a save fails, every problem is listed with a **Go to ...** button that opens the right tab and selects the node that has the problem. If you leave with unsaved changes, the builder asks first.
 
-Node positions are not saved. The graph is laid out again each time the job opens.
+Where you put nodes is saved with the job. Nodes you never moved are placed for you. Moving nodes does not count as changing the job when you re-run a step.
+
+### The flow editor
+
+Each kind of node has its own shape and colour. The colour is a stripe on the left, the icon and the port rings; it never says whether something worked.
+
+| Node | Shape | Colour |
+|---|---|---|
+| Triggers: **Schedule**, **After another job** | rounded ends | purple |
+| **Search**, **Saved search** | rounded corners; a saved search has a second stripe | blue |
+| **Results of earlier steps** | cut corners | teal |
+| **If…** (a condition) | diamond | amber |
+| Notify: **Email**, **Webhook**, **Alert action** | notched right edge | pink |
+| Write data: **Event to an index** | cylinder | orange |
+| **Start another job** | slanted sides | slate |
+| **Whole job** | double outline | grey |
+
+**Ports.** A step has one input on its left and these outputs on its right, top to bottom. Each port shows a symbol and a name as well as a colour.
+
+| Port | Symbol | A line to a step | A line to an action |
+|---|---|---|---|
+| Succeeded | ✓ | runs it when this step succeeds | fires on success |
+| Failed | ✗ | runs it when this step fails | fires on failure |
+| Finished either way | ∞ | runs it whenever this step finishes | fires on complete |
+| Started | ▶ | not allowed | fires on start |
+| Delayed | ⏱ | not allowed | fires when the step is delayed |
+| If… | ◇ | adds an **If…** node; the next step runs when its expression is true | not allowed |
+
+Started, Delayed and If… show while the node is hovered or selected, or once a line leaves them. The **Whole job** node has the same outputs except If…; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no ports: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't drawn.
+
+**Keys**, with the canvas focused:
+
+- `Tab` moves through the nodes, then the lines. `Enter` selects the focused one.
+- `/` opens the add-node box, also from the toolbar. `Tab` opens it too while the pointer is over the canvas. Type to filter, arrow keys to move, `Enter` to add, `Escape` to close.
+- Arrow keys move the selected node by 10 px. `Delete` or `Backspace` asks before removing it; **Undo** brings it back.
+- `F` frames the whole graph. Drag the background to pan, and use the wheel or the zoom buttons to zoom.
+
+**Tidy up** places every node again automatically, as one undo step. Moving a node is one undo step per move.
+
+The time zone every schedule uses is on the **Settings** tab; a schedule's panel links to it.
 
 ### Steps
 
@@ -77,7 +118,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 | Trigger | How |
 |---|---|
-| Schedule | On the Triggers tab, in the job's time zone. |
+| Schedule | A **Schedule** node on the Flow tab, in the job's time zone. |
 | Manual | **Run now** on the Jobs page. |
 | Search | `\| orchestrate start job=<id> param.<name>=<value>` |
 | Alert | The "Start orchestrator job" alert action. The alert must be owned by a real user who may run the job, not `nobody`. |
@@ -85,14 +126,14 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 | Job completion | "After job X succeeds" or "completes". |
 
 - **Schedules** are picked from presets: **Hourly**, **Daily**, **Weekly**, **Monthly** or **Custom** (a cron expression). The editor shows a readable summary, such as "Every day at 01:00", and the next times it will fire. A cron no preset matches opens as Custom and is never rewritten. A job can have more than one schedule.
-- **Time zone** is picked from a list that includes UTC. A stored zone the list lacks stays selected; the server decides if it is valid. Empty uses the server's time zone.
+- **Time zone** is on the Settings tab, picked from a list that includes UTC. A stored zone the list lacks stays selected; the server decides if it is valid. Empty uses the server's time zone.
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
 - **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed time (up to 7), only the latest, or none.
 
 ### Actions
 
-Add actions to a step or to the whole job, on start, success, failure, complete or delayed:
+Each action is a node. Drag a line to it from a step's port, or from the **Whole job** node for a job-wide action; the port says when it fires (start, success, failure, complete or delayed). An action's **When** field moves its line from the keyboard.
 
 - **Webhook** to a destination your admin set up (Slack is a body format).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.

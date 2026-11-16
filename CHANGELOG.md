@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.0 (2026-11-16)
+
+The job builder is a node editor: everything before, during and after a search is a node, and lines say what happens when.
+
+- The **Steps** tab is now **Flow**, and the **Triggers** and **Actions** tabs are gone. Schedules, "after another job" triggers, actions, conditions and the whole job are nodes on the canvas, read from left to right.
+- Each kind of node has its own shape and colour: triggers, searches, results of earlier steps, conditions, notifications, writes to an index, starting another job and the whole job. Colour is only an accent; it never shows whether something worked.
+- Steps have output ports on their right: Succeeded ✓, Failed ✗, Finished either way ∞, Started ▶, Delayed ⏱ and If… ◇. A line from a port to a step makes a dependency; a line to an action says when it fires. If… adds a condition node with its expression. The Whole job node's lines make job-wide actions.
+- **Add node**, or `/` with the canvas or its toolbar focused, opens a search box of every node kind. Dragging a line onto empty canvas opens it with only the nodes that line can lead to, and connects the new node.
+- Nodes can be dragged anywhere, and their positions are saved with the job in `layout`. **Tidy up** places every node again. Moving nodes does not count as changing the job, so **Re-run from step** does not ask for the latest or the original definition because of it.
+- The side panel edits the selected node. An action's **When** field moves its line from the keyboard. A schedule's time zone is on the Settings tab.
+- Save problems and the setup checklist select the node to fix: the step, the condition, the first trigger or the Whole job. A job with no schedule opens the box with the two trigger nodes.
+- The keyboard reaches everything: `Tab` through nodes and lines, `Enter` to select, arrow keys to move, `Delete` to remove (after a confirm; Undo brings it back), `F` to frame the graph.
+- The server checks the shape of `layout` and of a step's `output`, and says how to fix a broken layout.
+
 ## 1.8.0 (2026-11-11)
 
 Plain words, a friendlier Jobs and Runs, and help inside the app.
