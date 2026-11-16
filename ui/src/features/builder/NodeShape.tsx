@@ -37,9 +37,13 @@ export interface NodeShapeProps {
     stroke?: string;
     /** Replaces the detail line, for example a run status. */
     status?: React.ReactNode;
+    /** Drawn before the status text, in a 24×24 viewBox (for example a react-icons element). */
+    statusIcon?: React.ReactNode;
+    /** Colour of the status text and icon. */
+    statusColor?: string;
 }
 
-export function NodeShape({ node, theme, selected = false, stroke, status }: NodeShapeProps) {
+export function NodeShape({ node, theme, selected = false, stroke, status, statusIcon, statusColor }: NodeShapeProps) {
     const family = FAMILY_OF[node.kind];
     const { shape, colorToken } = FAMILY_STYLE[family];
     const color = theme[colorToken];
@@ -53,6 +57,8 @@ export function NodeShape({ node, theme, selected = false, stroke, status }: Nod
     const textX = inset + ICON_SIZE + 6;
     const chars = Math.max(6, Math.floor((w - textX - 26) / 6.5));
     const diamond = shape === 'diamond';
+    const detailFill = (status != null && statusColor) || theme.contentColorMuted;
+    const withIcon = status != null && statusIcon != null && !diamond;
 
     return (
         <>
@@ -84,7 +90,7 @@ export function NodeShape({ node, theme, selected = false, stroke, status }: Nod
                     <text x={w / 2} y={h + 14} textAnchor="middle" fontSize={12} fill={theme.contentColorDefault} fontFamily={theme.fontFamily} fontWeight={theme.fontWeightSemiBold}>
                         {node.label}
                     </text>
-                    <text x={w / 2} y={h + 28} textAnchor="middle" fontSize={11} fill={theme.contentColorMuted} fontFamily={theme.fontFamily}>
+                    <text x={w / 2} y={h + 28} textAnchor="middle" fontSize={11} fill={detailFill} fontFamily={theme.fontFamily}>
                         {status ?? clip(node.detail, 28)}
                     </text>
                 </>
@@ -93,7 +99,12 @@ export function NodeShape({ node, theme, selected = false, stroke, status }: Nod
                     <text x={textX} y={h / 2 - 3} fontSize={13} fill={theme.contentColorDefault} fontFamily={theme.fontFamily} fontWeight={theme.fontWeightSemiBold}>
                         {clip(node.label, chars)}
                     </text>
-                    <text x={textX} y={h / 2 + 13} fontSize={11} fill={theme.contentColorMuted} fontFamily={theme.fontFamily}>
+                    {withIcon && (
+                        <svg x={textX} y={h / 2 + 3} width={12} height={12} viewBox="0 0 24 24" style={{ color: detailFill }}>
+                            {statusIcon}
+                        </svg>
+                    )}
+                    <text x={withIcon ? textX + 16 : textX} y={h / 2 + 13} fontSize={11} fill={detailFill} fontFamily={theme.fontFamily}>
                         {status ?? clip(node.detail, chars)}
                     </text>
                 </>
