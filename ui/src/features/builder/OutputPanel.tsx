@@ -80,7 +80,7 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
                 </>
             ) : (
                 <>
-                    <ControlGroup label="Lookup" labelFor={`${p}-name-field`} labelPosition="top" error={Boolean(problem)} help={problem || 'The lookup file or definition to write to.'}>
+                    <ControlGroup label="Lookup name" labelFor={`${p}-name-field`} labelPosition="top" error={Boolean(problem)} help={problem || 'The lookup file or definition to write to.'}>
                         <Text
                             inputId={`${p}-name-field`}
                             value={output.name}
@@ -90,7 +90,7 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
                         />
                     </ControlGroup>
                     <Switch appearance="toggle" selected={Boolean(output.append)} onClick={() => write({ ...output, append: !output.append })}>
-                        Append to the lookup
+                        Append instead of replace
                     </Switch>
                 </>
             )}

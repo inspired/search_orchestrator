@@ -9,7 +9,7 @@ export function outputSpl(o: StepOutput): string {
     if (o.kind === 'summary_index') {
         const parts = ['| collect', `index=${o.index}`];
         if (o.source) {
-            parts.push(`source="${o.source.replace(/"/g, '\\"')}"`);
+            parts.push(`source="${o.source.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
         }
         if (o.add_run_id !== false) {
             parts.push('marker="so_run=$run.id$"');
@@ -28,6 +28,9 @@ export function outputIssue(o: StepOutput): string | null {
     }
     if (!OUTPUT_NAME_RE.test(value)) {
         return `Use letters, numbers, _ . : or - in the ${noun} name`;
+    }
+    if (o.kind === 'summary_index' && o.source && /[\r\n]/.test(o.source)) {
+        return 'Remove line breaks from the source';
     }
     return null;
 }

@@ -17,6 +17,10 @@ describe('outputSpl', () => {
         expect(outputSpl({ kind: 'summary_index', index: 'summary', add_run_id: false })).toBe('| collect index=summary');
         expect(outputSpl({ kind: 'summary_index', index: 'summary', source: 'a"b' })).toContain('source="a\\"b"');
     });
+    test('source escapes backslashes before quotes', () => {
+        expect(outputSpl({ kind: 'summary_index', index: 'summary', source: 'a\\b' })).toContain('source="a\\\\b"');
+        expect(outputSpl({ kind: 'summary_index', index: 'summary', source: 'a\\"b' })).toContain('source="a\\\\\\"b"');
+    });
     test('lookup', () => {
         expect(outputSpl({ kind: 'lookup', name: 'hosts.csv' })).toBe('| outputlookup hosts.csv');
         expect(outputSpl({ kind: 'lookup', name: 'hosts.csv', append: true })).toBe('| outputlookup append=true hosts.csv');
@@ -29,6 +33,7 @@ describe('outputIssue', () => {
         expect(outputIssue({ kind: 'summary_index', index: 'a b' })).toBe('Use letters, numbers, _ . : or - in the index name');
         expect(outputIssue({ kind: 'lookup', name: '' })).toBe('Type the lookup name to write to');
         expect(outputIssue({ kind: 'lookup', name: 'a/b' })).toBe('Use letters, numbers, _ . : or - in the lookup name');
+        expect(outputIssue({ kind: 'summary_index', index: 'summary', source: 'a\nb' })).toBe('Remove line breaks from the source');
         expect(outputIssue({ kind: 'summary_index', index: 'summary' })).toBeNull();
         expect(outputIssue({ kind: 'lookup', name: 'hosts.csv' })).toBeNull();
     });

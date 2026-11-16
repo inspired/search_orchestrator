@@ -228,20 +228,20 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                         </Select>
                     </ControlGroup>
                     {!isSlack && (
-                    <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
-                        <Select
-                            inputId={presetId}
-                            value={str(a.preset)}
-                            onChange={(_e: unknown, { value }: { value: unknown }) => {
-                                const { preset: _old, ...rest } = a;
-                                onChange(value ? { ...rest, preset: String(value) } : (rest as Action));
-                            }}
-                        >
-                            <Select.Option label="The destination's default" value="" />
-                            <Select.Option label="Slack" value="slack" />
-                            <Select.Option label="Generic JSON" value="generic" />
-                        </Select>
-                    </ControlGroup>
+                        <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
+                            <Select
+                                inputId={presetId}
+                                value={str(a.preset)}
+                                onChange={(_e: unknown, { value }: { value: unknown }) => {
+                                    const { preset: _old, ...rest } = a;
+                                    onChange(value ? { ...rest, preset: String(value) } : (rest as Action));
+                                }}
+                            >
+                                <Select.Option label="The destination's default" value="" />
+                                <Select.Option label="Slack" value="slack" />
+                                <Select.Option label="Generic JSON" value="generic" />
+                            </Select>
+                        </ControlGroup>
                     )}
                 </>
             )}
