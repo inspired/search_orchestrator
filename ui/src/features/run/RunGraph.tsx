@@ -7,7 +7,7 @@ import FlowCanvas, { FlowSelection } from '../builder/FlowCanvas';
 import { layoutFlow } from '../builder/flowLayout';
 import { buildGraph, stepKey } from '../builder/nodeModel';
 import type { Theme } from '../builder/GraphView';
-import { actionStates, actionStatusText } from './actionStates';
+import { actionStates, actionStatusIcon, actionStatusText } from './actionStates';
 
 export interface RunGraphProps {
     definition: JobDefinition;
@@ -43,8 +43,10 @@ export default function RunGraph({ definition, states, actions, onSelect, select
         });
         const acts = actionStates(definition, actions);
         Object.keys(acts).forEach((key) => {
+            const Icon = actionStatusIcon(acts[key]);
             out[key] = {
                 text: actionStatusText(acts[key]),
+                icon: <Icon aria-hidden width={24} height={24} />,
                 color: acts[key].state === 'failed' ? theme.statusColorHigh : undefined,
             };
         });

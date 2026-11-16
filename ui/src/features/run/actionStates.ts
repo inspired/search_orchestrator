@@ -1,5 +1,6 @@
 /* How each action node of a run's definition went, from the run's action rows. */
 import type { ActionRun, JobDefinition } from '../../api/types';
+import { statusIcon } from '../../components/StatusText';
 import { actionKey } from '../builder/nodeModel';
 
 export interface ActionState {
@@ -60,3 +61,15 @@ export function actionStatusText(s: ActionState): string {
     return (s.attempts || 0) > 0 ? 'Retrying' : 'Not sent yet';
 }
 
+
+/** The icon beside an action node's status, the same as for step states: sent is succeeded,
+ * retrying is delayed (a clock), not sent yet is waiting. */
+export function actionStatusIcon(s: ActionState): ReturnType<typeof statusIcon> {
+    if (s.state === 'done') {
+        return statusIcon('succeeded');
+    }
+    if (s.state === 'failed') {
+        return statusIcon('failed');
+    }
+    return (s.attempts || 0) > 0 ? statusIcon('waiting', true) : statusIcon('waiting');
+}

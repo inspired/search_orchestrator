@@ -1,5 +1,6 @@
 import type { ActionRun, JobDefinition } from '../api/types';
-import { actionStates, actionStatusText } from '../features/run/actionStates';
+import { statusIcon } from '../components/StatusText';
+import { actionStates, actionStatusIcon, actionStatusText } from '../features/run/actionStates';
 
 const def: JobDefinition = {
     name: 'j',
@@ -34,5 +35,14 @@ describe('actionStates', () => {
         expect(actionStates(def, [row({ kind: 'fallback', actions: [{ index: 0, state: 'done' }] })])).toEqual({});
         expect(actionStatusText({ state: 'pending', attempts: 2 })).toBe('Retrying');
         expect(actionStatusText({ state: 'pending', attempts: 0 })).toBe('Not sent yet');
+    });
+});
+
+describe('actionStatusIcon', () => {
+    test('uses the step state icons: sent, failed, retrying (clock), not sent yet (waiting)', () => {
+        expect(actionStatusIcon({ state: 'done' })).toBe(statusIcon('succeeded'));
+        expect(actionStatusIcon({ state: 'failed' })).toBe(statusIcon('failed'));
+        expect(actionStatusIcon({ state: 'pending', attempts: 2 })).toBe(statusIcon('waiting', true));
+        expect(actionStatusIcon({ state: 'pending' })).toBe(statusIcon('waiting'));
     });
 });

@@ -22,6 +22,8 @@ describe('RunGraph', () => {
         renderThemed(<RunGraph definition={def} states={{ a: { state: 'failed' }, b: { state: 'waiting' } }} actions={rows} onSelect={onSelect} />);
         expect(screen.getByText('Failed')).toBeInTheDocument();
         expect(screen.getByText('Sent')).toBeInTheDocument();
+        // The status icon drawn beside "Sent" (12 px, before the text).
+        expect(screen.getByTestId('node-action:a:0').querySelector('svg[width="12"]')).not.toBeNull();
         fireEvent.keyDown(screen.getByTestId('node-action:a:0'), { key: 'Enter' });
         expect(onSelect).not.toHaveBeenCalled();
         fireEvent.keyDown(screen.getByTestId('node-step:a'), { key: 'Enter' });
