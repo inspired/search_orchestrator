@@ -14,28 +14,27 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
 import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
-import FlowCanvas, { FlowSelection, ScreenPoint } from './FlowCanvas';
+import FlowCanvas, { FlowSelection } from './FlowCanvas';
 import { layoutFlow } from './flowLayout';
 import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
-import type { Pos } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
 import { ChecklistItem, readiness } from './readiness';
 import IssueSummary from './IssueSummary';
 import { nodeForIssue, tabForIssue } from './issueTabs';
-import { targetKinds } from './nodeCatalog';
 import { JOB_KEY, buildGraph, stepKey } from './nodeModel';
-import { whenOptions } from './outcomes';
-import type { NodeKind, PortId } from './nodeModel';
+import type { PortId } from './nodeModel';
 import NodePanel from './NodePanel';
-import QuickAdd from './QuickAdd';
 import RemoveNodeModal from './RemoveNodeModal';
 import SetupChecklist from './SetupChecklist';
 import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
+import useBuilderData from './useBuilderData';
+import useFillHeight from './useFillHeight';
+import useFlowMenus from './useFlowMenus';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
-import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
+import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import type { BuilderAction } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
@@ -85,16 +84,8 @@ export interface BuilderPageProps {
 
 type Notice = { type: 'success' | 'error' | 'info'; text: string } | null;
 
-/** An open quick-add box: which kinds it offers, the line it continues, and where. */
-interface QuickAddState {
-    kinds?: NodeKind[];
-    from?: { key: string; port: PortId };
-    /** Canvas point for the new node; none lets the layout place it. */
-    at?: Pos;
-    /** Without `at`: put the new node in the first free spot right of this node. */
-    rightOf?: string;
-    screen: ScreenPoint;
-}
+/** The canvas is never shorter than this. */
+const MIN_CANVAS = 480;
 
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
@@ -107,15 +98,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startTemplate);
     const [activeTab, setActiveTab] = useState<TabId>('steps');
     const [checklistDismissed, setChecklistDismissed] = useState(false);
-    const [loading, setLoading] = useState(Boolean(initialId));
-    const [loadError, setLoadError] = useState<string | null>(null);
-    const [meta, setMeta] = useState<{ owner: string | null; canEdit: boolean }>({ owner: null, canEdit: true });
-    const [me, setMe] = useState<Me | null>(null);
-    const [destinations, setDestinations] = useState<Destination[]>([]);
-    const [alertActions, setAlertActions] = useState<AlertAction[] | null>(null);
-    const [jobs, setJobs] = useState<Job[]>([]);
     const [selected, setSelectedState] = useState<FlowSelection>(null);
-    const [quick, setQuick] = useState<QuickAddState | null>(null);
+    const [fullScreen, setFullScreen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
     const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -125,7 +109,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const timeTouched = useRef(false);
     const [paramValues, setParamValues] = useState<Record<string, string>>({});
     const [source, setSource] = useState('live');
-    const [runs, setRuns] = useState<RunSummary[]>([]);
     const [resultRetention, setResultRetention] = useState<number | undefined>(undefined);
     const returnFocus = useRef<HTMLElement | null>(null);
     const rememberFocus = () => {
@@ -137,69 +120,14 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         }
         setRemovingState(key);
     };
-    // Selecting anything (or clicking the empty canvas) closes the quick-add box.
+    // Selecting anything (or clicking the empty canvas) closes the popups (see useFlowMenus).
     const setSelected = (sel: FlowSelection) => {
-        setQuick(null);
+        menus.close();
         setSelectedState(sel);
     };
     const selectNode = (key: string) => setSelected({ kind: 'node', key });
 
-    /** This job's recent runs for "Input from": loaded with the job, after a save, and
-     * each time the list is opened. */
-    const mountedRef = useRef(true);
-    useEffect(() => {
-        mountedRef.current = true;
-        return () => {
-            mountedRef.current = false;
-        };
-    }, []);
-    const loadRuns = (id: string | null) => {
-        if (!id) {
-            return;
-        }
-        api.listRuns({ job_id: id, limit: 20 })
-            .then((r) => mountedRef.current && setRuns(r.filter((run) => run.job_id === id)))
-            .catch(() => undefined);
-    };
-
-    useEffect(() => {
-        let live = true;
-        api.me()
-            .then((m) => live && setMe(m))
-            .catch(() => undefined);
-        api.listDestinations()
-            .then((d) => live && setDestinations(d))
-            .catch(() => undefined);
-        api.listAlertActions()
-            .then((a) => live && setAlertActions(a))
-            .catch(() => undefined);
-        api.listJobs()
-            .then((j) => live && setJobs(j))
-            .catch(() => undefined);
-        if (initialId) {
-            loadRuns(initialId);
-            api.getJob(initialId)
-                .then((job) => {
-                    if (!live) {
-                        return;
-                    }
-                    setMeta({ owner: job.owner, canEdit: job.permissions ? job.permissions.can_edit : true });
-                    dispatch({ type: 'load', job: client.toDefinition(job) });
-                    setLoading(false);
-                })
-                .catch((err: Error) => {
-                    if (live) {
-                        setLoadError(err.message);
-                        setLoading(false);
-                    }
-                });
-        }
-        return () => {
-            live = false;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
+    const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
     const { job } = state;
 
     // The job is checked against the server as it is edited, once it is ready to edit.
@@ -296,8 +224,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         if (item.node) {
             selectNode(item.node);
         } else if (item.addKinds) {
-            rememberFocus();
-            setQuick({ kinds: item.addKinds, screen: { left: 8, top: 8 } });
+            menus.openQuick({ kinds: item.addKinds, screen: { left: 8, top: 8 } });
         }
     };
     // The list stays until the next save attempt or until nothing is left to fix: no live
@@ -447,38 +374,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         setRemoving(null);
     };
 
-    const closeQuick = () => {
-        setQuick(null);
-        const back = returnFocus.current;
-        returnFocus.current = null;
-        if (back && back.isConnected) {
-            back.focus();
-        } else {
-            setFocusNext({ key: null });
-        }
-    };
-
-    const chooseNode = (kind: NodeKind) => {
-        if (!quick) {
-            return;
-        }
-        const key = addNodeKey(job, kind, quick.from);
-        dispatch({
-            type: 'addNode',
-            kind,
-            at: quick.at,
-            from: quick.from,
-            rightOf: quick.rightOf,
-            shown: quick.at || quick.rightOf ? positions : undefined,
-        });
-        returnFocus.current = null;
-        setQuick(null);
-        if (key) {
-            setSelectedState({ kind: 'node', key });
-            setFocusNext({ key });
-        }
-    };
-
     // A line onto an action can move it to another list: keep the selection on it.
     const connectLine = (from: string, port: PortId, to: string) => {
         if (selection && selection.kind === 'node') {
@@ -490,18 +385,37 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         dispatch({ type: 'connectPort', from, port, to });
     };
 
-    // Until the When list is wired in (Task 6), a line from the + takes the first outcome allowed.
-    const kindOf = (key: string) => graph.nodes.find((n) => n.key === key)?.kind;
-    const firstOutcome = (from: string, to?: string): PortId | undefined =>
-        kindOf(from) === 'condition' ? 'then' : to ? whenOptions(job, from, to)[0]?.outcome : 'success';
+    const menus = useFlowMenus({
+        job,
+        graph,
+        positions,
+        dispatch,
+        select: setSelectedState,
+        focusNode: (key) => setFocusNext({ key }),
+        connectLine,
+        returnFocus,
+        rememberFocus,
+        canvas: () => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'),
+    });
 
-    const openQuick = (state: QuickAddState) => {
-        if (state.kinds && !state.kinds.length) {
-            return;
+    // Full screen: the canvas and panel over the whole page. Escape leaves, unless something
+    // (a popup, the canvas clearing its selection, a modal) used it first.
+    const modalOpen = Boolean(removing || ownerConfirm);
+    useEffect(() => {
+        if (!fullScreen) {
+            return undefined;
         }
-        rememberFocus();
-        setQuick(state);
-    };
+        const onKey = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape' && !ev.defaultPrevented && !modalOpen) {
+                setFullScreen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [fullScreen, modalOpen]);
+    const canvasHeight = useFillHeight(() => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'), MIN_CANVAS, fullScreen);
+    const panelRef = useRef<HTMLDivElement | null>(null);
+    const panelHeight = useFillHeight(() => panelRef.current, MIN_CANVAS, fullScreen);
 
     const stepsTab = (
         <>
@@ -520,6 +434,15 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             onOpenRuns={() => loadRuns(jobId)}
             resultRetention={resultRetention}
         />
+        <div
+            data-testid="flow-area"
+            style={
+                fullScreen
+                    ? { position: 'fixed', inset: 0, zIndex: 1000, padding: '16px', background: theme.backgroundColorPage, overflow: 'hidden' }
+                    : undefined
+            }
+        >
+        {menus.notice}
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
             <div ref={canvasArea} style={{ flex: 1, minWidth: 0 }}>
                 <FlowCanvas
@@ -533,49 +456,29 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     // stay where they are instead of being placed again around the moved one.
                     onMove={(moved) => dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } })}
                     onConnect={connectLine}
-                    onDropOnNode={(from, to, _screen, outcome) => {
-                        const port = outcome || firstOutcome(from, to);
-                        if (port) {
-                            connectLine(from, port, to);
-                        }
-                    }}
-                    onPlus={(from, screen) => {
-                        const kind = kindOf(from);
-                        // A condition already leads somewhere; its line is moved, not continued.
-                        if (kind && kind !== 'condition') {
-                            openQuick({ kinds: targetKinds('success', kind), from: { key: from, port: 'success' }, rightOf: from, screen });
-                        }
-                    }}
-                    onDropOnCanvas={(from, at, screen, outcome) => {
-                        const kind = kindOf(from);
-                        const port = outcome || firstOutcome(from);
-                        if (kind && kind !== 'condition' && port) {
-                            openQuick({ kinds: targetKinds(port, kind), from: { key: from, port }, at, screen });
-                        }
-                    }}
+                    onPlus={menus.onPlus}
+                    onDropOnNode={menus.onDropOnNode}
+                    onDropOnCanvas={menus.onDropOnCanvas}
+                    onLineMenu={menus.onLineMenu}
+                    onSplice={menus.onSplice}
+                    canSpliceNode={menus.canSpliceNode}
                     onRequestRemove={requestRemove}
-                    onQuickAdd={(at, screen) => openQuick({ at, screen })}
+                    onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
                     onTidy={() => dispatch({ type: 'tidyLayout' })}
-                    overlay={
-                        quick && (
-                            <QuickAdd
-                                open
-                                at={{ left: Math.max(0, quick.screen.left), top: Math.max(0, quick.screen.top) }}
-                                kinds={quick.kinds}
-                                onChoose={chooseNode}
-                                onClose={closeQuick}
-                            />
-                        )
-                    }
+                    overlay={menus.overlay}
+                    height={canvasHeight}
+                    fullScreen={fullScreen}
+                    onToggleFullScreen={() => setFullScreen((f) => !f)}
                 />
             </div>
             <div
+                ref={panelRef}
                 style={{
                     width: '360px',
                     flex: 'none',
                     borderLeft: `1px solid ${theme.borderColor}`,
                     paddingLeft: '16px',
-                    maxHeight: '80vh',
+                    maxHeight: `${panelHeight}px`,
                     overflowY: 'auto',
                 }}
             >
@@ -604,8 +507,10 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                             : undefined
                     }
                     onCancelPreview={previews.cancel}
+                    previewLive={source === 'live'}
                 />
             </div>
+        </div>
         </div>
         </>
     );

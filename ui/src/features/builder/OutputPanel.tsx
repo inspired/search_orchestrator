@@ -23,9 +23,11 @@ export interface OutputPanelProps {
     dispatch: (action: BuilderAction) => void;
     onRequestRemove: (stepId: string) => void;
     issues?: Issue[];
+    /** "Input from" is live (the default). */
+    live?: boolean;
 }
 
-export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, issues = [] }: OutputPanelProps) {
+export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, issues = [], live = true }: OutputPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
     const step = steps.find((s) => s.id === stepId);
@@ -105,7 +107,7 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
             <div style={{ marginBottom: '12px' }}>
                 <Button appearance="secondary" label="Preview step" disabled />
                 <Typography as="p" variant="body">
-                    {previewRefusal(job, stepId, true)}
+                    {previewRefusal(job, stepId, live)}
                 </Typography>
             </div>
             <div style={{ marginBottom: '12px' }}>

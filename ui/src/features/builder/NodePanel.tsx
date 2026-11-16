@@ -19,7 +19,8 @@ import { availableTokens } from './tokens';
 import TriggerPanel from './TriggerPanel';
 import type { PreviewView } from './usePreviews';
 
-export const EMPTY_HINT = 'Select a node to edit it. Drag from a port on the right of a node to connect it, or press / to add a node.';
+export const EMPTY_HINT =
+    'Select a node to edit it. Click + on a node to add what happens next, or drag from + onto another node. Press / to add a node.';
 
 const EXPRESSION_CODES = ['bad_expression', 'unknown_token'];
 
@@ -44,6 +45,8 @@ export interface NodePanelProps {
     previews: Record<string, PreviewView | undefined>;
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview?: (stepId: string) => void;
+    /** "Input from" is live: steps upstream run first, so their writing commands count too. */
+    previewLive?: boolean;
 }
 
 export default function NodePanel(props: NodePanelProps) {
@@ -87,6 +90,7 @@ export default function NodePanel(props: NodePanelProps) {
                     issues={byStep[id] || []}
                     dispatch={dispatch}
                     onRequestRemove={(stepId) => onRequestRemove(stepKey(stepId))}
+                    live={props.previewLive}
                 />
             );
         }
@@ -104,6 +108,7 @@ export default function NodePanel(props: NodePanelProps) {
                 preview={props.previews[id]}
                 onPreview={props.onPreview}
                 onCancelPreview={props.onCancelPreview}
+                live={props.previewLive}
                 previewFields={previewFields}
             />
         );

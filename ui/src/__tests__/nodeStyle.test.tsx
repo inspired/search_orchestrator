@@ -104,4 +104,19 @@ describe('handle and tab geometry', () => {
             expect(h.y - p.y).toBeGreaterThan(HANDLE_R);
         });
     });
+    it('with every outcome in use, tabs stay within one node height above the node, the rest stack below the +', () => {
+        (['search', 'previous', 'summary_index', 'job'] as const).forEach((kind) => {
+            const { h: height } = nodeSize(kind);
+            const h = handleOffset(kind);
+            const count = kind === 'job' ? 5 : 6;
+            const t = Array.from({ length: count }, (_, i) => tabOffset(kind, i, count));
+            t.forEach((p) => {
+                // 9 px is half a tab's height.
+                expect(p.y - 9).toBeGreaterThanOrEqual(-height);
+                expect(Math.abs(p.y - h.y)).toBeGreaterThan(HANDLE_R);
+            });
+            expect(new Set(t.map((p) => p.y)).size).toBe(count);
+            expect(t.some((p) => p.y > h.y)).toBe(true);
+        });
+    });
 });

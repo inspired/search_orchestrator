@@ -105,9 +105,16 @@ export function handleOffset(kind: NodeKind): { x: number; y: number } {
     return { x: w, y: h / 2 };
 }
 
-/** Anchor of the `index`th outcome tab (0 nearest): stacked above the handle, 22 px apart. */
+/** Tabs above the handle; more stack downward below it, so six stay within one node height. */
+const TABS_ABOVE = 4;
+
+/** Anchor of the `index`th outcome tab (0 nearest): the first four stacked above the handle,
+ * 22 px apart, the rest below it. */
 export function tabOffset(kind: NodeKind, index: number, _count: number): { x: number; y: number } {
     const o = handleOffset(kind);
+    if (index >= TABS_ABOVE) {
+        return { x: o.x, y: o.y + HANDLE_R + TAB_GAP / 2 + (index - TABS_ABOVE) * TAB_GAP };
+    }
     return { x: o.x, y: o.y - HANDLE_R - TAB_GAP / 2 - index * TAB_GAP };
 }
 

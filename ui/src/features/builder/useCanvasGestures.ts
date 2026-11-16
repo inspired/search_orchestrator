@@ -4,7 +4,8 @@
  * the selection. A line released on a node reports that node (never its own source), anywhere
  * else the canvas point; released on the source's own + or tabs, nothing. A node with no lines
  * dragged with its centre over a line the caller allows (`canSpliceNode`) marks that line
- * (`spliceLink`) and, dropped there, is reported with `onSplice` instead of `onMove`. Escape
+ * (`spliceLink`) and, dropped there, is reported with `onSplice` (and where it was dropped)
+ * instead of `onMove`. Escape
  * cancels a drag. While a node or line is dragged near the canvas edge, a requestAnimationFrame
  * loop scrolls the view (`autoPanStep`) and keeps the dragged item under the pointer. */
 import React, { useEffect, useRef, useState } from 'react';
@@ -38,7 +39,7 @@ export interface GestureOptions {
     onDropOnNode?: (from: string, to: string, screen: ScreenPoint, outcome?: PortId) => void;
     onDropOnCanvas?: (from: string, at: Pos, screen: ScreenPoint, outcome?: PortId) => void;
     /** A node with no lines dropped on line `link`; only offered when `canSpliceNode` says yes. */
-    onSplice?: (node: string, link: string) => void;
+    onSplice?: (node: string, link: string, at: Pos) => void;
     canSpliceNode?: (node: string, link: string) => boolean;
 }
 
@@ -301,8 +302,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
                 const p = positions[g.key];
                 const offset = nodeOffset(g, ev.clientX, ev.clientY);
                 const into = moved ? spliceTarget(g.key, offset) : null;
-                if (into && onSplice) {
-                    onSplice(g.key, into);
+                if (into && onSplice && p) {
+                    onSplice(g.key, into, { x: snap(p.x + offset.x), y: snap(p.y + offset.y) });
                 } else if (moved && canMove && p && onMove) {
                     onMove({ [g.key]: { x: snap(p.x + offset.x), y: snap(p.y + offset.y) } });
                 } else if (!moved || !canMove) {

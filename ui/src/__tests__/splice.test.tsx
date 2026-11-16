@@ -77,3 +77,25 @@ describe('splice', () => {
         );
     });
 });
+
+describe('reducer insertNode', () => {
+    it('adds a new search on a step line, keeping the outcome into it, as one undo step', () => {
+        const start = initialState(job);
+        const link = lk(job, 'step:a', 'step:b');
+        const s = reducer(start, { type: 'insertNode', kind: 'search', link, at: { x: 300, y: 40 } });
+        const added = s.job.steps.find((st) => !job.steps.some((o) => o.id === st.id))!;
+        expect(added.type).toBe('inline');
+        expect(s.job.edges).toEqual([
+            { from: 'a', to: added.id, condition: 'on_failure' },
+            { from: added.id, to: 'b', condition: 'on_success' },
+            { from: 'b', to: 'c', condition: 'expression', expression: 'x' },
+        ]);
+        expect(s.job.layout?.nodes[`step:${added.id}`]).toEqual({ x: 300, y: 40 });
+        expect(reducer(s, { type: 'undo' }).job).toEqual(job);
+    });
+    it('does nothing for an action or a condition line', () => {
+        const start = initialState(job);
+        expect(reducer(start, { type: 'insertNode', kind: 'email', link: lk(job, 'step:a', 'step:b') })).toBe(start);
+        expect(reducer(start, { type: 'insertNode', kind: 'search', link: lk(job, 'step:b', 'cond:b>c') })).toBe(start);
+    });
+});

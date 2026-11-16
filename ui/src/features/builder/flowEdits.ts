@@ -3,7 +3,7 @@
 import type { Edge, JobDefinition } from '../../api/types';
 import { layoutFlow, freeSpotRightOf } from './flowLayout';
 import type { Pos } from './graphLogic';
-import { EDGE_CONDITION_FOR_PORT, actionKey, buildGraph, condKey, stepKey, triggerKey } from './nodeModel';
+import { EDGE_CONDITION_FOR_PORT, actionKey, buildGraph, canConnect, condKey, stepKey, triggerKey } from './nodeModel';
 import type { NodeKind } from './nodeModel';
 import type { Outcome } from './outcomes';
 import { splicedEdges } from './splice';
@@ -155,4 +155,14 @@ export function spliceJob(job: JobDefinition, node: string, link: string, at?: P
         return next;
     }
     return withPlacedNode(next, node, at, shown || (job.layout ? undefined : layoutFlow(buildGraph(job))));
+}
+
+/** `added` (the job with new step `node`) with that step on `link` of `job`: only where both
+ * halves are lines `canConnect` allows. Null when it cannot be. */
+export function insertJob(job: JobDefinition, added: JobDefinition, node: string, link: string, at?: Pos, shown?: Record<string, Pos>): JobDefinition | null {
+    const l = buildGraph(job).links.find((x) => x.key === link);
+    if (!l || !l.port || !canConnect(added, l.from, l.port, node).ok || !canConnect(added, node, 'success', l.to).ok) {
+        return null;
+    }
+    return spliceJob(added, node, link, at, shown);
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi, rollupJob } from './builderFixtures';
 import { renderThemed, runSummary } from './fixtures';
@@ -133,7 +133,9 @@ describe('BuilderPage flow', () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Search Weekly rollup/ });
         expect(
-            screen.getByText('Select a node to edit it. Drag from a port on the right of a node to connect it, or press / to add a node.')
+            screen.getByText(
+                'Select a node to edit it. Click + on a node to add what happens next, or drag from + onto another node. Press / to add a node.'
+            )
         ).toBeInTheDocument();
     });
 
@@ -145,10 +147,10 @@ describe('BuilderPage flow', () => {
         fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), { clientX: 0, clientY: 0 });
         fireEvent.pointerMove(canvas, { clientX: 3000, clientY: 3000 });
         fireEvent.pointerUp(canvas, { clientX: 3000, clientY: 3000 });
+        fireEvent.click(screen.getByRole('option', { name: /^Succeeds/ }));
         const box = screen.getByRole('combobox', { name: 'Add a node' });
         expect(box).toHaveFocus();
-        // Only nodes a line can go to: no triggers. (Until the When list is wired in, a line
-        // from + is Succeeds.)
+        // Only nodes a line can go to: no triggers.
         expect(screen.queryByRole('option', { name: /^Schedule/ })).toBeNull();
         fireEvent.change(box, { target: { value: 'email' } });
         fireEvent.keyDown(box, { key: 'Enter' });
@@ -183,10 +185,19 @@ describe('BuilderPage flow', () => {
         };
         fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), centre('step:daily'));
         fireEvent.pointerUp(canvas, centre('step:weekly'));
+        // The When list offers only what can go to a step: no Starts or Is delayed, no search.
+        const when = screen.getByRole('listbox', { name: 'When' });
+        expect(when).toHaveFocus();
+        expect(screen.queryByRole('option', { name: /^Starts/ })).toBeNull();
+        expect(screen.queryByRole('combobox', { name: 'Add a node' })).toBeNull();
+        fireEvent.click(screen.getByRole('option', { name: /^Succeeds/ }));
+        expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
         expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
         // A trigger cannot be the end of a line.
         fireEvent.pointerDown(screen.getByTestId('plus-step:weekly'), centre('step:weekly'));
         fireEvent.pointerUp(canvas, centre('trigger:0'));
+        expect(screen.getByText('No line can go there. Drop it on another node.')).toBeInTheDocument();
+        fireEvent.keyDown(screen.getByRole('listbox', { name: 'When' }), { key: 'Escape' });
         expect(screen.queryByRole('dialog')).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
         expect(screen.queryByRole('button', { name: /^Line from Daily summary/ })).toBeNull();
@@ -210,6 +221,7 @@ describe('BuilderPage flow', () => {
         expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'true');
         fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), centre('step:daily'));
         fireEvent.pointerUp(canvas, centre('action:job:0'));
+        fireEvent.click(screen.getByRole('option', { name: /^Fails/ }));
         expect(screen.getByTestId('node-action:daily:0')).toHaveAttribute('aria-pressed', 'true');
         expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'false');
         expect(screen.getByLabelText('To')).toHaveValue('a@example.com');
@@ -257,6 +269,7 @@ describe('BuilderPage flow', () => {
         fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), { clientX: 0, clientY: 0 });
         fireEvent.pointerMove(canvas, { clientX: 3000, clientY: 3000 });
         fireEvent.pointerUp(canvas, { clientX: 3000, clientY: 3000 });
+        fireEvent.click(screen.getByRole('option', { name: /^Succeeds/ }));
         const box = screen.getByRole('combobox', { name: 'Add a node' });
         fireEvent.change(box, { target: { value: 'email' } });
         fireEvent.keyDown(box, { key: 'Enter' });
@@ -274,6 +287,221 @@ describe('BuilderPage flow', () => {
         const saved = (api.updateJob as jest.Mock).mock.calls[0][1];
         expect(saved.name).toBe('Renamed');
         expect(saved).not.toHaveProperty('layout');
+    });
+
+    const centreOf = (key: string) => {
+        const p = translate(key);
+        return { clientX: p.x + 20, clientY: p.y + 20 };
+    };
+    const clickPlus = (key: string) => {
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.pointerDown(screen.getByTestId(`plus-${key}`), { clientX: 5, clientY: 5 });
+        fireEvent.pointerUp(canvas, { clientX: 5, clientY: 5 });
+    };
+
+    it('+ then Fails then email adds an email on failure 260 px right of the step, and Save sends it', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        clickPlus('step:daily');
+        expect(screen.getByRole('listbox', { name: 'When' })).toHaveFocus();
+        expect(screen.getByRole('option', { name: /^Starts.*actions only/ })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('option', { name: /^Fails/ }));
+        const box = screen.getByRole('combobox', { name: 'Add a node' });
+        expect(box).toHaveFocus();
+        fireEvent.change(box, { target: { value: 'email' } });
+        fireEvent.keyDown(box, { key: 'Enter' });
+        expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
+        expect(screen.getByTestId('node-action:daily:0')).toHaveAttribute('aria-pressed', 'true');
+        expect(translate('action:daily:0').x).toBe(translate('step:daily').x + 260);
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        const saved = (api.updateJob as jest.Mock).mock.calls[0][1];
+        const daily = saved.steps.find((st: { id: string }) => st.id === 'daily');
+        expect(daily.actions).toEqual([expect.objectContaining({ hook: 'on_failure', type: 'email' })]);
+    });
+
+    it('Escape in the When list closes it and adds nothing', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        clickPlus('step:daily');
+        fireEvent.keyDown(screen.getByRole('listbox', { name: 'When' }), { key: 'Escape' });
+        expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
+        expect(screen.getByRole('button', { name: 'Undo' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('a line dropped on a node with only one allowed outcome connects without a menu', async () => {
+        const job = rollupJob({
+            edges: [
+                { from: 'daily', to: 'weekly', condition: 'expression', expression: '$daily.resultCount$ > 0' },
+                { from: 'weekly', to: 'monthly', condition: 'on_success' },
+            ],
+        });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.pointerDown(screen.getByTestId('plus-cond:daily>weekly'), centreOf('cond:daily>weekly'));
+        fireEvent.pointerUp(canvas, centreOf('step:monthly'));
+        expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
+        expect(screen.getByTestId('node-cond:daily>monthly')).toBeInTheDocument();
+    });
+
+    it('a line dropped on a step with an outcome from a tab connects without a menu', async () => {
+        const job = rollupJob({ edges: [{ from: 'daily', to: 'weekly', condition: 'on_failure' }] });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:daily-failure'), centreOf('step:daily'));
+        fireEvent.pointerUp(canvas, centreOf('step:monthly'));
+        expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Failed, to Monthly rollup/ })).toBeInTheDocument();
+    });
+
+    it("changing a line from Succeeds to Fails in its label's menu updates the edge, as one undo step", async () => {
+        const api = fakeApi();
+        await show(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        const menu = screen.getByRole('listbox', { name: 'Line' });
+        expect(menu).toHaveFocus();
+        expect(screen.queryByRole('option', { name: 'Change to Succeeds' })).toBeNull();
+        expect(screen.getByRole('option', { name: 'Remove line' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('option', { name: 'Change to Fails' }));
+        expect(screen.queryByRole('listbox', { name: 'Line' })).toBeNull();
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Failed, to Weekly rollup/ })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        const saved = (api.updateJob as jest.Mock).mock.calls[0][1];
+        expect(saved.edges[0]).toEqual({ from: 'daily', to: 'weekly', condition: 'on_failure' });
+        expect(saved).not.toHaveProperty('layout');
+    });
+
+    it('an action line menu changes its outcome and offers no remove', async () => {
+        const job = rollupJob({ steps: [...rollupJob().steps.slice(0, 2), { ...rollupJob().steps[2], actions: [{ hook: 'on_success', type: 'email', to: 'a@example.com' }] }] });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByTestId('line-label-step:monthly-success->action:monthly:0'));
+        expect(screen.queryByRole('option', { name: 'Remove line' })).toBeNull();
+        expect(screen.queryByRole('option', { name: 'Insert a node' })).toBeNull();
+        fireEvent.click(screen.getByRole('option', { name: 'Change to Is delayed' }));
+        expect(screen.getByTestId('line-label-step:monthly-delayed->action:monthly:0')).toBeInTheDocument();
+    });
+
+    it('Remove line in the menu removes the line', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByRole('option', { name: 'Remove line' }));
+        expect(screen.queryByRole('button', { name: /^Line from Daily summary/ })).toBeNull();
+    });
+
+    it('Insert a node puts a new search on the line, says what changed, and Undo brings the line back', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByRole('option', { name: 'Insert a node' }));
+        const box = screen.getByRole('combobox', { name: 'Add a node' });
+        // Actions can't go on a line between two steps.
+        fireEvent.change(box, { target: { value: 'email' } });
+        expect(screen.queryByRole('option', { name: /^Email/ })).toBeNull();
+        fireEvent.change(box, { target: { value: 'search' } });
+        fireEvent.keyDown(box, { key: 'Enter' });
+        expect(screen.queryByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeNull();
+        expect(nodes()).toHaveLength(4);
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to / })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Line from .*, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
+        const note = screen.getByTestId('splice-message');
+        expect(note).toHaveTextContent(/Weekly rollup now runs after .* succeeds\. Undo brings back the old line\./);
+        expect(note).not.toContainElement(document.activeElement as HTMLElement);
+        fireEvent.click(within(note).getByRole('button', { name: 'Undo' }));
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
+        expect(screen.queryByText(/now runs after/)).toBeNull();
+        expect(nodes()).toHaveLength(3);
+    });
+
+    it('the splice message hides itself after 10 s', async () => {
+        jest.useFakeTimers();
+        try {
+            await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+            await screen.findByRole('button', { name: /^Search Daily summary/ });
+            fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+            fireEvent.click(screen.getByRole('option', { name: 'Insert a node' }));
+            const box = screen.getByRole('combobox', { name: 'Add a node' });
+            fireEvent.change(box, { target: { value: 'search' } });
+            fireEvent.keyDown(box, { key: 'Enter' });
+            expect(screen.getByText(/now runs after/)).toBeInTheDocument();
+            await act(async () => {
+                jest.advanceTimersByTime(9000);
+                await Promise.resolve();
+            });
+            expect(screen.getByText(/now runs after/)).toBeInTheDocument();
+            await act(async () => {
+                jest.advanceTimersByTime(1500);
+                await Promise.resolve();
+            });
+            expect(screen.queryByText(/now runs after/)).toBeNull();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('Full screen shows the canvas and panel over the page; the button or Escape leaves', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const area = () => screen.getByTestId('flow-area');
+        expect(area().style.position).not.toBe('fixed');
+        fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+        expect(area().style.position).toBe('fixed');
+        expect(within(area()).getByText(/^Select a node to edit it/)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Leave full screen' }));
+        expect(area().style.position).not.toBe('fixed');
+        fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+        fireEvent.keyDown(screen.getByRole('group', { name: /^Job flow/ }), { key: 'Escape' });
+        expect(area().style.position).not.toBe('fixed');
+        expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+    });
+
+    it('Escape in full screen closes an open menu first', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+        clickPlus('step:daily');
+        fireEvent.keyDown(screen.getByRole('listbox', { name: 'When' }), { key: 'Escape' });
+        expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
+        expect(screen.getByTestId('flow-area').style.position).toBe('fixed');
+    });
+
+    it('the canvas fills the window below its top, at least 480 px', async () => {
+        const before = window.innerHeight;
+        try {
+            Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1000 });
+            await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+            await screen.findByRole('button', { name: /^Search Daily summary/ });
+            const svg = screen.getByRole('group', { name: /^Job flow/ });
+            expect(Number(svg.getAttribute('height'))).toBeGreaterThan(900);
+            Object.defineProperty(window, 'innerHeight', { configurable: true, value: 300 });
+            act(() => {
+                window.dispatchEvent(new Event('resize'));
+            });
+            expect(Number(svg.getAttribute('height'))).toBe(480);
+        } finally {
+            Object.defineProperty(window, 'innerHeight', { configurable: true, value: before });
+        }
+    });
+
+    it('opening and closing the menus and saving sends no layout', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage jobId="rollups" api={api} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        clickPlus('step:daily');
+        fireEvent.keyDown(screen.getByRole('listbox', { name: 'When' }), { key: 'Escape' });
+        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.keyDown(screen.getByRole('listbox', { name: 'Line' }), { key: 'Escape' });
+        fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        expect((api.updateJob as jest.Mock).mock.calls[0][1]).not.toHaveProperty('layout');
     });
 
     it('switching between two nodes of the same kind shows the second one', async () => {

@@ -140,7 +140,7 @@ describe('FlowCanvas splice by drag', () => {
         const path = screen.getByTestId(`link-${AB}`).querySelector('path')!;
         expect(path.getAttribute('stroke-width')).toBe('3');
         fireEvent.pointerUp(canvas, end);
-        expect(props.onSplice).toHaveBeenCalledWith('step:n', AB);
+        expect(props.onSplice).toHaveBeenCalledWith('step:n', AB, { x: expect.any(Number), y: expect.any(Number) });
         expect(props.onMove).not.toHaveBeenCalled();
     });
 

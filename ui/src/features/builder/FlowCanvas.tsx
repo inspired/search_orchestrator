@@ -11,7 +11,7 @@
  * Keyboard: Tab through nodes, then lines; Enter selects, + or Shift+Enter opens the When list, arrows
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
- * node and Tidy up when the caller handles them. Colours come from theme tokens only. */
+ * node, Tidy up and Full screen when the caller handles them. Colours come from theme tokens only. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -68,9 +68,14 @@ export interface FlowCanvasProps {
     /** A click on a line's label, or Enter on a focused line: the caller opens the line menu at
      * `screen` (just below the label, relative to the canvas' top-left). */
     onLineMenu?: (link: string, screen: ScreenPoint) => void;
-    /** A node with no lines dropped onto a line that `canSpliceNode` allows. */
-    onSplice?: (node: string, link: string) => void;
+    /** A node with no lines dropped onto a line that `canSpliceNode` allows, at canvas point `at`. */
+    onSplice?: (node: string, link: string, at: Pos) => void;
     canSpliceNode?: (node: string, link: string) => boolean;
+    /** Canvas height in px (default 480). */
+    height?: number;
+    /** Adds a "Full screen" / "Leave full screen" toolbar button. */
+    fullScreen?: boolean;
+    onToggleFullScreen?: () => void;
 }
 
 const NUDGE = 10;
@@ -122,6 +127,9 @@ export default function FlowCanvas({
     onLineMenu,
     onSplice,
     canSpliceNode,
+    height = 480,
+    fullScreen = false,
+    onToggleFullScreen,
 }: FlowCanvasProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
@@ -397,6 +405,7 @@ export default function FlowCanvas({
                 />
                 <Button appearance="subtle" label="Frame all" onClick={frameAll} />
                 <Button appearance="subtle" label={legendOpen ? 'Hide node types' : 'Show node types'} onClick={() => setLegendOpen((o) => !o)} />
+                {onToggleFullScreen && <Button appearance="subtle" label={fullScreen ? 'Leave full screen' : 'Full screen'} onClick={onToggleFullScreen} />}
             </div>
             <div style={{ position: 'relative' }}>
             <svg
@@ -406,7 +415,7 @@ export default function FlowCanvas({
                 role="group"
                 aria-label={help}
                 width="100%"
-                height={480}
+                height={height}
                 style={{
                     display: 'block',
                     background: theme.backgroundColorPage,

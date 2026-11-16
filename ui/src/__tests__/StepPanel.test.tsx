@@ -251,4 +251,25 @@ describe('StepPanel preview refusal', () => {
         expect(onPreview).not.toHaveBeenCalled();
         expect(screen.getByText("Previews don't write to indexes or lookups; remove collect to preview this step.")).toBeInTheDocument();
     });
+
+    test('a writing step upstream dims Preview only when the inputs are live', () => {
+        const job: JobDefinition = {
+            name: 'j',
+            enabled: true,
+            steps: [
+                { id: 'a', name: 'Feed', type: 'inline', spl: 'index=a | collect index=s' },
+                { id: 'b', type: 'previous', spl: '| stats count' },
+            ],
+            edges: [{ from: 'a', to: 'b', condition: 'on_success' }],
+        };
+        const panel = (live?: boolean) => (
+            <StepPanel job={job} stepId="b" issues={[]} dispatch={jest.fn()} onPreview={jest.fn()} live={live} scheduledTime={1} resolveTimeRange={jest.fn()} />
+        );
+        const first = renderThemed(panel(true));
+        expect(screen.getByRole('button', { name: 'Preview step' })).toHaveAttribute('aria-disabled', 'true');
+        expect(screen.getByText("Previews don't write to indexes or lookups; Feed runs collect first.")).toBeInTheDocument();
+        first.unmount();
+        renderThemed(panel(false));
+        expect(screen.getByRole('button', { name: 'Preview step' })).not.toHaveAttribute('aria-disabled', 'true');
+    });
 });

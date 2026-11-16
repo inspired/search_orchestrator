@@ -1,12 +1,16 @@
-/* The node-types legend: one row per family with its shape, colour and example kinds, and the
- * port glyphs. Colours come from theme tokens only. */
+/* The node-types legend: one row per family with its shape, colour and example kinds, then the
+ * When outcomes with their glyphs, an example + and tab, and a note on line labels. Colours come
+ * from theme tokens only. */
 import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import { Theme } from './GraphView';
 import { CATALOG } from './nodeCatalog';
-import { FAMILY_OF, FAMILY_STYLE, Family, PORT_STYLE, shapePath } from './nodeStyle';
+import { FAMILY_OF, FAMILY_STYLE, Family, HANDLE_R, PORT_STYLE, shapePath } from './nodeStyle';
+import { OUTCOME_LABEL, Outcome } from './outcomes';
+import { tabLabel } from './PlusHandle';
 
 const FAMILIES = Object.keys(FAMILY_STYLE) as Family[];
+const OUTCOMES = Object.keys(OUTCOME_LABEL) as Outcome[];
 
 /** Example kinds of a family, from the catalog; the whole job has no catalog entry. */
 function examples(family: Family): string {
@@ -52,15 +56,46 @@ export default function Legend() {
                     );
                 })}
             </ul>
-            <div style={{ fontWeight: 600, margin: '8px 0 4px' }}>Exits</div>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                {Object.values(PORT_STYLE).map((p) => (
-                    <li key={p.label} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
-                        <span aria-hidden style={{ width: 32, textAlign: 'center', color: theme[p.colorToken], flex: 'none' }}>{p.glyph}</span>
-                        <span>{p.label}</span>
+            <div aria-hidden style={{ fontWeight: 600, margin: '8px 0 4px' }}>
+                When a node…
+            </div>
+            <ul aria-label="When" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                {OUTCOMES.map((o) => (
+                    <li key={o} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
+                        <span aria-hidden style={{ width: 32, textAlign: 'center', color: theme[PORT_STYLE[o].colorToken], flex: 'none' }}>
+                            {PORT_STYLE[o].glyph}
+                        </span>
+                        <span>{OUTCOME_LABEL[o]}</span>
+                        {(o === 'start' || o === 'delayed') && <span style={{ color: theme.contentColorMuted }}>actions only</span>}
                     </li>
                 ))}
             </ul>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0 2px' }}>
+                <svg data-testid="legend-plus" width={32} height={28} viewBox="0 0 32 28" aria-hidden focusable="false" style={{ flex: 'none' }}>
+                    <circle cx={16} cy={14} r={HANDLE_R} fill={theme.backgroundColorSection} stroke={theme.borderColorStrong} strokeWidth={1.5} />
+                    <path d="M10,14 H22 M16,8 V20" stroke={theme.contentColorDefault} strokeWidth={2} strokeLinecap="round" />
+                </svg>
+                <span>Click + to choose what happens next, or drag it onto another node.</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
+                <span
+                    data-testid="legend-tab"
+                    style={{
+                        flex: 'none',
+                        border: `1.5px solid ${theme[PORT_STYLE.success.colorToken]}`,
+                        borderRadius: 4,
+                        padding: '0 6px',
+                        background: theme.backgroundColorSection,
+                        fontSize: 11,
+                    }}
+                >
+                    {tabLabel('success')}
+                </span>
+                <span>An outcome in use; drag a tab to add another line with it.</span>
+            </div>
+            <div style={{ padding: '4px 0 0', color: theme.contentColorMuted }}>
+                Each line is labelled with its outcome; click a line's label to change it, insert a node or remove the line.
+            </div>
         </div>
     );
 }

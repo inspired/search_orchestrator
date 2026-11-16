@@ -151,6 +151,8 @@ export interface StepPanelProps {
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview?: (stepId: string) => void;
     preview?: PreviewView;
+    /** "Input from" is live (the default): upstream steps run first in a preview. */
+    live?: boolean;
     /** The preview's "as if scheduled at" time, epoch seconds. */
     scheduledTime: number;
     resolveTimeRange: BuilderApi['resolveTimeRange'];
@@ -171,6 +173,7 @@ export default function StepPanel({
     scheduledTime,
     resolveTimeRange,
     previewFields = {},
+    live = true,
 }: StepPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
@@ -180,7 +183,7 @@ export default function StepPanel({
     if (!step) {
         return null;
     }
-    const refusal = onPreview ? previewRefusal(job, stepId, true) : null;
+    const refusal = onPreview ? previewRefusal(job, stepId, live) : null;
     const p = `step-${stepId}`;
     const tokenGroups = availableTokens(job, stepId, previewFields);
     const set = (changes: Partial<StepDef>) => dispatch({ type: 'updateStep', id: stepId, changes });

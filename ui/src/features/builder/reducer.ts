@@ -3,7 +3,7 @@
 import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef, StepOutput, Trigger } from '../../api/types';
 import { changeLineOutcome, dropActionKey, dropCondKey, dropStepKeys, dropTriggerKey, parseAction, parseCond } from './flowEdits';
-import { remapLayout, renameStepKeys, spliceJob, spotRightOf, withNodes, withPlacedNode } from './flowEdits';
+import { insertJob, remapLayout, renameStepKeys, spliceJob, spotRightOf, withNodes, withPlacedNode } from './flowEdits';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
 import {
@@ -64,6 +64,8 @@ export type BuilderAction =
     | { type: 'changeOutcome'; link: string; outcome: Outcome }
     /** Puts step `node` on the step-to-step line `link`: one undo step. */
     | { type: 'splice'; node: string; link: string; at?: Pos; shown?: Record<string, Pos> }
+    /** Adds a new step of `kind` on the step-to-step line `link` (a line menu's "Insert a node"): one undo step. */
+    | { type: 'insertNode'; kind: NodeKind; link: string; at?: Pos; shown?: Record<string, Pos> }
     | { type: 'updateAction'; scope: ActionScope; index: number; changes: Partial<Action> }
     | { type: 'moveAction'; scope: ActionScope; index: number; toScope: ActionScope; hook: Action['hook'] }
     | { type: 'removeAction'; scope: ActionScope; index: number }
@@ -459,6 +461,11 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         }
         case 'splice': {
             const next = spliceJob(job, action.node, action.link, action.at, action.shown);
+            return next ? edits(state, next) : state;
+        }
+        case 'insertNode': {
+            const added = STEP_NODE_KINDS.includes(action.kind) ? addNodeJob(job, action.kind) : null;
+            const next = added && insertJob(job, added, addNodeKey(job, action.kind), action.link, action.at, action.shown);
             return next ? edits(state, next) : state;
         }
         case 'changeOutcome': {
