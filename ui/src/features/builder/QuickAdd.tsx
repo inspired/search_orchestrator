@@ -1,5 +1,5 @@
 /* The "add a node" box, like Nuke's Tab menu: type to filter, arrows to move, Enter to add. */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import { searchCatalog } from './nodeCatalog';
 import type { CatalogEntry } from './nodeCatalog';
@@ -15,13 +15,13 @@ export interface QuickAddProps {
     onClose: () => void;
 }
 
-const LIST_ID = 'quick-add-list';
-
 export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAddProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(0);
     const input = useRef<HTMLInputElement>(null);
+    const uid = useId();
+    const listId = `${uid}-list`;
 
     useEffect(() => {
         if (open) {
@@ -46,11 +46,18 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
         return { results: groups.flatMap((g) => g.items), families: groups };
     }, [query, kinds]);
 
+    const activeKind = results[Math.min(active, results.length - 1)]?.kind;
+    useEffect(() => {
+        if (open && activeKind) {
+            document.getElementById(`${uid}-opt-${activeKind}`)?.scrollIntoView?.({ block: 'nearest' });
+        }
+    }, [open, activeKind, uid]);
+
     if (!open) {
         return null;
     }
 
-    const optionId = (kind: NodeKind): string => `quick-add-${kind}`;
+    const optionId = (kind: NodeKind): string => `${uid}-opt-${kind}`;
     const activeEntry: CatalogEntry | undefined = results[Math.min(active, results.length - 1)];
 
     const onKeyDown = (e: React.KeyboardEvent) => {
@@ -93,7 +100,8 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
                 role="combobox"
                 aria-label="Add a node"
                 aria-expanded
-                aria-controls={LIST_ID}
+                aria-autocomplete="list"
+                aria-controls={listId}
                 aria-activedescendant={activeEntry ? optionId(activeEntry.kind) : undefined}
                 placeholder="Search for a node"
                 value={query}
@@ -114,7 +122,7 @@ export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAd
                     font: 'inherit',
                 }}
             />
-            <div id={LIST_ID} role="listbox" aria-label="Nodes" style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <div id={listId} role="listbox" aria-label="Nodes" style={{ maxHeight: 320, overflowY: 'auto' }}>
                 {results.length === 0 && (
                     <div style={{ padding: 10, color: theme.contentColorMuted }}>No matching nodes. Try a different word.</div>
                 )}

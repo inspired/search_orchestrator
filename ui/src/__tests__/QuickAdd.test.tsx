@@ -66,6 +66,16 @@ describe('QuickAdd', () => {
         await userEvent.type(input, '{Enter}');
         expect(base.onChoose).toHaveBeenCalledWith(searchCatalog('')[1].kind);
     });
+    it('scrolls the active option into view', async () => {
+        const scroll = jest.fn();
+        Element.prototype.scrollIntoView = scroll;
+        render(<QuickAdd {...base} />);
+        await userEvent.type(screen.getByRole('combobox'), '{ArrowDown}');
+        const second = screen.getAllByRole('option')[1];
+        expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest' });
+        expect(scroll.mock.instances[scroll.mock.instances.length - 1]).toBe(second);
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    });
     it('closes on Escape', async () => {
         render(<QuickAdd {...base} />);
         await userEvent.type(screen.getByRole('combobox'), '{Escape}');
