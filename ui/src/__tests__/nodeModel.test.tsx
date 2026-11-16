@@ -77,3 +77,31 @@ describe('canConnect', () => {
         expect(canConnect(job, 'cond:a>c', 'then', 'step:b')).toEqual({ ok: true });
     });
 });
+
+describe('readable details', () => {
+    const detailOf = (j: Partial<JobDefinition>, key: string) =>
+        buildGraph({ name: 'x', enabled: true, steps: [], ...j }).nodes.find((n) => n.key === key)!.detail;
+    it('labels step types', () => {
+        const steps: JobDefinition['steps'] = [
+            { id: 'a', type: 'inline' },
+            { id: 'b', type: 'saved_search', saved_search_ref: 'ref1' },
+            { id: 'c', type: 'saved_search' },
+            { id: 'd', type: 'previous' },
+            { id: 'e', type: 'previous', output: { kind: 'summary_index', index: 'si' } },
+            { id: 'f', type: 'inline', output: { kind: 'lookup', name: 'lk' } },
+        ];
+        const d = (id: string) => detailOf({ steps }, `step:${id}`);
+        expect(d('a')).toBe('Search');
+        expect(d('b')).toBe('Saved search: ref1');
+        expect(d('c')).toBe('Saved search');
+        expect(d('d')).toBe('Results of earlier steps');
+        expect(d('e')).toBe('Summary index: si');
+        expect(d('f')).toBe('Lookup: lk');
+    });
+    it('words completion triggers', () => {
+        const t = (tr: object) => detailOf({ triggers: [tr as never] }, 'trigger:0');
+        expect(t({ type: 'completion', job: 'up', on: 'success' })).toBe('When up succeeds');
+        expect(t({ type: 'completion', job: 'up', on: 'complete' })).toBe('When up finishes');
+        expect(t({ type: 'completion', job: '', on: 'success' })).toBe('Pick a job');
+    });
+});

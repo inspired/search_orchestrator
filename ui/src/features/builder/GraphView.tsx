@@ -11,7 +11,7 @@ import { autoLayout, NODE_H, NODE_W, Pos, Positions } from './graphLogic';
 
 export type Theme = Record<string, string>;
 
-export type GraphStep = Pick<StepDef, 'id'> & Partial<Pick<StepDef, 'name' | 'type' | 'saved_search_ref'>>;
+export type GraphStep = Pick<StepDef, 'id'> & Partial<Pick<StepDef, 'name' | 'type' | 'saved_search_ref' | 'output'>>;
 export type GraphEdge = Pick<Edge, 'from' | 'to'> & Partial<Pick<Edge, 'condition' | 'expression'>>;
 
 /** A focusable node or edge: the keyboard focus ring is drawn on its box or line. */
@@ -149,6 +149,15 @@ export function NodeBox({ step, theme, detail, detailColor, icon: Icon, stroke, 
 }
 
 export function stepTypeLabel(step: GraphStep): string {
+    if (step.output?.kind === 'summary_index') {
+        return `Summary index: ${step.output.index}`;
+    }
+    if (step.output?.kind === 'lookup') {
+        return `Lookup: ${step.output.name}`;
+    }
+    if (step.type === 'previous') {
+        return 'Results of earlier steps';
+    }
     if (step.type === 'saved_search') {
         return step.saved_search_ref ? `Saved search: ${step.saved_search_ref}` : 'Saved search';
     }

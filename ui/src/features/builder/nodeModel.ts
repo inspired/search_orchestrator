@@ -2,7 +2,7 @@
  * stays the only source of truth; keys below are also the keys of `layout.nodes`. */
 import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
 import { wouldCycle } from './graphLogic';
-import { stepLabel } from './GraphView';
+import { stepLabel, stepTypeLabel } from './GraphView';
 import { describeSchedule } from './schedule';
 
 export type NodeKind =
@@ -190,7 +190,7 @@ export function buildGraph(job: JobDefinition): FlowGraph {
                 key: triggerKey(i),
                 kind: 'trigger_completion',
                 label: 'After another job',
-                detail: `${t.job || 'Pick a job'} ${t.on || ''}`.trim(),
+                detail: t.job ? `When ${t.job} ${t.on === 'complete' ? 'finishes' : 'succeeds'}` : 'Pick a job',
                 trigger: i,
             });
         } else {
@@ -205,7 +205,7 @@ export function buildGraph(job: JobDefinition): FlowGraph {
     });
     nodes.push({ key: JOB_KEY, kind: 'job', label: 'Whole job', detail: job.name || '' });
     steps.forEach((s) => {
-        nodes.push({ key: stepKey(s.id), kind: nodeKindOfStep(s), label: stepLabel(s), detail: s.id, stepId: s.id });
+        nodes.push({ key: stepKey(s.id), kind: nodeKindOfStep(s), label: stepLabel(s), detail: stepTypeLabel(s), stepId: s.id });
     });
 
     const valid = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
