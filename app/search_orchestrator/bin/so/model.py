@@ -6,6 +6,7 @@ unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_
 previous_needs_dependency; warnings timezone_fallback, previous_old_time_range.
 ``workload_pool`` was removed from the first version and is ignored.
 """
+import math
 import re
 
 from . import cron as cronmod
