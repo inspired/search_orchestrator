@@ -1,5 +1,5 @@
 import { toDefinition } from '../api/client';
-import { addNodeKey, blankJob, initialState, isDirty, reducer } from '../features/builder/reducer';
+import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from '../features/builder/reducer';
 import type { JobDefinition } from '../api/types';
 
 const job: JobDefinition = {
@@ -315,6 +315,22 @@ describe('builder reducer: layout and node edits', () => {
         expect(s.job.layout?.nodes).toEqual({ ...shown, 'action:job:0': { x: 5, y: 6 } });
         expect(reducer(s, { type: 'undo' }).job).toEqual(s0.job);
         expect('layout' in reducer(s0, { type: 'addNode', kind: 'email', shown }).job).toBe(false);
+    });
+
+    test('keyAfterConnect follows an action moved by a line, and the actions after it', () => {
+        const j: JobDefinition = {
+            ...job,
+            actions: [
+                { hook: 'on_failure', type: 'email', to: 'a@x.com' },
+                { hook: 'on_failure', type: 'email', to: 'b@x.com' },
+            ],
+        };
+        const line = { from: 'step:daily', port: 'failure' as const, to: 'action:job:0' };
+        expect(keyAfterConnect(j, line, 'action:job:0')).toBe('action:daily:0');
+        expect(keyAfterConnect(j, line, 'action:job:1')).toBe('action:job:0');
+        expect(keyAfterConnect(j, line, 'step:daily')).toBe('step:daily');
+        // Same scope, other outcome: keys stay.
+        expect(keyAfterConnect(j, { from: 'job', port: 'success', to: 'action:job:0' }, 'action:job:0')).toBe('action:job:0');
     });
 
     test('addNode defaults: slack, trigger, step key', () => {

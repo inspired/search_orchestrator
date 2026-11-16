@@ -306,6 +306,28 @@ function setActions(job: JobDefinition, scope: ActionScope, actions: Action[]): 
     return { ...job, steps: (job.steps || []).map((s) => (s.id === scope ? { ...s, actions } : s)) };
 }
 
+/** The key the node `key` has after connectPort with `line`: a line onto an action from
+ * another step or the whole job moves it to the end of that list, and later actions in its
+ * old list move down a place. */
+export function keyAfterConnect(job: JobDefinition, line: { from: string; port: PortId; to: string }, key: string): string {
+    const target = parseAction(line.to);
+    if (!target || !HOOK_FOR_PORT[line.port] || !canConnect(job, line.from, line.port, line.to).ok) {
+        return key;
+    }
+    const scope = actionScope({ key: line.from, port: line.port });
+    if (scope === target.scope || (scope !== 'job' && !(job.steps || []).some((s) => s.id === scope))) {
+        return key;
+    }
+    if (key === line.to) {
+        return actionKey(scope, actionsOf(job, scope).length);
+    }
+    const at = parseAction(key);
+    if (at && at.scope === target.scope && at.index > target.index) {
+        return actionKey(at.scope, at.index - 1);
+    }
+    return key;
+}
+
 /** The key addNode creates for the same inputs (callers select it); '' when addNode does nothing. */
 export function addNodeKey(job: JobDefinition, kind: NodeKind, from?: { key: string; port: PortId }): string {
     if (STEP_NODE_KINDS.includes(kind)) {

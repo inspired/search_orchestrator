@@ -191,6 +191,29 @@ describe('BuilderPage flow', () => {
         expect(screen.queryByRole('button', { name: /^Line from Daily summary/ })).toBeNull();
     });
 
+    it('a line dropped on the selected action keeps that action selected under its new step', async () => {
+        const job = rollupJob({
+            actions: [
+                { hook: 'on_failure', type: 'email', to: 'a@example.com' },
+                { hook: 'on_failure', type: 'email', to: 'b@example.com' },
+            ],
+        });
+        await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
+        await screen.findByRole('button', { name: /^Search Daily summary/ });
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        const centre = (key: string) => {
+            const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(screen.getByTestId(`node-${key}`).getAttribute('transform') || '');
+            return { clientX: Number(m?.[1]) + 20, clientY: Number(m?.[2]) + 20 };
+        };
+        fireEvent.keyDown(screen.getByTestId('node-action:job:0'), { key: 'Enter' });
+        expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.pointerDown(screen.getByTestId('port-step:daily-failure'), centre('step:daily'));
+        fireEvent.pointerUp(canvas, centre('action:job:0'));
+        expect(screen.getByTestId('node-action:daily:0')).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getByLabelText('To')).toHaveValue('a@example.com');
+    });
+
     it('Tidy up drops saved positions as one undo step', async () => {
         const api = fakeApi({ getJob: jest.fn().mockResolvedValue(rollupJob({ layout: { nodes: { 'step:daily': { x: 900, y: 900 } } } })) });
         await show(<BuilderPage jobId="rollups" api={api} />);

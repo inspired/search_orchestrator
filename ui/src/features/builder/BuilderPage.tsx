@@ -34,7 +34,7 @@ import PreviewBar from './PreviewBar';
 import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
-import { addNodeKey, blankJob, initialState, isDirty, reducer } from './reducer';
+import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import type { BuilderAction } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
@@ -506,7 +506,16 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     // Every shown position is written with the move, so nodes the layout placed
                     // stay where they are instead of being placed again around the moved one.
                     onMove={(moved) => dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } })}
-                    onConnect={(from, port, to) => dispatch({ type: 'connectPort', from, port, to })}
+                    onConnect={(from, port, to) => {
+                        // A line onto an action can move it to another list: keep the selection on it.
+                        if (selection && selection.kind === 'node') {
+                            const next = keyAfterConnect(job, { from, port, to }, selection.key);
+                            if (next !== selection.key) {
+                                setSelectedState({ kind: 'node', key: next });
+                            }
+                        }
+                        dispatch({ type: 'connectPort', from, port, to });
+                    }}
                     onDropOnCanvas={(from, port, at, screen) => {
                         const node = graph.nodes.find((n) => n.key === from);
                         // A condition already leads somewhere; its line is moved, not continued.
