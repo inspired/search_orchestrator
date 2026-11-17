@@ -219,6 +219,16 @@ describe('FlowCanvas node rendering (from Task 11 review)', () => {
         expect(text.getAttribute('fill')).not.toBe(screen.getByTestId('preview-text-b').getAttribute('fill'));
     });
 
+    test('compact: a multi-selection draws no overlays; only the hovered node gets one', () => {
+        window.localStorage.setItem('so.flow.compact', '1');
+        setup({ groups: [], selected: { kind: 'nodes', keys: ['step:a', 'step:b'] } });
+        expect(screen.queryByTestId('node-full-step:a')).toBeNull();
+        expect(screen.queryByTestId('node-full-step:b')).toBeNull();
+        fireEvent.pointerEnter(screen.getByTestId('node-step:a'));
+        expect(screen.getByTestId('node-full-step:a')).toBeInTheDocument();
+        expect(screen.queryByTestId('node-full-step:b')).toBeNull();
+    });
+
     test('compact: the hover overlay is drawn after every node and takes no pointer events', () => {
         window.localStorage.setItem('so.flow.compact', '1');
         setup({ groups: [] });

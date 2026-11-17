@@ -1,5 +1,5 @@
 /* The flow canvas's nodes: each node's group (shape, detail line, + handle and outcome tabs) with
- * its accessible name, and, for compact nodes, the full-node overlay shown on hover or selection.
+ * its accessible name, and, for compact nodes, the full-node overlay shown on hover or a single-node selection.
  * The overlay is drawn in its own layer after every node (`NodeOverlays`), taking no pointer
  * events, so a later node never paints over it; a drawn-only copy of the node's + and tabs goes
  * over the overlay (the real ones, right below, still take the pointer). The detail line shows, in order: run status,
@@ -167,14 +167,15 @@ export interface NodeOverlaysProps {
     motion?: boolean;
 }
 
-/** Compact nodes: the full node over the hovered or selected ones, above every node. */
+/** Compact nodes: the full node over the hovered one and a single selected one, above every
+ * node (a multi-selection draws no overlays, which would cover the canvas). */
 export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme, tabsOf, readOnly, running, motion = true }: NodeOverlaysProps) {
     return (
         <>
             {nodes.map((n) => {
                 const p = shown[n.key];
                 const isSelected = chosen.has(n.key);
-                if (!p || n.kind === 'condition' || !(hovered === n.key || isSelected)) {
+                if (!p || n.kind === 'condition' || !(hovered === n.key || (isSelected && chosen.size === 1))) {
                     return null;
                 }
                 const { detail, previewProps } = look(n);
