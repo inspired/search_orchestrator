@@ -10,6 +10,9 @@ const ROW_STEP = 80;
 const GAP = 20;
 const CONDITION_LABEL = 36;
 
+/** Dagre's left-to-right options for the editor, also used by the Dependencies graph. */
+export const DAGRE_LR = { rankdir: 'LR', nodesep: 40, ranksep: 80, marginx: 20, marginy: 20 };
+
 function boxOf(n: FlowNode, compact = false): { w: number; h: number } {
     const { w, h } = nodeSize(n.kind, compact);
     return { w, h: n.kind === 'condition' ? h + CONDITION_LABEL : h };
@@ -25,7 +28,7 @@ function validPos(v: unknown): v is Pos {
 
 function dagrePositions(graph: FlowGraph, compact: boolean): Positions {
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80, marginx: 20, marginy: 20 });
+    g.setGraph({ ...DAGRE_LR });
     g.setDefaultEdgeLabel(() => ({}));
     const keys = new Set(graph.nodes.map((n) => n.key));
     graph.nodes.forEach((n) => {

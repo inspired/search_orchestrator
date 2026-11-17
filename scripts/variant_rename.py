@@ -133,7 +133,7 @@ def command_name(s):
     return name
 
 
-PAGES = ("builder", "help", "jobs", "run", "runs", "settings")
+PAGES = ("builder", "dependencies", "help", "jobs", "run", "runs", "settings")
 
 # Script files whose name is part of a stanza (modular input scheme, command
 # filename, alert action, REST handler module), applied after the text rules.

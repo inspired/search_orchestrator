@@ -63,6 +63,11 @@ export function formatSpan(seconds: number): string {
     return `${n} ${name}${n === 1 ? '' : 's'}`;
 }
 
+/** How long ago, from a span in seconds: "5 minutes ago", "less than a minute ago". */
+export function formatAgo(seconds: number): string {
+    return `${formatSpan(Math.max(0, seconds))} ago`;
+}
+
 /** A span used as an adjective: "60 minute", "2 hour". */
 export function formatSpanAdjective(seconds: number): string {
     const { n, name } = unit(Math.max(seconds, 60));
