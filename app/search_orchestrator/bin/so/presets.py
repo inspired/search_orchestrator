@@ -4,8 +4,9 @@ ServiceNow: features-2 spec section 7).
 ``render(preset, ctx, options)`` returns a JSON-able dict. ``options`` are the
 action's per-preset options (``PRESET_OPTIONS``; checked by ``option_issues``). ``ctx`` keys: ``job``,
 ``run_id``, ``hook``, ``scope`` (``job`` or ``step``), ``step`` (name or
-None), ``status``, ``run_url``, ``failed`` (list of ``{"step", "url"}``).
-Only names, statuses and links: never result data.
+None), ``status``, ``run_url``, ``failed`` (list of ``{"step", "url"}``), and for
+``on_approval_requested`` the step's ``approval_message`` (shown instead of the status).
+Only names, statuses, links and that message: never result data.
 """
 import json
 import re
@@ -17,15 +18,25 @@ _VERB = {"on_start": "started", "on_success": "succeeded", "on_failure": "failed
          "on_complete": "completed", "on_delayed": "is delayed",
          "on_late": "is late", "on_approval_requested": "is waiting for approval"}
 _FIELD = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+APPROVAL = "on_approval_requested"
+
+
+def _approval_message(ctx):
+    """The approval step's message for ``on_approval_requested``, or ''."""
+    return (ctx.get("approval_message") or "") if ctx.get("hook") == APPROVAL else ""
 
 
 def default_message(ctx):
     what = 'Job "%s"' % ctx.get("job")
     if ctx.get("scope") == "step" and ctx.get("step"):
         what = 'Step "%s" of job "%s"' % (ctx["step"], ctx.get("job"))
-    text = "%s %s (run %s, status %s)." % (what, _VERB.get(ctx.get("hook"), ctx.get("hook")),
-                                           ctx.get("run_id"), ctx.get("status"))
-    lines = [text]
+    verb = _VERB.get(ctx.get("hook"), ctx.get("hook"))
+    if ctx.get("hook") == APPROVAL:
+        lines = ["%s %s (run %s)." % (what, verb, ctx.get("run_id"))]
+        if _approval_message(ctx):
+            lines.append("Message: %s" % _approval_message(ctx))
+    else:
+        lines = ["%s %s (run %s, status %s)." % (what, verb, ctx.get("run_id"), ctx.get("status"))]
     if ctx.get("run_url"):
         lines.append("Run: %s" % ctx["run_url"])
     for f in ctx.get("failed") or []:
@@ -39,6 +50,10 @@ def _slack(ctx, options=None):
         what = "step *%s* of %s" % (ctx["step"], what)
     head = "Job %s %s (status: %s)" % (what, _VERB.get(ctx.get("hook"), ctx.get("hook")),
                                       ctx.get("status"))
+    if ctx.get("hook") == APPROVAL:
+        head = "Job %s %s" % (what, _VERB[APPROVAL])
+        if _approval_message(ctx):
+            head += "\n" + _approval_message(ctx)
     links = []
     if ctx.get("run_url"):
         links.append("<%s|Open run>" % ctx["run_url"])
@@ -77,13 +92,13 @@ def _teams(ctx, options=None):
     for f in ctx.get("failed") or []:
         actions.append({"type": "Action.OpenUrl", "title": "Failed search: %s" % f.get("step"),
                         "url": f.get("url")})
+    body = [{"type": "TextBlock", "text": _title(ctx), "weight": "Bolder", "size": "Medium",
+             "wrap": True}]
+    if _approval_message(ctx):
+        body.append({"type": "TextBlock", "text": _approval_message(ctx), "wrap": True})
+    body.append({"type": "FactSet", "facts": [{"title": t, "value": str(v)} for t, v in facts]})
     card = {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-            "type": "AdaptiveCard", "version": "1.4",
-            "body": [{"type": "TextBlock", "text": _title(ctx), "weight": "Bolder",
-                      "size": "Medium", "wrap": True},
-                     {"type": "FactSet", "facts": [{"title": t, "value": str(v)}
-                                                   for t, v in facts]}],
-            "actions": actions}
+            "type": "AdaptiveCard", "version": "1.4", "body": body, "actions": actions}
     return {"type": "message", "attachments": [
         {"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
          "content": card}]}
@@ -106,6 +121,8 @@ def _pagerduty(ctx, options=None):
                         "custom_details": {"job": ctx.get("job"), "run_id": ctx.get("run_id"),
                                            "step": ctx.get("step"), "status": ctx.get("status"),
                                            "hook": hook}}}
+    if _approval_message(ctx):
+        body["payload"]["custom_details"]["approval_message"] = _approval_message(ctx)
     if ctx.get("run_url"):
         body["links"] = [{"href": ctx["run_url"], "text": "Open run"}]
     return body

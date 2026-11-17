@@ -121,3 +121,34 @@ def test_approval_requested_default_message():
                status="awaiting_approval")
     assert presets.default_message(ctx).startswith(
         'Step "Sign-off" of job "Daily summary" is waiting for approval (run r1')
+
+
+def _approval_ctx(message="Check the totals before the weekly report"):
+    return _ctx(hook="on_approval_requested", scope="step", step_id="gate", step="Sign-off",
+                status="awaiting_approval", approval_message=message)
+
+
+def test_approval_requested_message_reaches_every_preset():
+    msg = "Check the totals before the weekly report"
+    ctx = _approval_ctx(msg)
+    text = presets.default_message(ctx)
+    assert text.split("\n")[:2] == [
+        'Step "Sign-off" of job "Daily summary" is waiting for approval (run r1).',
+        "Message: " + msg]
+    assert "awaiting_approval" not in text
+    assert msg in presets.render("generic", ctx)["message"]
+    slack = presets.render("slack", ctx)
+    assert msg in slack["text"] and msg in slack["blocks"][0]["text"]["text"]
+    assert "awaiting_approval" not in slack["blocks"][0]["text"]["text"]
+    content = presets.render("teams", ctx)["attachments"][0]["content"]
+    assert msg in [b.get("text") for b in content["body"] if b.get("type") == "TextBlock"]
+    pd = presets.render("pagerduty", ctx)["payload"]
+    assert pd["custom_details"]["approval_message"] == msg
+    assert msg in presets.render("servicenow", ctx)["description"]
+
+
+def test_approval_requested_without_a_message_adds_no_line():
+    ctx = _approval_ctx("")
+    assert "Message:" not in presets.default_message(ctx)
+    assert "approval_message" not in presets.render("pagerduty", ctx)["payload"]["custom_details"]
+    assert len(presets.render("teams", ctx)["attachments"][0]["content"]["body"]) == 2
