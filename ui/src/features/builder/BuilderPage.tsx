@@ -569,6 +569,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         steps={stepsTab}
                         issues={issues}
                         canEdit={meta.canEdit}
+                        history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), setMeta({ owner: r.job.owner, canEdit: true })) }}
                     />
                 </>
             )}

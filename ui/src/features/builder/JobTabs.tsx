@@ -1,6 +1,6 @@
 /* The builder's tabs: Flow (the node editor and its side panel), Parameters, Access (who may
- * run), Settings (description, time zone, missed runs, step defaults, after give-up) and Source
- * (the job as JSON text).
+ * run), Settings (description, time zone, missed runs, step defaults, after give-up) Source
+ * (the job as JSON text) and History (saved versions).
  * Triggers and actions are nodes in Flow. */
 import React from 'react';
 import ComboBox from '@splunk/react-ui/ComboBox';
@@ -15,6 +15,8 @@ import TextArea from '@splunk/react-ui/TextArea';
 import type { Issue, Defaults, JobDefinition } from '../../api/types';
 import AccessTab from './AccessTab';
 import ParamsTab from './ParamsTab';
+import HistoryTab from './HistoryTab';
+import type { HistoryProps } from './HistoryTab';
 import SourceTab from './SourceTab';
 import type { BuilderAction } from './reducer';
 import { BUILTIN_DEFAULTS } from './previewLogic';
@@ -23,7 +25,7 @@ import LearnMore from '../../components/LearnMore';
 import { issueCounts } from './issueTabs';
 import { timeZoneOptions } from './schedule';
 
-export type TabId = 'steps' | 'params' | 'access' | 'settings' | 'source';
+export type TabId = 'steps' | 'params' | 'access' | 'settings' | 'source' | 'history';
 
 export const TAB_LABELS: Record<TabId, string> = {
     steps: 'Flow',
@@ -31,6 +33,7 @@ export const TAB_LABELS: Record<TabId, string> = {
     access: 'Access',
     settings: 'Settings',
     source: 'Source',
+    history: 'History',
 };
 
 export interface JobTabsProps {
@@ -46,6 +49,8 @@ export interface JobTabsProps {
     issues?: Issue[];
     /** False for a viewer: the Source tab is read only. */
     canEdit?: boolean;
+    /** The History tab; without it the tab shows the unsaved-job note. */
+    history?: HistoryProps;
 }
 
 function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
@@ -160,7 +165,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true }: JobTabsProps) {
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history }: JobTabsProps) {
     const counts = issueCounts(issues);
     return (
         <div>
@@ -184,6 +189,7 @@ export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, ow
                 )}
                 {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} />}
                 {tab === 'source' && <SourceTab job={job} dispatch={dispatch} canEdit={canEdit} />}
+                {tab === 'history' && <HistoryTab jobId={history ? history.jobId : null} dirty={!!history?.dirty} canEdit={history ? history.canEdit : false} onRestored={history ? history.onRestored : () => undefined} />}
             </div>
         </div>
     );

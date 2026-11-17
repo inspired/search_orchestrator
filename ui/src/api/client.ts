@@ -69,11 +69,11 @@ function url(path: string, query: Query = {}): string {
     return `${createRESTURL(`${REST_BASE}/${path}`)}?${params.toString()}`;
 }
 
-function enc(id: string): string {
+export function enc(id: string): string {
     return encodeURIComponent(id);
 }
 
-async function request<T>(method: Method, path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
+export async function request<T>(method: Method, path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
     const headers: Record<string, string> = {
         Accept: 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
