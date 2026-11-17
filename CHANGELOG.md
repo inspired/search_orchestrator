@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.17.0 (2026-11-17)
+
+Full SPL in conditions on lines, and a `$run.now$` token.
+
+- **Check with** on a condition (the **If…** node and its line): **Simple comparison** (the existing language, still the default, so saved jobs behave as before), **SPL expression** (anything you would write after `| where`, with any eval function such as `now()`, `relative_time()`, `match()` or `if()`; true when `| makeresults | where <expression>` returns a row) or **Search returns results** (a full search with its own time range, default **The 24 hours before**; true when it returns a row). The field uses the SPL editor with colours and **Insert value**; only searches get **Put each | on a new line**. Lines read "◇ where …" or "◇ search …".
+- SPL conditions run **as the job owner** through a content-addressed hidden saved search (`_so_<job>_cond_<hash>`) written at save, when the line's source step finishes. The next step waits meanwhile. The result is kept on the run, so each line is checked once per run; a re-run checks it again. A search error, a token with no value or a search running past **300 seconds** counts as not met, is shown in the run page's step details and is audited as `condition_failed`; every result is audited as `condition_evaluated`. The engine survives a restart mid-condition, and condition searches count toward the running-search limits.
+- Saving refuses an empty SPL condition, unknown tokens, writing commands (`collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail`, `delete`), `| orchestrate`, and a `|` in an SPL expression, each with how to fix it.
+- The run graph keeps a condition's line pending while it is checked, fires it when met and greys it when not met or failed.
+- New token **`$run.now$`**: the epoch time when the value is filled in, in step searches, conditions, actions and run-when expressions. It is in every **Insert value** list.
+- In an SPL expression, `$<step>.resultCount$`, `$run.scheduled_time$` and `$run.now$` go in as numbers (`tonumber("…")`); every other token is a quoted string, as in steps.
+
 ## 1.16.1 (2026-11-17)
 
 - On Splunk 10.4 and later, the app's pages use the modern side navigation instead of the old app bar (`navLayout: "auto"`). Older Splunk versions keep the classic bar.
