@@ -149,7 +149,7 @@ class _Ctx:
 # Routing.
 
 def _routes():
-    from . import condition_test as ct, history_api as hv, preview_api as pv  # these import this module: no cycle
+    from . import condition_test as ct, history_api as hv, output_view as ov, preview_api as pv  # these import this module: no cycle
     from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
@@ -185,6 +185,7 @@ def _routes():
         (r"preview", {"POST": pv.start_preview}),
         (r"preview/defaults", {"POST": pv.preview_defaults}),
         (r"preview/condition", {"POST": ct.start}),
+        (r"preview/output", {"POST": ov.start}),
         (r"preview/(?P<sid>[^/]+)", {"GET": pv.poll_preview}),
         (r"preview/(?P<sid>[^/]+)/results", {"GET": pv.preview_rows}),
         (r"preview/(?P<sid>[^/]+)/cancel", {"POST": pv.cancel_preview}),

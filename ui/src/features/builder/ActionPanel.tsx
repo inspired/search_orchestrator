@@ -1,6 +1,7 @@
 /* The side panel for a selected action node: when it fires (a step or the whole job, and
  * which of its outcomes), what it does (with its preset's options), and removing it. */
 import React from 'react';
+import OutputViewer from '../output/OutputViewer';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
@@ -103,6 +104,16 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
                     idPrefix={`action-${scope}-${index}-options`}
                     onChange={(options) => dispatch({ type: 'updateAction', scope, index, changes: { options } })}
                 />
+            )}
+            {(action.type === 'email' || action.type === 'event') && (
+                <div style={{ marginTop: '12px' }}>
+                    <OutputViewer
+                        target={{ action: { scope, index } }}
+                        name={action.type === 'email' ? `Email to ${action.to || ''}` : `Event to ${action.index || ''}`}
+                        job={job}
+                        label={action.type === 'email' ? 'View sent emails' : 'View output'}
+                    />
+                </div>
             )}
             <div style={{ marginTop: '12px' }}>
                 <Button appearance="destructive" label="Remove action" onClick={() => onRequestRemove(key)} />

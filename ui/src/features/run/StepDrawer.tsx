@@ -7,6 +7,7 @@ import { conditionKind } from '../builder/conditions';
 import StatusText, { isStepDelayed } from '../../components/StatusText';
 import { formatDuration, formatTime } from '../../format';
 import ApprovalBox, { decidedText } from './ApprovalBox';
+import OutputViewer from '../output/OutputViewer';
 
 /** Links to a search job. `createURL` adds the locale and encodes the sid. */
 export function searchJobUrl(sid: string): string {
@@ -134,6 +135,24 @@ export default function StepDrawer({ run, stepId, now, onClose, me = null, onDec
                     </>
                 )}
             </dl>
+            {(def.output || (def.actions || []).some((a) => a.type === 'email' || a.type === 'event')) && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <strong>Output</strong>
+                    {def.output && <OutputViewer target={{ step_id: stepId }} name={def.name || def.id} runId={run.id} />}
+                    {(def.actions || []).map((a, i) =>
+                        a.type === 'email' || a.type === 'event' ? (
+                            <OutputViewer
+                                // eslint-disable-next-line react/no-array-index-key
+                                key={i}
+                                target={{ action: { scope: stepId, index: i } }}
+                                name={a.type === 'email' ? `Email to ${a.to || ''}` : `Event to ${a.index || ''}`}
+                                runId={run.id}
+                                label={a.type === 'email' ? 'Sent emails' : 'Event written'}
+                            />
+                        ) : null
+                    )}
+                </div>
+            )}
         </aside>
     );
 }

@@ -18,6 +18,7 @@ import { outputIssue, outputSpl } from './outputs';
 import { previewRefusal } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { IssueList } from './StepPanel';
+import OutputViewer from '../output/OutputViewer';
 
 export interface OutputPanelProps {
     job: JobDefinition;
@@ -111,6 +112,16 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
                 <Button appearance="secondary" label="Preview step" disabled />
                 <Typography as="p" variant="body">
                     {previewRefusal(job, stepId, live)}
+                </Typography>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+                {problem ? (
+                    <Button appearance="secondary" label="View output" disabled />
+                ) : (
+                    <OutputViewer target={{ step_id: stepId }} name={stepLabel(step)} job={job} />
+                )}
+                <Typography as="p" variant="body">
+                    {output.kind === 'lookup' ? 'Shows what is in the lookup now.' : 'Shows recent events in the summary index.'}
                 </Typography>
             </div>
             <div style={{ marginBottom: '12px' }}>

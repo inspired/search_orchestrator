@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.24.0 (2026-11-17)
+
+- **View output:** Lookup and Summary index nodes have **View output**, Email actions **View sent emails** and Event actions **View output**: a dialog with up to 100 rows, the total, the search and **Open in Search**. In the builder it searches the last 24 hours, 7 days or 30 days (a lookup: its contents now); on the run page, under **Output** in a step's details, only that run's time window and run id. New route `POST preview/output` (runs as the caller, like a preview; polled with `preview/<sid>`), audited `output_viewed`.
+
 ## 1.23.1 (2026-11-17)
 
 - **Examples:** the platform health example's Health score step wraps `$run.param.error_threshold$` in `tonumber()`, since tokens go in as quoted strings.

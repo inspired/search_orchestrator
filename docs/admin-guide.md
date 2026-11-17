@@ -224,6 +224,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |
 | `jobs/<id>/restore` | POST (`version`: saves that version as a new version; needs the right to edit the job) |
 | `preview/condition` | POST (builders: tests one condition line now, as the caller like a preview; see [Test condition](user-guide.md#test-condition)) |
+| `preview/output` | POST (builders for a job, viewers for a run: a read-only search of what a Lookup or Summary index step or an email or event action wrote, as the caller like a preview; see [Write results to an index or a lookup](user-guide.md#write-results-to-an-index-or-a-lookup)) |
 | `jobs/<id>/backfills` | POST (builders who may run the job: `from`, `to`, `source` `schedule` or `step`, `step` in seconds, `concurrency` 1 to 5, `params`; `dry_run: true` returns the planned `slots` and stores nothing) |
 | `backfills` | GET (`job_id`, `state`; newest first, without slots) |
 | `backfills/<id>` | GET (the backfill and its runs) |
