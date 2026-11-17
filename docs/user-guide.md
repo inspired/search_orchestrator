@@ -573,4 +573,4 @@ Every change is written to the `orchestrator` index. Version history adds `job_v
 
 ## Help in the app
 
-**Help** in the app's navigation bar shows this guide. Many fields have a **Learn more** link that opens the matching section.
+**Help** in the app's navigation bar starts with a visual overview: a quick start in four steps, a drawn example job, the node shapes and line colours of the flow editor, and a card for each feature that jumps to its section. This guide follows, with a contents list beside it. Many fields have a **Learn more** link that opens the matching section.

@@ -2,6 +2,7 @@
 
 ## 1.23.1 (2026-11-17)
 
+- **Help:** the Help page starts with a visual overview (quick start, an example flow drawn with the builder's shapes and line colours, node shapes, line colours and a card per feature linking to its section) and has a contents list of the guide's sections.
 - **Calendar:** a **Month** view: six weeks from Monday, one line per job per day with a count and a dot for the most serious state, a legend, and a click on a day opens it in the day view. It fetches a week at a time (the route still takes at most 8 days).
 - **Examples:** an eleventh example, **Platform health pipeline (everything)** (`example_platform_health`), that uses nearly every feature in one job: parallel checks, parameters, all three condition kinds, an approval gate, a deadline, Run when, a lookup, retries, Delayed after, event and start-job actions and groups.
 

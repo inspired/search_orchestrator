@@ -1,6 +1,7 @@
 import React from 'react';
-import { screen } from '@testing-library/react';
-import HelpPage, { docLink, slugify } from '../features/help/HelpPage';
+import { screen, within } from '@testing-library/react';
+import HelpPage, { docLink, guideSections, slugify } from '../features/help/HelpPage';
+import { FEATURES } from '../features/help/HelpOverview';
 import LearnMore, { helpHref } from '../components/LearnMore';
 import { renderThemed } from './fixtures';
 import guide from '../../../docs/user-guide.md';
@@ -19,6 +20,35 @@ describe('HelpPage', () => {
         const tokens = document.getElementById('tokens');
         expect(tokens).not.toBeNull();
         expect(tokens!.tagName).toBe('H3'); // the guide's Tokens heading is ###
+    });
+});
+
+describe('HelpPage overview', () => {
+    const headingSlugs = guide
+        .split('\n')
+        .filter((l: string) => /^#{1,6} /.test(l))
+        .map((l: string) => slugify(l.replace(/^#+ /, '')));
+
+    it('draws the example flow, node shapes, line colours and feature cards', () => {
+        renderThemed(<HelpPage />);
+        expect(screen.getByRole('img', { name: /An example job/ })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Node shapes' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Line colours' })).toBeInTheDocument();
+        const overview = within(screen.getByTestId('help-overview'));
+        FEATURES.forEach((f) => expect(overview.getByRole('link', { name: new RegExp(`^${f.title.replace(/[|]/g, '\\$&')}`) }).getAttribute('href')).toBe(`#${f.anchor}`));
+    });
+
+    it('links every feature card to a heading of the guide', () => {
+        FEATURES.forEach((f) => expect(headingSlugs).toContain(f.anchor));
+    });
+
+    it('lists the guide sections in the contents', () => {
+        renderThemed(<HelpPage />);
+        const nav = screen.getByRole('navigation', { name: 'Help contents' });
+        const sections = guideSections(guide);
+        expect(sections).toContain('Calendar');
+        sections.forEach((s) => expect(nav.querySelector(`a[href="#${slugify(s)}"]`)).not.toBeNull());
+        expect(nav.querySelector('a[href="#help-overview"]')).not.toBeNull();
     });
 });
 
