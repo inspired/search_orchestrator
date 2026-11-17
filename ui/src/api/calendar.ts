@@ -24,3 +24,15 @@ export type CalendarItem =
 export function getCalendar(from: number, to: number, jobId?: string): Promise<{ items: CalendarItem[]; truncated: boolean }> {
     return request<{ items: CalendarItem[]; truncated: boolean }>('GET', 'calendar', { query: { from, to, job_id: jobId } });
 }
+
+/** Like getCalendar for any range: fetched a week at a time (the route takes at most 8 days)
+ * and merged in time order; truncated when any week was. */
+export async function getCalendarRange(from: number, to: number, jobId?: string): Promise<{ items: CalendarItem[]; truncated: boolean }> {
+    const WEEK = 7 * 86400;
+    const parts: Array<Promise<{ items: CalendarItem[]; truncated: boolean }>> = [];
+    for (let start = from; start < to; start += WEEK) {
+        parts.push(getCalendar(start, Math.min(start + WEEK, to), jobId));
+    }
+    const done = await Promise.all(parts);
+    return { items: done.flatMap((p) => p.items), truncated: done.some((p) => p.truncated) };
+}

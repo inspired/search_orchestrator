@@ -509,7 +509,7 @@ A job you aren't allowed to see appears as **Job you can't see**, so a chain sta
 
 ## Calendar
 
-**Calendar**, after Dependencies, shows when jobs run, by **Day** or **Week** (weeks start on Monday). Times are in your browser's time zone, named at the top. **Previous**, **Today** and **Next** move the range; **Job** limits it to one job. Click an item to open it: a run opens its run page, other items open the job in the builder.
+**Calendar**, after Dependencies, shows when jobs run, by **Day**, **Week** or **Month** (weeks start on Monday). Times are in your browser's time zone, named at the top. **Previous**, **Today** and **Next** move the range; **Job** limits it to one job. Click an item to open it: a run opens its run page, other items open the job in the builder. **Month** shows six weeks; each day lists up to three jobs with how many items they have (×N) and a dot for the most serious state that day (failed, late, blocked or paused, running, succeeded; an open dot for scheduled, dotted for backfill), with a legend below. Click a day's number or **+N more** to open that day.
 
 - **Scheduled** times have a dashed border and muted text. They are the future times of turned-on jobs' enabled schedules; past times show as runs.
 - **Runs** show the job and its state in text with an icon, with the state's colour on a thick left border. A run that passed its deadline also says **Late**. A run is placed at the time it was scheduled for.

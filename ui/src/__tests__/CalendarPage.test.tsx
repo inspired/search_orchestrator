@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { getCalendar } from '../api/calendar';
+import { getCalendar, getCalendarRange } from '../api/calendar';
 import type { CalendarItem } from '../api/calendar';
 import { listJobs } from '../api/client';
 import { renderPage } from '../components/PageShell';
@@ -8,6 +8,7 @@ import { job, renderThemed } from './fixtures';
 
 jest.mock('../api/calendar', () => ({
     getCalendar: jest.fn(),
+    getCalendarRange: jest.fn(),
 }));
 jest.mock('../api/client', () => ({
     listJobs: jest.fn(),
@@ -83,6 +84,8 @@ beforeEach(() => {
     assign.mockReset();
     (getCalendar as jest.Mock).mockReset();
     (getCalendar as jest.Mock).mockResolvedValue({ items, truncated: false });
+    (getCalendarRange as jest.Mock).mockReset();
+    (getCalendarRange as jest.Mock).mockResolvedValue({ items, truncated: false });
     (listJobs as jest.Mock).mockReset();
     (listJobs as jest.Mock).mockResolvedValue([job({ id: 'daily', name: 'Daily summary' }), job({ id: 'weekly', name: 'Weekly rollup' })]);
 });
@@ -219,5 +222,34 @@ describe('Calendar page', () => {
         (getCalendar as jest.Mock).mockRejectedValue(new Error('Server is down'));
         renderThemed(page);
         expect(await screen.findByText('The calendar could not be loaded: Server is down')).toBeInTheDocument();
+    });
+
+    it('shows a month of six weeks with one line per job and opens a day', async () => {
+        renderThemed(page);
+        await screen.findByRole('button', { name: /^Daily summary, Failed/ });
+        fireEvent.click(screen.getByRole('radio', { name: 'Month' }));
+        const month = await screen.findByRole('region', { name: 'Month' });
+        await waitFor(() => expect(getCalendarRange).toHaveBeenCalled());
+        const [from, to] = (getCalendarRange as jest.Mock).mock.calls[(getCalendarRange as jest.Mock).mock.calls.length - 1];
+        // November 2026 starts on a Sunday: the grid starts on Monday 26 October, for 42 days.
+        expect(from).toBe(Math.floor(new Date(2026, 9, 26).getTime() / 1000));
+        expect(to).toBe(Math.floor(new Date(2026, 11, 7).getTime() / 1000));
+        expect(screen.getByText('November 2026')).toBeInTheDocument();
+        const day = within(month).getByRole('group', { name: new Date(2026, 10, 18).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) });
+        expect(within(day).getAllByRole('listitem')).toHaveLength(2);
+        expect(within(day).getByTitle('Daily summary: 2, Failed')).toBeInTheDocument();
+        expect(within(day).getByTitle('Weekly rollup: 1, Scheduled')).toBeInTheDocument();
+        fireEvent.click(within(day).getByRole('button', { name: /^Open / }));
+        expect(await screen.findByRole('region', { name: 'Calendar' })).toBeInTheDocument();
+        expect(dayHeadings()).toHaveLength(1);
+    });
+
+    it('moves a month at a time in the month view', async () => {
+        renderThemed(page);
+        await screen.findByRole('button', { name: /^Daily summary, Failed/ });
+        fireEvent.click(screen.getByRole('radio', { name: 'Month' }));
+        await screen.findByText('November 2026');
+        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        expect(await screen.findByText('December 2026')).toBeInTheDocument();
     });
 });

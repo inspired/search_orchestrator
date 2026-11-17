@@ -1,5 +1,5 @@
 /* Calendar: scheduled times, runs and planned backfill slots of the jobs the viewer can see,
- * by day or by week, in the browser's time zone. Refreshes every 60 seconds while the range
+ * by day, week or month, in the browser's time zone. Refreshes every 60 seconds while the range
  * contains now. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -8,14 +8,16 @@ import Message from '@splunk/react-ui/Message';
 import RadioBar from '@splunk/react-ui/RadioBar';
 import Select from '@splunk/react-ui/Select';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
-import { getCalendar } from '../../api/calendar';
+import { getCalendar, getCalendarRange } from '../../api/calendar';
 import { listJobs } from '../../api/client';
 import PageShell, { renderPage } from '../../components/PageShell';
 import CalendarView from '../../features/calendar/CalendarView';
+import MonthView from '../../features/calendar/MonthView';
+import { addMonths, monthDays } from '../../features/calendar/monthLayout';
 import { addDays, dayBounds, weekStart } from '../../features/calendar/calendarLayout';
 import usePoll from '../../hooks/usePoll';
 
-type View = 'day' | 'week';
+type View = 'day' | 'week' | 'month';
 const ALL = '';
 
 function timeZone(): string {
@@ -43,6 +45,9 @@ function CalendarPage() {
     const [jobNames, setJobNames] = useState<Array<[string, string]>>([]);
 
     const days = useMemo(() => {
+        if (view === 'month') {
+            return monthDays(anchor);
+        }
         if (view === 'day') {
             return [new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())];
         }
@@ -54,7 +59,7 @@ function CalendarPage() {
     const nowSec = Math.floor(Date.now() / 1000);
     const live = nowSec >= from && nowSec < to;
 
-    const calendar = usePoll(() => getCalendar(from, to, jobId || undefined), 60000, live);
+    const calendar = usePoll(() => (view === 'month' ? getCalendarRange : getCalendar)(from, to, jobId || undefined), 60000, live);
     const [now, setNow] = useState(nowSec);
     useEffect(() => setNow(Math.floor(Date.now() / 1000)), [calendar.data]);
 
@@ -77,19 +82,22 @@ function CalendarPage() {
 
     const step = view === 'week' ? 7 : 1;
     const shift = (n: number) => setAnchor((a) => addDays(a, n));
+    const move = (dir: number) => (view === 'month' ? setAnchor((a) => addMonths(a, dir)) : shift(dir * step));
+    const title = view === 'month' ? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : rangeTitle(days);
 
     return (
         <PageShell title="Calendar">
             <p style={{ marginTop: 0 }}>{`Times are in your browser's time zone (${timeZone()}).`}</p>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', gap: '4px' }}>
-                    <Button appearance="secondary" label="Previous" onClick={() => shift(-step)} />
+                    <Button appearance="secondary" label="Previous" onClick={() => move(-1)} />
                     <Button appearance="secondary" label="Today" onClick={() => setAnchor(new Date())} />
-                    <Button appearance="secondary" label="Next" onClick={() => shift(step)} />
+                    <Button appearance="secondary" label="Next" onClick={() => move(1)} />
                 </div>
                 <RadioBar aria-label="Show" value={view} onChange={(_e: unknown, { value }: { value: unknown }) => setView(value as View)}>
                     <RadioBar.Option label="Day" value="day" />
                     <RadioBar.Option label="Week" value="week" />
+                    <RadioBar.Option label="Month" value="month" />
                 </RadioBar>
                 <ControlGroup label="Job" labelFor="calendar-job" labelPosition="top">
                     <Select inputId="calendar-job" value={jobId} onChange={(_e: unknown, { value }: { value: unknown }) => setJobId(value ? String(value) : ALL)}>
@@ -99,7 +107,7 @@ function CalendarPage() {
                         ))}
                     </Select>
                 </ControlGroup>
-                <div style={{ paddingBottom: '6px' }}>{rangeTitle(days)}</div>
+                <div style={{ paddingBottom: '6px' }}>{title}</div>
             </div>
             {calendar.error && (
                 <Message type="error" appearance="default">
@@ -108,11 +116,21 @@ function CalendarPage() {
             )}
             {calendar.data && calendar.data.truncated && (
                 <Message type="warning" appearance="default">
-                    Showing the first 2,000 items; pick one job to see all.
+                    {view === 'month' ? 'Some items are left out (at most 2,000 a week); pick one job to see all.' : 'Showing the first 2,000 items; pick one job to see all.'}
                 </Message>
             )}
             {calendar.loading && !calendar.data ? (
                 <WaitSpinner size="medium" />
+            ) : view === 'month' ? (
+                <MonthView
+                    month={anchor}
+                    items={(calendar.data && calendar.data.items) || []}
+                    now={now}
+                    onOpenDay={(d) => {
+                        setAnchor(d);
+                        setView('day');
+                    }}
+                />
             ) : (
                 <CalendarView
                     days={days}
