@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.2 (2026-11-17)
+
+A quieter Flow canvas: the + appears when you need it, and outcome tabs sit at the middle of the node.
+
+- The **+** handle shows only when you point at a node, select it (alone or in a multi-selection) or focus it with the keyboard. Hidden, it takes no clicks. A line you are already drawing keeps working if the pointer leaves the node. The run page never shows it.
+- Outcome tabs are stacked in a column centred on the node's vertical middle, and the + sits to their right (at the edge when there are no tabs).
+
 ## 1.15.1 (2026-11-17)
 
 Gentler wheel zoom, a checklist that can come back, and a default time range.
