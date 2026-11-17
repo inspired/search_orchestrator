@@ -423,7 +423,8 @@ class Gateway(Protocol):
     def orchestrator_api(self, method: str, path: str,
                          body: Optional[Dict[str, Any]] = None) -> Any: ...
     def search_oneshot(self, owner: str, query: str, earliest: str = "-1h",
-                       latest: str = "+1h", count: int = 10) -> List[Dict[str, Any]]: ...
+                       latest: str = "+1h", count: int = 10,
+                       max_time: Optional[int] = None) -> List[Dict[str, Any]]: ...
     def preview_dispatch(self, user: str, spl: str, earliest: Optional[str],
                          latest: Optional[str], now_epoch: int, sid: str) -> str: ...
     def preview_info(self, sid: str) -> Dict[str, Any]: ...
@@ -767,12 +768,14 @@ class SplunkGateway:
                                  "message": "HTTP {}: {}".format(status, text[:200])}}
         return status, payload
 
-    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
-        """Result rows of a blocking read-only search run as ``owner`` in this app."""
+    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10, max_time=None):
+        """Result rows of a blocking read-only search run as ``owner`` in this app;
+        ``max_time`` (seconds) stops the search after that long."""
+        extra = {"max_time": max_time} if max_time else {}
         try:
             body = self._call("post", "search/jobs", owner, search=query, exec_mode="oneshot",
                               earliest_time=earliest, latest_time=latest,
-                              count=count)
+                              count=count, **extra)
         except GatewayError:
             raise
         except Exception as err:

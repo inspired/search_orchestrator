@@ -108,4 +108,18 @@ def test_dave_cannot_see_the_run(w):
 def test_queries_quote_audit_sids_only():
     assert perf.introspection_query(["a", "b"]).endswith("IN (a, b)") or "IN (a, b)" in \
         perf.introspection_query(["a", "b"])
-    assert 'search_id IN ("a", "b")' in perf.audit_query(["a", "b"])
+    assert 'search_id IN ("a", "\'a\'", "b", "\'b\'")' in perf.audit_query(["a", "b"])
+
+
+def test_searches_get_a_30_second_limit(w):
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1"}})
+    handler(w)
+    assert get(w, run_id)[0] == 200
+    assert w.gw.search_max_times == [30, 30]
+
+
+def test_audit_rows_with_quoted_search_id_map_back_to_the_step(w):
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1"}})
+    handler(w, audit=[{"search_id": "'s1'", "run_duration": "2.5"}])
+    status, out = get(w, run_id)
+    assert status == 200 and out["steps"]["a"] == {"run_duration": 2.5, "source": "audit"}

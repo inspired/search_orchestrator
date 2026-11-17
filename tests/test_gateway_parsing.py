@@ -351,6 +351,9 @@ def test_search_oneshot_uses_search_jobs_exec_mode():
     assert rows == [{"a": "1"}]
     path, kw = calls[0]
     assert str(path).endswith("search/jobs") and kw.get("exec_mode") == "oneshot"
+    assert "max_time" not in kw
+    gw.search_oneshot("bob", "search x", max_time=30)
+    assert calls[1][1]["max_time"] == 30
 
 
 def _status_body(**content):

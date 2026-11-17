@@ -12,6 +12,7 @@ from .gateway import GatewayError
 
 SID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 MAX_SIDS = 50
+SEARCH_SECONDS = 30
 NOTE_INTROSPECTION = "CPU and memory need read access to _introspection; ask an admin."
 NOTE_AUDIT = "Some steps ran before 1.23.0 and their numbers come from _audit."
 NOTE_MAX = "Only the first 50 searches are shown."
@@ -32,7 +33,8 @@ def introspection_query(sids):
 
 
 def audit_query(sids):
-    quoted = ", ".join('"%s"' % s for s in _checked(sids))
+    # _audit stores search_id with single quotes ('<sid>'): match both forms.
+    quoted = ", ".join('"%s", "\'%s\'"' % (s, s) for s in _checked(sids))
     return ("index=_audit action=search info=completed search_id IN (%s) "
             "| eval sid=trim(search_id, \"'\") "
             "| stats latest(total_run_time) AS run_duration latest(scan_count) AS scan_count "
@@ -49,14 +51,16 @@ def _numbers(rows, fields):
                 numbers[field] = float(row[field])
             except (KeyError, TypeError, ValueError):
                 pass
-        if row.get("sid") and numbers:
-            out[row["sid"]] = numbers
+        sid = (row.get("sid") or row.get("search_id") or "").strip("'")
+        if sid and numbers:
+            out[sid] = numbers
     return out
 
 
 def _search(ctx, query, earliest, latest, notes, note):
     try:
-        return ctx.user_gw.search_oneshot(ctx.user, query, earliest, latest, count=MAX_SIDS)
+        return ctx.user_gw.search_oneshot(ctx.user, query, earliest, latest, count=MAX_SIDS,
+                                    max_time=SEARCH_SECONDS)
     except GatewayError as err:
         if err.status not in (401, 403):  # a failing search is not a failing request either
             note = "Splunk could not run a search for CPU, memory or audit numbers; try again."

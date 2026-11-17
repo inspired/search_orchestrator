@@ -67,6 +67,7 @@ class FakeGateway:
         self.api_handler = None  # (method, path, body) -> (status, payload)
         self.search_handler = None  # (owner, query) -> rows
         self.search_log = []
+        self.search_max_times = []
         self.times = {}  # (time string, now) -> epoch; a value not listed is one Splunk rejects
         self.preview_log = []  # preview_dispatch calls, oldest first
 
@@ -327,8 +328,9 @@ class FakeGateway:
             raise GatewayError("no REST endpoint in this fake", status=None, transient=True)
         return self.api_handler(method, path, body)
 
-    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
+    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10, max_time=None):
         self.search_log.append((owner, query, earliest, latest))
+        self.search_max_times.append(max_time)
         rows = self.search_handler(owner, query) if self.search_handler else []
         return copy.deepcopy(rows[:count])
 
