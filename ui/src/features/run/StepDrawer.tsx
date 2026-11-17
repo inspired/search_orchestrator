@@ -63,7 +63,12 @@ export default function StepDrawer({ run, stepId, now, onClose, me = null, onDec
         <aside aria-label={`Step ${def.name || def.id}`} style={{ padding: '8px 14px 14px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <strong>{def.name || def.id}</strong>
-                <StatusText state={st.state} delayed={isStepDelayed(st)} skipKind={st.skip_kind} />
+                <StatusText
+                    state={st.state}
+                    delayed={isStepDelayed(st)}
+                    skipKind={st.skip_kind}
+                    detail={st.state === 'awaiting_approval' && st.approval_state ? `since ${formatTime(st.approval_state.requested_at)}` : undefined}
+                />
                 <span style={{ flex: 1 }} />
                 <Link onClick={onClose}>Close</Link>
             </div>

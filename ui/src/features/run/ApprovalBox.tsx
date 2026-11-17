@@ -22,7 +22,8 @@ export interface ApprovalBoxProps {
     onDecided: () => void;
 }
 
-/** "4 hours", "30 minutes": as the server words a timeout (approval._duration). */
+/** "4 hours", "30 minutes". Keep in step with the server's approval._duration
+ * (bin/so/approval.py, `"%g %s%s"`): the same wording is in a rejected step's error. */
 function duration(seconds: number): string {
     const [n, unit] = seconds >= 3600 ? [seconds / 3600, 'hour'] : [seconds / 60, 'minute'];
     const amount = Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));

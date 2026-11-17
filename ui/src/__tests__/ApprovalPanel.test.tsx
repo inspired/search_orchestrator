@@ -17,14 +17,14 @@ const gated = (gate: Partial<StepDef> = {}): JobDefinition => ({
     edges: [{ from: 'a', to: 'gate', condition: 'on_success' }],
 });
 
-function Harness({ job, onState, giveUpAfter }: { job: JobDefinition; onState: (s: BuilderState) => void; giveUpAfter?: number }) {
+function Harness({ job, onState, giveUpAfter }: { job: JobDefinition; onState: (s: BuilderState) => void; giveUpAfter: number }) {
     const [state, dispatch] = useReducer(reducer, job, initialState);
     onState(state);
     const step = state.job.steps.find((s) => s.id === 'gate') as StepDef;
     return <ApprovalPanel step={step} roles={['ops', 'user']} dispatch={dispatch} tokenGroups={[]} giveUpAfter={giveUpAfter} />;
 }
 
-function renderPanel(job: JobDefinition, giveUpAfter?: number) {
+function renderPanel(job: JobDefinition, giveUpAfter = 86400) {
     let latest: BuilderState | null = null;
     renderThemed(<Harness job={job} giveUpAfter={giveUpAfter} onState={(s) => (latest = s)} />);
     return () => (latest as unknown as BuilderState).job.steps[1];

@@ -24,7 +24,7 @@ export interface ApprovalPanelProps {
     /** The tokens Insert value offers in the message. */
     tokenGroups?: TokenGroup[];
     /** Seconds after which the step gives up (its own or the job's default). */
-    giveUpAfter?: number | null;
+    giveUpAfter: number;
 }
 
 export const LONGER_THAN_GIVE_UP = "Wait at most is longer than this step's Give up after, so the run gives up first.";
@@ -39,8 +39,7 @@ export default function ApprovalPanel({ step, roles, dispatch, tokenGroups = [],
     };
     const chosen = approval.approver_roles || [];
     const options = Array.from(new Set([...roles, ...chosen])).sort();
-    const limit = giveUpAfter === undefined || giveUpAfter === null ? step.give_up_after : giveUpAfter;
-    const tooLong = Boolean(approval.timeout && limit && approval.timeout > limit);
+    const tooLong = Boolean(approval.timeout && approval.timeout > giveUpAfter);
 
     return (
         <>

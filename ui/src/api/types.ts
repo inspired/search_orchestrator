@@ -1,5 +1,6 @@
 /* Shapes of the Search Orchestrator REST API (app/search_orchestrator/bin/so/api.py).
  * Times are integer epoch seconds. */
+import type { ApprovalState } from './approvals';
 
 export const RUN_STATES = ['queued', 'running', 'blocked', 'paused', 'succeeded', 'failed', 'cancelled'] as const;
 export type RunState = (typeof RUN_STATES)[number];
@@ -220,15 +221,6 @@ export interface StepStatus {
     dispatch_errors?: number;
     /** Approval steps: the request and, once someone (or the timeout, `by: "timeout"`) decides, the decision. */
     approval_state?: ApprovalState;
-}
-
-export interface ApprovalState {
-    requested_at: number;
-    message: string;
-    decision: 'approve' | 'reject' | null;
-    by?: string;
-    comment?: string;
-    decided_at?: number;
 }
 
 /** A run as GET runs lists it (no definition). */

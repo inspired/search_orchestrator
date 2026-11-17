@@ -5,6 +5,7 @@ import { decide } from '../api/approvals';
 import type { RunDetail, StepStatus } from '../api/types';
 import ApprovalBox from '../features/run/ApprovalBox';
 import StepDrawer from '../features/run/StepDrawer';
+import { formatTime } from '../format';
 import { me, NOW, renderThemed, rollupRun } from './fixtures';
 
 jest.mock('../api/approvals', () => ({ decide: jest.fn() }));
@@ -115,9 +116,14 @@ describe('ApprovalBox', () => {
         expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
     });
 
+    test('the step drawer says since when the step waits', () => {
+        renderThemed(<StepDrawer run={gatedRun(awaiting)} stepId="gate" now={NOW} onClose={jest.fn()} me={{ ...me, can_approve: false }} />);
+        expect(screen.getByText(`Waiting for approval · since ${formatTime(NOW - 600)}`)).toBeInTheDocument();
+    });
+
     test('the step drawer shows it', () => {
         renderThemed(<StepDrawer run={gatedRun(awaiting)} stepId="gate" now={NOW} onClose={jest.fn()} me={approver} onDecided={jest.fn()} />);
-        expect(screen.getByText('Waiting for approval')).toBeInTheDocument();
+        expect(screen.getByText(/^Waiting for approval · since /)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
     });
 });
