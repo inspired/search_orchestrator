@@ -192,7 +192,7 @@ describe('BuilderPage flow', () => {
         expect(screen.queryByRole('combobox', { name: 'Add a node' })).toBeNull();
         fireEvent.click(screen.getByRole('option', { name: /^Succeeds/ }));
         expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
-        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeds, to Weekly rollup/ })).toBeInTheDocument();
         // A trigger cannot be the end of a line.
         fireEvent.pointerDown(screen.getByTestId('plus-step:weekly'), centre('step:weekly'));
         fireEvent.pointerUp(canvas, centre('trigger:0'));
@@ -354,7 +354,7 @@ describe('BuilderPage flow', () => {
         fireEvent.pointerDown(screen.getByTestId('tab-step:daily-failure'), centreOf('step:daily'));
         fireEvent.pointerUp(canvas, centreOf('step:monthly'));
         expect(screen.queryByRole('listbox', { name: 'When' })).toBeNull();
-        expect(screen.getByRole('button', { name: /^Line from Daily summary, Failed, to Monthly rollup/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Fails, to Monthly rollup/ })).toBeInTheDocument();
     });
 
     it("changing a line from Succeeds to Fails in its label's menu updates the edge, as one undo step", async () => {
@@ -368,7 +368,7 @@ describe('BuilderPage flow', () => {
         expect(screen.getByRole('option', { name: 'Remove line' })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('option', { name: 'Change to Fails' }));
         expect(screen.queryByRole('listbox', { name: 'Line' })).toBeNull();
-        expect(screen.getByRole('button', { name: /^Line from Daily summary, Failed, to Weekly rollup/ })).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Fails, to Weekly rollup/ })).toHaveAttribute('aria-pressed', 'true');
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));
         await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
         const saved = (api.updateJob as jest.Mock).mock.calls[0][1];
@@ -406,15 +406,15 @@ describe('BuilderPage flow', () => {
         expect(screen.queryByRole('option', { name: /^Email/ })).toBeNull();
         fireEvent.change(box, { target: { value: 'search' } });
         fireEvent.keyDown(box, { key: 'Enter' });
-        expect(screen.queryByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeNull();
+        expect(screen.queryByRole('button', { name: /^Line from Daily summary, Succeeds, to Weekly rollup/ })).toBeNull();
         expect(nodes()).toHaveLength(4);
-        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to / })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^Line from .*, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeds, to / })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Line from .*, Succeeds, to Weekly rollup/ })).toBeInTheDocument();
         const note = screen.getByTestId('splice-message');
         expect(note).toHaveTextContent(/Weekly rollup now runs after .* succeeds\. Undo brings back the old line\./);
         expect(note).not.toContainElement(document.activeElement as HTMLElement);
         fireEvent.click(within(note).getByRole('button', { name: 'Undo' }));
-        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeded, to Weekly rollup/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Line from Daily summary, Succeeds, to Weekly rollup/ })).toBeInTheDocument();
         expect(screen.queryByText(/now runs after/)).toBeNull();
         expect(nodes()).toHaveLength(3);
     });

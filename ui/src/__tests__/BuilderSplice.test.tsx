@@ -47,14 +47,14 @@ describe('BuilderPage splicing an existing node', () => {
         fireEvent.pointerMove(canvas, { clientX: c.clientX + 10, clientY: c.clientY });
         fireEvent.pointerMove(canvas, { clientX: mid.x, clientY: mid.y });
         fireEvent.pointerUp(canvas, { clientX: mid.x, clientY: mid.y });
-        expect(lineButton(/^Line from Daily summary, Succeeded, to Weekly rollup/)).toBeNull();
-        expect(lineButton(/^Line from Daily summary, Succeeded, to Lone search/)).toBeInTheDocument();
-        expect(lineButton(/^Line from Lone search, Succeeded, to Weekly rollup/)).toBeInTheDocument();
+        expect(lineButton(/^Line from Daily summary, Succeeds, to Weekly rollup/)).toBeNull();
+        expect(lineButton(/^Line from Daily summary, Succeeds, to Lone search/)).toBeInTheDocument();
+        expect(lineButton(/^Line from Lone search, Succeeds, to Weekly rollup/)).toBeInTheDocument();
         const note = screen.getByTestId('splice-message');
         expect(note).toHaveTextContent(/now runs after/);
         fireEvent.click(within(note).getByRole('button', { name: 'Undo' }));
-        expect(lineButton(/^Line from Daily summary, Succeeded, to Weekly rollup/)).toBeInTheDocument();
-        expect(lineButton(/^Line from Daily summary, Succeeded, to Lone search/)).toBeNull();
+        expect(lineButton(/^Line from Daily summary, Succeeds, to Weekly rollup/)).toBeInTheDocument();
+        expect(lineButton(/^Line from Daily summary, Succeeds, to Lone search/)).toBeNull();
     });
 
     it('from the keyboard: the line menu offers "Move <name> onto this line" for nodes with no lines', async () => {
@@ -64,12 +64,12 @@ describe('BuilderPage splicing an existing node', () => {
         // Monthly rollup has lines, so it is not offered.
         expect(within(menu).queryByRole('option', { name: /Move Monthly rollup/ })).toBeNull();
         fireEvent.click(within(menu).getByRole('option', { name: 'Move Lone search onto this line' }));
-        expect(lineButton(/^Line from Daily summary, Succeeded, to Lone search/)).toBeInTheDocument();
-        expect(lineButton(/^Line from Lone search, Succeeded, to Weekly rollup/)).toBeInTheDocument();
+        expect(lineButton(/^Line from Daily summary, Succeeds, to Lone search/)).toBeInTheDocument();
+        expect(lineButton(/^Line from Lone search, Succeeds, to Weekly rollup/)).toBeInTheDocument();
         // It stays where it was.
         expect(screen.getByTestId('node-step:lone')).toHaveAttribute('transform', 'translate(250,380)');
         expect(screen.getByTestId('splice-message')).toHaveTextContent(/now runs after/);
         fireEvent.click(within(screen.getByTestId('splice-message')).getByRole('button', { name: 'Undo' }));
-        expect(lineButton(/^Line from Daily summary, Succeeded, to Weekly rollup/)).toBeInTheDocument();
+        expect(lineButton(/^Line from Daily summary, Succeeds, to Weekly rollup/)).toBeInTheDocument();
     });
 });

@@ -25,8 +25,8 @@ Above the tabs, a **setup checklist** shows what the job still needs: a name, a 
 
 The job is drawn on the **Flow** tab as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor).
 
-1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from a port on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
-2. **Connect nodes** by dragging from a port onto another node. A line between two steps makes the second depend on the first; a line to an action says when the action fires. Keyboard and screen-reader users can use **Depends on** in a step's panel, and **When** in an action's panel.
+1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from the **+** handle on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
+2. **Connect nodes** by dragging from a node's **+** handle onto another node. A line between two steps makes the second depend on the first; a line to an action says when the action fires. Keyboard and screen-reader users can use **Depends on** in a step's panel, and **When** in an action's panel.
 3. **Select a node** to edit it in the side panel: a step's search, time range, run-when rule, delay and give-up times and retries; an action's fields; a trigger's schedule; a condition's expression.
 4. Use the other tabs for parameters, who may run, and job-wide settings such as the time zone and step defaults.
 5. **Save.** The builder checks for cycles, unknown tokens, bad cron, unreadable saved searches and tokens from steps that might be skipped.
@@ -172,7 +172,7 @@ With the canvas focused:
 
 ### Slack
 
-**Slack** is an action node. It posts a message to Slack when the step or job reaches its port, like any other action. It needs a webhook destination that your admin has set up with the Slack body format (see the admin guide); pick it by name in the side panel. A Slack node is a webhook with the Slack preset, so a job saved with one shows it as **Slack** and a plain webhook as **Webhook**.
+**Slack** is an action node. It posts a message to Slack when the step or job reaches the outcome its line comes from, like any other action. It needs a webhook destination that your admin has set up with the Slack body format (see the admin guide); pick it by name in the side panel. A Slack node is a webhook with the Slack preset, so a job saved with one shows it as **Slack** and a plain webhook as **Webhook**.
 
 ### Steps
 
@@ -233,7 +233,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 ### Actions
 
-Each action is a node. Drag a line to it from a step's port, or from the **Whole job** node for a job-wide action; the port says when it fires (start, success, failure, complete or delayed). An action's **When** field moves its line from the keyboard.
+Each action is a node. Drag a line to it from a step's **+** handle, or from the **Whole job** node's for a job-wide action; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way or Is delayed). An action's **When** field moves its line from the keyboard.
 
 - **Webhook** or **Slack** to a destination your admin set up (Slack is a body format).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.

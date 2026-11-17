@@ -66,7 +66,9 @@ describe('canConnect', () => {
     it('allows and rejects', () => {
         expect(canConnect(job, 'step:b', 'success', 'step:c')).toEqual({ ok: true });
         const start = canConnect(job, 'step:a', 'start', 'step:b');
-        expect(start).toEqual({ ok: false, reason: 'Started and Delayed lines can only go to an action' });
+        expect(start).toEqual({ ok: false, reason: 'Starts and Is delayed lines can only go to an action' });
+        // The outcome words match the + handle's.
+        expect(canConnect(job, 'step:a', 'if', 'action:job:0')).toEqual({ ok: false, reason: 'Only Succeeds, Fails, Finishes either way, Starts and Is delayed lines can go to an action' });
         expect(JSON.stringify(canConnect(job, 'step:a', 'success', 'step:a'))).toContain('loop');
         expect(JSON.stringify(canConnect(job, 'step:b', 'success', 'step:a'))).toContain('loop');
         expect(canConnect(job, 'step:a', 'success', 'action:job:0')).toEqual({ ok: true });

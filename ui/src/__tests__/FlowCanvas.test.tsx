@@ -311,7 +311,7 @@ describe('FlowCanvas', () => {
 
         test('a link can be selected from the keyboard', () => {
             const { props } = setup();
-            const line = screen.getByRole('button', { name: 'Line from a, Succeeded, to b' });
+            const line = screen.getByRole('button', { name: 'Line from a, Succeeds, to b' });
             fireEvent.keyDown(line, { key: 'Enter' });
             expect(props.onSelect).toHaveBeenCalledWith({ kind: 'link', key: 'step:a-success->step:b' });
         });

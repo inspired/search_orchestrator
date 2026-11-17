@@ -101,6 +101,15 @@ export function flowLinkLabel(graph: FlowGraph, link: FlowLink): string {
     return `${PORT_STYLE[link.port].glyph} ${OUTCOME_LABEL[link.port as Outcome]}`;
 }
 
+/** The words of a line's label, for its accessible name: "Succeeds", "If", or the condition's
+ * expression on the line out of a diamond (the visible label without its glyph). */
+export function flowLinkWords(graph: FlowGraph, link: FlowLink): string {
+    if (link.port && link.port !== 'then' && link.port !== 'if') {
+        return OUTCOME_LABEL[link.port];
+    }
+    return link.port === 'if' ? 'If' : flowLinkLabel(graph, link);
+}
+
 export function linkLabel(job: JobDefinition, link: FlowLink): string {
     if (link.kind === 'trigger' || !link.port) {
         return '';

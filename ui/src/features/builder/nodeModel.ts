@@ -290,7 +290,7 @@ export function canConnect(job: JobDefinition, from: string, port: PortId, to: s
 
     if (to.startsWith('action:')) {
         if (!HOOK_FOR_PORT[port]) {
-            return no('Only Succeeded, Failed, Finished, Started and Delayed lines can go to an action');
+            return no('Only Succeeds, Fails, Finishes either way, Starts and Is delayed lines can go to an action');
         }
         return { ok: true };
     }
@@ -305,7 +305,7 @@ export function canConnect(job: JobDefinition, from: string, port: PortId, to: s
         return no('The whole job can only lead to an action; connect it from a step instead');
     }
     if (port === 'start' || port === 'delayed') {
-        return no('Started and Delayed lines can only go to an action');
+        return no('Starts and Is delayed lines can only go to an action');
     }
     if (fromStep === toId || wouldCycle(edges, fromStep as string, toId)) {
         return no('That line would make a loop; steps cannot depend on themselves, even through other steps');

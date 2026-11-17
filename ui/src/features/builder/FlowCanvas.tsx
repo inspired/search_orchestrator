@@ -29,13 +29,13 @@ import { NodeGroup, Theme } from './GraphView';
 import { FlowGraph, FlowLink, JOB_KEY, PortId } from './nodeModel';
 import { maxRows, PreviewSummary } from './nodePreview';
 import useCompactPref from './useCompactPref';
-import { PORT_STYLE, hasHandle } from './nodeStyle';
+import { hasHandle } from './nodeStyle';
 import { FlowNodes, NodeOverlays, NodeStatus, nodeLook } from './FlowNodeView';
 import { GroupFocus, GroupFrame, drawnBox } from './GroupFrame';
 import { Group, MIN_GROUP, collapsedEnd, hiddenMembers, membersOf, validGroups } from './groups';
 import Legend from './Legend';
 import Minimap, { exceedsView } from './Minimap';
-import { flowLinkLabel, usedOutcomes } from './outcomes';
+import { flowLinkLabel, flowLinkWords, usedOutcomes } from './outcomes';
 import { FlowLines, LineState, LinkGeometry, LiveStyles, MARKER_TOKENS } from './FlowLines';
 import useFollowRun from './useFollowRun';
 import usePrefersReducedMotion from '../../hooks/usePrefersReducedMotion';
@@ -560,7 +560,7 @@ export default function FlowCanvas({
                                 data-link-key={l.key}
                                 role="button"
                                 tabIndex={0}
-                                aria-label={`Line from ${from.label}, ${PORT_STYLE[l.port as PortId].label}, to ${to.label}`}
+                                aria-label={`Line from ${from.label}, ${flowLinkWords(graph, l)}, to ${to.label}`}
                                 aria-pressed={isSelectedLink(l)}
                                 pointerEvents="none"
                             >
