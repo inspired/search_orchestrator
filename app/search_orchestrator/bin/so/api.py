@@ -956,7 +956,9 @@ def save_destination(ctx, body):
     old = next((d for d in dests if d.get("name") == name), {})
     body_ref = old.get("body_secret_ref") if preset == "pagerduty" else None
     try:
-        url = presets.destination_url(preset, body.get("url"))
+        stored = ctx.sys_gw.read_secret(old["url_secret_ref"]) if body_ref \
+            and old.get("preset") == "pagerduty" and body.get("url") in (None, "") else None
+        url = presets.destination_url(preset, body.get("url"), stored)
         if not isinstance(url, str):
             raise ValueError("destination needs an https url")
         check_webhook_url(url)

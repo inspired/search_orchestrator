@@ -156,6 +156,25 @@ describe('Settings', () => {
         await waitFor(() => expect(api.saveDestination).toHaveBeenCalledWith({ name: 'pd', url: '', preset: 'pagerduty' }));
     });
 
+    test('replacing a PagerDuty destination says an empty URL keeps the stored one', async () => {
+        const pd: Destination = { name: 'pd', preset: 'pagerduty', host: 'events.eu.pagerduty.com', has_headers: false, body_secret_set: true };
+        const api = fakeApi({ listDestinations: jest.fn(() => Promise.resolve([...DESTS, pd])) });
+        renderThemed(<SettingsPage api={api} />);
+        const row = (await screen.findByText('pd')).closest('tr') as HTMLElement;
+        fireEvent.click(within(row).getByRole('button', { name: /Replace/ }));
+        expect(screen.getByText('Optional. Empty keeps the stored URL.')).toBeInTheDocument();
+        expect(screen.queryByText(/Empty uses the PagerDuty Events API/)).toBeNull();
+    });
+
+    test('a new PagerDuty destination says an empty URL uses the default', async () => {
+        const api = fakeApi();
+        renderThemed(<SettingsPage api={api} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));
+        fireEvent.click(screen.getByRole('combobox', { name: 'Body format' }));
+        fireEvent.click(screen.getByRole('option', { name: 'PagerDuty' }));
+        expect(screen.getByText(/Empty uses the PagerDuty Events API/)).toBeInTheDocument();
+    });
+
     test('a ServiceNow URL must end in the incident table path', async () => {
         renderThemed(<SettingsPage api={fakeApi()} />);
         fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));

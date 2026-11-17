@@ -175,7 +175,9 @@ function DestinationEditor({ existing, taken, onSave, onClose, returnFocus }: Ed
                     help={
                         urlError ||
                         (pagerduty
-                            ? `Optional. Empty uses the PagerDuty Events API, ${PAGERDUTY_URL}.`
+                            ? existing && existing.preset === 'pagerduty'
+                                ? 'Optional. Empty keeps the stored URL.'
+                                : `Optional. Empty uses the PagerDuty Events API, ${PAGERDUTY_URL}.`
                             : existing
                               ? 'Required to save. Replaces the stored URL.'
                               : preset === 'servicenow'

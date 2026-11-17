@@ -166,11 +166,12 @@ def option_issues(preset, options):
     return issues
 
 
-def destination_url(preset, url):
-    """The URL to store for a destination of ``preset`` (PagerDuty fills an empty one).
-    Raises ValueError with the message to show when the URL doesn't fit the preset."""
+def destination_url(preset, url, stored=None):
+    """The URL to store for a destination of ``preset``. PagerDuty fills an empty one
+    with ``stored`` (the URL of the PagerDuty destination being replaced) or the
+    default. Raises ValueError with the message to show when the URL doesn't fit."""
     if preset == "pagerduty" and url in (None, ""):
-        return PAGERDUTY_URL
+        return stored or PAGERDUTY_URL
     if preset == "servicenow" and isinstance(url, str) \
             and not urlsplit(url).path.rstrip("/").endswith(SERVICENOW_PATH):
         raise ValueError(SERVICENOW_URL_MESSAGE)

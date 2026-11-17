@@ -1896,6 +1896,25 @@ def test_pagerduty_destination_defaults_url_and_stores_routing_key(w):
     assert w.gw.secrets == {}
 
 
+def test_replacing_a_pagerduty_destination_without_url_keeps_the_stored_url(w):
+    eu = "https://events.eu.pagerduty.com/v2/enqueue"
+    status, _ = _dest(w, {"name": "pd", "preset": "pagerduty", "url": eu, "routing_key": "RK"})
+    assert status == 201 and w.gw.read_secret("destination_pd_url") == eu
+    for url in (None, ""):
+        body = {"name": "pd", "preset": "pagerduty"}
+        if url is not None:
+            body["url"] = url
+        status, out = _dest(w, body)
+        assert status == 201, out
+        assert w.gw.read_secret("destination_pd_url") == eu
+        assert out["destination"]["host"] == "events.eu.pagerduty.com"
+    # A format switch to PagerDuty still fills the default.
+    _dest(w, {"name": "x", "preset": "generic", "url": "https://hooks.example.com/x"})
+    status, _ = _dest(w, {"name": "x", "preset": "pagerduty", "routing_key": "RK"})
+    assert status == 201
+    assert w.gw.read_secret("destination_x_url") == "https://events.pagerduty.com/v2/enqueue"
+
+
 @pytest.mark.parametrize("key", [None, "", "  ", 42])
 def test_pagerduty_destination_needs_routing_key(w, key):
     body = {"name": "pd", "preset": "pagerduty"}
