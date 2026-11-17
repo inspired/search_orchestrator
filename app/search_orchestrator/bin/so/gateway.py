@@ -139,7 +139,26 @@ def parse_job_status(body):
         ttl = 0
     return {"state": state, "result_count": count, "error": error,
             "finalized": _truthy(c.get("isFinalized")), "zombie": zombie, "ttl": ttl,
-            "truncated": _truncation(texts)}
+            "truncated": _truncation(texts), "perf": _perf(c)}
+
+
+_PERF_FIELDS = (("run_duration", "runDuration", float), ("scan_count", "scanCount", int),
+                ("event_count", "eventCount", int), ("result_count", "resultCount", int),
+                ("disk_usage", "diskUsage", int))
+
+
+def _perf(content):
+    """The job's runtime, scan, event and result counts and disk use; a missing or
+    unparsable number is left out, never zero."""
+    perf = {}
+    for key, field, kind in _PERF_FIELDS:
+        try:
+            value = kind(content[field])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if value == value and value not in (float("inf"), float("-inf")):
+            perf[key] = value
+    return perf
 
 
 def _truncation(texts):

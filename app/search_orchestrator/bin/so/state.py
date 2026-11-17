@@ -503,6 +503,7 @@ def reset_for_rerun(run, step_id, now, definition=None):
         if st is None or sid in reset or st.get("state") not in ("succeeded", "skipped", "failed"):
             fresh = copy.deepcopy(_FRESH_STEP)
             steps[sid] = dict(st or {}, **fresh)
+            steps[sid].pop("perf", None)  # the earlier run's search
             refreshed.add(sid)
     new["steps"] = steps
     # Conditions into a step that starts again are evaluated again.

@@ -479,6 +479,18 @@ def test_downstream():
     assert state.downstream(j, "a") == {"b", "c", "d"}
 
 
+def test_rerun_drops_perf_of_steps_that_start_again():
+    j = job(["a", "b"], [("a", "b")])
+    r, _ = ev(make_run(j), T0)
+    r, _ = run_step_to(r, "a", T0)
+    r, _ = run_step_to(r, "b", T0 + 10, ok=False)
+    r["steps"]["a"]["perf"] = {"run_duration": 1.5}
+    r["steps"]["b"]["perf"] = {"run_duration": 2.5}
+    n = state.reset_for_rerun(r, "b", T0 + 100)
+    assert n["steps"]["a"]["perf"] == {"run_duration": 1.5}
+    assert "perf" not in n["steps"]["b"]
+
+
 def test_rerun_resets_step_and_downstream_keeps_upstream():
     j = job(["a", "b", "c"], [("a", "b"), ("b", "c")])
     r, _ = ev(make_run(j), T0)

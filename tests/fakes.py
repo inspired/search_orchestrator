@@ -73,17 +73,19 @@ class FakeGateway:
     # Scripting.
 
     def script_job(self, name, states, result_count=0, first=None, error="scripted failure",
-                   truncated=None, rows=None, run_duration=None):
+                   truncated=None, rows=None, run_duration=None, perf=None):
         """Each dispatch of ``name`` makes a job whose status steps through ``states``
         ("running", "done", "failed", "missing", "finalized"); the last state sticks.
         "finalized" is a job stopped early outside the app (done with isFinalized).
         ``truncated``: the subsearch truncation message its status reports.
         Previews: ``preview_dispatch`` uses the script whose name is the sid, else the
         longest name the sid starts with (``"so_preview_"`` scripts every preview).
-        ``rows`` are its ``preview_results``, ``run_duration`` its ``preview_info``'s."""
+        ``rows`` are its ``preview_results``, ``run_duration`` its ``preview_info``'s.
+        ``perf``: the runtime and counts its status reports (none when not given)."""
         self._scripts[name] = {"states": list(states), "result_count": result_count,
                                "first": first, "error": error, "truncated": truncated,
-                               "rows": list(rows or []), "run_duration": run_duration}
+                               "rows": list(rows or []), "run_duration": run_duration,
+                               "perf": perf}
 
     def add_job(self, sid, state="done", result_count=1, first=None, owner=None):
         """A search job splunkd has under ``sid`` that no dispatch here made (a run's
@@ -137,10 +139,14 @@ class FakeGateway:
         finalized = state == "finalized"
         if finalized:
             state = "done"
-        return {"state": state, "result_count": job["result_count"] if state == "done" else 0,
-                "error": job["error"] if state == "failed" else None,
-                "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
-                "truncated": job.get("truncated")}
+        status = {"state": state,
+                  "result_count": job["result_count"] if state == "done" else 0,
+                  "error": job["error"] if state == "failed" else None,
+                  "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
+                  "truncated": job.get("truncated")}
+        if job.get("perf") and state != "running":
+            status["perf"] = dict(job["perf"])
+        return status
 
     def preview_dispatch(self, user, spl, earliest, latest, now_epoch, sid):
         script = self._scripts.get(sid)

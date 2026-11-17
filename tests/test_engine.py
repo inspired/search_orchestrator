@@ -1540,3 +1540,65 @@ def test_previous_step_dispatch_sends_no_time_range_override():
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("a")] == [("-1d", "now")]
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("p")] == [(None, None)]
     assert w.step(run_id, "p")["state"] == "succeeded"
+
+
+# --- search performance (1.23.0) -----------------------------------------------
+
+PERF = {"run_duration": 1.5, "scan_count": 1000, "event_count": 10, "result_count": 3,
+        "disk_usage": 2048}
+
+
+def _attempt_rows(w, run_id, step_id):
+    rows = w.gw.kv.get("so_step_runs", {}).values()
+    return [r for r in rows if r["run_id"] == run_id and r["step_id"] == step_id]
+
+
+def test_finished_step_records_perf():
+    w = World()
+    j = w.add_job(make_job(steps=["a"]),
+                  scripts={"a": {"states": ["done"], "result_count": 3, "perf": PERF}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "succeeded" and a["perf"] == PERF
+    assert _attempt_rows(w, run_id, "a")[-1]["perf"] == PERF
+    ev = w.audit.of("step_attempt", run_id=run_id, step_id="a")[-1]
+    assert ev["run_duration"] == 1.5 and ev["scan_count"] == 1000 and ev["disk_usage"] == 2048
+
+
+def test_failed_step_attempt_records_perf():
+    w = World()
+    j = w.add_job(make_job(steps=["a"]),
+                  scripts={"a": {"states": ["failed"], "perf": PERF}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    ev = w.audit.of("step_attempt", run_id=run_id, step_id="a", outcome="failed")[0]
+    assert ev["run_duration"] == 1.5 and ev["scan_count"] == 1000
+    assert _attempt_rows(w, run_id, "a")[0]["perf"] == PERF
+
+
+def test_step_without_perf_has_no_perf_key():
+    w = World()
+    j = w.add_job(make_job(steps=["a"]), scripts={"a": {"states": ["done"], "result_count": 1}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "succeeded" and "perf" not in a
+    assert "perf" not in _attempt_rows(w, run_id, "a")[-1]
+    ev = w.audit.of("step_attempt", run_id=run_id, step_id="a")[-1]
+    assert "run_duration" not in ev and "scan_count" not in ev
+
+
+def test_retry_attempt_does_not_keep_the_previous_attempts_perf():
+    w = World()
+    j = w.add_job(make_job(steps=[{"id": "a", "retries": 1}]),
+                  scripts={"a": {"states": ["failed"], "perf": PERF}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "retrying"
+    w.gw.script_job(j["steps"][0]["hidden_search"], ["running"])
+    w.tick(advance=30)
+    a = w.step(run_id, "a")
+    assert a["attempt"] == 2 and a["state"] in ("starting", "running") and "perf" not in a
+    second = [r for r in w.store.list_step_runs(run_id) if r["attempt"] == 2]
+    assert second and all("perf" not in r for r in second)

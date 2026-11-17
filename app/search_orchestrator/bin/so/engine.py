@@ -702,6 +702,7 @@ class Engine:
                     # A dispatch-error retry of the same attempt keeps its first intent_at,
                     # so history still finds a search that a timed-out dispatch started.
                     keep = st.get("intent_at") if st.get("dispatch_errors") else None
+                    st.pop("perf", None)  # the previous attempt's
                     self._set_step(run, sid, {"state": "starting", "intent_at": keep or now,
                                               "try_at": now, "sid": None, "started_at": None,
                                               "ended_at": None, "outcome": None}, pending, now)
@@ -892,13 +893,16 @@ class Engine:
         st = run["steps"][sid]
         attempt = st.get("attempt") or 1
         rerun = run.get("rerun_count") or 0
-        return {"_key": "%s:%s:%d:%d" % (_run_id(run), sid, rerun, attempt),
-                "run_id": _run_id(run), "job_id": run.get("job_id"), "step_id": sid,
-                "attempt": attempt, "rerun": rerun, "sid": st.get("sid"),
-                "intent_at": st.get("intent_at"), "started_at": st.get("started_at"),
-                "ended_at": st.get("ended_at"), "outcome": st.get("outcome"),
-                "error": st.get("error"), "result_count": st.get("result_count"),
-                "dispatch_errors": st.get("dispatch_errors") or 0}
+        row = {"_key": "%s:%s:%d:%d" % (_run_id(run), sid, rerun, attempt),
+               "run_id": _run_id(run), "job_id": run.get("job_id"), "step_id": sid,
+               "attempt": attempt, "rerun": rerun, "sid": st.get("sid"),
+               "intent_at": st.get("intent_at"), "started_at": st.get("started_at"),
+               "ended_at": st.get("ended_at"), "outcome": st.get("outcome"),
+               "error": st.get("error"), "result_count": st.get("result_count"),
+               "dispatch_errors": st.get("dispatch_errors") or 0}
+        if st.get("perf"):
+            row["perf"] = dict(st["perf"])
+        return row
 
     def _poll(self, run, sid, sdef, now, pending):
         st = run["steps"][sid]
@@ -941,11 +945,16 @@ class Engine:
                 error = ("search %s no longer exists: it expired, was deleted or was reaped "
                          "outside the orchestrator" % st["sid"])
             st.update(outcome="failed", error=error, ended_at=now, first=None)
+        if status.get("perf"):
+            st["perf"] = dict(status["perf"])
+        else:
+            st.pop("perf", None)
         pending.rows.append(self._row(run, sid))
         pending.events.append(self._event(run, "step_attempt", now, step_id=sid,
-                                          attempt=st.get("attempt"), sid=st["sid"],
-                                          outcome=st["outcome"], error=st.get("error"),
-                                          result_count=st.get("result_count")))
+                                          **dict(st.get("perf") or {}, attempt=st.get("attempt"),
+                                                 sid=st["sid"], outcome=st["outcome"],
+                                                 error=st.get("error"),
+                                                 result_count=st.get("result_count"))))
 
     def _adopt(self, run, sid, sdef, now, pending):
         """Adopt a job dispatched for this attempt whose search ID was never saved.

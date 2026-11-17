@@ -559,3 +559,22 @@ def test_preview_dispatch_adds_search_unless_the_spl_starts_with_a_pipe():
         == "search index=_internal | stats count"
     assert preview_dispatch_params("  | makeresults", None, None, 0, "x")["search"] == "  | makeresults"
     assert preview_dispatch_params("\nindex=a", None, None, 0, "x")["search"] == "search index=a"
+
+
+def _status_body(**content):
+    content.setdefault("dispatchState", "DONE")
+    content.setdefault("isDone", "1")
+    return json.dumps({"entry": [{"content": content}]})
+
+
+def test_status_parses_perf_numbers():
+    s = g.parse_job_status(_status_body(runDuration="1.5", scanCount="1000", eventCount="10",
+                                        resultCount="3", diskUsage="2048"))
+    assert s["perf"] == {"run_duration": 1.5, "scan_count": 1000, "event_count": 10,
+                         "result_count": 3, "disk_usage": 2048}
+
+
+def test_status_perf_leaves_out_unparsable_and_missing_numbers():
+    s = g.parse_job_status(_status_body(runDuration="1.5", scanCount="x", eventCount="10",
+                                        resultCount="3"))
+    assert s["perf"] == {"run_duration": 1.5, "event_count": 10, "result_count": 3}
