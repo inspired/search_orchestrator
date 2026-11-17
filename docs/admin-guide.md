@@ -114,7 +114,7 @@ The URL and headers are write-only. The page shows only whether each is set. To 
 Body formats:
 
 - **Microsoft Teams:** an Adaptive Card 1.4 message; use the URL of a Teams Workflows webhook.
-- **PagerDuty:** an Events API v2 event. **New URL** may stay empty; it then uses `https://events.pagerduty.com/v2/enqueue`. **Routing key** is required and write-only, like the URL: the page shows only whether one is stored, and an empty value keeps it. Take it from the service's Events API v2 integration.
+- **PagerDuty:** an Events API v2 event. **New URL** may stay empty: a new destination then uses `https://events.pagerduty.com/v2/enqueue`, and replacing a PagerDuty destination keeps its stored URL (for example the EU endpoint `https://events.eu.pagerduty.com/v2/enqueue`). **Routing key** is required and write-only, like the URL: the page shows only whether one is stored, and an empty value keeps it. Take it from the service's Events API v2 integration.
 - **ServiceNow:** a Table API incident. The URL must end in `/api/now/table/incident`; put the credentials in the headers (for example `Authorization`). Job builders set urgency, impact and assignment group (up to 100 characters) on each action.
 
 **Splunk Cloud may block outbound webhooks.** If deliveries fail with connection errors, ask Splunk support to allow the destination host, such as `events.pagerduty.com` for PagerDuty and your ServiceNow instance's host.

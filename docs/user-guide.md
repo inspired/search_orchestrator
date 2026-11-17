@@ -224,7 +224,7 @@ An **Approval** node (an octagon) makes a run wait for a person before going on.
 
 Its fields:
 
-- **Message:** shown to approvers on the run page, up to 500 characters; it takes tokens such as `$run.now$`.
+- **Message:** shown to approvers on the run page, up to 500 characters; it takes tokens such as `$run.now$`. An **Asks for approval** action includes it: Slack, Microsoft Teams, PagerDuty (as `approval_message` in the details) and ServiceNow show it, and so does the default email and webhook message.
 - **Who may approve:** roles. Members of those roles who also hold `orchestrator_approve` can decide; admins always can. Empty means anyone who may approve runs of the job.
 - **Wait at most:** 5 minutes to 7 days. Empty waits until the step gives up; the builder warns when it is longer than the step's **Give up after**.
 - **If nobody decides:** **Reject** (the default) or **Approve**, when **Wait at most** runs out.
@@ -236,7 +236,7 @@ Good to know:
 - The user who started the run may decide too, but only on a step with no **Who may approve** roles; the audit log records that as `as_starter`.
 - While a run is paused, a timeout never fires, but the time paused counts toward it. A decision made while the run is paused takes effect when it resumes.
 - A re-run from an approval step, or from a step before it, asks again.
-- Previews treat an approval step as approved. The step itself can't be previewed.
+- Previews treat an approval step as approved with no comment. The step itself can't be previewed, but **Test condition** works on a line from it, which it also takes as approved (with input from a run, it uses that run's decision).
 
 ### Steps
 
@@ -366,9 +366,11 @@ On the job Settings tab, the **Finish by** and **Finish within** fields set when
 - **Finish by**: a time of day such as `06:00`, in the job's time zone. It means the first 06:00 at or after the run's scheduled time.
 - **Finish within**: a time after the scheduled time (1 minute to 7 days).
 
+A **Finish by** that isn't a time like `06:00` is shown in red and the job can't be saved until you fix or clear it.
+
 With both, the earlier one counts. The deadline is wall-clock time, so pausing a run does not move it. A time that does not exist on a daylight-saving day becomes the first moment after the gap.
 
-**Only on-time scheduled runs and runs started by another job** (completion or start-job triggers) have a deadline. Manual, REST, alert, backfill and catch-up runs have none, because they are often scheduled in the past and would be late at once. A deadline is fixed when the run is created and a re-run keeps it. A re-run of a run that finished before its deadline, started after the deadline, is not late.
+**Only on-time scheduled runs, and runs started by another job's run that had a deadline itself** (completion or start-job triggers, along a chain of any length), have a deadline. Manual, REST, alert, backfill and catch-up runs have none, because they are often scheduled in the past and would be late at once, and neither do the runs they start. A deadline is fixed when the run is created and a re-run keeps it. A re-run of a run that finished before its deadline, started after the deadline, is not late.
 
 When a run that has not finished passes its deadline, it is marked late once. The **Whole job** node's **Is late** outcome fires then: drag a line from it to an action (**On late** hook). An action's **When** field has the same choice. If a job has no late action, your admin's fallback notification is used. The run's page shows "This run missed its deadline (...)" with how late it finished, or that it is still running, and the audit index gets `run_late`. Late runs do not change the run's outcome. **Run health** lists them under **Late runs**.
 
@@ -403,7 +405,7 @@ To bring a job in from text, choose **Import job** on the Jobs page, paste the J
 
 ### History
 
-The **History** tab, the last tab in the builder after Source, lists every saved version of the job, newest first. Each save that changes the job adds a version, with who saved it, when, and up to eight short lines about what changed ("Changed the search of daily", "Added a line from a to b"). A job saved before 1.19.0 starts with "Saved before version history started". The newest 50 versions are kept.
+The **History** tab, the last tab in the builder after Source, lists every saved version of the job, newest first. Each save that changes the job adds a version, with who saved it, when, and up to eight short lines about what changed ("Changed the search of daily", "Added a line from a to b"). A job saved before 1.19.0 starts with "Saved before version history started" the first time a save changes it; saving it unchanged adds nothing. The newest 50 versions are kept.
 
 - **Compare with current** shows what changed between that version and the job as it is now. To compare two versions, select both and choose **Compare selected**.
 - **Restore** saves that version as a new version, after you confirm in **Restore version N?**. Nothing is deleted, and the job's history shows "Restored from version N". It is hidden on the newest version. You need the right to edit the job. Unsaved changes in the builder are lost, and the dialog says so. If you are an admin and not the owner, you become the owner, as with any save.
@@ -524,9 +526,9 @@ A backfill runs a job once for each time in a past range, oldest first, for exam
 - **Runs in the queue at once** (1 to 5): how many of the backfill's runs wait in the job's queue together. Runs of one job never overlap, so more only keeps more of them waiting.
 - Parameter values the job declares are filled in the same way for every run.
 
-The dialog counts the runs before you start. A backfill can hold up to 100 runs over at most 400 days; narrow the range or lengthen the step if it is too big. Each run's scheduled time is its time in the range, so steps summarise that period's window. Backfill runs have no deadline.
+The dialog counts the runs before you start. A backfill can hold up to 100 runs over at most 400 days; narrow the range or lengthen the step if it is too big. Each run's scheduled time is its time in the range, so steps summarise that period's window. Backfill runs have no deadline, and neither do the runs they start through completion triggers or start-job actions.
 
-On the **Runs** page, a backfill shows as a line with its progress ("Backfill of 30 runs: 12 finished, 1 running, 17 to go.") and **Cancel backfill**. Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm. Starting a backfill needs the right to run the job. Cancelling needs you to be its creator, to be allowed to edit the job, or to be an admin. Both are audited as `backfill_created`, `backfill_cancelled` and `backfill_done`.
+On the **Runs** page, a backfill shows as a line with its progress ("Backfill of 30 runs: 12 finished, 1 running, 17 to go.") and **Cancel backfill**. Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm. Starting a backfill needs the right to run the job. Cancelling needs you to be its creator, to be allowed to edit the job, or to be an admin. Both are audited as `backfill_created`, `backfill_cancelled` and `backfill_done`. Deleting the job cancels its running backfill (audited `backfill_cancelled` with `reason` `job_deleted`), so a new job with the same ID never picks it up.
 
 ## Re-run from a step
 
@@ -566,7 +568,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. Snippets add `snippet_saved` (with `created` true for a new snippet, false for a rename) and `snippet_deleted`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`), `job_versions_pruned` and `job_version_failed` (the job was saved but its version could not be stored); **Test condition** adds `condition_tested`. Snippets add `snippet_saved` (with `created` true for a new snippet, false for a rename) and `snippet_deleted`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 
