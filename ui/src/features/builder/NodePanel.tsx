@@ -61,7 +61,7 @@ export interface NodePanelProps {
     /** For testing a condition: the job as previewed, its preview context and input. */
     previewJob?: JobDefinition;
     previewCtx?: PreviewContext;
-    inputFor?: (stepId: string) => PreviewInput;
+    inputFor?: (stepId: string, withSelf?: boolean) => PreviewInput;
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview?: (stepId: string) => void;
     /** "Input from" is live: steps upstream run first, so their writing commands count too. */

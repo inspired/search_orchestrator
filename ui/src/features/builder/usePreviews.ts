@@ -163,12 +163,12 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         return outcome === 'superseded' ? 'cancelled' : outcome;
     };
 
-    const input = (jobSnap: JobDefinition, ctxSnap: PreviewContext, id: string): { request: PreviewInput; info: PreviewInputInfo } => {
+    const input = (jobSnap: JobDefinition, ctxSnap: PreviewContext, id: string, withSelf = false): { request: PreviewInput; info: PreviewInputInfo } => {
         if (ctxSnap.source !== 'live') {
             return { request: { mode: 'run', run_id: ctxSnap.source }, info: { mode: 'run', scheduledTime: ctxSnap.scheduledTime } };
         }
         const sent: Record<string, { sid?: string; skipped?: SkipKind }> = {};
-        upstreamOf(jobSnap, id).forEach((u) => {
+        (withSelf ? [...upstreamOf(jobSnap, id), id] : upstreamOf(jobSnap, id)).forEach((u) => {
             const p = store.current[u];
             if (p && p.sid && (p.state === 'done' || ranAndFailed(p))) {
                 sent[u] = { sid: p.sid };
@@ -471,7 +471,9 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
     }, [job, ctx, previews]);
 
     /** The input a preview of the step would send now (a condition test reads the same). */
-    const inputFor = (stepId: string): PreviewInput => input(latest.current.job, latest.current.ctx, stepId).request;
+    /** The input a preview of `stepId` sends; `withSelf` adds the step's own preview too, as a
+     * condition line out of it needs (Test condition reads that step's results). */
+    const inputFor = (stepId: string, withSelf = false): PreviewInput => input(latest.current.job, latest.current.ctx, stepId, withSelf).request;
 
     return { previews: views, preview, cancel, inputFor };
 }

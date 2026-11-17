@@ -32,7 +32,7 @@ export default function useConditionTest(
     from: string,
     to: string,
     ctx: PreviewContext,
-    inputFor: (stepId: string) => PreviewInput
+    inputFor: (stepId: string, withSelf?: boolean) => PreviewInput
 ): { view: ConditionTestView; test: () => void; cancel: () => void } {
     const [answer, setAnswer] = useState<Answer>({ state: 'idle' });
     const [tested, setTested] = useState('');
@@ -40,7 +40,7 @@ export default function useConditionTest(
     const sid = useRef<string | undefined>(undefined);
     const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const edge = (job.edges || []).find((e) => e.from === from && e.to === to);
-    const key = JSON.stringify([edge && edge.expression, edge && edge.expression_kind, edge && edge.earliest, edge && edge.latest, ctx.scheduledTime, ctx.params, inputFor(from)]);
+    const key = JSON.stringify([edge && edge.expression, edge && edge.expression_kind, edge && edge.earliest, edge && edge.latest, ctx.scheduledTime, ctx.params, inputFor(from, true)]);
 
     const stop = useCallback(() => {
         token.current += 1;
@@ -90,7 +90,7 @@ export default function useConditionTest(
                 }
             );
         };
-        testCondition({ job, from, to, scheduled_time: ctx.scheduledTime, params: ctx.params, input: inputFor(from) }).then(
+        testCondition({ job, from, to, scheduled_time: ctx.scheduledTime, params: ctx.params, input: inputFor(from, true) }).then(
             (reply) => {
                 if (!live()) {
                     if (reply.status === 'started') {

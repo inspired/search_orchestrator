@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.25.1 (2026-11-17)
+
+- **Fixed:** **Test condition** always said "Preview <step> first" even when that step had a current preview: it sent the previews of the steps before the line's source step, but not the source step's own. It now sends both.
+- **Fixed:** the SPL expression help used the step's name in its token example (`$Merge both.first.count$`); it now uses the step id (`$merged.first.count$`).
+
 ## 1.25.0 (2026-11-17)
 
 - **Builder toolbar:** grouped into **Add node**, an **Arrange** menu (**Tidy up**, **Group selection**) and a **View** menu of toggles (**Node types**, **Grid**, **Line labels**, **Compact nodes**, **Side panel**), with the zoom buttons, the zoom level, **Frame all**, **Reset view** and **Full screen** on the right.

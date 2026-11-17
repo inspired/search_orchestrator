@@ -64,6 +64,20 @@ describe('usePreviews', () => {
         expect(fromRun.current.inputFor('b')).toEqual({ mode: 'run', run_id: 'run-1' });
     });
 
+    test("inputFor('b', true) also sends b's own preview, for a condition line out of b", async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        await act(async () => {
+            result.current.preview('b');
+            await settle();
+        });
+        const own = result.current.inputFor('b', true) as { mode: 'live'; previews: Record<string, { sid?: string }> };
+        expect(Object.keys(own.previews).sort()).toEqual(['a', 'b']);
+        expect(own.previews.b.sid).toMatch(/^sid-b-/);
+        const without = result.current.inputFor('b') as { mode: 'live'; previews: Record<string, unknown> };
+        expect(Object.keys(without.previews)).toEqual(['a']);
+    });
+
     const written: JobDefinition = {
         ...job,
         steps: [

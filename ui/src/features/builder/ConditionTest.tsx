@@ -17,7 +17,7 @@ export interface ConditionTestProps {
     from: string;
     to: string;
     ctx: PreviewContext;
-    inputFor: (stepId: string) => PreviewInput;
+    inputFor: (stepId: string, withSelf?: boolean) => PreviewInput;
     /** Previews a step (absent when the job can't be edited). */
     preview?: (stepId: string) => void;
 }

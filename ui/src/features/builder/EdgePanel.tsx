@@ -32,13 +32,13 @@ export interface EdgePanelProps {
     scheduledTime?: number;
     resolveTimeRange?: BuilderApi['resolveTimeRange'];
     /** Enables Test condition: the job as previewed, the preview context and the input of a step. */
-    conditionTest?: { job: JobDefinition; ctx: PreviewContext; inputFor: (stepId: string) => PreviewInput; preview?: (stepId: string) => void };
+    conditionTest?: { job: JobDefinition; ctx: PreviewContext; inputFor: (stepId: string, withSelf?: boolean) => PreviewInput; preview?: (stepId: string) => void };
 }
 
-const HELP: Record<ConditionKind, (from: string) => string> = {
+const HELP: Record<ConditionKind, (from: string, id: string) => string> = {
     simple: (from) => `Checked when ${from} finishes. Compare tokens with ==, !=, >, <, and, or, not.`,
-    eval: (from) =>
-        `Checked when ${from} finishes: true when | makeresults | where <this> returns a row. Any eval function works, such as now(), relative_time() or match(); now() is the run's scheduled time, $run.now$ the time it is checked. Result counts and times compare as numbers; wrap first-row and parameter values in tonumber() to compare them as numbers, as in tonumber($${from}.first.count$) > 5.`,
+    eval: (from, id) =>
+        `Checked when ${from} finishes: true when | makeresults | where <this> returns a row. Any eval function works, such as now(), relative_time() or match(); now() is the run's scheduled time, $run.now$ the time it is checked. Result counts and times compare as numbers; wrap first-row and parameter values in tonumber() to compare them as numbers, as in tonumber($${id}.first.count$) > 5.`,
     search: (from) =>
         `Checked when ${from} finishes: true when the search returns at least one row (it stops at the first). It runs as the job owner and can't write data. Tokens are quoted strings; use tonumber() to compare them as numbers.`,
 };
@@ -95,7 +95,7 @@ export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, 
                             ))}
                         </Select>
                     </ControlGroup>
-                    <ControlGroup label={FIELD_LABEL[kind]} labelFor="edge-expression" labelPosition="top" help={HELP[kind](name(from))}>
+                    <ControlGroup label={FIELD_LABEL[kind]} labelFor="edge-expression" labelPosition="top" help={HELP[kind](name(from), from)}>
                         <TokenInput
                             key={kind}
                             inputId="edge-expression"
