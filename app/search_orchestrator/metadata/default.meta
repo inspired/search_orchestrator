@@ -33,6 +33,9 @@ access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 [collections/so_selftest]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 
+[collections/so_job_versions]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
 [savedsearches/_so_fallback_email]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 export = none

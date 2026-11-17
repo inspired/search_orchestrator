@@ -47,7 +47,7 @@ import uuid
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
-from . import authz, hidden, model, preview, scheduler, selftest, tokens
+from . import authz, hidden, history, model, preview, scheduler, selftest, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -450,7 +450,16 @@ def validate_job(ctx, body):
     return 200, out
 
 
-def _save(ctx, job, previous):
+def _record_version(ctx, job, previous, restored_from=None):
+    version, pruned = history.record(ctx.sys_gw, job, ctx.user, ctx.now, previous, restored_from)
+    if version:
+        ctx.emit({"type": "job_version_saved", "job_id": job["id"], "version": version["version"],
+                  "summary": version["summary"]})
+    if pruned:
+        ctx.emit({"type": "job_versions_pruned", "job_id": job["id"], "count": pruned})
+
+
+def _save(ctx, job, previous, restored_from=None):
     issues, planned, searches = _check(ctx, job)
     if _errors(issues):
         raise ApiError(400, "job_invalid", "the job has errors and was not saved", issues)
@@ -477,6 +486,7 @@ def _save(ctx, job, previous):
     job["created_by"] = (previous or {}).get("created_by", ctx.user)
     job.update(updated_at=ctx.now, updated_by=ctx.user)
     ctx.store.save_job(job)
+    _record_version(ctx, job, previous, restored_from)
     _collect_garbage(ctx, job)
     return job, issues
 
@@ -528,13 +538,13 @@ def create_job(ctx, body):
     return 201, out
 
 
-def update_job(ctx, body, job_id):
+def update_job(ctx, body, job_id, restored_from=None):
     previous = _visible_job(ctx, job_id)
     if not ctx.allowed(authz.can_edit, previous):
         raise ctx.deny("edit_job", job_id=job_id)
     old_owner = previous.get("owner")
     change = _owner_change(ctx, previous)
-    job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous)
+    job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous, restored_from)
     ctx.emit({"type": "job_saved", "job_id": job_id, "created": False, "owner": job["owner"],
               "enabled": job.get("enabled")})
     if old_owner != ctx.user:
@@ -554,8 +564,10 @@ def set_enabled(ctx, body, job_id):
     enabled = body.get("enabled")
     if not isinstance(enabled, bool):
         raise ApiError(400, "bad_request", "enabled must be true or false")
+    before = dict(job)
     job.update(enabled=enabled, updated_at=ctx.now, updated_by=ctx.user)
     ctx.store.save_job(job)
+    _record_version(ctx, job, before)
     ctx.emit({"type": "job_enabled", "job_id": job_id, "enabled": enabled,
               "owner": job.get("owner")})
     return 200, {"job": _public_job(ctx, job)}
@@ -572,6 +584,7 @@ def delete_job(ctx, body, job_id):
     for entry in job.get("hidden_searches") or []:
         ctx.user_gw.delete_saved_search(entry["owner"], entry["name"])
     ctx.store.delete_job(job_id)
+    history.delete_all(ctx.sys_gw, job_id)
     ctx.emit({"type": "job_deleted", "job_id": job_id, "owner": job.get("owner")})
     return 200, {"deleted": job_id}
 
