@@ -17,10 +17,10 @@ def load(path):
         return json.load(f)
 
 
-def test_ten_examples():
-    assert len(EXAMPLES) == 10
+def test_eleven_examples():
+    assert len(EXAMPLES) == 11
     ids = [load(p)["id"] for p in EXAMPLES]
-    assert len(set(ids)) == 10
+    assert len(set(ids)) == 11
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=os.path.basename)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.1 (2026-11-17)
+
+- **Examples:** an eleventh example, **Platform health pipeline (everything)** (`example_platform_health`), that uses nearly every feature in one job: parallel checks, parameters, all three condition kinds, an approval gate, a deadline, Run when, a lookup, retries, Delayed after, event and start-job actions and groups.
+
 ## 1.23.0 (2026-11-17)
 
 - **Snippets:** **Save as snippet** in the right-click menu of a node or selection (`Menu` key or `Shift+F10`) and in the selection panel saves nodes under a name (up to 80 characters, unique ignoring case) and a description (up to 500). Everyone who can build jobs can see and insert a snippet, including its searches; secrets stay in destinations. Snippets appear in a **Snippets** section of the quick-add box (not from a + handle), and inserting one is a single undo step. **Snippets…** in the builder toolbar offers **Rename** and **Delete** for the owner or an admin. A snippet holds at most 100 steps and 200 KB. New KV Store collection `so_snippets`; routes `GET/POST snippets` and `GET/PUT/DELETE snippets/<id>` (PUT renames only); audit events `snippet_saved` and `snippet_deleted`.

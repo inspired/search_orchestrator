@@ -12,7 +12,7 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 ## Example jobs
 
-**Browse examples** on the Jobs page (also offered when there are no jobs) lists ten ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`). **Open in builder** opens one as a new, unsaved job to look at and save. **Add all examples** saves every example that isn't a job yet, with ids starting `example_`; existing ones are skipped and errors are listed. Every example is scheduled but turned off: turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
+**Browse examples** on the Jobs page (also offered when there are no jobs) lists eleven ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`). **Open in builder** opens one as a new, unsaved job to look at and save. **Add all examples** saves every example that isn't a job yet, with ids starting `example_`; existing ones are skipped and errors are listed. Every example is scheduled but turned off: turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
 
 1. **Hourly splunkd errors** (simple): one search step counting splunkd errors each hour.
 2. **Top sourcetypes to a lookup** (simple): yesterday's top 20 sourcetypes written to `so_example_top_sourcetypes.csv` by a Lookup node.
@@ -24,6 +24,7 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 8. **Retries, recovery and clean-up** (advanced): retries, a Fails line to a recovery step, a Finishes either way summary and a job failure email (swap it for a webhook once your admin adds a destination).
 9. **A slow step and a delay alert** (advanced): a deliberately slow step that is delayed after 30 seconds, emails once and has a 10-minute max runtime; run it to watch the run graph live.
 10. **Chained jobs** (advanced): starts after the rollup example succeeds, starts the hourly errors example when it succeeds, and uses groups to organise the canvas.
+11. **Platform health pipeline (everything)** (advanced): the showcase. Four checks run in parallel (splunkd errors, skipped searches, license usage, search activity), merge into a health score appended to `so_example_platform_health.csv`, with a Monday weekly trend (Run when). It uses all three conditions (simple against the `error_threshold` parameter, Search returns results, SPL expression), an approval gate for admins (one-hour timeout, rejects) that writes an event to `index=main` when approved, a Finishes either way summary, retries and Delayed after on a step, a deadline (07:30 or 90 minutes), late, failure, complete and approval emails, and starts the hourly errors example when it succeeds.
 
 ## Build a job
 

@@ -32,12 +32,12 @@ function open(props: Partial<React.ComponentProps<typeof ExamplesDialog>> = {}) 
 }
 
 describe('example jobs', () => {
-    test('there are ten, from simple to advanced, each a complete job that is turned off', () => {
-        expect(EXAMPLE_JOBS).toHaveLength(10);
+    test('there are eleven, from simple to advanced, each a complete job that is turned off', () => {
+        expect(EXAMPLE_JOBS).toHaveLength(11);
         const levels = EXAMPLE_JOBS.map((e) => e.level);
         expect(levels.slice(0, 3)).toEqual(['Simple', 'Simple', 'Simple']);
         expect(levels.slice(3, 7)).toEqual(Array(4).fill('Intermediate'));
-        expect(levels.slice(7)).toEqual(['Advanced', 'Advanced', 'Advanced']);
+        expect(levels.slice(7)).toEqual(['Advanced', 'Advanced', 'Advanced', 'Advanced']);
         EXAMPLE_JOBS.forEach((e) => {
             expect(e.job.id).toMatch(/^example_[a-z0-9_]+$/);
             expect(e.job.enabled).toBe(false);
@@ -49,7 +49,7 @@ describe('example jobs', () => {
             const nodes = (e.job.layout && e.job.layout.nodes) || {};
             buildGraph(e.job).nodes.forEach((n) => expect(nodes[n.key]).toBeDefined());
         });
-        expect(new Set(EXAMPLE_JOBS.map((e) => e.job.id)).size).toBe(10);
+        expect(new Set(EXAMPLE_JOBS.map((e) => e.job.id)).size).toBe(11);
     });
 
     test('addExamples creates the missing ones turned off, skips existing ids and lists errors', async () => {
@@ -63,19 +63,19 @@ describe('example jobs', () => {
         const out = await addExamples(['example_hourly_errors'], createJob);
         const created = createJob.mock.calls.map(([def]) => def.id);
         expect(created).not.toContain('example_hourly_errors');
-        expect(created).toHaveLength(9);
+        expect(created).toHaveLength(10);
         createJob.mock.calls.forEach(([def]) => expect(def.enabled).toBe(false));
-        expect(out.added).toHaveLength(7);
+        expect(out.added).toHaveLength(8);
         expect(out.skipped.map((e) => e.job.id)).toEqual(['example_hourly_errors', 'example_parallel']);
         expect(out.failed).toEqual([{ example: expect.objectContaining({ title: expect.any(String) }), message: 'schedule: bad' }]);
     });
 });
 
 describe('ExamplesDialog', () => {
-    test('lists the ten with level, description and features', () => {
+    test('lists the eleven with level, description and features', () => {
         open();
         const items = screen.getAllByRole('listitem');
-        expect(items).toHaveLength(10);
+        expect(items).toHaveLength(11);
         const first = within(items[0]);
         expect(first.getByText(EXAMPLE_JOBS[0].title)).toBeInTheDocument();
         expect(first.getByText('Simple')).toBeInTheDocument();
@@ -100,9 +100,9 @@ describe('ExamplesDialog', () => {
         const { createJob, onAdded } = open({ existingIds: existing });
         fireEvent.click(screen.getByRole('button', { name: 'Add all examples' }));
         expect(
-            await screen.findByText("Added 8 examples. They're turned off; turn one on from its Settings when you're ready.")
+            await screen.findByText("Added 9 examples. They're turned off; turn one on from its Settings when you're ready.")
         ).toBeInTheDocument();
-        expect(createJob).toHaveBeenCalledTimes(8);
+        expect(createJob).toHaveBeenCalledTimes(9);
         createJob.mock.calls.forEach(([def]) => {
             expect(existing).not.toContain(def.id);
             expect(def.enabled).toBe(false);
@@ -116,7 +116,7 @@ describe('ExamplesDialog', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Add all examples' }));
         const title = EXAMPLE_JOBS.find((e) => e.job.id === 'example_condition')!.title;
         expect(await screen.findByText(`${title}: Network down`)).toBeInTheDocument();
-        expect(screen.getByText(/Added 9 examples/)).toBeInTheDocument();
+        expect(screen.getByText(/Added 10 examples/)).toBeInTheDocument();
     });
 
     test('without build access there is no Add all examples', () => {

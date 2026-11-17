@@ -14,6 +14,7 @@ import parameters from './07_parameters.json';
 import failurePath from './08_failure_path.json';
 import slowStep from './09_slow_step.json';
 import chaining from './10_chaining.json';
+import platformHealth from './11_platform_health.json';
 
 export type ExampleLevel = 'Simple' | 'Intermediate' | 'Advanced';
 
@@ -98,6 +99,13 @@ export const EXAMPLE_JOBS: ExampleJob[] = [
         level: 'Advanced',
         features: ['After another job', 'Start another job', '| rest', 'Groups'],
         job: def(chaining),
+    },
+    {
+        title: 'Platform health pipeline (everything)',
+        summary: 'Four parallel checks, a health score with history, three kinds of condition, an approval gate and a deadline.',
+        level: 'Advanced',
+        features: ['Parallel steps', 'Parameters', 'Simple, SPL and search conditions', 'Approval', 'Deadline', 'Run when', 'Lookup', 'Retries', 'Delayed after', 'Event action', 'Start another job', 'Groups'],
+        job: def(platformHealth),
     },
 ];
 
