@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.0 (2026-11-17)
+
+SPL colours in the search field, and `|` on a new line.
+
+- The **Search** field of a step now colours its SPL: commands and pipes, keywords such as `by` and `as`, functions, fields, strings, `$tokens$`, macros, comments, numbers and operators. Colours follow the light and dark theme. The generated search of Summary index and Lookup steps is coloured the same way.
+- Typing `|` now starts a new line (`| ` at the start of it), so a pipeline reads one command per line. It is left alone inside a quoted string or a ```` ``` ```` comment, for `||`, and on an empty line. Ctrl+Z (Cmd+Z) undoes it in one step. Turn it off with **Put each | on a new line** under the field; the choice is remembered in the browser.
+
 ## 1.14.0 (2026-11-17)
 
 Job source: copy, paste and keep job definitions as text.
