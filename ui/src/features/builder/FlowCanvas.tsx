@@ -203,7 +203,7 @@ export default function FlowCanvas({
     const canMove = !readOnly && !!onMove;
     const groups = useMemo(() => validGroups(groupsProp), [groupsProp]);
     // Nodes in a collapsed group are hidden: not drawn, not focusable, not hit by drops.
-    const hidden = useMemo(() => hiddenMembers(groups, graph, positions, compact, readOnly), [groups, graph, positions, compact, readOnly]);
+    const hidden = useMemo(() => hiddenMembers(groups, graph, positions, readOnly), [groups, graph, positions, readOnly]);
     const hide = Object.keys(hidden).length > 0;
     const visible = useMemo<FlowGraph>(() => (hide ? { nodes: graph.nodes.filter((n) => !hidden[n.key]), links: graph.links.filter((l) => !hidden[l.from] && !hidden[l.to]) } : graph), [graph, hidden, hide]);
     const g = useCanvasGestures({
@@ -229,7 +229,7 @@ export default function FlowCanvas({
     useFollowRun(svgRef, follow, running, byKey, positions, view, setPan, compact, gesture !== null);
     const mostRows = useMemo(() => maxRows(previews, graph.nodes.flatMap((n) => (n.stepId ? [n.stepId] : []))), [previews, graph]);
     const look = nodeLook({ issues, status, previews, mostRows, theme });
-    const groupView = groups.map((grp) => ({ grp, live: g.groupShown(grp), collapsed: !readOnly && !!grp.collapsed, members: membersOf(grp, graph, positions, compact).length }));
+    const groupView = groups.map((grp) => ({ grp, live: g.groupShown(grp), collapsed: !readOnly && !!grp.collapsed, members: membersOf(grp, graph, positions).length }));
 
     // Track the visible canvas size for the minimap: after every render, and when the window resizes.
     const measure = () => {
@@ -387,7 +387,7 @@ export default function FlowCanvas({
                 onGroupResize(theGroup.id, { w: Math.max(MIN_GROUP.w, theGroup.w + step.x), h: Math.max(MIN_GROUP.h, theGroup.h + step.y) });
             } else if (step && onGroupMove) {
                 ev.preventDefault();
-                onGroupMove(theGroup.id, step.x, step.y, membersOf(theGroup, graph, positions, compact));
+                onGroupMove(theGroup.id, step.x, step.y, membersOf(theGroup, graph, positions));
             }
             return;
         }

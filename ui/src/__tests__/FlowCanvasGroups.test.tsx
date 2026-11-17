@@ -182,6 +182,13 @@ describe('FlowCanvas groups', () => {
         expect(document.querySelector('[data-group-id]')).toBeNull();
     });
 
+    test('compact: membership uses full node sizes, so a collapsed group keeps the same members either way', () => {
+        // Fits a compact 140 × 32 step at 100,100 but not the full 200 × 76 one.
+        setup({ compact: true, groups: [group({ x: 90, y: 90, w: 160, h: 50, collapsed: true })] });
+        expect(screen.getByTestId('node-step:a')).toBeInTheDocument();
+        expect(groupButton()).toHaveAttribute('aria-label', 'Group Daily, collapsed, 0 nodes');
+    });
+
     test('a group with no members left draws an empty frame', () => {
         setup({ groups: [group({ x: 2000 })] });
         expect(groupButton()).toHaveAttribute('aria-label', 'Group Daily, 0 nodes');

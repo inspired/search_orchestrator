@@ -4,6 +4,7 @@
 import type { Action, Edge, JobDefinition } from '../../api/types';
 import { layoutFlow, freeSpotRightOf } from './flowLayout';
 import type { Pos } from './graphLogic';
+import { validGroups } from './groups';
 import { EDGE_CONDITION_FOR_PORT, actionKey, buildGraph, canConnect, condKey, outputPorts, stepKey, triggerKey } from './nodeModel';
 import type { ActionScope, FlowGraph, NodeKind } from './nodeModel';
 import type { Outcome } from './outcomes';
@@ -12,16 +13,23 @@ import { canSplice, splicedEdges } from './splice';
 // Saved positions (job.layout.nodes). Keys follow nodeModel; every edit keeps them consistent.
 
 /** The job with `nodes` as its layout; an empty map removes `nodes`, and `layout` with it unless
- * the layout holds groups (the server rejects null). */
+ * the layout holds groups (the server rejects null). Broken groups from a hand-edited layout are
+ * dropped here, so a save is never refused for something the canvas does not draw. */
 export function withNodes(job: JobDefinition, nodes: Record<string, Pos>): JobDefinition {
     const out = { ...job };
-    if (Object.keys(nodes).length) {
-        out.layout = { ...out.layout, nodes };
-        return out;
-    }
     const rest = { ...out.layout };
     delete rest.nodes;
     if (rest.groups !== undefined) {
+        const groups = validGroups(rest.groups);
+        if (groups.length) {
+            rest.groups = groups;
+        } else {
+            delete rest.groups;
+        }
+    }
+    if (Object.keys(nodes).length) {
+        out.layout = { ...rest, nodes };
+    } else if (rest.groups !== undefined) {
         out.layout = rest;
     } else {
         delete out.layout;

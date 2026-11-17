@@ -3,6 +3,7 @@ import { toDefinition } from '../api/client';
 import { buildGraph } from '../features/builder/nodeModel';
 import type { Positions } from '../features/builder/graphLogic';
 import { tidyJob, withNodes } from '../features/builder/flowEdits';
+import { layoutFlow } from '../features/builder/flowLayout';
 import { GROUP_COLORS, Group, collapsedEnd, groupAround, hiddenMembers, membersOf, nextGroupId, readGroups } from '../features/builder/groups';
 import { initialState, reducer } from '../features/builder/reducer';
 
@@ -70,7 +71,7 @@ describe('groups: pure helpers', () => {
     test('hiddenMembers: members of collapsed groups only, unless every group is drawn expanded', () => {
         const groups = [group({ collapsed: true }), group({ id: 'g2', x: 650, w: 300 })];
         expect(hiddenMembers(groups, graph, pos)).toEqual({ 'step:a': 'g1', 'step:b': 'g1' });
-        expect(hiddenMembers(groups, graph, pos, false, true)).toEqual({});
+        expect(hiddenMembers(groups, graph, pos, true)).toEqual({});
     });
 
     test('collapsedEnd: lines leave the block on its right and enter on its left, at the middle', () => {
@@ -184,5 +185,37 @@ describe('groups: reducer', () => {
         s = reducer(s, { type: 'moveAction', scope: 'job', index: 0, toScope: 'a', hook: 'on_success' });
         s = reducer(s, { type: 'moveNodes', positions: { 'step:a': { x: 1, y: 2 } } });
         expect(s.job.layout).toEqual({ groups: [group()], nodes: { 'step:a': { x: 1, y: 2 } } });
+    });
+});
+
+describe('groups: final review fixes', () => {
+    test('making a group saves the shown positions, so adding a node elsewhere keeps its members', () => {
+        const shown = layoutFlow(graph, undefined);
+        const frame = groupAround(['step:a', 'step:b'], shown, graph);
+        let s = reducer(initialState(job), { type: 'addGroup', group: group(frame), shown });
+        expect(s.job.layout!.nodes).toEqual(shown);
+        expect(s.past.length).toBe(1);
+        s = reducer(s, { type: 'addNode', kind: 'search', from: { key: 'step:c', port: 'success' } });
+        const g2 = buildGraph(s.job);
+        expect(membersOf(s.job.layout!.groups![0], g2, layoutFlow(g2, s.job.layout!.nodes))).toEqual(['step:a', 'step:b']);
+        s = reducer(reducer(s, { type: 'undo' }), { type: 'undo' });
+        expect('layout' in s.job).toBe(false);
+    });
+
+    test('membership always uses full node sizes, whatever the compact setting', () => {
+        // A 200 × 76 search step at 100,100: a frame that only fits the 140 × 32 compact box.
+        const tight = group({ x: 90, y: 90, w: 160, h: 50 });
+        expect(membersOf(tight, graph, pos)).toEqual([]);
+        expect(hiddenMembers([{ ...tight, collapsed: true }], graph, pos)).toEqual({});
+        expect(groupAround(['step:a'], pos, graph)).toEqual({ x: 76, y: 48, w: 248, h: 76 + 48 + 28 });
+    });
+
+    test('a broken group in a hand-edited layout is dropped on the first layout write', () => {
+        const bad = { id: 'bad', title: 7 };
+        const s = reducer(initialState(withLayout([group(), bad])), { type: 'moveNodes', positions: { 'step:a': { x: 1, y: 2 } } });
+        expect(s.job.layout!.groups).toEqual([group()]);
+        const only = reducer(initialState(withLayout([bad])), { type: 'moveNodes', positions: { 'step:a': { x: 1, y: 2 } } });
+        expect(only.job.layout).toEqual({ nodes: { ...pos, 'step:a': { x: 1, y: 2 } } });
+        expect(withNodes(withLayout([bad]), {}).layout).toBeUndefined();
     });
 });

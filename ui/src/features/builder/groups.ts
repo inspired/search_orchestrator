@@ -1,6 +1,7 @@
 /* Groups (backdrops) in the node editor: titled, tinted frames behind nodes, stored in
  * job.layout.groups, so they never change how a job runs. Membership is spatial and never stored:
- * a node belongs to a group while its box is fully inside the frame (`membersOf`). A collapsed
+ * a node belongs to a group while its box (at full size, even when nodes are drawn compact, so
+ * membership never depends on a per-browser setting) is fully inside the frame (`membersOf`). A collapsed
  * group is drawn as a 200 × 56 block at the frame's top-left and hides its members; lines to and
  * from them attach to the block. Groups read from a job are checked first (`readGroups`), so a
  * hand-edited layout with bad data never breaks the canvas. Pure helpers and the job edits. */
@@ -76,25 +77,26 @@ export function nextGroupId(groups: Group[]): string {
     return `g${i}`;
 }
 
-const nodeBox = (graph: FlowGraph, pos: Positions, key: string, compact: boolean) => {
+/** A node's box at full size (compact drawing never changes membership). */
+const nodeBox = (graph: FlowGraph, pos: Positions, key: string) => {
     const n = graph.nodes.find((x) => x.key === key);
     const p = pos[key];
-    return n && p ? { x: p.x, y: p.y, ...nodeSize(n.kind, compact) } : null;
+    return n && p ? { x: p.x, y: p.y, ...nodeSize(n.kind) } : null;
 };
 
 /** The nodes whose boxes are fully inside the frame of `group`, in graph order. */
-export function membersOf(group: Group, graph: FlowGraph, pos: Positions, compact = false): string[] {
+export function membersOf(group: Group, graph: FlowGraph, pos: Positions): string[] {
     return graph.nodes
         .filter((n) => {
-            const b = nodeBox(graph, pos, n.key, compact);
+            const b = nodeBox(graph, pos, n.key);
             return b !== null && b.x >= group.x && b.y >= group.y && b.x + b.w <= group.x + group.w && b.y + b.h <= group.y + group.h;
         })
         .map((n) => n.key);
 }
 
 /** A frame around the nodes `keys`: `pad` on every side and the title bar above. */
-export function groupAround(keys: string[], pos: Positions, graph: FlowGraph, pad = GROUP_PAD, compact = false): Pick<Group, 'x' | 'y' | 'w' | 'h'> {
-    const boxes = keys.map((k) => nodeBox(graph, pos, k, compact)).filter((b): b is NonNullable<typeof b> => b !== null);
+export function groupAround(keys: string[], pos: Positions, graph: FlowGraph, pad = GROUP_PAD): Pick<Group, 'x' | 'y' | 'w' | 'h'> {
+    const boxes = keys.map((k) => nodeBox(graph, pos, k)).filter((b): b is NonNullable<typeof b> => b !== null);
     if (!boxes.length) {
         return { x: 0, y: 0, w: MIN_GROUP.w, h: MIN_GROUP.h };
     }
@@ -106,14 +108,14 @@ export function groupAround(keys: string[], pos: Positions, graph: FlowGraph, pa
 }
 
 /** Node key → id of the collapsed group hiding it. With `expandAll` (the run page), none. */
-export function hiddenMembers(groups: Group[], graph: FlowGraph, pos: Positions, compact = false, expandAll = false): Record<string, string> {
+export function hiddenMembers(groups: Group[], graph: FlowGraph, pos: Positions, expandAll = false): Record<string, string> {
     const out: Record<string, string> = {};
     if (expandAll) {
         return out;
     }
     groups.forEach((g) => {
         if (g.collapsed) {
-            membersOf(g, graph, pos, compact).forEach((k) => {
+            membersOf(g, graph, pos).forEach((k) => {
                 out[k] = out[k] || g.id;
             });
         }
@@ -173,7 +175,9 @@ function applyChanges(g: Group, changes: Partial<Group>): Group {
 }
 
 export type GroupAction =
-    | { type: 'addGroup'; group: Group }
+    /** `shown` (the positions on screen) is saved with the group, in the same undo step, so a
+     * later automatic layout never moves its members out of the frame. */
+    | { type: 'addGroup'; group: Group; shown?: Positions }
     | { type: 'updateGroup'; id: string; changes: Partial<Group> }
     /** Moves the frame and the nodes `members` (worked out when the drag started) by dx, dy as
      * one undo step. `shown` (the positions on screen) is saved too, so other nodes stay put. */
@@ -187,7 +191,9 @@ export function groupEdit(job: JobDefinition, action: GroupAction): JobDefinitio
         if (!isGroup(action.group) || groups.length >= MAX_GROUPS || groups.some((g) => g.id === action.group.id)) {
             return null;
         }
-        return withGroups(job, [...groups, action.group]);
+        const added = withGroups(job, [...groups, action.group]);
+        const nodes = { ...action.shown, ...job.layout?.nodes };
+        return Object.keys(nodes).length ? { ...added, layout: { ...added.layout, nodes } } : added;
     }
     const current = groups.find((g) => g.id === action.id);
     if (!current) {
@@ -218,7 +224,7 @@ export function groupEdit(job: JobDefinition, action: GroupAction): JobDefinitio
 }
 
 /** The group to expand so node `key` shows, if a collapsed group hides it. */
-export function groupHiding(job: JobDefinition, graph: FlowGraph, pos: Positions, key: string, compact = false): Group | undefined {
-    const id = hiddenMembers(readGroups(job), graph, pos, compact)[key];
+export function groupHiding(job: JobDefinition, graph: FlowGraph, pos: Positions, key: string): Group | undefined {
+    const id = hiddenMembers(readGroups(job), graph, pos)[key];
     return id ? readGroups(job).find((g) => g.id === id) : undefined;
 }

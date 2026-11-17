@@ -218,7 +218,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         }
         capture(ev);
         panned.current = { x: 0, y: 0 };
-        const members = membersOf(g, opts.memberGraph || graph, positions, compact);
+        const members = membersOf(g, opts.memberGraph || graph, positions);
         setGesture({ kind: 'group', id, mode, members, startX: ev.clientX, startY: ev.clientY, moved: false });
     };
 

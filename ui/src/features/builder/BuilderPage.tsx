@@ -207,7 +207,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const { positions, move, tidy, arrange } = useFlowLayout(job, graph, compact, dispatch);
     const picked = useSelection({ job, graph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
     const { selection, removing, requestRemove, confirmRemove } = picked;
-    const grouping = useGroups({ job, graph, positions, compact, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
+    const grouping = useGroups({ job, graph, positions, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
     const goToIssue = (issue: Issue) => {
         setActiveTab(tabForIssue(issue));
         const key = nodeForIssue(job, issue);
