@@ -147,7 +147,7 @@ class _Ctx:
 
 def _routes():
     from . import condition_test as ct, history_api as hv, preview_api as pv  # these import this module: no cycle
-    from . import backfill_api as bf
+    from . import backfill_api as bf, calendar_api as cal
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -160,6 +160,7 @@ def _routes():
         (r"backfills", {"GET": bf.list_backfills}),
         (r"backfills/(?P<backfill_id>[^/]+)", {"GET": bf.get_backfill}),
         (r"backfills/(?P<backfill_id>[^/]+)/cancel", {"POST": bf.cancel_backfill}),
+        (r"calendar", {"GET": cal.calendar}),
         (r"runs", {"GET": list_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
@@ -678,15 +679,19 @@ def list_runs(ctx, body):
         limit = max(1, min(1000, int(body.get("limit") or 200)))
     except (TypeError, ValueError):
         raise ApiError(400, "bad_request", "limit must be a number")
+    return 200, {"runs": [_summary(r) for r in _visible_runs(ctx, filters, limit)]}
+
+
+def _visible_runs(ctx, query, limit):
+    """Up to ``limit`` runs matching ``query``, newest first, that the caller may see."""
     if ctx.allowed(authz.can_admin, None):
-        runs = ctx.store.list_runs(filters, limit=limit, fields=LIST_FIELDS)
-        return 200, {"runs": [_summary(r) for r in runs]}
+        return ctx.store.list_runs(query, limit=limit, fields=LIST_FIELDS)
     jobs = {j.get("id") or j.get("_key"): j for j in ctx.store.list_jobs()}
     visible = sorted(k for k, j in jobs.items() if ctx.allowed(authz.can_view, j))
-    query = dict(filters)
-    if "job_id" in filters:
-        if filters["job_id"] in jobs and filters["job_id"] not in visible:
-            return 200, {"runs": []}
+    query = dict(query)
+    if "job_id" in query:
+        if query["job_id"] in jobs and query["job_id"] not in visible:
+            return []
     else:  # runs of jobs the caller may see, and runs of deleted jobs (checked below)
         query["$or"] = [{"job_id": {"$in": visible}}, {"job_id": {"$nin": sorted(jobs)}}]
     out, skip = [], 0
@@ -696,7 +701,7 @@ def list_runs(ctx, body):
         if len(page) < limit:
             break
         skip += len(page)
-    return 200, {"runs": [_summary(r) for r in out[:limit]]}
+    return out[:limit]
 
 
 def _deleted_job_run_visible(ctx, row):
