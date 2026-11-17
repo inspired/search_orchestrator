@@ -328,7 +328,11 @@ export default function useCanvasGestures(opts: GestureOptions) {
             setGesture({ ...gesture, moved: true });
         }
         if (gesture.kind === 'pan') {
-            if (moved && !gesture.moved) {
+            // A click on the background never pans: only once the press passes the click slop.
+            if (!moved) {
+                return;
+            }
+            if (!gesture.moved) {
                 userView.current?.();
             }
             setPan({ x: gesture.origin.x + dx, y: gesture.origin.y + dy });

@@ -520,6 +520,16 @@ describe('FlowCanvas', () => {
             expect(props.onSelect).toHaveBeenCalledWith(null);
         });
 
+        test('a background click that wobbles a few px neither pans nor counts as a drag', () => {
+            const { props, canvas, view } = setup();
+            fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10 });
+            fireEvent.pointerMove(canvas, { clientX: 12, clientY: 13 });
+            expect(view().getAttribute('transform')).toBe('translate(0,0) scale(1)');
+            fireEvent.pointerUp(canvas, { clientX: 12, clientY: 13 });
+            expect(view().getAttribute('transform')).toBe('translate(0,0) scale(1)');
+            expect(props.onSelect).toHaveBeenCalledWith(null);
+        });
+
         test('buttons zoom within limits and reset the view', () => {
             const { view } = setup();
             fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
