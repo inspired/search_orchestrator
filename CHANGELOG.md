@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.20.0 (2026-11-17)
+
+- **Deadlines:** a job's **Settings** tab has a **Deadline** section with **Finish by** (a time of day in the job's time zone) and **Finish within** (1 minute to 7 days after the scheduled time); the earlier counts. Only on-time scheduled runs and runs started by another job have one; manual, REST, alert, backfill and catch-up runs have none, and a re-run of a run that finished in time, started after the deadline, is not late. A run that passes its deadline is marked late once: the **Whole job** node's **Is late** outcome and the `on_late` hook fire (the admin's fallback notification is used when the job has no late action), the run gets `deadline_at` and `late_at`, the run page shows "This run missed its deadline", the audit index gets `run_late`, and **Run health** has **Late runs** panels.
+- **Backfill:** **Backfill…** on Jobs rows and in the builder toolbar runs a job for each time in a past range, oldest first, on the job's schedule or every so often (up to 100 runs over 400 days), with **Runs in the queue at once** from 1 to 5. Backfills show on the Runs page with progress and cancel as a group. New KV Store collection `so_backfills`; routes `POST jobs/<id>/backfills` (with `dry_run`), `GET backfills`, `GET backfills/<id>` and `POST backfills/<id>/cancel`; audit events `backfill_created`, `backfill_cancelled` and `backfill_done`.
+- **Commands:** `| orchestrate backfill job= from= to= [step=] [concurrency=] [param.x=]` and `| orchestrate status backfill=<id>`.
+- AppInspect (precert, cloud): 0 errors and 0 failures on both packages; the same 9 warnings as 1.19.0, none new.
+
 ## 1.19.0 (2026-11-17)
 
 - **Version history:** every save that changes a job stores a version (the newest 50 are kept, in the new `so_job_versions` KV Store collection). The **History** tab, the last tab in the builder, lists them with who saved, when and what changed. **Compare with current** and **Compare selected** show the changes; **Restore** saves an old version as a new one after you confirm, and is hidden on the newest. New routes `GET jobs/<id>/versions` (`version=`, `compare=a,b|current`) and `POST jobs/<id>/restore`; audit events `job_version_saved`, `job_restored` and `job_versions_pruned`.

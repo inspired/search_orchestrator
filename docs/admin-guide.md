@@ -58,7 +58,7 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 - **An admin who saves someone else's job becomes its owner.** This is audited, and the builder asks first. It stops anyone changing SPL that runs under another person's identity.
 - **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10.
 - **Secrets.** Webhook URLs and headers are kept in Splunk's credential store (`storage/passwords`). The Settings page never shows them again after saving.
-- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job.
+- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job. `so_backfills` holds one document per backfill (its planned run times and progress); it is read through the backfill routes and pruned with run records.
 - **TLS.** Outbound webhooks always verify TLS. Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
 
 ### Saved-search steps and the `| savedsearch` wrapper
@@ -111,7 +111,7 @@ The URL and headers are write-only. The page shows only whether each is set. To 
 
 ### Fallback notification
 
-A delay or failure is never meant to be silent. When a job has no failure or delay action, or that action keeps failing, the engine sends the fallback notification. It carries only job, run and step names, status and links, and doesn't run as the job owner, so it still works when the owner's account is gone. Email uses Splunk's `sendemail`, so Splunk's mail server settings must be configured.
+A delay, failure or late run is never meant to be silent. When a job has no failure, delay or late action (hook `on_late`), or that action keeps failing, the engine sends the fallback notification. It carries only job, run and step names, status and links, and doesn't run as the job owner, so it still works when the owner's account is gone. Email uses Splunk's `sendemail`, so Splunk's mail server settings must be configured.
 
 ## Audit index
 
@@ -127,7 +127,7 @@ Run records are pruned from KV Store after the retention period; audit events st
 
 The **Run health** dashboard (Dashboard Studio, view `run_health`) reads only through the app's macros, so it follows a changed index name:
 
-- `orchestrator_index`: the audit index. Runs come from `run_created`, `run_state`, `run_held`, `run_dismissed` and `step_attempt`; steps from `step_dispatched`, `step_attempt` and `step_delayed`; actions from `action_done` and `action_failed` (`action_type`, and `preset` or `host` for Slack). `step_delayed` and the action `preset` field are new with this dashboard; in events written before them a delay counts only where the step had an *on delayed* action.
+- `orchestrator_index`: the audit index. Late runs come from `run_late` (with `deadline_at`); runs come from `run_created`, `run_state`, `run_held`, `run_dismissed` and `step_attempt`; steps from `step_dispatched`, `step_attempt` and `step_delayed`; actions from `action_done` and `action_failed` (`action_type`, and `preset` or `host` for Slack). `step_delayed` and the action `preset` field are new with this dashboard; in events written before them a delay counts only where the step had an *on delayed* action.
 - `orchestrator_internal`: the app's lines in splunkd.log (`index=_internal sourcetype=splunkd`): the engine modular input (component `ExecProcessor`), the REST handler (`PersistentScript`; its lines start with `orchestrator_rest:`), the alert action (`sendmodalert`) and the search command (`ChunkedExternProcessor`). The search command writes most of its messages to the search's own `search.log`, which isn't in `_internal`.
 - `orchestrator_engine_process`: the engine process in splunkd's resource-usage samples (`index=_introspection component=PerProcess`, every 10 seconds). With the engine's splunkd.log lines and audit events it gives **Last engine activity**, which turns red when the engine hasn't been seen for 5 minutes. An idle engine writes no log lines or audit events, so without `_introspection` access the tile can turn red while the engine is fine.
 
@@ -212,6 +212,10 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |
 | `jobs/<id>/restore` | POST (`version`: saves that version as a new version; needs the right to edit the job) |
 | `preview/condition` | POST (builders: tests one condition line now, as the caller like a preview; see [Test condition](user-guide.md#test-condition)) |
+| `jobs/<id>/backfills` | POST (builders who may run the job: `from`, `to`, `source` `schedule` or `step`, `step` in seconds, `concurrency` 1 to 5, `params`; `dry_run: true` returns the planned `slots` and stores nothing) |
+| `backfills` | GET (`job_id`, `state`; newest first, without slots) |
+| `backfills/<id>` | GET (the backfill and its runs) |
+| `backfills/<id>/cancel` | POST (the creator, anyone who may edit the job, or an admin; cancels the group) |
 | `timerange/resolve` | POST (builders: `earliest`, `latest`, `scheduled_time`; returns the epoch window they cover) |
 
 ## Known limits
@@ -220,5 +224,6 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 - Classic Experience Cloud stacks are not supported.
 - Custom page templates are deprecated from Splunk 10.4; migration is planned.
 - Node positions in the builder are not saved.
+- A backfill holds at most 100 runs over at most 400 days, with 1 to 5 queued at once. Deadlines apply only to on-time scheduled runs and runs started by another job.
 - Version history keeps the newest 50 versions of each job; older ones are pruned and audited as `job_versions_pruned`.
 - No per-step workload pool: the dispatch endpoint rejected it.

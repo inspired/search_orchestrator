@@ -303,7 +303,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 ### Actions
 
-Each action is a node. Drag a line to it from a step's **+** handle, or from the **Whole job** node's for a job-wide action; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way or Is delayed). An action's **When** field moves its line from the keyboard.
+Each action is a node. Drag a line to it from a step's **+** handle, or from the **Whole job** node's for a job-wide action; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way, Is delayed or, from the **Whole job** node, Is late). An action's **When** field moves its line from the keyboard.
 
 - **Webhook** or **Slack** to a destination your admin set up (Slack is a body format).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
@@ -311,6 +311,19 @@ Each action is a node. Drag a line to it from a step's **+** handle, or from the
 Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
 
 An action failing never changes the run's outcome; it shows on the run's Actions tab. If a job has no failure or delay action, your admin's fallback notification is used.
+
+### Deadline
+
+On the job Settings tab, the **Deadline** section sets when a run must be finished. Fill in either field or both:
+
+- **Finish by**: a time of day such as `06:00`, in the job's time zone. It means the first 06:00 at or after the run's scheduled time.
+- **Finish within**: a time after the scheduled time (1 minute to 7 days).
+
+With both, the earlier one counts. The deadline is wall-clock time, so pausing a run does not move it. A time that does not exist on a daylight-saving day becomes the first moment after the gap.
+
+**Only on-time scheduled runs and runs started by another job** (completion or start-job triggers) have a deadline. Manual, REST, alert, backfill and catch-up runs have none, because they are often scheduled in the past and would be late at once. A deadline is fixed when the run is created and a re-run keeps it. A re-run of a run that finished before its deadline, started after the deadline, is not late.
+
+When a run that has not finished passes its deadline, it is marked late once. The **Whole job** node's **Is late** outcome fires then: drag a line from it to an action (**On late** hook). An action's **When** field has the same choice. If a job has no late action, your admin's fallback notification is used. The run's page shows "This run missed its deadline (...)" with how late it finished, or that it is still running, and the audit index gets `run_late`. Late runs do not change the run's outcome. **Run health** lists them under **Late runs**.
 
 ### Who may run
 
@@ -389,6 +402,7 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 
 - **Overview:** runs, succeeded, failed, held or blocked, the success rate of finished runs and the median run duration. A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
 - **Runs over time**, stacked by state: succeeded green, failed red, held and blocked amber.
+- **Late runs:** the number of runs that passed their deadline and a list with the deadline, how late each was and its state. Click a row to open the run.
 - **Runs that need attention:** failed, held and blocked runs with the last step error. Click a row to open the run.
 - **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile duration, and how many runs found the step delayed). Durations are measured to within one engine tick.
 - **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
@@ -421,6 +435,19 @@ Actions say how they went in plain text, with the same icons as step states (a c
 | Retrying in 30 s | An attempt failed; the next one starts in the time shown, counted down. |
 | Not sent yet | The step or job hasn't reached the action, or its first attempt hasn't started. |
 
+## Backfill
+
+A backfill runs a job once for each time in a past range, oldest first, for example to fill in a month of a daily rollup. Choose **Backfill…** on a job's row on the Jobs page, or in the builder toolbar.
+
+- **From** and **To** (your browser's time zone; To is not included).
+- **Runs at**: **The job's schedule** (each time its enabled schedules would have fired) or **Every …** with a step from 1 minute to 31 days, counted from the start of the range.
+- **Runs in the queue at once** (1 to 5): how many of the backfill's runs wait in the job's queue together. Runs of one job never overlap, so more only keeps more of them waiting.
+- Parameter values the job declares are filled in the same way for every run.
+
+The dialog counts the runs before you start. A backfill can hold up to 100 runs over at most 400 days; narrow the range or lengthen the step if it is too big. Each run's scheduled time is its time in the range, so steps summarise that period's window. Backfill runs have no deadline.
+
+On the **Runs** page, a backfill shows as a line with its progress ("12 of 30 runs started") and **Cancel backfill**. Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm. Starting and cancelling a backfill needs the right to run the job, and is audited as `backfill_created`, `backfill_cancelled` and `backfill_done`.
+
 ## Re-run from a step
 
 On a blocked, failed or cancelled run, choose **Re-run from step**. That step and everything after it run again with the same scheduled time and parameters; finished steps before it are kept.
@@ -445,16 +472,18 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 | orchestrate status [run=<run id>] [job=<id>] [limit=<n>]
 | orchestrate cancel run=<run id>
 | orchestrate rerun run=<run id> step=<step> [definition=latest|original] [restart_downstream_jobs=true|false]
+| orchestrate backfill job=<id> from=<time> to=<time> [step=<n>m|<n>h|<n>d|<seconds>] [concurrency=<1-5>] [param.<name>=<value>]...
+| orchestrate status backfill=<backfill id>
 | orchestrate jobs
 ```
 
-`status` without `run=` shows up to 20 recent runs (5 by default), and stops with a warning if fetching them takes over two minutes. `scheduled_time` lets you backfill a day: steps then summarise that day's window.
+`status` without `run=` shows up to 20 recent runs (5 by default), and stops with a warning if fetching them takes over two minutes. `scheduled_time` lets you re-create one day: steps then summarise that day's window. For a whole range, use `backfill`: without `step` it follows the job's schedule, with `step` it runs every so often. `from` and `to` are epoch seconds or Splunk times such as `-30d@d`. It returns the backfill id and how many runs it planned; `status backfill=<id>` shows one row per run.
 
 `start` refuses a `param.<name>` the job doesn't declare. An option given twice or with an empty value is an error, so an unset dashboard token can't select other runs. `cancel` refuses a run that has already finished.
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 
