@@ -15,7 +15,7 @@ export interface HistoryProps {
     jobId: string | null;
     dirty: boolean;
     canEdit: boolean;
-    onRestored: (r: SaveResponse) => void;
+    onRestored: (r: SaveResponse, version: number) => void;
 }
 
 interface Shown {
@@ -70,7 +70,7 @@ export default function HistoryTab({ jobId, dirty, canEdit, onRestored }: Histor
             setRestoring(null);
             setShown(null);
             setPicked([]);
-            onRestored(res);
+            onRestored(res, restoring);
             await load();
         } catch (err) {
             setRestoring(null);
@@ -113,9 +113,9 @@ export default function HistoryTab({ jobId, dirty, canEdit, onRestored }: Histor
                         {(v.summary || []).map((line) => (
                             <div key={line}>{line}</div>
                         ))}
-                        <Button appearance="subtle" label="Compare with current" onClick={() => compare(v.version, 'current')} />
+                        <Button appearance="subtle" label="Compare with current" aria-label={`Compare version ${v.version} with current`} onClick={() => compare(v.version, 'current')} />
                         {canEdit && i > 0 && (
-                            <Button appearance="subtle" label="Restore" onClick={() => (returnFocus.current = document.activeElement as HTMLElement | null, setRestoring(v.version))} />
+                            <Button appearance="subtle" label="Restore" aria-label={`Restore version ${v.version}`} onClick={() => (returnFocus.current = document.activeElement as HTMLElement | null, setRestoring(v.version))} />
                         )}
                     </li>
                 ))}

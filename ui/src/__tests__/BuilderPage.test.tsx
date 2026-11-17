@@ -4,6 +4,9 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi, rollupJob } from './builderFixtures';
 import { renderThemed, runSummary } from './fixtures';
+import * as versions from '../api/versions';
+
+jest.mock('../api/versions');
 
 /** Renders and lets the page's start-up requests settle. */
 async function show(ui: React.ReactElement) {
@@ -703,5 +706,28 @@ describe('BuilderPage previews', () => {
         await waitFor(() => expect(api.previewDefaults).toHaveBeenCalledTimes(1));
         fireEvent.click(screen.getByTestId('input-from'));
         expect(await screen.findByRole('option', { name: / · succeeded \(results expired\)$/ })).toBeDisabled();
+    });
+});
+
+describe('BuilderPage history', () => {
+    it('restoring a version loads it, refreshes the runs and says so', async () => {
+        const api2 = versions as jest.Mocked<typeof versions>;
+        api2.listVersions.mockResolvedValue([
+            { version: 2, saved_at: 1700000100, saved_by: 'alice', owner: 'alice', summary: [] },
+            { version: 1, saved_at: 1700000000, saved_by: 'alice', owner: 'alice', summary: [] },
+        ]);
+        const restored = { ...rollupJob(), name: 'Restored name' };
+        api2.restoreVersion.mockResolvedValue({ job: restored, issues: [], owner_will_change: false, owner: 'alice' } as never);
+        const api = fakeApi();
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Edited' } });
+        const runsBefore = (api.listRuns as jest.Mock).mock.calls.length;
+        fireEvent.click(screen.getByRole('tab', { name: 'History' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Restore version 1' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Restore version' }));
+        expect(await screen.findByText('Restored version 1.')).toBeInTheDocument();
+        expect((api.listRuns as jest.Mock).mock.calls.length).toBeGreaterThan(runsBefore);
+        fireEvent.click(screen.getByRole('tab', { name: 'Flow' }));
+        expect(screen.getByLabelText('Job name')).toHaveValue('Restored name');
     });
 });

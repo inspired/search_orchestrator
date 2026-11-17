@@ -251,15 +251,21 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         }
     };
 
+    const afterSaved = (res: SaveResponse, saved: JobDefinition, text: string) => {
+        auto.accept(saved, res);
+        dispatch({ type: 'saved', job: saved });
+        setMeta({ owner: res.job.owner, canEdit: true });
+        loadRuns(res.job.id);
+        setNotice({ type: 'success', text });
+    };
+
     const doSave = async () => {
         setOwnerConfirm(null);
         setBusy(true);
         setNotice(null);
         try {
             const res = jobId ? await api.updateJob(jobId, job) : await api.createJob(job);
-            auto.accept(job, res);
-            dispatch({ type: 'saved', job });
-            setMeta({ owner: res.job.owner, canEdit: true });
+            afterSaved(res, job, 'Saved.');
             if (!jobId) {
                 setJobId(res.job.id);
                 try {
@@ -268,8 +274,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     // the page still works; a reload would open a new job
                 }
             }
-            loadRuns(res.job.id);
-            setNotice({ type: 'success', text: 'Saved.' });
         } catch (err) {
             const e = err as client.ApiError;
             auto.accept(job, { issues: e.issues || [] });
@@ -569,7 +573,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         steps={stepsTab}
                         issues={issues}
                         canEdit={meta.canEdit}
-                        history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), setMeta({ owner: r.job.owner, canEdit: true })) }}
+                        history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r, n) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), afterSaved(r, client.toDefinition(r.job), `Restored version ${n}.`)) }}
                     />
                 </>
             )}

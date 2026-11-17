@@ -50,7 +50,7 @@ describe('HistoryTab', () => {
         ]);
         open();
         await screen.findByText('Version 1');
-        fireEvent.click(within(row(1)).getByRole('button', { name: 'Compare with current' }));
+        fireEvent.click(within(row(1)).getByRole('button', { name: 'Compare version 1 with current' }));
         expect(await screen.findByText('Changed the search of Daily summary', { selector: 'li' })).toBeInTheDocument();
         expect(api.compareVersions).toHaveBeenCalledWith('daily', 1, 'current');
         expect(screen.getByText('Steps')).toBeInTheDocument();
@@ -76,32 +76,32 @@ describe('HistoryTab', () => {
         api.restoreVersion.mockResolvedValue(saved);
         const onRestored = open({ dirty: true });
         await screen.findByText('Version 1');
-        fireEvent.click(within(row(1)).getByRole('button', { name: 'Restore' }));
+        fireEvent.click(within(row(1)).getByRole('button', { name: 'Restore version 1' }));
         expect(screen.getByText('Restore version 1?')).toBeInTheDocument();
         expect(screen.getByText('Your unsaved changes will be lost.')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Restore version' }));
-        await waitFor(() => expect(onRestored).toHaveBeenCalledWith(saved));
+        await waitFor(() => expect(onRestored).toHaveBeenCalledWith(saved, 1));
         expect(api.restoreVersion).toHaveBeenCalledWith('daily', 1);
     });
 
     test('no unsaved-changes warning when the job is clean', async () => {
         open();
         await screen.findByText('Version 1');
-        fireEvent.click(within(row(1)).getByRole('button', { name: 'Restore' }));
+        fireEvent.click(within(row(1)).getByRole('button', { name: 'Restore version 1' }));
         expect(screen.queryByText('Your unsaved changes will be lost.')).toBeNull();
     });
 
     test('a viewer sees no Restore buttons', async () => {
         open({ canEdit: false });
         await screen.findByText('Version 1');
-        expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull();
+        expect(screen.queryByRole('button', { name: /^Restore version/ })).toBeNull();
     });
 
     test('Restore is reachable with Tab and opens with Enter', async () => {
         const user = userEvent.setup();
         open();
         await screen.findByText('Version 1');
-        const restore = within(row(1)).getByRole('button', { name: 'Restore' });
+        const restore = within(row(1)).getByRole('button', { name: 'Restore version 1' });
         for (let i = 0; i < 20 && document.activeElement !== restore; i += 1) {
             // eslint-disable-next-line no-await-in-loop
             await user.tab();
@@ -115,5 +115,28 @@ describe('HistoryTab', () => {
         api.listVersions.mockRejectedValue(new Error('Splunk could not be reached.'));
         open();
         expect(await screen.findByText(/The history could not be loaded/)).toBeInTheDocument();
+    });
+});
+
+describe('VersionDiff groups', () => {
+    test('puts the server paths in their groups', async () => {
+        api.compareVersions.mockResolvedValue([
+            { path: 'triggers[0].cron', kind: 'changed', label: 'Changed the schedule', before: '0 1 * * *', after: '0 2 * * *' },
+            { path: 'actions[1]', kind: 'added', label: 'Changed the actions', after: {} },
+            { path: 'steps.daily.actions[0]', kind: 'changed', label: 'Changed the actions of Daily', before: {}, after: {} },
+            { path: 'edges.a>b', kind: 'added', label: 'Added a line from A to B' },
+            { path: 'layout', kind: 'changed', label: 'Moved 1 node' },
+            { path: 'settings.timezone', kind: 'changed', label: 'Changed timezone' },
+        ]);
+        open();
+        await screen.findByText('Version 1');
+        fireEvent.click(within(row(1)).getByRole('button', { name: 'Compare version 1 with current' }));
+        const group = async (name: string) => (await screen.findByRole('heading', { name })).closest('section') as HTMLElement;
+        expect(within(await group('Schedule')).getByText('Changed the schedule')).toBeInTheDocument();
+        expect(within(await group('Actions')).getByText('Changed the actions')).toBeInTheDocument();
+        expect(within(await group('Steps')).getByText('Changed the actions of Daily')).toBeInTheDocument();
+        expect(within(await group('Lines')).getByText(/Added a line/)).toBeInTheDocument();
+        expect(within(await group('Layout')).getByText('Moved 1 node')).toBeInTheDocument();
+        expect(within(await group('Job settings')).getByText('Changed timezone')).toBeInTheDocument();
     });
 });
