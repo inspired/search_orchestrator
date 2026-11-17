@@ -150,6 +150,8 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "search_orchestrator_t1:/templates/run.html" in read("default/data/ui/views/run.xml")
     assert "search_orchestrator_t1:/templates/dependencies.html" in read("default/data/ui/views/dependencies.xml")
     assert "/static/app/search_orchestrator_t1/pages/dependencies.js" in read("appserver/templates/dependencies.html")
+    assert "search_orchestrator_t1:/templates/calendar.html" in read("default/data/ui/views/calendar.xml")
+    assert "/static/app/search_orchestrator_t1/pages/calendar.js" in read("appserver/templates/calendar.html")
     # The Run health dashboard reads this copy's index and splunkd.log lines, and links here.
     macros = read("default/macros.conf")
     for stanza in ("orchestrator_index_t1", "orchestrator_internal_t1", "orchestrator_engine_process_t1"):
