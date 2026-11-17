@@ -1241,6 +1241,11 @@ class Engine:
                                      error="the condition search took longer than %d seconds "
                                            "and was stopped" % CONDITION_TIMEOUT)
             return
+        if state == "done" and not status.get("finalized") and status.get("truncated"):
+            # Its rows may be incomplete, so "no rows" can't be trusted.
+            return self._condition_done(run, key, "failed", now, pending,
+                                        error="a subsearch in the condition was cut short: %s"
+                                              % status["truncated"])
         if state == "done" and not status.get("finalized"):
             count = int(status.get("result_count") or 0)
             self._condition_done(run, key, "met" if count > 0 else "not_met", now, pending,
@@ -1299,12 +1304,31 @@ class Engine:
         return None
 
     def _conditions_ended(self, run, now, pending):
-        """The run ended (cancel, give-up): stop condition searches still out."""
+        """The run ended (cancel, give-up): stop condition searches still out. One saved
+        as starting without a sid (a crash mid-dispatch) is looked up in history first,
+        so a search it may have started is cancelled too."""
         for key, c in sorted((run.get("conditions") or {}).items()):
-            if c.get("state") in IN_FLIGHT:
-                if c.get("sid"):
-                    self._control(c["sid"], "cancel")
-                self._set_condition(run, key, {"state": "cancelled", "ended_at": now})
+            if c.get("state") not in IN_FLIGHT:
+                continue
+            sid = c.get("sid")
+            if not sid:
+                name = (self._edge(run, key) or {}).get("hidden_search")
+                try:
+                    found = self.gw.history(run.get("owner"), name,
+                                            c.get("intent_at") or now) if name else []
+                    sid = found[0] if found else None
+                except GatewayError as err:
+                    _check_auth(err)
+                    pending.events.append(self._condition_event(
+                        run, "possible_orphan_search", key, now, hidden_search=name,
+                        owner=run.get("owner"), intent_at=c.get("intent_at"),
+                        reason="the run ended before the condition search could be "
+                               "confirmed: %s" % err))
+            if sid:
+                self._control(sid, "cancel")
+            self._set_condition(run, key, {"state": "cancelled", "ended_at": now, "sid": sid})
+            pending.events.append(self._condition_event(run, "condition_cancelled", key, now,
+                                                        sid=sid))
 
     # -- retention --------------------------------------------------------------
 

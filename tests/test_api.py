@@ -189,6 +189,22 @@ def test_delete_removes_job_and_hidden_searches(w):
     assert w.audit.of("job_deleted")
 
 
+def test_condition_searches_are_saved_replaced_and_deleted_with_the_job(w):
+    edge = {"from": "a", "to": "b", "condition": "expression", "expression_kind": "search",
+            "expression": "index=main error"}
+    job = saved(w, body=job_body(edges=[edge]))
+    first = job["edges"][0]["hidden_search"]
+    assert first.startswith("_so_daily_cond_") and ("alice", first) in w.gw.saved_searches
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily",
+                         job_body(edges=[dict(edge, expression="index=main fatal")]))
+    assert status == 200, out
+    second = out["job"]["edges"][0]["hidden_search"]
+    assert second != first and ("alice", second) in w.gw.saved_searches
+    assert ("alice", first) not in w.gw.saved_searches  # no run needs it
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    assert w.gw.saved_searches == {}
+
+
 def test_job_validation_errors_block_save(w):
     body = job_body(edges=[{"from": "a", "to": "b"}, {"from": "b", "to": "a"}])
     status, out = w.call("alice", "POST", "/orchestrator/jobs", body)

@@ -189,12 +189,15 @@ _COMMAND_WORD_RE = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)")
 
 def _pipes(spl):
     """Each ``|`` that starts a command (top level or in a subsearch), with the command word
-    after it (lower case, or ""). Double-quoted strings, ``'field names'``, backtick macros
-    and ```` ``` ```` comments are skipped, and ``||`` is the eval "or", not a pipe."""
+    after it (lower case, or ""). Double-quoted strings, backtick macros and ```` ``` ````
+    comments are skipped, and ``||`` is the eval "or", not a pipe. A ``'`` is not a
+    delimiter: in a search it is a literal character (``O'Brien``), so skipping to the
+    next one could hide a command; in an eval expression a pipe inside ``'...'`` is
+    refused too (as the builder's writingCommands.ts)."""
     out, i, n = [], 0, len(spl)
     while i < n:
         c = spl[i]
-        if c in ('"', "'"):
+        if c == '"':
             i += 1
             while i < n and spl[i] != c:
                 i += 2 if spl[i] == "\\" else 1
@@ -463,6 +466,13 @@ def _validate(job, known_saved_searches):
         _check_spl_tokens(s.get("spl") or "", ids, params, issues, sid)
 
     edges = job.get("edges", []) or []
+    pairs = {}
+    for e in edges:
+        pairs.setdefault((e.get("from"), e.get("to")), []).append(e)
+    for (a, b), same in pairs.items():
+        if len(same) > 1 and any(e.get("condition") == "expression" for e in same):
+            # A condition's result is kept per step pair, so the pair must be unique.
+            issues.append(_issue("error", "duplicate_edge", "dependency %s->%s is listed more than once and has a condition; remove the extra line so only one connects these steps" % (a, b), b if b in ids else None))
     for e in edges:
         a, b = e.get("from"), e.get("to")
         for end in (a, b):

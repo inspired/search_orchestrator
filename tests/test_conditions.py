@@ -44,7 +44,7 @@ def test_eval_condition_compiles_numeric_tokens_with_tonumber():
 def test_search_condition_compiles_like_a_step():
     spl, args = tokens.compile_condition("index=main host=$a.first.host$ | where count > 0",
                                          ["a"], "search")
-    assert spl == 'index=main host="$args.a__first__host$" | where count > 0'
+    assert spl == 'index=main host="$args.a__first__host$" | where count > 0\n| head 1'
     assert args == ["a__first__host"]
 
 
@@ -77,13 +77,14 @@ def test_search_condition_default_time_range_and_content_hash():
     gw = FakeGateway()
     one = hidden.sync(gw, cjob(expression_kind="search", expression="index=main error"), None)
     saved = gw.saved_searches[("alice", one["edges"][0]["hidden_search"])]
-    assert (saved["search"], saved["earliest"], saved["latest"]) == ("index=main error", "-24h", "now")
+    assert (saved["search"], saved["earliest"], saved["latest"]) == ("index=main error\n| head 1",
+                                                                      "-24h", "now")
     two = hidden.sync(gw, cjob(expression_kind="search", expression="index=main error",
                                earliest="-1h", latest="now"), one)
     assert two["edges"][0]["hidden_search"] != one["edges"][0]["hidden_search"]
     hidden.sync(gw, cjob(expression_kind="search", expression="index=main error",
                          earliest="", latest=""), two)
-    assert ("index=main error", "", "") in {(v["search"], v["earliest"], v["latest"])
+    assert ("index=main error\n| head 1", "", "") in {(v["search"], v["earliest"], v["latest"])
                                              for v in gw.saved_searches.values()}
 
 
@@ -470,3 +471,170 @@ def test_preview_token_context_has_run_now():
     from so import preview
     ctx = preview.token_context({"steps": []}, T0, {}, {}, now=T0 + 3)
     assert tokens.render_args(["run__now"], ctx) == {"run__now": str(T0 + 3)}
+
+
+
+# --- review fixes -------------------------------------------------------------------
+
+def test_single_quote_is_literal_for_the_writing_command_check():
+    assert model.writing_command("index=main O'Brien | collect index=x") == "collect"
+    assert "condition_writes" in codes(vjob(expression_kind="search",
+                                            expression="index=main O'Brien | collect index=x"))
+
+
+def test_eval_rejects_a_pipe_inside_single_quotes():
+    assert "bad_expression" in codes(vjob(expression_kind="eval", expression="'a|b'=1"))
+
+
+def test_token_after_a_double_quote_inside_single_quotes_is_refused():
+    text = """'a"b'=1 AND $a.first.f$ > 2"""
+    # The " inside the field name no longer makes the token look quoted: it is quoted.
+    spl, _ = tokens.compile_condition(text, ["a"], "eval")
+    assert spl == """| makeresults | where 'a"b'=1 AND "$args.a__first__f$" > 2"""
+    spl, _ = tokens.compile_spl(text, ["a"])
+    assert spl == """'a"b'=1 AND "$args.a__first__f$" > 2"""
+
+
+def test_token_inside_single_quotes_is_refused():
+    import pytest
+    with pytest.raises(tokens.TokenError):
+        tokens.compile_spl("| eval x='$a.first.f$'", ["a"])
+    with pytest.raises(tokens.TokenError):
+        tokens.compile_spl("search O'Brien host=$a.first.f$", ["a"])
+    assert "unsafe_token_position" in codes(vjob(expression_kind="eval",
+                                                 expression="'$a.first.f$'=1"))
+    # A ' inside a double-quoted string is just a character.
+    assert tokens.compile_spl('search "O\'Brien" host=$a.first.f$', ["a"])[0] == \
+        'search "O\'Brien" host="$args.a__first__f$"'
+
+
+def test_duplicate_pair_with_a_condition_is_refused():
+    j = vjob(expression_kind="eval", expression="1=1")
+    j["edges"].append({"from": "a", "to": "b", "condition": "on_success"})
+    found = [i for i in errors(j) if i["code"] == "duplicate_edge"]
+    assert len(found) == 1 and "remove the extra line" in found[0]["message"]
+    assert found[0]["step"] == "b"
+    j["edges"] = [{"from": "a", "to": "b"}, {"from": "a", "to": "b"}]
+    assert "duplicate_edge" not in codes(j)
+
+
+def test_engine_truncated_condition_search_fails():
+    w = World()
+    run_id = setup(w, ejob(kind="search", expression="index=main [search x]"),
+                   {"states": ["done"], "result_count": 0, "truncated": "limit 10000"})
+    for _ in range(3):
+        w.tick(advance=5)
+    c = w.run(run_id)["conditions"]["a>b"]
+    assert c["state"] == "failed" and "cut short" in c["error"]
+    assert "cut short" in w.audit.of("condition_failed")[0]["error"]
+
+
+def test_engine_cancel_adopts_then_cancels_a_starting_condition():
+    w = World()
+    run_id = setup(w, ejob(), {"states": ["running"]})
+    w.gw.crash_after_dispatch = True
+    w.tick(advance=5)
+    w.gw.crash_after_dispatch = False
+    [d] = cond_dispatches(w)
+    assert not w.run(run_id)["conditions"]["a>b"].get("sid")
+    w.command(type="cancel", run_id=run_id, user="alice")
+    w.engine = w.new_engine()
+    w.tick(advance=5)
+    c = w.run(run_id)["conditions"]["a>b"]
+    assert c["state"] == "cancelled" and c["sid"] == d["sid"]
+    assert (d["sid"], "cancel", {}) in w.gw.control_log
+    assert w.audit.of("condition_cancelled", edge="a>b")
+
+
+def test_engine_mixed_join_waits_for_every_edge():
+    """c depends on a (on_success), b (simple condition) and the SPL condition from a."""
+    w = World()
+    j = make_job(steps=["a", "b", "c"])
+    j["edges"] = [{"from": "a", "to": "c", "condition": "expression", "expression_kind": "eval",
+                   "expression": "1=1", "hidden_search": COND},
+                  {"from": "b", "to": "c", "condition": "expression",
+                   "expression": "$b.resultCount$ > 0"},
+                  {"from": "a", "to": "b", "condition": "on_success"}]
+    w.add_job(j, scripts={"a": {"states": ["done"], "result_count": 1},
+                          "b": {"states": ["running", "running", "running", "done"],
+                                "result_count": 2}})
+    w.gw.script_job(COND, states=["done"], result_count=1)
+    run_id = cron_run(w, j)
+    w.tick(advance=5)  # a done: condition and b start
+    w.tick(advance=5)  # condition met; b still running
+    run = w.run(run_id)
+    assert run["conditions"]["a>c"]["state"] == "met"
+    assert run["steps"]["c"]["state"] == "waiting"
+    for _ in range(5):
+        w.tick(advance=5)
+    run = w.run(run_id)
+    assert run["steps"]["c"]["state"] == "succeeded" and run["state"] == "succeeded"
+
+
+def test_engine_mixed_join_not_met_and_true_still_runs():
+    """An SPL condition not met next to a satisfied on_success edge: the step runs (one
+    satisfied edge is enough once all resolved)."""
+    w = World()
+    j = make_job(steps=["a", "b", "c"])
+    j["edges"] = [{"from": "a", "to": "c", "condition": "expression", "expression_kind": "eval",
+                   "expression": "1=0", "hidden_search": COND},
+                  {"from": "b", "to": "c", "condition": "on_success"}]
+    w.add_job(j)
+    w.gw.script_job(COND, states=["done"], result_count=0)
+    run_id = cron_run(w, j)
+    for _ in range(5):
+        w.tick(advance=5)
+    run = w.run(run_id)
+    assert run["conditions"]["a>c"]["state"] == "not_met"
+    assert run["steps"]["c"]["state"] == "succeeded"
+
+
+def test_engine_condition_searches_count_toward_limits():
+    w = World()
+    w.store.save_settings({"max_searches_per_job": 2})
+    j = make_job(steps=["a", "b", "x", "y"])
+    j["edges"] = [{"from": "a", "to": "b", "condition": "expression", "expression_kind": "eval",
+                   "expression": "1=1", "hidden_search": COND}]
+    w.add_job(j, scripts={"a": {"states": ["done"]}, "x": {"states": ["running"]},
+                          "y": {"states": ["running"]}})
+    w.gw.script_job(COND, states=["running"])
+    run_id = cron_run(w, j)  # a and x start (limit 2); y waits
+    w.tick(advance=5)  # a done: one slot, the condition takes it before y
+    run = w.run(run_id)
+    assert run["conditions"]["a>b"]["state"] == "running"
+    assert run["steps"]["y"]["state"] == "ready"
+    assert w.in_flight() == 1  # x; the condition is the second search
+    w.tick(advance=5)
+    assert w.run(run_id)["steps"]["y"]["state"] == "ready"
+
+
+def test_engine_transient_condition_dispatch_error_is_retried():
+    w = World()
+    run_id = setup(w, ejob(), {"states": ["done"], "result_count": 1})
+    w.gw.fail_dispatch(COND, transient=True)
+    w.tick(advance=5)
+    c = w.run(run_id)["conditions"]["a>b"]
+    assert c["state"] == "starting" and "trying again" in c["error"]
+    for _ in range(3):
+        w.tick(advance=5)
+    assert w.run(run_id)["conditions"]["a>b"]["state"] == "met"
+    assert len(cond_dispatches(w)) == 1
+
+
+def test_engine_permanent_condition_dispatch_error_fails():
+    w = World()
+    run_id = setup(w, ejob(), {"states": ["done"]})
+    w.gw.fail_dispatch(COND, transient=False)
+    w.tick(advance=5)
+    c = w.run(run_id)["conditions"]["a>b"]
+    assert c["state"] == "failed" and w.audit.of("condition_failed")
+
+
+def test_gc_keeps_condition_searches_in_use_and_drops_stale_ones():
+    gw = FakeGateway()
+    one = hidden.sync(gw, cjob(expression_kind="eval", expression="1=1"), None)
+    two = hidden.sync(gw, cjob(expression_kind="eval", expression="2=2"), one)
+    old, new = one["edges"][0]["hidden_search"], two["edges"][0]["hidden_search"]
+    assert hidden.gc(two, []) == [{"owner": "alice", "name": old}]
+    assert hidden.gc(two, [{"definition": one, "owner": "alice"}]) == []
+    assert {"owner": "alice", "name": new} in two["hidden_searches"]

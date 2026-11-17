@@ -65,10 +65,12 @@ def arg_name(name):
     return name.replace(".", "__")
 
 
-def _scan(spl, i, end, in_q, in_c):
+def _scan(spl, i, end, in_q, in_c, in_s=False):
     """Advance the lexer state from index i to end. ``in_q``: inside a double-quoted
     string, where a backslash escapes the next character. ``in_c``: inside a ```` ``` ````
-    comment, whose contents don't affect quoting."""
+    comment, whose contents don't affect quoting. ``in_s``: inside ``'...'`` (an eval
+    field name), whose contents don't affect quoting either: a ``"`` there must not make
+    a token look quoted."""
     while i < end:
         if in_c:
             if spl.startswith("```", i):
@@ -77,18 +79,25 @@ def _scan(spl, i, end, in_q, in_c):
             else:
                 i += 1
             continue
+        if in_s:
+            if spl[i] == "'":
+                in_s = False
+            i += 1
+            continue
         c = spl[i]
         if c == "\\":
             i += 2
             continue
         if c == '"':
             in_q = not in_q
+        elif not in_q and c == "'":
+            in_s = True
         elif not in_q and spl.startswith("```", i):
             in_c = True
             i += 3
             continue
         i += 1
-    return i, in_q, in_c
+    return i, in_q, in_c, in_s
 
 
 def _backslashes_before(spl, index):
@@ -113,12 +122,17 @@ def _compile(spl, step_ids, outside):
     outside a double-quoted string (it must keep the value inside quotes)."""
     names = []
     out = []
-    pos, i, in_q, in_c = 0, 0, False, False
+    pos, i, in_q, in_c, in_s = 0, 0, False, False, False
     for m in _regex(step_ids).finditer(spl):
-        i, in_q, in_c = _scan(spl, i, m.start(), in_q, in_c)
+        i, in_q, in_c, in_s = _scan(spl, i, m.start(), in_q, in_c, in_s)
         token = m.group(0)
         if in_c:
             raise TokenError(token, "tokens can't be used inside a ``` comment")
+        if in_s:
+            # Inside an eval field name, or after a lone ' in search text: a value there
+            # could close the name and run as SPL.
+            raise TokenError(token, "a token can't follow an unclosed ' (single quote); "
+                                    "close it, or put the text in double quotes")
         if _backslashes_before(spl, m.start()) % 2:
             raise TokenError(token, "a token can't follow a backslash; put the backslash "
                                     "in the value instead")
@@ -136,6 +150,7 @@ def _compile(spl, step_ids, outside):
 
 CONDITION_KINDS = ("simple", "eval", "search")
 EVAL_PREFIX = "| makeresults | where "
+SEARCH_SUFFIX = "\n| head 1"  # own line: the search may end in a ``` comment
 _NUMERIC_TOKEN_RE = re.compile(r"^(?:run\.scheduled_time|run\.now|[a-z][a-z0-9_]*\.resultCount)$")
 
 
@@ -150,7 +165,8 @@ def compile_condition(text, step_ids, kind):
     ``eval``: ``| makeresults | where <text>``. A numeric token (``$<step>.resultCount$``,
     ``$run.scheduled_time$``, ``$run.now$``) outside a string becomes
     ``tonumber("$args.x$")``, so it compares as a number; other tokens are quoted strings,
-    as in steps. ``search``: compiled exactly like a step's SPL."""
+    as in steps. ``search``: compiled exactly like a step's SPL, then ``| head 1``: one
+    row decides, so the search can stop there."""
     if kind == "eval":
         def outside(name, tok):
             if _NUMERIC_TOKEN_RE.match(name):
@@ -158,7 +174,8 @@ def compile_condition(text, step_ids, kind):
             return '"%s"' % tok
         spl, names = _compile(text or "", step_ids, outside)
         return EVAL_PREFIX + spl, names
-    return compile_spl(text or "", step_ids)
+    spl, names = compile_spl(text or "", step_ids)
+    return spl.rstrip() + SEARCH_SUFFIX, names
 
 
 INPUT_ARG = "so_input"
