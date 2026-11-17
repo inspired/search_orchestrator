@@ -2,15 +2,18 @@
  * the shape, an icon, a label and a detail line. The + handle and outcome tabs are PlusHandle.tsx. */
 import React from 'react';
 import Bell from '@splunk/react-icons/Bell';
+import BalloonsChat from '@splunk/react-icons/BalloonsChat';
 import Briefcase from '@splunk/react-icons/Briefcase';
+import Clipboard from '@splunk/react-icons/Clipboard';
 import Clock from '@splunk/react-icons/Clock';
 import Cylinder from '@splunk/react-icons/Cylinder';
 import Diamond from '@splunk/react-icons/Diamond';
 import Filter from '@splunk/react-icons/Filter';
 import Magnifier from '@splunk/react-icons/Magnifier';
+import MobilePhone from '@splunk/react-icons/MobilePhone';
 import ArrowRight from '@splunk/react-icons/ArrowRight';
 import type { Theme } from './GraphView';
-import type { FlowNode } from './nodeModel';
+import type { FlowNode, NodeKind } from './nodeModel';
 import { FAMILY_OF, FAMILY_STYLE, Family, nodeSize, shapePath } from './nodeStyle';
 
 type Icon = React.ComponentType<React.SVGProps<SVGSVGElement> & { 'aria-hidden'?: boolean }>;
@@ -23,6 +26,12 @@ const ICON: Record<Family, Icon> = {
     write: Cylinder,
     chain: ArrowRight,
     job: Briefcase,
+};
+/** Kinds with an icon of their own instead of their family's. */
+const KIND_ICON: Partial<Record<NodeKind, Icon>> = {
+    teams: BalloonsChat,
+    pagerduty: MobilePhone,
+    servicenow: Clipboard,
 };
 
 const STRIPE = 4;
@@ -57,7 +66,7 @@ export function NodeShape({ node, theme, selected = false, stroke, status, statu
     const color = theme[colorToken];
     const { w, h } = nodeSize(node.kind, compact);
     const d = shapePath(shape, w, h);
-    const Glyph = ICON[family];
+    const Glyph = KIND_ICON[node.kind] || ICON[family];
     // Compact and full drawings of one node can be on screen together: their ids differ.
     const clipId = `so-clip-${node.key.replace(/[^A-Za-z0-9_-]/g, '_')}${compact ? '-c' : ''}`;
     const outline = selected ? theme.focusColor : stroke || theme.borderColorStrong;

@@ -1,5 +1,5 @@
 /* The side panel for a selected action node: when it fires (a step or the whole job, and
- * which of its outcomes), what it does, and removing it. */
+ * which of its outcomes), what it does (with its preset's options), and removing it. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -8,6 +8,7 @@ import Select from '@splunk/react-ui/Select';
 import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
 import { ActionFields } from './ActionsEditor';
 import { stepLabel } from './GraphView';
+import PresetOptions from './PresetOptions';
 import { IssueList } from './StepPanel';
 import { ActionScope, HOOK_FOR_PORT, PortId, actionKey } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
@@ -95,6 +96,14 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
                 tokenGroups={tokenGroups}
                 onChange={(next) => dispatch({ type: 'updateAction', scope, index, changes: diff(action, next) })}
             />
+            {action.type === 'webhook' && (
+                <PresetOptions
+                    preset={action.preset}
+                    options={action.options}
+                    idPrefix={`action-${scope}-${index}-options`}
+                    onChange={(options) => dispatch({ type: 'updateAction', scope, index, changes: { options } })}
+                />
+            )}
             <div style={{ marginTop: '12px' }}>
                 <Button appearance="destructive" label="Remove action" onClick={() => onRequestRemove(key)} />
             </div>

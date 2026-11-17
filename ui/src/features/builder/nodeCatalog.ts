@@ -30,13 +30,16 @@ export const CATALOG: CatalogEntry[] = [
     entry('email', 'Email', ['mail', 'message', 'notify'], 'Send an email when the step or job gets here.'),
     entry('webhook', 'Webhook', ['http', 'post', 'url', 'notify'], 'Send a web request when the step or job gets here.'),
     entry('slack', 'Slack', ['chat', 'message', 'notify', 'channel'], 'Post a message to Slack when the step or job gets here.'),
+    entry('teams', 'Microsoft Teams', ['teams', 'chat'], 'Post a card to a Microsoft Teams channel when the step or job gets here.'),
+    entry('pagerduty', 'PagerDuty', ['pagerduty', 'page', 'incident', 'on-call'], 'Page the on-call person through PagerDuty when the step or job gets here.'),
+    entry('servicenow', 'ServiceNow', ['servicenow', 'ticket', 'incident', 'snow'], 'Open a ServiceNow incident when the step or job gets here.'),
     entry('event', 'Event to an index', ['index', 'hec', 'log', 'write'], 'Write an event to an index when the step or job gets here.'),
     entry('alert_action', 'Alert action', ['alert', 'action', 'notify'], 'Run a Splunk alert action when the step or job gets here.'),
     entry('start_job', 'Start another job', ['chain', 'run', 'job', 'trigger'], 'Start a different job when the step or job gets here.'),
 ];
 
 const STEP_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
-const ACTION_KINDS: NodeKind[] = ['email', 'webhook', 'event', 'alert_action', 'start_job', 'slack'];
+const ACTION_KINDS: NodeKind[] = ['email', 'webhook', 'event', 'alert_action', 'start_job', 'slack', 'teams', 'pagerduty', 'servicenow'];
 
 const inCatalog = (kinds: NodeKind[]): NodeKind[] => CATALOG.filter((e) => kinds.includes(e.kind)).map((e) => e.kind);
 

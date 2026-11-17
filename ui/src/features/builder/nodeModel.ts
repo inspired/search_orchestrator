@@ -18,6 +18,9 @@ export type NodeKind =
     | 'email'
     | 'webhook'
     | 'slack'
+    | 'teams'
+    | 'pagerduty'
+    | 'servicenow'
     | 'event'
     | 'alert_action'
     | 'start_job'
@@ -123,12 +126,15 @@ export function nodeKindOfStep(step: StepDef): NodeKind {
     return step.type === 'previous' ? 'previous' : 'search';
 }
 
+/** Webhook presets drawn, and added, as node kinds of their own. */
+export const CHANNEL_PRESETS: NodeKind[] = ['slack', 'teams', 'pagerduty', 'servicenow'];
+
 export function nodeKindOfAction(a: Action): NodeKind {
     switch (a.type) {
         case 'email':
             return 'email';
         case 'webhook':
-            return a.preset === 'slack' ? 'slack' : 'webhook';
+            return CHANNEL_PRESETS.includes(a.preset as NodeKind) ? (a.preset as NodeKind) : 'webhook';
         case 'event':
             return 'event';
         case 'start_job':
@@ -157,6 +163,9 @@ const ACTION_LABEL: Record<string, string> = {
     email: 'Email',
     webhook: 'Webhook',
     slack: 'Slack',
+    teams: 'Microsoft Teams',
+    pagerduty: 'PagerDuty',
+    servicenow: 'ServiceNow',
     event: 'Event to an index',
     alert_action: 'Alert action',
     start_job: 'Start another job',
@@ -165,6 +174,9 @@ const ACTION_FIELD: Record<string, string> = {
     email: 'to',
     webhook: 'destination',
     slack: 'destination',
+    teams: 'destination',
+    pagerduty: 'destination',
+    servicenow: 'destination',
     event: 'index',
     alert_action: 'action',
     start_job: 'job',

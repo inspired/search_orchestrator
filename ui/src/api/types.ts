@@ -61,6 +61,10 @@ export interface RunWhen {
 export interface Action {
     hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed' | 'on_late';
     type: 'webhook' | 'email' | 'event' | 'start_job' | 'alert_action';
+    /** Webhooks: the body format; absent uses the destination's. */
+    preset?: WebhookPreset;
+    /** PagerDuty and ServiceNow webhooks (bin/so/presets.py PRESET_OPTIONS); never `{}`. */
+    options?: Record<string, string>;
     [field: string]: unknown;
 }
 
@@ -343,18 +347,25 @@ export interface AlertAction {
     params: AlertActionParam[];
 }
 
+export type WebhookPreset = 'generic' | 'slack' | 'teams' | 'pagerduty' | 'servicenow';
+
 export interface Destination {
     name: string;
-    preset: 'slack' | 'generic';
+    preset: WebhookPreset;
     host: string | null;
     has_headers: boolean;
+    /** PagerDuty: whether a routing key is stored (it is never shown). */
+    body_secret_set?: boolean;
 }
 
 export interface DestinationInput {
     name: string;
+    /** PagerDuty: empty uses the Events API v2 endpoint. */
     url: string;
-    preset?: 'slack' | 'generic';
+    preset?: WebhookPreset;
     headers?: Record<string, string> | null;
+    /** PagerDuty only, write-only; absent keeps the stored key. */
+    routing_key?: string;
 }
 
 export interface Health {

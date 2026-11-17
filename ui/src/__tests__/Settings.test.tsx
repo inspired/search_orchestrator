@@ -121,6 +121,54 @@ describe('Settings', () => {
         });
     });
 
+    test('Body format offers every preset; Routing key shows only for PagerDuty and is write-only', async () => {
+        const api = fakeApi();
+        renderThemed(<SettingsPage api={api} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));
+        expect(screen.queryByLabelText('Routing key')).toBeNull();
+        fireEvent.click(screen.getByRole('combobox', { name: 'Body format' }));
+        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Generic JSON', 'Slack', 'Microsoft Teams', 'PagerDuty', 'ServiceNow']);
+        fireEvent.click(screen.getByRole('option', { name: 'PagerDuty' }));
+        const key = screen.getByLabelText('Routing key') as HTMLInputElement;
+        expect(key.type).toBe('password');
+        expect(screen.getByTestId('dest-routing-key')).toHaveTextContent('Not set');
+        fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'pd_oncall' } });
+        // The URL may stay empty: the server uses the PagerDuty Events API.
+        expect(screen.getByRole('button', { name: 'Save destination' })).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.change(key, { target: { value: 'R0UT1NG' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save destination' }));
+        await waitFor(() =>
+            expect(api.saveDestination).toHaveBeenCalledWith({ name: 'pd_oncall', url: '', preset: 'pagerduty', routing_key: 'R0UT1NG' })
+        );
+    });
+
+    test('a stored routing key shows Set and an empty field keeps it', async () => {
+        const pd: Destination = { name: 'pd', preset: 'pagerduty', host: 'events.pagerduty.com', has_headers: false, body_secret_set: true };
+        const api = fakeApi({ listDestinations: jest.fn(() => Promise.resolve([...DESTS, pd])) });
+        renderThemed(<SettingsPage api={api} />);
+        const row = (await screen.findByText('pd')).closest('tr') as HTMLElement;
+        expect(within(row).getByText('PagerDuty')).toBeInTheDocument();
+        fireEvent.click(within(row).getByRole('button', { name: /Replace/ }));
+        expect(screen.getByTestId('dest-routing-key')).toHaveTextContent('Set');
+        expect((screen.getByLabelText('Routing key') as HTMLInputElement).value).toBe('');
+        fireEvent.click(screen.getByRole('button', { name: 'Save destination' }));
+        await waitFor(() => expect(api.saveDestination).toHaveBeenCalledWith({ name: 'pd', url: '', preset: 'pagerduty' }));
+    });
+
+    test('a ServiceNow URL must end in the incident table path', async () => {
+        renderThemed(<SettingsPage api={fakeApi()} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));
+        fireEvent.click(screen.getByRole('combobox', { name: 'Body format' }));
+        fireEvent.click(screen.getByRole('option', { name: 'ServiceNow' }));
+        expect(screen.queryByLabelText('Routing key')).toBeNull();
+        fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'snow' } });
+        fireEvent.change(screen.getByLabelText('New URL'), { target: { value: 'https://acme.service-now.com/' } });
+        expect(screen.getByText('A ServiceNow URL ends in /api/now/table/incident.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Save destination' })).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.change(screen.getByLabelText('New URL'), { target: { value: 'https://acme.service-now.com/api/now/table/incident' } });
+        expect(screen.getByRole('button', { name: 'Save destination' })).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
     test('limits show their bounds and the server issues', async () => {
         const api = fakeApi({
             putSettings: jest.fn(() =>

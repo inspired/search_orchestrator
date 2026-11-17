@@ -13,6 +13,8 @@ describe('Legend', () => {
         Object.values(FAMILY_STYLE).forEach((f) => expect(screen.getAllByText(f.label).length).toBeGreaterThan(0));
         const write = rows.find((r) => r.getAttribute('data-family') === 'write') as HTMLElement;
         expect(within(write).getByText(/Summary index, Lookup, Event to an index/)).toBeInTheDocument();
+        const notify = rows.find((r) => r.getAttribute('data-family') === 'notify') as HTMLElement;
+        expect(within(notify).getByText(/Microsoft Teams, PagerDuty, ServiceNow/)).toBeInTheDocument();
         const job = rows.find((r) => r.getAttribute('data-family') === 'job') as HTMLElement;
         expect(within(job).getByText(/Whole job/, { selector: 'span' })).toBeInTheDocument();
         rows.forEach((r) => expect(r.querySelector('svg path')).not.toBeNull());

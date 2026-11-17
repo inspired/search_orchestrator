@@ -2,6 +2,8 @@ import type { JobDefinition } from '../api/types';
 import {
     EDGE_CONDITION_FOR_PORT, HOOK_FOR_PORT, buildGraph, canConnect, nodeKindOfAction, outputPorts,
 } from '../features/builder/nodeModel';
+import { FAMILY_OF } from '../features/builder/nodeStyle';
+import { addNodeKey, initialState, reducer } from '../features/builder/reducer';
 
 const job: JobDefinition = {
     name: 'nightly',
@@ -105,5 +107,43 @@ describe('readable details', () => {
         expect(t({ type: 'completion', job: 'up', on: 'success' })).toBe('When up succeeds');
         expect(t({ type: 'completion', job: 'up', on: 'complete' })).toBe('When up finishes');
         expect(t({ type: 'completion', job: '', on: 'success' })).toBe('Pick a job');
+    });
+});
+
+describe('channel nodes', () => {
+    it('maps the Teams, PagerDuty and ServiceNow presets to their own kinds and labels', () => {
+        expect(nodeKindOfAction({ hook: 'on_failure', type: 'webhook', preset: 'pagerduty' })).toBe('pagerduty');
+        expect(nodeKindOfAction({ hook: 'on_failure', type: 'webhook', preset: 'teams' })).toBe('teams');
+        expect(nodeKindOfAction({ hook: 'on_failure', type: 'webhook', preset: 'servicenow' })).toBe('servicenow');
+        expect(nodeKindOfAction({ hook: 'on_failure', type: 'webhook', preset: 'generic' })).toBe('webhook');
+        const g = buildGraph({
+            name: 'x',
+            enabled: true,
+            steps: [],
+            actions: [
+                { hook: 'on_failure', type: 'webhook', preset: 'teams', destination: 'ops-teams' },
+                { hook: 'on_failure', type: 'webhook', preset: 'pagerduty', destination: 'pd' },
+                { hook: 'on_failure', type: 'webhook', preset: 'servicenow', destination: 'snow' },
+            ],
+        });
+        const actions = g.nodes.filter((n) => n.action);
+        expect(actions.map((n) => [n.label, n.detail])).toEqual([
+            ['Microsoft Teams', 'ops-teams'],
+            ['PagerDuty', 'pd'],
+            ['ServiceNow', 'snow'],
+        ]);
+        actions.forEach((n) => expect(FAMILY_OF[n.kind]).toBe('notify'));
+    });
+
+    it('adding a ServiceNow node from a step’s ✗ Fails makes a bare webhook action without options', () => {
+        const s0 = initialState(job);
+        const from = { key: 'step:a', port: 'failure' as const };
+        expect(addNodeKey(s0.job, 'servicenow', from)).toBe('action:a:1');
+        const s = reducer(s0, { type: 'addNode', kind: 'servicenow', from });
+        expect(s.job.steps[0].actions?.[1]).toEqual({ type: 'webhook', preset: 'servicenow', hook: 'on_failure', destination: '' });
+        const pd = reducer(s0, { type: 'addNode', kind: 'pagerduty' });
+        expect(pd.job.actions?.[1]).toEqual({ type: 'webhook', preset: 'pagerduty', hook: 'on_failure', destination: '' });
+        const teams = reducer(s0, { type: 'addNode', kind: 'teams' });
+        expect(teams.job.actions?.[1]).toEqual({ type: 'webhook', preset: 'teams', hook: 'on_failure', destination: '' });
     });
 });

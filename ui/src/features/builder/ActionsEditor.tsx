@@ -10,11 +10,12 @@ import { TokenInput } from './InsertToken';
 import type { TokenGroup } from './tokens';
 import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
 
-/** A webhook with the Slack preset is shown, and picked, as its own type. */
+/** A webhook with the Slack, Teams, PagerDuty or ServiceNow preset is shown, and picked, as its own type. */
+const CHANNELS: Record<string, string> = { slack: 'Slack', teams: 'Microsoft Teams', pagerduty: 'PagerDuty', servicenow: 'ServiceNow' };
 const TYPES: { value: string; label: string }[] = [
     { value: 'email', label: 'Email' },
     { value: 'webhook', label: 'Webhook' },
-    { value: 'slack', label: 'Slack' },
+    ...Object.entries(CHANNELS).map(([value, label]) => ({ value, label })),
     { value: 'event', label: 'Event to an index' },
     { value: 'start_job', label: 'Start another job' },
     { value: 'alert_action', label: 'Alert action' },
@@ -152,7 +153,13 @@ export interface ActionFieldsProps {
 
 /** One action's kind and the fields that kind needs (everything but its hook). */
 export function ActionFields({ action: a, onChange, destinations, alertActions = null, idPrefix, tokenGroups }: ActionFieldsProps) {
-    const isSlack = a.type === 'webhook' && a.preset === 'slack';
+    const channel = a.type === 'webhook' && typeof a.preset === 'string' && CHANNELS[a.preset] ? a.preset : null;
+    // Slack keeps every destination; the other channels need one of their own format (PagerDuty's holds its key).
+    const filtered = channel && channel !== 'slack';
+    const choices = filtered ? destinations.filter((d) => d.preset === channel) : destinations;
+    const noChoices = filtered
+        ? `No ${CHANNELS[channel as string]} destinations yet; ask an admin to add one in Settings`
+        : 'No destinations yet. An admin adds them in Settings.';
     const typeId = `${idPrefix}-type`;
     const destId = `${idPrefix}-destination`;
     const presetId = `${idPrefix}-preset`;
@@ -187,12 +194,14 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
             <ControlGroup label="Do" labelFor={typeId} labelPosition="top">
                 <Select
                     inputId={typeId}
-                    value={isSlack ? 'slack' : a.type}
+                    value={channel || a.type}
                     onChange={(_e: unknown, { value }: { value: unknown }) =>
                         onChange(
                             value === 'slack'
                                 ? { hook: a.hook, type: 'webhook', preset: 'slack', destination: str(a.destination) }
-                                : { hook: a.hook, type: value as Action['type'] }
+                                : CHANNELS[String(value)]
+                                  ? { hook: a.hook, type: 'webhook', preset: value as Action['preset'], destination: '' }
+                                  : { hook: a.hook, type: value as Action['type'] }
                         )
                     }
                 >
@@ -214,7 +223,7 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                         label="Destination"
                         labelFor={destId}
                         labelPosition="top"
-                        help={destinations.length ? undefined : 'No destinations yet. An admin adds them in Settings.'}
+                        help={choices.length ? undefined : noChoices}
                     >
                         <Select
                             inputId={destId}
@@ -222,19 +231,19 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                             placeholder="Pick a destination"
                             onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ ...a, destination: String(value) })}
                         >
-                            {destinations.map((d) => (
+                            {choices.map((d) => (
                                 <Select.Option key={d.name} label={d.name} value={d.name} />
                             ))}
                         </Select>
                     </ControlGroup>
-                    {!isSlack && (
+                    {!channel && (
                         <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
                             <Select
                                 inputId={presetId}
                                 value={str(a.preset)}
                                 onChange={(_e: unknown, { value }: { value: unknown }) => {
                                     const { preset: _old, ...rest } = a;
-                                    onChange(value ? { ...rest, preset: String(value) } : (rest as Action));
+                                    onChange(value ? { ...rest, preset: value as Action['preset'] } : (rest as Action));
                                 }}
                             >
                                 <Select.Option label="The destination's default" value="" />
