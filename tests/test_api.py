@@ -1783,3 +1783,26 @@ def test_layout_and_step_output_are_stored_and_returned(w):
     job = out["job"]
     assert job["layout"] == body["layout"]
     assert job["steps"][0]["output"] == body["steps"][0]["output"]
+
+
+def test_on_late_is_a_whole_job_outcome(w):
+    body = job_body()
+    body["steps"][0]["actions"] = [{"hook": "on_late", "type": "email", "to": "ops@example.com"}]
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 400
+    assert [(i["code"], i["message"], i["step"]) for i in out["error"]["issues"]
+            if i["level"] == "error"] == [
+        ("bad_action", "Is late is a whole-job outcome; connect it from the Whole job node", "a")]
+
+
+def test_job_level_on_late_action_and_deadline_save(w):
+    body = job_body(deadline={"finish_by": "06:00"}, actions=[
+        {"hook": "on_late", "type": "email", "to": "ops@example.com"}])
+    job = saved(w, body=body)
+    assert job["deadline"] == {"finish_by": "06:00"}
+    assert job["actions"][0]["hook"] == "on_late"
+
+
+def test_job_without_deadline_is_saved_without_one(w):
+    assert "deadline" not in saved(w)
+    assert "deadline" not in w.store.get_job("daily")

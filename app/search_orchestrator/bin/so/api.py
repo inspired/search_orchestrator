@@ -65,7 +65,7 @@ AUDIT_INDEX = "orchestrator"
 RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
-HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed")
+HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late")
 PRESETS = ("slack", "generic")
 # Integer settings and their upper bounds (the lower bound is 1).
 INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 1000,
@@ -350,6 +350,9 @@ def _job_issues(ctx, job):
         if action.get("hook") not in HOOKS:
             issues.append(_issue("error", "bad_action", "unknown action time %r; choose one in When"
                                  % (action.get("hook"),), step_id))
+        elif action["hook"] == "on_late" and step_id is not None:
+            issues.append(_issue("error", "bad_action", "Is late is a whole-job outcome; "
+                                 "connect it from the Whole job node", step_id))
         required = {"email": "to", "event": "index", "start_job": "job",
                     "alert_action": "action", "webhook": "destination"}[kind]
         if not isinstance(action.get(required), str) or not action[required]:

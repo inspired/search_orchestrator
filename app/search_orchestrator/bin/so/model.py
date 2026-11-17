@@ -2,7 +2,7 @@
 
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
-unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_needs_pipe,
+unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_deadline, bad_shape, previous_needs_pipe,
 previous_needs_dependency; warnings timezone_fallback, previous_old_time_range.
 ``workload_pool`` was removed from the first version and is ignored.
 """
@@ -10,6 +10,7 @@ import math
 import re
 
 from . import cron as cronmod
+from . import deadline as deadlinemod
 from . import expr as exprmod
 from . import tokens as tk
 
@@ -319,6 +320,8 @@ def _shape_issues(job):
         bad("defaults must be an object")
     if job.get("timezone") is not None and not isinstance(job["timezone"], str):
         bad("timezone must be a string")
+    if job.get("deadline") is not None and not isinstance(job["deadline"], dict):
+        out.append(_issue("error", "bad_deadline", deadlinemod.shape_issues(job["deadline"])[0]))
 
     if "layout" in job and not _layout_ok(job["layout"]):
         bad("layout is broken; use Tidy up and save again")
@@ -395,6 +398,8 @@ def _validate(job, known_saved_searches):
         elif status == "unavailable":
             issues.append(_issue("warning", "timezone_fallback",
                                  "the server can't look up time zones, so schedules will use its local time; ask your Splunk admin to install time zone data"))
+    if job.get("deadline") is not None:
+        issues.extend(_issue("error", "bad_deadline", m) for m in deadlinemod.shape_issues(job["deadline"]))
     for t in job.get("triggers", []) or []:
         if t.get("type") == "cron":
             try:

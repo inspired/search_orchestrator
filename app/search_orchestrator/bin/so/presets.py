@@ -10,7 +10,8 @@ import re
 from . import tokens
 
 _VERB = {"on_start": "started", "on_success": "succeeded", "on_failure": "failed",
-         "on_complete": "completed", "on_delayed": "is delayed"}
+         "on_complete": "completed", "on_delayed": "is delayed",
+         "on_late": "is late"}
 _FIELD = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 

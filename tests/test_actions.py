@@ -627,3 +627,33 @@ def test_two_start_job_actions_to_one_target_start_two_runs_once():
     w.pump()
     assert len(w.store.list_runs({"job_id": "down"})) == 2
     assert all(e["state"] == "done" for e in w.rows(kind="action")[0]["actions"])
+
+
+def test_on_late_uses_the_fallback_without_a_job_level_on_late_action():
+    w = W(settings=FALLBACK)
+    w.run["state"] = "running"
+    w.submit("on_late", "job", occurrence=0)
+    assert [r["hook"] for r in w.rows(kind="fallback")] == ["on_late"]
+    w.pump()
+    assert json.loads(w.gw.webhook_log[0]["body"])["hook"] == "on_late"
+
+
+def test_on_late_has_no_fallback_with_a_job_level_on_late_action():
+    w = W(actions=[dict(WEBHOOK, hook="on_late")], settings=FALLBACK)
+    w.run["state"] = "running"
+    assert w.submit("on_late", "job", occurrence=0)
+    assert not w.rows(kind="fallback")
+
+
+def test_on_late_action_out_of_retries_sends_the_fallback():
+    w = W(actions=[dict(WEBHOOK, hook="on_late")], settings=FALLBACK)
+    w.gw.secrets["ops_url"] = "http://bad.example.com/x"
+    w.submit("on_late", "job", occurrence=0)
+    w.pump()
+    assert len(w.rows(kind="fallback")) == 1
+
+
+def test_on_late_message_verb():
+    text = presets.default_message({"job": "Daily summary", "run_id": "r1", "hook": "on_late",
+                                    "scope": "job", "status": "running"})
+    assert text.startswith('Job "Daily summary" is late (run r1, status running).')

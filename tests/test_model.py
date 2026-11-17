@@ -318,3 +318,26 @@ def test_bad_layout_groups_are_bad_shape():
         bad = [i for i in validate_job(j) if i["code"] == "bad_shape"]
         assert len(bad) == 1, (value, bad)
         assert bad[0]["message"] == "a group in layout is broken; remove it and save again"
+
+
+def test_bad_deadline_messages():
+    def deadline_issues(dl):
+        return [(i["code"], i["message"]) for i in validate_job(job(deadline=dl))
+                if i["code"] == "bad_deadline"]
+    assert deadline_issues({"finish_by": "6am"}) == [
+        ("bad_deadline", "Finish by must be a time like 06:00")]
+    assert deadline_issues({"within": 30}) == [
+        ("bad_deadline", "Finish within must be between 1 minute and 7 days")]
+    assert deadline_issues({}) == [
+        ("bad_deadline", "Set Finish by or Finish within, or remove the deadline")]
+    assert deadline_issues("06:00") == [("bad_deadline", "deadline must be an object")]
+    assert [i["level"] for i in validate_job(job(deadline={}))
+            if i["code"] == "bad_deadline"] == ["error"]
+    assert not deadline_issues({"finish_by": "06:00", "within": 3600})
+
+
+def test_job_without_deadline_has_no_new_issue():
+    j = job(edges=[("a", "b")])
+    assert "deadline" not in j
+    assert not [i for i in validate_job(j) if i["level"] == "error"]
+    assert "bad_deadline" not in codes(validate_job(j))

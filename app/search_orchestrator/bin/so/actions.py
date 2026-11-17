@@ -44,7 +44,8 @@ seconds. A non-transient error (https rule, 4xx, unknown destination, no
 permission) fails at once.
 
 Fallback (spec section 10, decided here, on the job-scope event only): the run
-failing (``on_failure``) or being delayed (``on_delayed``) is sent to
+failing (``on_failure``), being delayed (``on_delayed``) or missing its deadline
+(``on_late``) is sent to
 ``settings.fallback`` (``{"type": "webhook", "destination": name}`` or
 ``{"type": "email", "to": address}``) unless the job has a job-level action for
 the hook, or (failure) an unhandled failed step has a step-level on_failure
@@ -84,7 +85,7 @@ PUMP_BUDGET = 5.0
 CHAIN_LIMIT = 10
 RUNNING_LIMIT = 600  # seconds a hidden action search may run
 BATCH = 100
-FALLBACK_HOOKS = ("on_delayed", "on_failure")
+FALLBACK_HOOKS = ("on_delayed", "on_failure", "on_late")
 SEARCH_TYPES = ("email", "event", "alert_action")
 
 
@@ -162,6 +163,10 @@ def _needs_delay_fallback(run, definition):
     return True
 
 
+def _needs_late_fallback(run, definition):
+    return not any(a.get("hook") == "on_late" for a in definition.get("actions") or [])
+
+
 class ActionRunner:
     def __init__(self, gateway, store=None, audit=None, clock=time.time,
                  monotonic=time.monotonic):
@@ -199,7 +204,8 @@ class ActionRunner:
                "fallback": False, "created_at": int(self.clock())}
         new = self.gw.kv_insert(ACTION_RUNS, doc)
         needs = {"on_failure": _needs_failure_fallback,
-                 "on_delayed": _needs_delay_fallback}.get(hook)
+                 "on_delayed": _needs_delay_fallback,
+                 "on_late": _needs_late_fallback}.get(hook)
         if scope == "job" and needs and needs(run, definition):
             self._ensure_fallback(doc)  # also on replay: the insert is idempotent
         return new and bool(matching)

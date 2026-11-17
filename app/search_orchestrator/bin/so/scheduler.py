@@ -18,7 +18,8 @@ cron, ``job:upstream_run_id:trigger`` for chained runs (start_job actions add
 otherwise. A re-run with "start downstream jobs again" ticked deliberately
 starts them once more: its chained keys add ``:rerun<rerun_count>``, which is
 still deterministic, so a restart cannot create that run twice either. It snapshots the job definition (spec section 4) and enforces the
-per-job queue cap: a rejected run is audited and reported through the job's
+per-job queue cap, and stores the run's ``deadline_at`` (``deadline.py``; None for
+runs without a deadline) and ``late_at: None``. A rejected run is audited and reported through the job's
 ``on_failure`` actions. While the job is held, rejections fold into the held
 run's daily hold alert instead (keyed per day), so they never notify per slot.
 """
@@ -29,6 +30,7 @@ import time
 import uuid
 
 from . import cron as cronmod
+from . import deadline as deadlinemod
 from . import tokens
 from .store import ACTIVE_RUN_STATES
 
@@ -179,6 +181,8 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "started_at": None, "ended_at": None, "delay_base": None, "giveup_base": None,
            "paused_seconds": 0, "paused_at": None, "hooks_fired": [], "delay_alerted": False,
            "held": False, "gave_up": False, "rerun_count": 0, "chain_depth": int(chain_depth),
+           "deadline_at": deadlinemod.deadline_at(definition, scheduled_time, trigger, catchup),
+           "late_at": None,
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:
         queue_cap = (store.get_settings() or {}).get("queue_cap") or QUEUE_CAP
