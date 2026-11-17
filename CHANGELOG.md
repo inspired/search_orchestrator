@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.16.0 (2026-11-17)
+
+A Run health dashboard and colours in the job source view.
+
+- **Run health** (new menu item): a Dashboard Studio dashboard with a time picker and job filter. It shows run KPIs, runs over time by state, runs that need attention (click to open the run), the steps that fail most, the slowest steps, actions sent and failed, and engine health from `_internal`. It reads the audit index through the `orchestrator_index` macro and `_internal` through the new `orchestrator_internal` macro.
+- The engine now writes a `step_delayed` audit event when a step passes its delay limit, and action events carry the webhook `preset`, so the dashboard can count delays and Slack messages. The REST handler prefixes its warnings with `orchestrator_rest:`.
+- The **Source** tab colours keys, strings, numbers and `true`/`false`/`null`, and colours the SPL inside `"spl"` values.
+
 ## 1.15.2 (2026-11-17)
 
 A quieter Flow canvas: the + appears when you need it, and outcome tabs sit at the middle of the node.
