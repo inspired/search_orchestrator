@@ -8,7 +8,7 @@ past and would be late at once.
 
 ``deadline_at`` is computed once, when the run is created, and stored on the run;
 a re-run keeps it. A run that ended before its deadline met it; a re-run of it
-is never late (``keep_met``). ``within`` is the scheduled time plus that many seconds.
+started at or after the deadline is never late (``keep_met``). ``within`` is the scheduled time plus that many seconds.
 ``finish_by`` is the first ``HH:MM`` in the job's time zone at or after the
 scheduled time; a time that does not exist on a DST day is the first instant
 after the gap. With both, the earlier wins. The deadline is wall-clock time, so
@@ -83,10 +83,11 @@ def deadline_at(definition, scheduled_time, trigger, catchup):
     return min(candidates) if candidates else None
 
 
-def keep_met(old, new):
-    """Mark the re-run ``new`` as having met its deadline when ``old`` ended before it."""
+def keep_met(old, new, now):
+    """Mark the re-run ``new`` as having met its deadline when ``old`` ended before it
+    and the re-run starts at or after it (a re-run started earlier can still be late)."""
     at, ended = old.get("deadline_at"), old.get("ended_at")
-    if at is not None and ended is not None and int(ended) < int(at):
+    if at is not None and ended is not None and int(ended) < int(at) <= int(now):
         new["deadline_met"] = True
 
 

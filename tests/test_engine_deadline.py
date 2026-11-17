@@ -152,3 +152,22 @@ def test_rerun_after_the_deadline_of_a_run_that_ended_in_time_is_not_late():
     assert not w.audit.of("run_late", run_id=run_id)
     assert not _late_rows(w, run_id)
     assert w.run(run_id)["late_at"] is None
+
+
+def test_rerun_started_before_the_deadline_still_goes_late_once():
+    w = World()
+    j = w.add_job(_late_job(defaults={"give_up_after": 300}),
+                  scripts={"a": {"states": ["running"]}})
+    run_id = cron_run(w, j)
+    w.tick(at=T0 + 300)
+    assert w.run(run_id)["state"] == "failed"
+    w.tick(at=T0 + 395)
+    w.command(type="rerun", run_id=run_id, step_id="a", definition="original")
+    w.tick(advance=5)
+    assert w.run(run_id)["state"] == "running"
+    w.tick(at=T0 + 600)
+    late = w.audit.of("run_late", run_id=run_id)
+    assert len(late) == 1 and late[0]["state"] == "running"
+    assert len(_late_rows(w, run_id)) == 1
+    w.tick(advance=60)
+    assert len(w.audit.of("run_late", run_id=run_id)) == 1

@@ -476,7 +476,7 @@ class Engine:
                               if st.get("sid") and st.get("state") != "waiting"})
         if definition is not None:
             new["owner"] = job.get("owner")
-        deadlinemod.keep_met(run, new)
+        deadlinemod.keep_met(run, new, now)
         if new["state"] == "queued":
             new["queued_at"] = now
         old_steps = run.get("steps") or {}
