@@ -1,0 +1,86 @@
+{
+  "id": "example_failure_path",
+  "name": "Example: retries, recovery and clean-up",
+  "description": "The export step retries twice before it fails. If it still fails, a recovery step runs (a Fails line); a summary step runs either way (a Finishes either way line) and records the export's status. The whole job emails you@example.com on failure; to post to a webhook instead, ask an admin to add a destination in Settings and swap the Email node for a Webhook node.",
+  "enabled": false,
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "0 4 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "export_stats",
+      "name": "Export splunkd stats",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd\n| stats count BY log_level",
+      "earliest": "-1d@d",
+      "latest": "@d",
+      "retries": 2
+    },
+    {
+      "id": "recover",
+      "name": "Record the failure",
+      "type": "inline",
+      "spl": "| makeresults\n| eval note=\"export_stats failed after its retries\", status=$export_stats.status$\n| table _time note status",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "summary",
+      "name": "Summary either way",
+      "type": "previous",
+      "spl": "| stats count AS rows\n| eval export_status=$export_stats.status$"
+    }
+  ],
+  "edges": [
+    {
+      "from": "export_stats",
+      "to": "recover",
+      "condition": "on_failure"
+    },
+    {
+      "from": "export_stats",
+      "to": "summary",
+      "condition": "always"
+    }
+  ],
+  "actions": [
+    {
+      "hook": "on_failure",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} failed",
+      "message": "{{message}}\n\n{{run_url}}"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 94
+      },
+      "job": {
+        "x": 20,
+        "y": 188
+      },
+      "step:export_stats": {
+        "x": 320,
+        "y": 78
+      },
+      "step:recover": {
+        "x": 600,
+        "y": 20
+      },
+      "step:summary": {
+        "x": 600,
+        "y": 136
+      },
+      "action:job:0": {
+        "x": 320,
+        "y": 194
+      }
+    }
+  }
+}

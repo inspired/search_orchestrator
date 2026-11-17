@@ -1,4 +1,5 @@
-/* Jobs: every job the user may see, with Run now, enable/disable, Delete, Create job and Import job. */
+/* Jobs: every job the user may see, with Run now, enable/disable, Delete, Create job, Import job
+ * and Browse examples. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
@@ -7,6 +8,7 @@ import * as client from '../../api/client';
 import type { Job, Me } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import DeleteJobDialog from './DeleteJobDialog';
+import ExamplesDialog from './ExamplesDialog';
 import ImportJobDialog from './ImportJobDialog';
 import JobsTable from './JobsTable';
 import RunNowDialog from './RunNowDialog';
@@ -19,6 +21,7 @@ export interface JobsApi {
     listJobs: typeof client.listJobs;
     setJobEnabled: typeof client.setJobEnabled;
     deleteJob: typeof client.deleteJob;
+    createJob: typeof client.createJob;
 }
 
 const defaultApi: JobsApi = {
@@ -26,6 +29,7 @@ const defaultApi: JobsApi = {
     listJobs: client.listJobs,
     setJobEnabled: client.setJobEnabled,
     deleteJob: client.deleteJob,
+    createJob: client.createJob,
 };
 
 export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
@@ -36,6 +40,8 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
     const [runNow, setRunNow] = useState<Job | null>(null);
     const [importing, setImporting] = useState(false);
     const importOpener = useRef<HTMLElement | null>(null);
+    const [browsing, setBrowsing] = useState(false);
+    const examplesOpener = useRef<HTMLElement | null>(null);
     const [deleting, setDeleting] = useState<Job | null>(null);
     const deleteOpener = useRef<HTMLElement | null>(null);
     const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -69,9 +75,15 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
         }
     };
 
+    const browseExamples = () => {
+        examplesOpener.current = document.activeElement as HTMLElement | null;
+        setBrowsing(true);
+    };
+
     const actions =
         me && me.can_build ? (
             <>
+                <Button appearance="secondary" label="Browse examples" onClick={browseExamples} />
                 <Button
                     appearance="secondary"
                     label="Import job"
@@ -106,6 +118,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     busy={busy}
                     onRunNow={(job) => setRunNow(job)}
                     onToggleEnabled={onToggle}
+                    onBrowseExamples={browseExamples}
                     onDelete={(job, opener) => {
                         deleteOpener.current = opener;
                         setDeleting(job);
@@ -113,6 +126,16 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                 />
             )}
             {importing && <ImportJobDialog onClose={() => setImporting(false)} returnFocus={importOpener} />}
+            {browsing && (
+                <ExamplesDialog
+                    onClose={() => setBrowsing(false)}
+                    returnFocus={examplesOpener}
+                    canAdd={!!(me && me.can_build)}
+                    existingIds={(jobs.data || []).map((j) => j.id)}
+                    createJob={api.createJob}
+                    onAdded={jobs.refresh}
+                />
+            )}
             {runNow && (
                 <RunNowDialog
                     job={runNow}

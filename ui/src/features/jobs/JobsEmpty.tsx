@@ -1,12 +1,13 @@
-/* The Jobs page with no jobs: templates for builders, a hint for everyone else. */
+/* The Jobs page with no jobs: templates and the example jobs for builders, a hint for everyone else. */
 import React from 'react';
+import Button from '@splunk/react-ui/Button';
 import Link from '@splunk/react-ui/Link';
 import type { Me } from '../../api/types';
 import { COMMAND } from '../../appNames';
 import { pageHref } from '../../components/PageShell';
 import TemplatePicker from '../builder/TemplatePicker';
 
-export default function JobsEmpty({ me }: { me: Me | null | undefined }) {
+export default function JobsEmpty({ me, onBrowseExamples }: { me: Me | null | undefined; onBrowseExamples?: () => void }) {
     if (me === undefined) {
         // Access is still loading: say nothing rather than something wrong.
         return <div />;
@@ -21,6 +22,12 @@ export default function JobsEmpty({ me }: { me: Me | null | undefined }) {
                     title="Build your first job"
                     hrefFor={(key) => pageHref('builder', { template: key })}
                 />
+                {onBrowseExamples && (
+                    <p>
+                        Or start from one of ten ready-made jobs, from simple to advanced:{' '}
+                        <Button appearance="secondary" inline label="Browse examples" onClick={onBrowseExamples} />
+                    </p>
+                )}
                 {me.can_admin && (
                     <p>
                         Check the install first: run{' '}

@@ -1,0 +1,85 @@
+{
+  "id": "example_parameters",
+  "name": "Example: parameters for component and threshold",
+  "description": "Declares two parameters: component (one of a list) and threshold (a number). The first step counts the component's warnings and errors; the report step runs only when the count reaches the threshold. Scheduled runs use the defaults; Run now lets you pick other values.",
+  "enabled": false,
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "40 8 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "count_component",
+      "name": "Count the component's problems",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd component=$run.param.component$ (log_level=ERROR OR log_level=WARN)\n| stats count AS events",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "report",
+      "name": "List the problems",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd component=$run.param.component$ (log_level=ERROR OR log_level=WARN)\n| stats count BY log_level, host\n| sort - count",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    }
+  ],
+  "edges": [
+    {
+      "from": "count_component",
+      "to": "report",
+      "condition": "expression",
+      "expression": "$count_component.first.events$ >= $run.param.threshold$"
+    }
+  ],
+  "params": [
+    {
+      "name": "component",
+      "type": "enum",
+      "label": "Component",
+      "default": "ExecProcessor",
+      "values": [
+        "ExecProcessor",
+        "TailReader",
+        "DateParserVerbose",
+        "LineBreakingProcessor",
+        "HttpListener"
+      ],
+      "description": "The splunkd component to check"
+    },
+    {
+      "name": "threshold",
+      "type": "number",
+      "label": "Threshold",
+      "default": 10,
+      "description": "Report when the component logged at least this many warnings and errors"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 120
+      },
+      "step:count_component": {
+        "x": 320,
+        "y": 20
+      },
+      "step:report": {
+        "x": 744,
+        "y": 20
+      },
+      "cond:count_component>report": {
+        "x": 600,
+        "y": 26
+      }
+    }
+  }
+}
