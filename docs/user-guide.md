@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.15.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.15.1. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -21,7 +21,7 @@ A new job starts from a template. Pick one and its steps are filled in, and one 
 - **Run searches side by side, then combine:** two searches run at once, and a third works on both their results.
 - **Blank job:** an empty canvas.
 
-Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button that opens the right tab and selects the node to change; for a job with no schedule yet, it opens the add-node box with the two trigger nodes. It goes away once the job is ready, or sooner with **Hide checklist**.
+Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button that opens the right tab and selects the node to change; for a job with no schedule yet, it opens the add-node box with the two trigger nodes. It goes away once the job is ready, or sooner with **Hide checklist**; the choice is remembered per job in this browser, and **Show checklist** brings it back while the job is not ready.
 
 The job is drawn on the **Flow** tab as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor).
 
@@ -87,7 +87,8 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 - `+` or `Shift+Enter` on a focused node opens its When list. Arrow keys move in the list, `Enter` chooses, then the search box takes over; `Shift+Tab` goes back to the list.
 - `/` opens the add-node box, also from the toolbar. `Tab` opens it too while the pointer is over the canvas. Type to filter, arrow keys to move, `Enter` to add, `Escape` to close.
 - Arrow keys move the selected node by 10 px. `Delete` or `Backspace` asks before removing it; **Undo** brings it back. The full list is under Keyboard shortcuts below.
-- `F` frames the whole graph. Drag the background to pan, and use the wheel or the zoom buttons to zoom.
+- `F` frames the whole graph. Drag the background to pan, and use the wheel or the zoom buttons to zoom. The wheel zooms in proportion to how far you scroll, so a trackpad zooms smoothly.
+- A new search step starts with the time range **The 24 hours before** (earliest `-24h`, latest `now`); change it in the step's panel. Existing, imported and pasted jobs, and saved search steps, are not changed.
 
 **Data and signal lines.** A thick line carries data: it ends at a **Results of earlier steps**, **Summary index** or **Lookup** step, which read the results of the step it comes from. A thin line is a signal: it only says when something runs or fires, such as a line to an action or a dashed line from a trigger.
 

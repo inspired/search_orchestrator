@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.15.1 (2026-11-17)
+
+Gentler wheel zoom, a checklist that can come back, and a default time range.
+
+- The wheel now zooms in proportion to how far you scroll (at most 10 % per event), so a trackpad no longer jumps. The zoom buttons are unchanged.
+- **Hide checklist** is remembered per job, and a **Show checklist** button brings the checklist back while the job is not ready. The stray bullet dots before the check icons are gone.
+- A new search step starts with the time range **The 24 hours before** (earliest `-24h`, latest `now`). Existing and imported jobs, saved search steps and templates are unchanged.
+
 ## 1.15.0 (2026-11-17)
 
 SPL colours in the search field, and `|` on a new line.
