@@ -150,7 +150,7 @@ class _Ctx:
 
 def _routes():
     from . import condition_test as ct, history_api as hv, preview_api as pv  # these import this module: no cycle
-    from . import approval_api as ap, backfill_api as bf, calendar_api as cal
+    from . import approval_api as ap, backfill_api as bf, calendar_api as cal, snippets as sn
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -164,6 +164,9 @@ def _routes():
         (r"backfills/(?P<backfill_id>[^/]+)", {"GET": bf.get_backfill}),
         (r"backfills/(?P<backfill_id>[^/]+)/cancel", {"POST": bf.cancel_backfill}),
         (r"calendar", {"GET": cal.calendar}),
+        (r"snippets", {"GET": sn.list_snippets, "POST": sn.create_snippet}),
+        (r"snippets/(?P<snippet_id>[^/]+)", {"GET": sn.get_snippet, "PUT": sn.update_snippet,
+                                             "DELETE": sn.delete_snippet}),
         (r"runs", {"GET": list_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
@@ -194,7 +197,7 @@ def _is_job_id(value):
 _ID_CHECKS = {"job_id": _is_job_id, "run_id": scheduler.is_run_id,
               "name": lambda v: bool(DEST_NAME_RE.fullmatch(v)),
               "sid": lambda v: preview.parts(v) is not None,
-              "backfill_id": backfill.ID_RE.fullmatch}
+              "backfill_id": backfill.ID_RE.fullmatch, "snippet_id": lambda v: bool(re.fullmatch(r"sn[0-9a-f]{12}", v))}
 
 
 def _relative(path):

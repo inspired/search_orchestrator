@@ -39,6 +39,9 @@ access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 [collections/so_backfills]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 
+[collections/so_snippets]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
 [savedsearches/_so_fallback_email]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 export = none
