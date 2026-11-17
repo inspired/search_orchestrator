@@ -201,7 +201,8 @@ export function groupEdit(job: JobDefinition, action: GroupAction): JobDefinitio
         return JSON.stringify(next) === JSON.stringify(current) ? null : withGroups(job, groups.map((g) => (g === current ? next : g)));
     }
     const { dx, dy } = action;
-    if (!finite(dx) || !finite(dy) || (dx === 0 && dy === 0)) {
+    // A frame that cannot move (past ±1 000 000) leaves its members where they are too.
+    if (!finite(dx) || !finite(dy) || (dx === 0 && dy === 0) || !finite(current.x + dx) || !finite(current.y + dy)) {
         return null;
     }
     const moved = applyChanges(current, { x: current.x + dx, y: current.y + dy });

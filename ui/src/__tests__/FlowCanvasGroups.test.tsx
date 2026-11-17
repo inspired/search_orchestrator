@@ -77,6 +77,18 @@ describe('FlowCanvas groups', () => {
         expect(props.onMove).not.toHaveBeenCalled();
     });
 
+    test('Shift+arrows resize a group by 10 px, never below the minimum', () => {
+        const { props } = setup({ groups: [group(), group({ id: 'g2', x: 2000, w: 125, h: 60 })] });
+        fireEvent.keyDown(groupButton(), { key: 'ArrowRight', shiftKey: true });
+        expect(props.onGroupResize).toHaveBeenCalledWith('g1', { w: 610, h: 200 });
+        fireEvent.keyDown(groupButton(), { key: 'ArrowUp', shiftKey: true });
+        expect(props.onGroupResize).toHaveBeenLastCalledWith('g1', { w: 600, h: 190 });
+        const small = document.querySelector('[data-group-id="g2"]') as HTMLElement;
+        fireEvent.keyDown(small, { key: 'ArrowLeft', shiftKey: true });
+        expect(props.onGroupResize).toHaveBeenLastCalledWith('g2', { w: 120, h: 60 });
+        expect(props.onGroupMove).not.toHaveBeenCalled();
+    });
+
     test('Delete and arrows on a selected group, with focus on the canvas', () => {
         const { props, canvas } = setup({ selected: { kind: 'group', id: 'g1' } });
         fireEvent.keyDown(canvas, { key: 'ArrowUp' });
@@ -197,5 +209,11 @@ describe('FlowCanvas node rendering (from Task 11 review)', () => {
         expect(lastNode.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(full).toHaveAttribute('pointer-events', 'none');
         expect(full).toHaveAttribute('transform', 'translate(100,100)');
+        // The + and tabs are drawn again above the overlay; the real ones keep the pointer.
+        const plusCopy = screen.getByTestId('overlay-plus-step:a');
+        expect(full.contains(plusCopy)).toBe(true);
+        expect(screen.getByTestId('node-full-step:a').querySelector('path')!.compareDocumentPosition(plusCopy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.getByTestId('overlay-tab-step:a-success')).toBeInTheDocument();
+        expect(screen.getAllByTestId('plus-step:a')).toHaveLength(1);
     });
 });

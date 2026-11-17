@@ -16,10 +16,9 @@
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
  * node, Tidy up and Full screen when the caller handles them. Colours come from theme tokens only.
- * Groups (groups.ts, GroupFrame) are frames behind lines and nodes: drag the title bar to move one
- * with its nodes, the corner to resize, double-click to edit the title; Ctrl/Cmd+G or the toolbar
- * groups the selection. Groups are keyboard stops after the nodes (Enter selects, Delete asks to
- * remove, arrows move). Collapsed ones hide their nodes; `readOnly` draws every group expanded. */
+ * Groups (groups.ts, GroupFrame): drag the title bar to move one with its nodes, the corner to resize,
+ * double-click to edit the title; Ctrl/Cmd+G groups the selection; as keyboard stops after the nodes,
+ * Enter selects, Delete removes, arrows move, Shift+arrows resize. `readOnly` draws them expanded. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Issue } from '../../api/types';
@@ -31,7 +30,7 @@ import useCompactPref from './useCompactPref';
 import { PORT_STYLE, hasHandle } from './nodeStyle';
 import { FlowNodes, NodeOverlays, NodeStatus, nodeLook } from './FlowNodeView';
 import { GroupFocus, GroupFrame, drawnBox } from './GroupFrame';
-import { Group, collapsedEnd, hiddenMembers, membersOf, validGroups } from './groups';
+import { Group, MIN_GROUP, collapsedEnd, hiddenMembers, membersOf, validGroups } from './groups';
 import Legend from './Legend';
 import Minimap, { exceedsView } from './Minimap';
 import { flowLinkLabel, usedOutcomes } from './outcomes';
@@ -189,10 +188,8 @@ export default function FlowCanvas({
     const groups = useMemo(() => validGroups(groupsProp), [groupsProp]);
     // Nodes in a collapsed group are hidden: not drawn, not focusable, not hit by drops.
     const hidden = useMemo(() => hiddenMembers(groups, graph, positions, compact, readOnly), [groups, graph, positions, compact, readOnly]);
-    const visible = useMemo<FlowGraph>(
-        () => (Object.keys(hidden).length ? { nodes: graph.nodes.filter((n) => !hidden[n.key]), links: graph.links.filter((l) => !hidden[l.from] && !hidden[l.to]) } : graph),
-        [graph, hidden]
-    );
+    const hide = Object.keys(hidden).length > 0;
+    const visible = useMemo<FlowGraph>(() => (hide ? { nodes: graph.nodes.filter((n) => !hidden[n.key]), links: graph.links.filter((l) => !hidden[l.from] && !hidden[l.to]) } : graph), [graph, hidden, hide]);
     const g = useCanvasGestures({
         svgRef, graph: visible, memberGraph: graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact,
         groups, onGroupMove, onGroupResize,
@@ -367,6 +364,9 @@ export default function FlowCanvas({
             if ((ev.key === 'Delete' || ev.key === 'Backspace') && onRequestRemoveGroup) {
                 ev.preventDefault();
                 onRequestRemoveGroup(theGroup.id);
+            } else if (step && ev.shiftKey && onGroupResize) {
+                ev.preventDefault();
+                onGroupResize(theGroup.id, { w: Math.max(MIN_GROUP.w, theGroup.w + step.x), h: Math.max(MIN_GROUP.h, theGroup.h + step.y) });
             } else if (step && onGroupMove) {
                 ev.preventDefault();
                 onGroupMove(theGroup.id, step.x, step.y, membersOf(theGroup, graph, positions, compact));
@@ -579,7 +579,7 @@ export default function FlowCanvas({
                                 <path d={d} fill="none" stroke="none" />
                             </NodeGroup>
                         ))}
-                    {compact && <NodeOverlays nodes={visible.nodes} shown={shown} look={look} chosen={chosen} hovered={hovered} theme={theme} />}
+                    {compact && <NodeOverlays nodes={visible.nodes} shown={shown} look={look} chosen={chosen} hovered={hovered} theme={theme} tabsOf={tabsOf} readOnly={readOnly} />}
                     {guides.length > 0 && <GuideLines guides={guides} theme={theme} />}
                     {gesture && gesture.kind === 'box' && gesture.moved && cursor && <SelectionBox from={gesture.start} to={cursor} theme={theme} />}
                 </g>

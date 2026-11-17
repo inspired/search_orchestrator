@@ -1,14 +1,16 @@
-/* The side panel for a selected group: its title, its colour (seven named colours), collapse or
+/* The side panel for a selected group: its title, its colour (seven named colours), its width and
+ * height (the keyboard way to resize, as Shift+arrows on the canvas are), collapse or
  * expand, and Remove group (which never removes its nodes); and the confirm before removing it. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Modal from '@splunk/react-ui/Modal';
+import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import { countText } from './GroupFrame';
-import { GROUP_COLORS, Group, GroupColor } from './groups';
+import { GROUP_COLORS, Group, GroupColor, MIN_GROUP } from './groups';
 
 export const groupTitleId = (id: string) => `group-${id}-title`;
 
@@ -37,6 +39,24 @@ export default function GroupPanel({ group, members, onChange, onRequestRemove }
                     ))}
                 </Select>
             </ControlGroup>
+            <div style={{ display: 'flex', gap: '8px' }}>
+                {(['w', 'h'] as const).map((k) => (
+                    <ControlGroup key={k} label={k === 'w' ? 'Width' : 'Height'} labelFor={`group-${group.id}-${k}`} labelPosition="top">
+                        <NumberInput
+                            inputId={`group-${group.id}-${k}`}
+                            min={MIN_GROUP[k]}
+                            step={10}
+                            roundTo={0}
+                            value={group[k]}
+                            onChange={(_e: unknown, { value }: { value?: number }) => {
+                                if (value !== undefined && Number.isFinite(value) && value >= MIN_GROUP[k]) {
+                                    onChange({ [k]: value });
+                                }
+                            }}
+                        />
+                    </ControlGroup>
+                ))}
+            </div>
             <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                 <Button appearance="secondary" label={group.collapsed ? 'Expand' : 'Collapse'} onClick={() => onChange({ collapsed: !group.collapsed })} />
                 <Button appearance="destructive" label="Remove group" onClick={onRequestRemove} />

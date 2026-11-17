@@ -511,7 +511,9 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         case 'moveGroup':
         case 'removeGroup': {
             const next = groupEdit(job, action);
-            const key = action.type === 'updateGroup' ? fieldKey('group', action.id, ...Object.keys(action.changes).sort()) : undefined;
+            // Only typing a title merges into one step; a resize, colour or collapse is its own.
+            const titleOnly = action.type === 'updateGroup' && Object.keys(action.changes).join() === 'title';
+            const key = titleOnly ? fieldKey('group', action.id, 'title') : undefined;
             return next ? edits(state, next, key) : state;
         }
         case 'setJobField':

@@ -1,7 +1,8 @@
 /* The flow canvas's nodes: each node's group (shape, detail line, + handle and outcome tabs) with
  * its accessible name, and, for compact nodes, the full-node overlay shown on hover or selection.
  * The overlay is drawn in its own layer after every node (`NodeOverlays`), taking no pointer
- * events, so a later node never paints over it. The detail line shows, in order: run status,
+ * events, so a later node never paints over it; a drawn-only copy of the node's + and tabs goes
+ * over the overlay (the real ones, right below, still take the pointer). The detail line shows, in order: run status,
  * issues, or the step's preview (rows and time with a bar, "Previewing…", "Preview failed: …" or a
  * muted "Out of date"). */
 import React from 'react';
@@ -150,10 +151,12 @@ export interface NodeOverlaysProps {
     chosen: Set<string>;
     hovered: string | null;
     theme: Theme;
+    tabsOf: Record<string, PortId[]>;
+    readOnly: boolean;
 }
 
 /** Compact nodes: the full node over the hovered or selected ones, above every node. */
-export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme }: NodeOverlaysProps) {
+export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme, tabsOf, readOnly }: NodeOverlaysProps) {
     return (
         <>
             {nodes.map((n) => {
@@ -166,6 +169,7 @@ export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme }: Nod
                 return (
                     <g key={n.key} data-testid={`node-full-${n.key}`} transform={`translate(${p.x},${p.y})`} pointerEvents="none" aria-hidden>
                         <NodeShape node={n} theme={theme} selected={isSelected} stroke={detail ? detail.color : undefined} {...previewProps} />
+                        {hasHandle(n.kind) && <PlusHandle nodeKey={n.key} kind={n.kind} theme={theme} tabs={tabsOf[n.key] || []} plus={!readOnly} compact testIdPrefix="overlay-" />}
                     </g>
                 );
             })}

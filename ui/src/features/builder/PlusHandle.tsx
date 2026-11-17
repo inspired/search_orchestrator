@@ -38,9 +38,11 @@ export interface PlusHandleProps {
     onTabDown?: (ev: React.PointerEvent, outcome: PortId) => void;
     /** Compact nodes: the handle and tabs sit on the smaller node. */
     compact?: boolean;
+    /** Put before the test ids, for a drawn-only copy (the compact overlay layer). */
+    testIdPrefix?: string;
 }
 
-export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDown, onTabDown, compact = false }: PlusHandleProps) {
+export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDown, onTabDown, compact = false, testIdPrefix = '' }: PlusHandleProps) {
     const [hover, setHover] = useState(false);
     const h = handleOffset(kind, compact);
     return (
@@ -52,7 +54,7 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
                 return (
                     <g
                         key={outcome}
-                        data-testid={`tab-${nodeKey}-${outcome}`}
+                        data-testid={`${testIdPrefix}tab-${nodeKey}-${outcome}`}
                         aria-hidden
                         style={{ cursor: onTabDown ? 'crosshair' : undefined }}
                         onPointerDown={
@@ -82,7 +84,7 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
             })}
             {plus && (
                 <g
-                    data-testid={`plus-${nodeKey}`}
+                    data-testid={`${testIdPrefix}plus-${nodeKey}`}
                     aria-hidden
                     style={{ cursor: 'crosshair' }}
                     onPointerEnter={() => setHover(true)}

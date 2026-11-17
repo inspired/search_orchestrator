@@ -84,6 +84,7 @@ describe('BuilderPage groups', () => {
         expect(within(dialog).getByText('The nodes in it stay.')).toBeInTheDocument();
         fireEvent.click(within(dialog).getByRole('button', { name: 'Remove group' }));
         await waitFor(() => expect(screen.queryByTestId('group-g1')).toBeNull());
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('group', { name: /^Job flow/ })));
         expect(screen.getByTestId('node-step:daily')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
         expect(screen.getByTestId('group-g1')).toBeInTheDocument();
@@ -97,6 +98,14 @@ describe('BuilderPage groups', () => {
         const panel = screen.getByRole('region', { name: 'Group' });
         await waitFor(() => expect(document.activeElement).toBe(within(panel).getByRole('textbox', { name: 'Title' })));
         expect(within(panel).getByText('Teal')).toBeInTheDocument();
+        // Width and height: the keyboard way to resize; each change is its own undo step.
+        fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Width' }), { target: { value: '400' } });
+        expect(screen.getByTestId('group-body-g1')).toHaveAttribute('width', '400');
+        fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Height' }), { target: { value: '150' } });
+        expect(screen.getByTestId('group-body-g1')).toHaveAttribute('height', '150');
+        fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(screen.getByTestId('group-body-g1')).toHaveAttribute('height', '200');
+        expect(screen.getByTestId('group-body-g1')).toHaveAttribute('width', '400');
         fireEvent.click(within(panel).getByRole('button', { name: 'Remove group' }));
         expect(screen.getByText('Remove group Daily?')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));

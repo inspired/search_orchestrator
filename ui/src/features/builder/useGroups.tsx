@@ -93,6 +93,9 @@ export default function useGroups({ job, graph, positions, compact, dispatch, se
                 returnFocus={returnFocus}
                 onCancel={() => setRemoving(null)}
                 onConfirm={() => {
+                    // The group's focus stop goes away: focus moves to the canvas once the confirm has closed.
+                    returnFocus.current = null;
+                    window.setTimeout(() => document.querySelector<HTMLElement>('[data-canvas]')?.focus(), 0);
                     setRemoving(null);
                     dispatch({ type: 'removeGroup', id: removingGroup.id });
                     if (selected && selected.id === removingGroup.id) {

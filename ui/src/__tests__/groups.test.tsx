@@ -145,6 +145,27 @@ describe('groups: reducer', () => {
         expect(s.job.layout!.groups![0]).toMatchObject({ color: 'categoricalA5', w: 300 });
     });
 
+    test('two resizes are two undo steps; collapse then expand undoes back to collapsed', () => {
+        let s = reducer(start(), { type: 'addGroup', group: group() });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { w: 400, h: 150 } });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { w: 300, h: 120 } });
+        s = reducer(s, { type: 'undo' });
+        expect(s.job.layout!.groups![0]).toMatchObject({ w: 400, h: 150 });
+        s = reducer(s, { type: 'undo' });
+        expect(s.job.layout!.groups![0]).toMatchObject({ w: 600, h: 200 });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { collapsed: true } });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { collapsed: false } });
+        expect(s.job.layout!.groups![0].collapsed).toBeUndefined();
+        s = reducer(s, { type: 'undo' });
+        expect(s.job.layout!.groups![0].collapsed).toBe(true);
+    });
+
+    test('a move that would take the frame past ±1 000 000 moves nothing', () => {
+        const s0 = reducer(start(), { type: 'addGroup', group: group({ x: 999_990 }) });
+        const s1 = reducer(s0, { type: 'moveGroup', id: 'g1', dx: 20, dy: 0, members: ['step:a'] });
+        expect(s1).toBe(s0);
+    });
+
     test('removing every member leaves the group, harmless and with no members', () => {
         let s = reducer(start(), { type: 'addGroup', group: group() });
         s = reducer(s, { type: 'removeNodes', keys: ['step:a', 'step:b'] });
