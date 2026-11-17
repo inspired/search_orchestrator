@@ -551,3 +551,11 @@ def test_parse_times_rejection_is_a_400_naming_the_value():
     with pytest.raises(g.GatewayError) as err:
         g.SplunkGateway(StubService(handler)).parse_times("alice", ["-1x"], 1762390800)
     assert err.value.status == 400 and "-1x" in str(err.value)
+
+
+def test_preview_dispatch_adds_search_unless_the_spl_starts_with_a_pipe():
+    from so.gateway import preview_dispatch_params
+    assert preview_dispatch_params("index=_internal | stats count", None, None, 0, "x")["search"] \
+        == "search index=_internal | stats count"
+    assert preview_dispatch_params("  | makeresults", None, None, 0, "x")["search"] == "  | makeresults"
+    assert preview_dispatch_params("\nindex=a", None, None, 0, "x")["search"] == "search index=a"

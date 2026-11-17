@@ -194,7 +194,11 @@ def parse_preview_results(body):
 
 def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
     """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
-    sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s."""
+    sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s.
+    search/jobs (unlike a saved search) needs a leading ``search`` unless the SPL starts
+    with a pipe, else Splunk reports "Unknown search command 'index'"."""
+    if not spl.lstrip().startswith("|"):
+        spl = "search " + spl.lstrip()
     params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 180,
               "timeout": 1800, "exec_mode": "normal"}
     if earliest:

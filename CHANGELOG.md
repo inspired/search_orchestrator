@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.2 (2026-11-17)
+
+- Fixed: previewing a step whose search doesn't start with `|` (for example `index=_internal …`) failed with "Unknown search command 'index'". Previews now add the leading `search` that Splunk's search API needs.
+
 ## 1.18.1 (2026-11-17)
 
 - **Conditions use a full search editor:** the condition field (on an **If…** node and on a line) is the same multiline SPL editor as a step's search, with colours, **Insert value** and at least four lines that grow with the text, in all three **Check with** modes. **Put each | on a new line** and the time range stay with **Search returns results**.
