@@ -266,7 +266,7 @@ This setting is read from the job **as it is now**, not from the run's copy. Cha
 
 ### Job source
 
-The **Source** tab, after Settings, shows the job as JSON text, so you can copy it, keep it in a file or paste it into another Splunk. Server fields (owner, created and updated details, hidden searches) are left out.
+The **Source** tab, after Settings, shows the job as JSON text, so you can copy it, keep it in a file or paste it into another Splunk. Server fields (owner, created and updated details, hidden searches) are left out. Keys, strings, numbers and the SPL inside each `spl` value are coloured, in light and dark themes.
 
 - **Copy** puts the text on the clipboard. If your browser blocks that, the text is selected and the tab says "Press Ctrl+C to copy".
 - **Download** saves it as `<job id>.json` (`new-job.json` for a job that isn't saved yet).

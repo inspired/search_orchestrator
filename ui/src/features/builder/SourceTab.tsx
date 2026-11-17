@@ -1,23 +1,12 @@
 /* The Source tab: the job as JSON text to copy, download, edit and apply back. Apply replaces
  * the whole job as one undo step; the id of the job is always kept. */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
-import TextArea from '@splunk/react-ui/TextArea';
-import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import styled from 'styled-components';
 import type { JobDefinition } from '../../api/types';
 import type { BuilderAction } from './reducer';
+import JsonEditor from './JsonEditor';
 import { jobToSource, parseJobSource } from './sourceLogic';
-
-const Editor = styled.div<{ $font: string }>`
-    width: 100%;
-    textarea {
-        font-family: ${(p) => p.$font};
-        width: 100%;
-        box-sizing: border-box;
-    }
-`;
 
 type Note = { type: 'error' | 'info' | 'success'; text: string } | null;
 
@@ -28,7 +17,6 @@ export interface SourceTabProps {
 }
 
 export default function SourceTab({ job, dispatch, canEdit }: SourceTabProps) {
-    const theme = useSplunkTheme() as unknown as Record<string, string>;
     const current = jobToSource(job);
     const [text, setText] = useState(current);
     // The job text the editor last showed; edits are unapplied while `text` differs from it.
@@ -41,12 +29,6 @@ export default function SourceTab({ job, dispatch, canEdit }: SourceTabProps) {
         setBase(current);
         setText(current);
     }
-    // SUIT's TextArea has no readOnly prop: set it on the element so the text can still be selected.
-    useEffect(() => {
-        if (area.current) {
-            area.current.readOnly = !canEdit;
-        }
-    }, [canEdit]);
     const stale = current !== base;
     const changed = text !== current;
 
@@ -126,18 +108,15 @@ export default function SourceTab({ job, dispatch, canEdit }: SourceTabProps) {
             <label htmlFor="job-source" style={{ display: 'block', paddingBottom: '4px' }}>
                 {canEdit ? 'Job source (JSON)' : 'Job source (JSON, read only)'}
             </label>
-            <Editor $font={theme.monoFontFamily}>
-                <TextArea
-                    inputId="job-source"
-                    inputRef={area}
-                    value={text}
-                    rowsMin={20}
-                    rowsMax={40}
-                    spellCheck={false}
-                    autoComplete="off"
-                    onChange={(_e: unknown, { value }: { value: string }) => canEdit && setText(value)}
-                />
-            </Editor>
+            <JsonEditor
+                inputId="job-source"
+                ref={area}
+                value={text}
+                readOnly={!canEdit}
+                rowsMin={20}
+                rowsMax={40}
+                onChange={(v) => canEdit && setText(v)}
+            />
             <div style={{ display: 'flex', gap: '8px', paddingTop: '12px' }}>
                 <Button appearance="secondary" label="Copy" onClick={copy} />
                 <Button appearance="secondary" label="Download" onClick={download} />

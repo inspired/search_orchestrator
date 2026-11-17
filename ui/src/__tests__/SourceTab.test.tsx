@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import BuilderPage from '../features/builder/BuilderPage';
 import ImportJobDialog from '../features/jobs/ImportJobDialog';
 import JobsPage, { JobsApi } from '../features/jobs/JobsPage';
@@ -143,5 +143,27 @@ describe('Import job', () => {
         expect(screen.getByText(/The source isn't valid JSON: .*\(line 1, column \d+\)/)).toBeInTheDocument();
         expect(screen.getByText('Import a job')).toBeInTheDocument();
         expect(navigate).not.toHaveBeenCalled();
+    });
+});
+
+describe('Source tab colours', () => {
+    it('shows coloured keys, strings and numbers behind the text area', async () => {
+        await open();
+        const layer = screen.getByTestId('json-highlight');
+        expect(layer).toHaveAttribute('aria-hidden', 'true');
+        const key = within(layer).getAllByText('"name"')[0];
+        const str = within(layer).getAllByText('"Summary rollups"')[0];
+        expect(key.style.color).not.toBe('');
+        expect(str.style.color).not.toBe('');
+        expect(key.style.color).not.toBe(str.style.color);
+        expect(layer.textContent).toBe((screen.getByRole('textbox', { name: /Job source/ }) as HTMLTextAreaElement).value + '\n');
+    });
+
+    it('recolours after an edit and shows half-typed text without breaking', async () => {
+        const box = await open();
+        edit(box, '{"a": 12, "b": tru');
+        const layer = screen.getByTestId('json-highlight');
+        expect(within(layer).getByText('12').style.color).not.toBe('');
+        expect(within(layer).getByText('tru')).toBeInTheDocument();
     });
 });
