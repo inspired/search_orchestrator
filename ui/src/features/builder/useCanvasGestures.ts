@@ -164,6 +164,9 @@ export default function useCanvasGestures(opts: GestureOptions) {
     };
 
     const startPan = (ev: React.PointerEvent) => {
+        if (ev.button !== 0) {
+            return;
+        }
         capture(ev);
         panned.current = { x: 0, y: 0 };
         if (ev.shiftKey && canSelectMany) {
@@ -174,6 +177,9 @@ export default function useCanvasGestures(opts: GestureOptions) {
     };
 
     const startNode = (ev: React.PointerEvent, key: string) => {
+        if (ev.button !== 0) {
+            return;
+        }
         capture(ev);
         panned.current = { x: 0, y: 0 };
         const keys = selectedKeys(selected);
@@ -182,6 +188,9 @@ export default function useCanvasGestures(opts: GestureOptions) {
     };
 
     const startLine = (ev: React.PointerEvent, from: string, outcome?: PortId) => {
+        if (ev.button !== 0) {
+            return;
+        }
         capture(ev);
         panned.current = { x: 0, y: 0 };
         setGesture({ kind: 'line', from, outcome, startX: ev.clientX, startY: ev.clientY, moved: false });

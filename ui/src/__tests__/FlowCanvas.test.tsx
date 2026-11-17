@@ -101,6 +101,18 @@ describe('FlowCanvas', () => {
         expect(props.onSelect).not.toHaveBeenCalled();
     });
 
+    test('only the main button drags a node or pans', () => {
+        const { props, canvas, view } = setup();
+        const c = centre('step:a');
+        fireEvent.pointerDown(screen.getByTestId('node-step:a'), { ...c, button: 2 });
+        fireEvent.pointerMove(canvas, { clientX: c.clientX + 50, clientY: c.clientY });
+        fireEvent.pointerUp(canvas, { clientX: c.clientX + 50, clientY: c.clientY });
+        expect(props.onMove).not.toHaveBeenCalled();
+        fireEvent.pointerDown(canvas, { clientX: 900, clientY: 5, button: 1 });
+        fireEvent.pointerMove(canvas, { clientX: 950, clientY: 40 });
+        expect(view().getAttribute('transform')).toBe('translate(0,0) scale(1)');
+    });
+
     const plusAt = { clientX: 450, clientY: 138 };
 
     test('a click on + calls onPlus, and a 3 px movement still counts as a click', () => {
