@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.18.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.18.1. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -214,6 +214,8 @@ An **If…** node (or a line set to **When a condition is true**) runs the next 
 | **Simple comparison** (the default, and what jobs saved before 1.17.0 use) | `$daily.resultCount$ > 0 and $run.param.region$ == 'eu'`: tokens, numbers and quoted strings compared with `==`, `!=`, `>`, `>=`, `<`, `<=`, joined with `and`, `or`, `not` | the comparison holds |
 | **SPL expression** | what you would write after `\| where`: any eval function, such as `now()`, `relative_time()`, `strftime()`, `match()`, `like()`, `if()`, `isnull()` | `\| makeresults \| where <expression>` returns a row |
 | **Search returns results** | a full search, like an alert's | the search returns at least one row |
+
+The condition field is the same SPL editor as a step's search (colours, **Insert value**, at least four lines, growing as you type); **Put each | on a new line** shows for **Search returns results** only. **Open larger** (also on a step's search) edits the text in a large dialog: **Done** applies it, **Cancel** or `Esc` discards it.
 
 Examples:
 

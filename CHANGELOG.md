@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.1 (2026-11-17)
+
+- **Conditions use a full search editor:** the condition field (on an **If…** node and on a line) is the same multiline SPL editor as a step's search, with colours, **Insert value** and at least four lines that grow with the text, in all three **Check with** modes. **Put each | on a new line** and the time range stay with **Search returns results**.
+- **Open larger** on a step's search and on a condition opens a large editor dialog; **Done** applies, **Cancel** or `Esc` discards.
+
 ## 1.18.0 (2026-11-17)
 
 - **Example jobs:** Jobs → **Browse examples** shows ten example jobs from simple to advanced (built on `_internal`, `_audit` and `makeresults`). Open one in the builder, or **Add all examples** to save them as turned-off jobs with a schedule, owned by you.
