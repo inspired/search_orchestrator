@@ -9,6 +9,8 @@ import StaticContent from '@splunk/react-ui/StaticContent';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import Typography from '@splunk/react-ui/Typography';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import SplHighlight from './SplHighlight';
 import type { Issue, JobDefinition, StepOutput } from '../../api/types';
 import { stepLabel } from './GraphView';
 import { parentsOf, wouldCycle } from './graphLogic';
@@ -28,6 +30,7 @@ export interface OutputPanelProps {
 }
 
 export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, issues = [], live = true }: OutputPanelProps) {
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
     const steps = job.steps || [];
     const edges = job.edges || [];
     const step = steps.find((s) => s.id === stepId);
@@ -99,9 +102,9 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
             )}
             <ControlGroup label="Search" labelPosition="top" help="Generated from the settings above.">
                 <StaticContent>
-                    <Typography as="span" variant="monoBody">
-                        {step.spl || ''}
-                    </Typography>
+                    <pre data-testid="output-spl" style={{ margin: 0, fontFamily: theme.monoFontFamily, whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>
+                        <SplHighlight text={step.spl || ''} />
+                    </pre>
                 </StaticContent>
             </ControlGroup>
             <div style={{ marginBottom: '12px' }}>

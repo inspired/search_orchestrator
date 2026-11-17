@@ -1,12 +1,12 @@
 /* "Insert value": a menu of $tokens$ for a text field. TokenInput wraps a SUIT Text or
- * TextArea, remembers its selection and puts the chosen token there. A field that was never
+ * the SPL editor, remembers its selection and puts the chosen token there. A field that was never
  * focused has no selection, so the token goes at the end. */
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Dropdown from '@splunk/react-ui/Dropdown';
 import Menu from '@splunk/react-ui/Menu';
 import Text from '@splunk/react-ui/Text';
-import TextArea from '@splunk/react-ui/TextArea';
+import SplEditor from './SplEditor';
 import { insertAt, Selection, TokenGroup } from './tokens';
 
 export interface InsertTokenProps {
@@ -94,7 +94,7 @@ export function TokenInput({ inputId, fieldLabel, value, groups, onValue, multil
     return (
         <div>
             {multiline ? (
-                <TextArea inputId={inputId} inputRef={setRef} value={value} rowsMin={rowsMin} onChange={onChange} />
+                <SplEditor inputId={inputId} ref={setRef} value={value} rowsMin={rowsMin} placeholder={placeholder} onChange={onValue} />
             ) : (
                 <Text inputId={inputId} inputRef={setRef} value={value} placeholder={placeholder} onChange={onChange} />
             )}
