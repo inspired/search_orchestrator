@@ -7,6 +7,7 @@
     | orchestrate cancel run=<run id>
     | orchestrate rerun run=<run id> step=<step> [definition=latest|original]
                         [restart_downstream_jobs=true|false]
+    | orchestrate approve run=<run id> step=<step> decision=approve|reject [comment=<text>]
     | orchestrate backfill job=<id> from=<time> to=<time> [step=<n>m|<n>h|<n>d|<seconds>]
                           [concurrency=<n>] [param.<name>=<value>]...
     | orchestrate jobs
@@ -38,14 +39,16 @@ from splunklib.searchcommands.decorators import ConfigurationSetting  # noqa: E4
 from so import model, selftest  # noqa: E402
 from so.gateway import SplunkGateway  # noqa: E402
 
-ACTIONS = ("start", "status", "cancel", "rerun", "backfill", "jobs", "selftest")
+ACTIONS = ("start", "status", "cancel", "rerun", "approve", "backfill", "jobs", "selftest")
 STATUS_FIELDS = ["run_id", "job", "step", "state", "skip_kind", "delayed", "attempts", "sid",
                  "result_count", "error", "scheduled_time", "started_at", "ended_at"]
 OPTIONS = {"start": ("job", "scheduled_time"), "status": ("run", "job", "limit", "backfill"),
            "cancel": ("run",), "rerun": ("run", "step", "definition", "restart_downstream_jobs"),
+           "approve": ("run", "step", "decision", "comment"),
            "backfill": ("job", "from", "to", "step", "concurrency"),
            "jobs": (), "selftest": ("scenario", "slow_n", "delayed_after", "scheduled_time")}
 REQUIRED = {"start": ("job",), "cancel": ("run",), "rerun": ("run", "step"),
+            "approve": ("run", "step", "decision"),
             "backfill": ("job", "from", "to")}
 PARAM_ACTIONS = ("start", "backfill")  # take param.<name>=<value>
 STATUS_LIMIT = 5
@@ -289,6 +292,14 @@ def execute(argv, gateway, warn=lambda text: None):
         return [{"ok": 1, "run_id": options["run"], "step": options["step"],
                  "definition": out.get("definition"), "command_id": out.get("command_id"),
                  "message": "re-run requested; the engine applies it on its next tick"}]
+    if action == "approve":
+        body = {"step_id": options["step"], "decision": options["decision"]}
+        if "comment" in options:
+            body["comment"] = options["comment"]
+        out = _fields(call("POST", _run_path(options["run"]) + "/approve", body))
+        return [{"ok": 1, "run_id": options["run"], "step": options["step"],
+                 "decision": options["decision"], "command_id": out.get("command_id"),
+                 "message": "decision sent; the engine applies it on its next tick"}]
     if action == "backfill":
         return _backfill(call, options, params)
     if action == "jobs":

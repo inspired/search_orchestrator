@@ -372,3 +372,24 @@ def test_backfill_end_to_end_through_the_rest_handler(w):
     assert rows[0]["ok"] == 1 and rows[0]["runs"] == 6
     assert rows[0]["first"] == 1700000000 and rows[0]["last"] == 1700003000
     assert run_cmd(w, "status backfill=%s" % rows[0]["backfill_id"]) == []
+
+
+def test_approve_posts_the_decision():
+    gw = RecordingGateway({"runs/daily:1/approve": (202, {"command_id": "c1"})})
+    rows = orchestrate.execute(["approve", "run=daily:1", "step=gate", "decision=reject",
+                                'comment="not today"'], gw)
+    assert gw.calls == [("POST", "runs/daily:1/approve",
+                         {"step_id": "gate", "decision": "reject", "comment": "not today"})]
+    assert rows == [{"ok": 1, "run_id": "daily:1", "step": "gate", "decision": "reject",
+                     "command_id": "c1",
+                     "message": "decision sent; the engine applies it on its next tick"}]
+    gw = RecordingGateway({"runs/daily:1/approve": (202, {"command_id": "c2"})})
+    orchestrate.execute(["approve", "run=daily:1", "step=gate", "decision=approve"], gw)
+    assert gw.calls[0][2] == {"step_id": "gate", "decision": "approve"}
+
+
+def test_approve_needs_a_decision():
+    with pytest.raises(orchestrate.CommandError, match="decision is required"):
+        orchestrate.execute(["approve", "run=daily:1", "step=gate"], RecordingGateway())
+    with pytest.raises(orchestrate.CommandError, match="run, step is required"):
+        orchestrate.execute(["approve", "decision=approve"], RecordingGateway())

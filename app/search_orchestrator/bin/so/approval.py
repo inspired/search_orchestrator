@@ -4,8 +4,8 @@ A step of ``type: "approval"`` runs no search. When it becomes ready the evaluat
 ``request``: the step is ``awaiting_approval`` (an active state, so the run is not blocked,
 but never dispatched, polled or counted as a search) with ``approval_state``
 ``{"requested_at", "message", "decision"}``. A decision is written into ``approval_state``
-(``decision`` "approve" | "reject", ``by``, ``comment``) by the engine's ``approve``
-command; ``settle`` derives the step's outcome from that stored decision, or from the
+(``decision`` "approve" | "reject", ``by``, ``comment``, ``decided_at``) by the engine's
+``approve`` command (``apply_command``), which accepts only the first decision; ``settle`` derives the step's outcome from that stored decision, or from the
 step's ``timeout``, so a replay never decides twice. While the run is paused nothing is
 settled: a decision recorded meanwhile takes effect on resume, and the timeout does not
 fire. A rejected step fails and is never retried.
@@ -123,3 +123,46 @@ def settle(ev, sid):
         error = "Rejected by %s" % by + (": %s" % comment if comment else "")
     ev.set(sid, state="failed", error=error, ended_at=ev.now)
     ev.final_failure(sid)
+
+
+def _event(run, sid, kind, now, **fields):
+    return dict({"_time": now, "type": kind, "job_id": run.get("job_id"),
+                 "run_id": run.get("id") or run.get("_key"), "step_id": sid}, **fields)
+
+
+def apply_command(run, command, now):
+    """Record the ``approve`` engine command's decision on ``run`` (not saved here).
+
+    ``("ok", None, [approval_decided])`` once written into the step's ``approval_state``;
+    ``("rejected", reason, [approval_ignored])`` when the step is not awaiting approval
+    or already has a decision, so a second or replayed decision changes nothing."""
+    sid, user = command.get("step_id"), command.get("user")
+    st = (run.get("steps") or {}).get(sid) or {}
+    state = st.get("approval_state") or {}
+    decision = command.get("decision")
+    if state.get("decision") in ON_TIMEOUT:
+        reason = "already decided by %s" % state.get("by")
+    elif st.get("state") != AWAITING:
+        reason = "%s isn't waiting for approval" % sid
+    elif decision not in ON_TIMEOUT:
+        reason = "decision must be approve or reject"
+    else:
+        comment = command.get("comment")
+        comment = comment if isinstance(comment, str) else ""
+        st["approval_state"] = dict(state, decision=decision, by=user, comment=comment,
+                                    decided_at=now)
+        return "ok", None, [_event(run, sid, "approval_decided", now, decision=decision,
+                                   user=user, comment=comment, by_timeout=False)]
+    return "rejected", reason, [_event(run, sid, "approval_ignored", now, user=user,
+                                       decision=decision, reason=reason)]
+
+
+def step_events(old_state, fields):
+    """``(type, fields)`` audit events for a step change the engine records: the step
+    starts waiting for approval, or its timeout decides it."""
+    if fields.get("state") == AWAITING and old_state != AWAITING:
+        yield "approval_requested", {}
+    decided = fields.get("approval_state") or {}
+    if decided.get("by") == "timeout" and decided.get("decision") in ON_TIMEOUT:
+        yield "approval_decided", {"decision": decided["decision"], "user": "timeout",
+                                   "comment": decided.get("comment"), "by_timeout": True}

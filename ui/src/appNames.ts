@@ -12,3 +12,4 @@ export const REST_BASE = `orchestrator${SUFFIX}`;
 export const COMMAND = `orchestrate${SUFFIX.replace(/^_/, '')}`;
 export const CAP_ADMIN = `orchestrator_admin${SUFFIX}`;
 export const CAP_RUN = `orchestrator_run${SUFFIX}`;
+export const CAP_APPROVE = `orchestrator_approve${SUFFIX}`;

@@ -24,6 +24,7 @@ queued); ``"probe"`` returns
 
 Step previews: the ``preview`` routes are in ``preview_api.py``; backfills (``jobs/<id>/backfills``,
 ``backfills``) in ``backfill_api.py``.
+Approving or rejecting an approval step (``runs/<id>/approve``) is in ``approval_api.py``.
 
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
@@ -149,7 +150,7 @@ class _Ctx:
 
 def _routes():
     from . import condition_test as ct, history_api as hv, preview_api as pv  # these import this module: no cycle
-    from . import backfill_api as bf, calendar_api as cal
+    from . import approval_api as ap, backfill_api as bf, calendar_api as cal
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -167,6 +168,7 @@ def _routes():
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
         (r"runs/(?P<run_id>[^/]+)/rerun", {"POST": rerun}),
+        (r"runs/(?P<run_id>[^/]+)/approve", {"POST": ap.approve}),
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
@@ -651,7 +653,7 @@ def start_run(ctx, body, job_id):
     scheduled = _scheduled_time(ctx, body)
     try:
         run_id = scheduler.create_run(ctx.store, job, "manual", scheduled, params, now=ctx.now,
-                                      audit=ctx.audit, chain_depth=0)
+                                      audit=ctx.audit, chain_depth=0, started_by=ctx.user)
     except tokens.TokenError as err:
         message = "parameter %s: %s" % (err.token, err.reason)
         raise ApiError(400, "bad_param", message, [_issue("error", "bad_param", message)])
@@ -1047,7 +1049,8 @@ def me(ctx, body):
     return 200, {"user": ctx.user, "roles": list(ctx.access["roles"]), "capabilities": caps,
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
-                 "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None)}
+                 "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None),
+                 "can_approve": authz.APPROVE in caps or ctx.allowed(authz.can_admin, None)}
 
 
 def _may_build(ctx, action):

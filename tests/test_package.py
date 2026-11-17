@@ -136,6 +136,12 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "label = Search Orchestrator (T1)" in read("default/app.conf")
     assert "match = /orchestrator_t1\n" in read("default/restmap.conf")
     assert "[role_orchestrator_user_role_t1]" in read("default/authorize.conf")
+    authorize = read("default/authorize.conf")
+    assert "[capability::orchestrator_approve_t1]" in authorize
+    assert "[role_orchestrator_approver_role_t1]" in authorize
+    assert "orchestrator_approve_t1 = enabled" in authorize
+    assert not re.search(r"orchestrator_approve(r_role)?\b(?!_t1)", authorize)
+    assert 'APPROVE = "orchestrator_approve_t1"' in read("bin/so/authz.py")
     assert "index = orchestrator_t1\n" in read("default/inputs.conf")
     assert "[commands/orchestratet1]" in read("metadata/default.meta")
     # SPL splits `orchestrate_t1` into `orchestrate` + `_t1`: command names are letters and digits.

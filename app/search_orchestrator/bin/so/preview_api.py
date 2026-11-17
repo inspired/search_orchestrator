@@ -19,7 +19,8 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
   ``run_results_expired`` (``step``), 403 ``run_results_forbidden`` (``step``: splunkd
   won't let the caller read that run's result), 400 ``invalid`` (errors in the step, the
   steps it reads, the edges into them, params or time zone; or anywhere in the job for a
-  cycle or a malformed job) or ``bad_param``. The sid of a live input is checked
+  cycle or a malformed job), ``bad_param`` or ``bad_request`` (an approval step: it has
+  no search to preview). The sid of a live input is checked
   statically (``preview.own_sid``) before splunkd is asked about it. Audited as
   ``preview_dispatched``.
 * ``GET preview/<sid>`` (query ``limit``, seconds, capped at ``preview.MAX_RUNTIME``):
@@ -33,7 +34,7 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
 """
 import uuid
 
-from . import authz, hidden, model, preview, scheduler, tokens
+from . import approval, authz, hidden, model, preview, scheduler, tokens
 from . import state as statemod
 from .api import (ApiError, _errors, _is_job_id, _issue, _prepare, _run_job, _scheduled_time,
                   _visible_run)
@@ -86,6 +87,9 @@ def _preview_scope(job, step_id):
         raise _blocks_every_preview("the job is malformed: %s" % shape[0]["message"], shape)
     if step_id not in [s.get("id") for s in job.get("steps") or []]:
         raise ApiError(400, "unknown_step", "the job has no step %r" % (step_id,))
+    if any(approval.is_approval(s) for s in job["steps"] if s.get("id") == step_id):
+        raise ApiError(400, "bad_request", "An approval step has no search to preview; "
+                       "preview a step after it instead")
     cycle = model.find_cycle(job)
     if cycle:
         message = "the job has a cycle: %s" % " → ".join(cycle)

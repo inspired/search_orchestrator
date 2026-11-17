@@ -13,6 +13,7 @@ const adminMe: Me = {
     can_admin: true,
     can_build: true,
     can_run: true,
+    can_approve: true,
 };
 
 const SETTINGS: Settings = {

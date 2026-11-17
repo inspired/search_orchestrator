@@ -5,7 +5,7 @@ Splunk and KV Store. It is the only component that advances runs.
 
 1. Take or renew the leader lease; a non-leader does nothing.
 2. Fire due cron slots (``scheduler``), then apply pending commands
-   (pause, resume, cancel, rerun, dismiss, cancel_backfill) from ``so_commands``,
+   (pause, resume, cancel, rerun, dismiss, approve, cancel_backfill) from ``so_commands``,
    then create the next runs of running backfills (``backfill.feed``).
 3. Send the daily hold alert, then promote queued runs: one active run per
    job, re-runs first, then oldest ``scheduled_time``. A held run (failed by
@@ -447,6 +447,8 @@ class Engine:
             return "ok", None, run
         elif kind == "rerun":
             return self._rerun(run, command, jobs, now, pending)
+        elif kind == "approve":
+            return self._approve(run, command, now, pending)
         elif kind == "dismiss":
             if state != "failed" or not run.get("held"):
                 return "rejected", "only a failed run holding the queue can be dismissed", run
@@ -462,6 +464,19 @@ class Engine:
         if run.get("paused_at") is not None:
             run["paused_seconds"] = (run.get("paused_seconds") or 0) + max(0, now - int(run["paused_at"]))
             run["paused_at"] = None
+
+    def _approve(self, run, command, now, pending):
+        """Save the decision on the run before anything else happens: this tick's
+        evaluation (or the one after a resume) settles the step from it, so a replayed
+        command or a second decision is only audited ``approval_ignored``."""
+        result, detail, events = approval.apply_command(run, command, now)
+        if result == "ok":
+            pending.events.extend(events)
+            self._save(run, pending)
+        else:
+            for event in events:
+                self.audit.emit(event)
+        return result, detail, run
 
     def _rerun(self, run, command, jobs, now, pending):
         step_id = command.get("step_id") or command.get("step")
@@ -807,6 +822,8 @@ class Engine:
                 if st.get(key) is not None:
                     event[key] = st[key]
             pending.events.append(event)
+        for kind, extra in approval.step_events(old, fields):
+            pending.events.append(self._event(run, kind, now, step_id=sid, **extra))
         if fields.get("delay_alerted") and not was_delayed:
             # Whether or not the step has an on_delayed action (the Run health dashboard).
             pending.events.append(self._event(run, "step_delayed", now, step_id=sid,

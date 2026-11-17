@@ -317,6 +317,7 @@ export interface Me {
     can_admin: boolean;
     can_build: boolean;
     can_run: boolean;
+    can_approve: boolean;
 }
 
 export interface Settings {

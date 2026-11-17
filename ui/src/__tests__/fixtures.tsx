@@ -20,6 +20,7 @@ export const me: Me = {
     can_admin: false,
     can_build: true,
     can_run: true,
+    can_approve: false,
 };
 
 export function job(over: Partial<Job> = {}): Job {

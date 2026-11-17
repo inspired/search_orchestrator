@@ -25,7 +25,7 @@ import sys
 def rules(s, label):
     """``(file, regex, replacement, expected count)``; ``s`` is ``_<suffix>``. A callable
     replacement is used as is (no backslash or group processing)."""
-    caps = r"orchestrator_(admin|build|run)"
+    caps = r"orchestrator_(admin|build|run|approve)"
     # Search command names are letters and digits only: SPL splits `orchestrate_x` into the
     # command `orchestrate` and an argument `_x`. So the command takes the bare suffix.
     cmd = command_name(s)
@@ -37,11 +37,11 @@ def rules(s, label):
         ("app.manifest", r'"name": "search_orchestrator"', '"name": "search_orchestrator%s"' % s, 1),
         ("app.manifest", r'"title": "Search Orchestrator"', '"title": "%s"' % label, 1),
         # Capabilities and roles.
-        ("default/authorize.conf", r"^\[capability::" + caps + r"\]$", r"[capability::orchestrator_\1" + s + "]", 3),
-        ("default/authorize.conf", r"^\[role_orchestrator_(admin|builder|user)_role\]$",
-         r"[role_orchestrator_\1_role" + s + "]", 3),
-        ("default/authorize.conf", r"^" + caps + r" = enabled$", r"orchestrator_\1" + s + " = enabled", 12),
-        ("bin/so/authz.py", r'^(ADMIN|BUILD|RUN) = "' + caps + '"$', r'\1 = "orchestrator_\2' + s + '"', 3),
+        ("default/authorize.conf", r"^\[capability::" + caps + r"\]$", r"[capability::orchestrator_\1" + s + "]", 4),
+        ("default/authorize.conf", r"^\[role_orchestrator_(admin|builder|user|approver)_role\]$",
+         r"[role_orchestrator_\1_role" + s + "]", 4),
+        ("default/authorize.conf", r"^" + caps + r" = enabled$", r"orchestrator_\1" + s + " = enabled", 17),
+        ("bin/so/authz.py", r'^(ADMIN|BUILD|RUN|APPROVE) = "' + caps + '"$', r'\1 = "orchestrator_\2' + s + '"', 4),
         # Index, sourcetype, macro.
         ("default/indexes.conf", r"^\[orchestrator\]$", "[orchestrator%s]" % s, 1),
         ("default/indexes.conf", r"\$SPLUNK_DB/orchestrator/", "$SPLUNK_DB/orchestrator%s/" % s, 3),
@@ -109,7 +109,7 @@ def rules(s, label):
         # Search command: stanzas, searchbnf, and SPL that emits or matches it.
         ("default/commands.conf", r"^\[orchestrate\]$", "[%s]" % cmd, 1),
         ("default/commands.conf", r"^filename = orchestrate\.py$", "filename = %s.py" % cmd, 1),
-        ("default/searchbnf.conf", r"\borchestrate\b", cmd, 13),
+        ("default/searchbnf.conf", r"\borchestrate\b", cmd, 14),
         ("metadata/default.meta", r"^\[commands/orchestrate\]$", "[commands/%s]" % cmd, 1),
         ("metadata/default.meta", r"^\[searchbnf/orchestrate-(command|action|option)\]$",
          r"[searchbnf/%s-\1]" % cmd, 3),
@@ -119,7 +119,7 @@ def rules(s, label):
          lambda m: '_ORCHESTRATE_RE = re.compile(r"\\|\\s*orchestrate(%s)?\\b", re.IGNORECASE)' % cmd[len("orchestrate"):], 1),
         ("bin/so/model.py", r"\| orchestrate\b", "| " + cmd, 2),  # steps and conditions
         ("bin/so/selftest.py", r"\| orchestrate\b", "| " + cmd, 3),
-        ("bin/orchestrate.py", r"\| orchestrate\b", "| " + cmd, 11),
+        ("bin/orchestrate.py", r"\| orchestrate\b", "| " + cmd, 12),
         ("default/data/ui/alerts/start_orchestrator_job.html", r'search="\| orchestrate jobs"',
          'search="| %s jobs"' % cmd, 1),
     ]
