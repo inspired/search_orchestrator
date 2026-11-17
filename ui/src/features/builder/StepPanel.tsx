@@ -310,6 +310,7 @@ export default function StepPanel({
                             inputId={`${p}-spl`}
                             fieldLabel="Search"
                             multiline
+                            expandable
                             value={step.spl || ''}
                             rowsMin={4}
                             groups={tokenGroups}

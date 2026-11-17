@@ -1,6 +1,6 @@
 /* SPL conditions on lines (1.17.0): the Check with choice, labels, issues, run-graph line states. */
 import React, { useReducer } from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import type { Edge, JobDefinition, RunDetail, StepStatus } from '../api/types';
 import EdgePanel from '../features/builder/EdgePanel';
 import { conditionLabel } from '../features/builder/GraphView';
@@ -99,7 +99,10 @@ describe('EdgePanel Check with', () => {
     test('a saved job without a kind shows Simple comparison and a plain field', () => {
         renderPanel(job({ expression: '$a.resultCount$ > 0' }));
         expect(screen.getByTestId('condition-kind')).toHaveTextContent('Simple comparison');
-        expect(screen.queryByTestId('spl-highlight')).not.toBeInTheDocument();
+        expect(screen.getByTestId('spl-highlight')).toBeInTheDocument();
+        expect(screen.getByRole('textbox', { name: 'Expression' }).tagName).toBe('TEXTAREA');
+        expect(screen.queryByRole('checkbox', { name: 'Put each | on a new line' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Insert value/ })).toBeInTheDocument();
     });
 
     test('SPL expression uses the SPL editor without pipe-newline', () => {
@@ -124,6 +127,39 @@ describe('EdgePanel Check with', () => {
         expect(edge()).toMatchObject({ expression_kind: 'search', earliest: '-24h', latest: 'now' });
         expect(screen.getByRole('combobox', { name: 'Time range' })).toHaveTextContent('The 24 hours before');
         expect(screen.getByRole('checkbox', { name: 'Put each | on a new line' })).toBeInTheDocument();
+    });
+
+    test('search mode puts a typed pipe on a new line', () => {
+        const edge = renderPanel(job({ expression_kind: 'search', expression: 'index=a', earliest: '-24h', latest: 'now' }));
+        const area = screen.getByRole('textbox', { name: 'Search' }) as HTMLTextAreaElement;
+        area.setSelectionRange(7, 7);
+        fireEvent.keyDown(area, { key: '|' });
+        expect(edge().expression).toBe('index=a\n| ');
+    });
+
+    test('Open larger edits a copy and applies it on Done', () => {
+        const edge = renderPanel(job({ expression: '$a.resultCount$ > 0' }));
+        fireEvent.click(screen.getByRole('button', { name: /Open larger/ }));
+        const big = screen.getByRole('dialog');
+        const area = within(big).getByRole('textbox') as HTMLTextAreaElement;
+        fireEvent.change(area, { target: { value: '$a.resultCount$ > 5' } });
+        expect(edge().expression).toBe('$a.resultCount$ > 0');
+        fireEvent.click(within(big).getByRole('button', { name: 'Done' }));
+        expect(edge().expression).toBe('$a.resultCount$ > 5');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    test('Open larger Cancel and Escape discard the changes', () => {
+        const edge = renderPanel(job({ expression: 'x' }));
+        fireEvent.click(screen.getByRole('button', { name: /Open larger/ }));
+        fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'y' } });
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+        expect(edge().expression).toBe('x');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /Open larger/ }));
+        fireEvent.change(within(screen.getByRole('dialog')).getByRole('textbox'), { target: { value: 'z' } });
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        expect(edge().expression).toBe('x');
     });
 
     test('back to Simple comparison drops the time range', () => {

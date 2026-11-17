@@ -100,8 +100,9 @@ export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, 
                             placeholder={placeholder}
                             groups={availableTokens(job, to, previewFields)}
                             onValue={(expression) => set({ expression })}
-                            multiline={kind !== 'simple'}
-                            rowsMin={kind === 'search' ? 3 : 2}
+                            multiline
+                            expandable
+                            rowsMin={4}
                             pipeNewline={kind === 'search'}
                         />
                     </ControlGroup>
