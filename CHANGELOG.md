@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.12.0 (2026-11-17)
+
+Editing at scale in the flow editor: select, copy, align, group and see results on nodes.
+
+- Select several nodes with **Shift+click**, **Shift+drag** on the canvas, `Ctrl/Cmd+A` or `Shift+Space`, and move them together. The side panel offers **Align** and **Distribute** buttons and **Tidy up selection**. Removing several nodes asks "Remove N nodes?".
+- Duplicate, copy and paste nodes with `Ctrl/Cmd+D`, `C` and `V`, also between jobs. Ids are renamed when taken, and "Pasted N nodes" has an **Undo**.
+- A right-click menu for nodes, selections and the canvas; open it from the keyboard with `Menu` or `Shift+F10`.
+- **Show grid** and alignment guides while you drag. **Compact nodes** shows each node as a name and icon.
+- Nodes show their preview result: "1 204 rows · 3.2 s", "Out of date" or "Preview failed: ...".
+- Groups: coloured backdrops with a title, colour, width and height, made with `Ctrl/Cmd+G` or right-click, **Group**. They collapse and expand, `Shift+arrows` resize them, and the run page always shows them expanded.
+- Only the main mouse button drags.
+- The user guide gains sections for each of these and a keyboard shortcut table.
+
 ## 1.11.0 (2026-11-16)
 
 Connecting nodes in the flow editor: one + handle, outcome tabs and line labels.

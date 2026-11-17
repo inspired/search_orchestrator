@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.11.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.12.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -85,7 +85,7 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 - `Tab` moves through the nodes, then the lines. `Enter` selects the focused one. On a focused line, `Enter` also opens its menu.
 - `+` or `Shift+Enter` on a focused node opens its When list. Arrow keys move in the list, `Enter` chooses, then the search box takes over; `Shift+Tab` goes back to the list.
 - `/` opens the add-node box, also from the toolbar. `Tab` opens it too while the pointer is over the canvas. Type to filter, arrow keys to move, `Enter` to add, `Escape` to close.
-- Arrow keys move the selected node by 10 px. `Delete` or `Backspace` asks before removing it; **Undo** brings it back.
+- Arrow keys move the selected node by 10 px. `Delete` or `Backspace` asks before removing it; **Undo** brings it back. The full list is under Keyboard shortcuts below.
 - `F` frames the whole graph. Drag the background to pan, and use the wheel or the zoom buttons to zoom.
 
 **Data and signal lines.** A thick line carries data: it ends at a **Results of earlier steps**, **Summary index** or **Lookup** step, which read the results of the step it comes from. A thin line is a signal: it only says when something runs or fires, such as a line to an action or a dashed line from a trigger.
@@ -95,6 +95,71 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 **Tidy up** places every node again automatically, as one undo step. Moving a node is one undo step per move.
 
 The time zone every schedule uses is on the **Settings** tab; a schedule's panel links to it.
+
+#### Select several nodes
+
+- **Shift+click** a node to add it to the selection or take it out. **Shift+drag** on empty canvas draws a box and selects every node it touches. `Ctrl+A` (`Cmd+A` on a Mac) selects every node; `Shift+Space` toggles the focused node.
+- Drag any selected node to move them all together. Only the main mouse button drags.
+- The side panel shows "N nodes selected" with **Align left**, **Align centres**, **Align right**, **Align top**, **Align middles**, **Align bottom**, **Distribute horizontally** and **Distribute vertically**. The two distribute buttons need three or more nodes ("Select three or more nodes"). **Tidy up selection** places only the selected nodes again.
+- **Remove nodes** (or `Delete`) asks "Remove N nodes?" and lists their names. **Undo** brings them back.
+
+#### Duplicate, copy and paste
+
+- `Ctrl+D` (`Cmd+D`) duplicates the selected nodes next to the originals. `Ctrl+C` and `Ctrl+V` copy and paste, also into another job in the same browser.
+- Pasted nodes get new ids when an id is already taken. Lines between the pasted nodes come with them; lines to nodes you didn't copy don't. A message such as "Pasted 3 nodes" has an **Undo** button, and says when a pasted step still needs a line into it.
+- **Paste** in the canvas menu puts the nodes where you right-clicked.
+
+#### The right-click menu
+
+Right-click a node, a selection or the empty canvas, or press the `Menu` key or `Shift+F10` on a focused node. The menu offers, depending on what you clicked:
+
+- Empty canvas: **Add node here**, **Paste**, **Tidy up**.
+- A node: **Rename**, **Duplicate**, **Copy**, **Preview**, **Add a line**, **Remove**. An item that can't be used is dimmed and says why.
+- Several nodes: **Duplicate**, **Copy**, **Align…**, **Distribute…**, **Tidy up selection**, **Group**, **Remove nodes**.
+
+`Escape` closes the menu.
+
+#### Grid and alignment guides
+
+**Show grid** in the toolbar draws a grid behind the nodes, and moved nodes snap to it. **Hide grid** turns it off. While you drag a node, thin guides appear when its edge or centre lines up with another node, and it snaps to them.
+
+#### Compact nodes
+
+**Compact nodes** in the toolbar shrinks every node to its name and icon, so a big graph fits on screen. **Full nodes** brings the detail back. It changes only how nodes are drawn, not the job.
+
+#### Results on nodes
+
+After you use **Preview step**, its node shows the result under the name: "1 204 rows · 3.2 s". While it runs the node says "Previewing…". When the step, the time, the parameters or an earlier step changed since, it says "Out of date" in muted text. A failed preview shows "Preview failed: " and the first line of the error. A bar shows the row count relative to the largest preview.
+
+#### Groups
+
+A group is a coloured backdrop that gathers nodes under a title. It never changes how the job runs.
+
+- Select nodes and press `Ctrl+G` (`Cmd+G`), choose **Group selection** in the toolbar, or right-click and choose **Group**.
+- Click the group to edit its **Title**, **Colour**, **Width** and **Height** in the side panel. With the group selected, `Shift+arrows` resize it.
+- **Collapse** shrinks the group to its title bar and hides its nodes; **Expand** shows them again. The run page always shows groups expanded.
+- **Remove group** asks "Remove group …?". The nodes in it stay.
+
+#### Keyboard shortcuts
+
+With the canvas focused:
+
+| Keys | What they do |
+|---|---|
+| `Tab` | Move through the nodes, then the lines |
+| `Enter` | Select the focused node or line; open a line's menu |
+| `+` or `Shift+Enter` | Open the When list of the focused node |
+| `Shift+Space` | Add the focused node to the selection or take it out |
+| `Ctrl+A` / `Cmd+A` | Select every node |
+| `Ctrl+C`, `Ctrl+V`, `Ctrl+D` (`Cmd` on a Mac) | Copy, paste, duplicate |
+| `Ctrl+G` / `Cmd+G` | Group the selected nodes |
+| `Delete` or `Backspace` | Remove the selection, after you confirm |
+| Arrow keys | Move the selection by 10 px |
+| `Shift+arrows` | Resize the selected group |
+| `F` | Frame the whole graph |
+| `/` | Open the add-node box |
+| `Menu` or `Shift+F10` | Open the right-click menu |
+| `Escape` | Close a list or menu, clear the selection, leave full screen |
 
 ### Write results to an index or a lookup
 
