@@ -9,7 +9,7 @@
  * dropped on a line the caller allows is spliced in (`onSplice`). Gestures, including auto-pan
  * near the edge, live in useCanvasGestures.
  * Shift+click, Shift+Space or a Shift+drag box on empty canvas select several nodes; Ctrl/Cmd+A
- * selects all but the whole job; they move, nudge and are removed (`onRequestRemoveNodes`) together.
+ * selects all but the whole job; Ctrl/Cmd+C, V and D copy, paste and duplicate them; they move, nudge and are removed (`onRequestRemoveNodes`) together.
  * Keyboard: Tab through nodes, then lines; Enter selects, + or Shift+Enter opens the When list, arrows
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
@@ -34,6 +34,7 @@ import LineLabel, { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 import { DraftLine, SelectionBox } from './DragFeedback';
+import { clipboardShortcut } from './clipboard';
 
 export type { FlowSelection, ScreenPoint };
 
@@ -63,6 +64,10 @@ export interface FlowCanvasProps {
     onRequestRemove?: (key: string) => void;
     /** Delete on a multi-selection: the caller confirms, then removes them all. */
     onRequestRemoveNodes?: (keys: string[]) => void;
+    /** Ctrl/Cmd+C, Ctrl/Cmd+D (duplicate the selection) and Ctrl/Cmd+V (paste at canvas point `at`). */
+    onCopy?: () => void;
+    onDuplicate?: () => void;
+    onPaste?: (at: Pos) => void;
     /** Also adds an "Add node" button to the toolbar, which opens it at the view centre. */
     onQuickAdd?: (at: Pos, screen: ScreenPoint) => void;
     /** Adds a "Tidy up" button to the toolbar. */
@@ -126,6 +131,9 @@ export default function FlowCanvas({
     onDropOnCanvas,
     onRequestRemove,
     onRequestRemoveNodes,
+    onCopy,
+    onDuplicate,
+    onPaste,
     onQuickAdd,
     onTidy,
     overlay,
@@ -243,6 +251,17 @@ export default function FlowCanvas({
         if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'a' || ev.key === 'A') && !readOnly) {
             ev.preventDefault();
             onSelect(normaliseSelection(graph.nodes.map((n) => n.key).filter((k) => k !== JOB_KEY)));
+            return;
+        }
+        const clip = readOnly ? null : clipboardShortcut(ev);
+        const handler = clip === 'copy' ? onCopy : clip === 'duplicate' ? onDuplicate : undefined;
+        if (clip && (handler || (clip === 'paste' && onPaste))) {
+            ev.preventDefault();
+            if (handler) {
+                handler();
+            } else if (onPaste) {
+                onPaste(quickAddAt(false));
+            }
             return;
         }
         if (ev.ctrlKey || ev.metaKey || ev.altKey) {

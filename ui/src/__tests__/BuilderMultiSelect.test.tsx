@@ -68,4 +68,37 @@ describe('BuilderPage multi-select', () => {
         expect(screen.getByRole('button', { name: 'Undo' })).not.toHaveAttribute('aria-disabled', 'true');
         expect(screen.getByRole('heading', { name: '2 nodes selected' })).toBeInTheDocument();
     });
+
+    it('Ctrl+D duplicates the selection, Ctrl+C then Ctrl+V pastes it again, and Undo takes it away', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
+        const count = () => document.querySelectorAll('[data-node-key^="step:"]').length;
+        const before = count();
+        shiftClick('step:daily');
+        shiftClick('step:monthly');
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.keyDown(canvas, { key: 'd', ctrlKey: true });
+        expect(count()).toBe(before + 2);
+        expect(screen.getByTestId('splice-message')).toHaveTextContent(/Pasted 2 nodes/);
+        expect(screen.getByRole('heading', { name: '2 nodes selected' })).toBeInTheDocument();
+        fireEvent.click(within(screen.getByTestId('splice-message')).getByRole('button', { name: 'Undo' }));
+        expect(count()).toBe(before);
+        shiftClick('step:daily');
+        shiftClick('step:monthly');
+        fireEvent.keyDown(canvas, { key: 'c', metaKey: true });
+        fireEvent.keyDown(canvas, { key: 'v', metaKey: true });
+        await waitFor(() => expect(count()).toBe(before + 2));
+    });
+
+    it('the clipboard shortcuts do nothing while typing in a field', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
+        const before = document.querySelectorAll('[data-node-key^="step:"]').length;
+        shiftClick('step:daily');
+        shiftClick('step:monthly');
+        const field = document.createElement('input');
+        screen.getByRole('group', { name: /^Job flow/ }).appendChild(field);
+        fireEvent.keyDown(field, { key: 'd', ctrlKey: true });
+        expect(document.querySelectorAll('[data-node-key^="step:"]').length).toBe(before);
+    });
 });

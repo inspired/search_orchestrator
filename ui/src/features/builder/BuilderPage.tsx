@@ -32,6 +32,7 @@ import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import useBuilderData from './useBuilderData';
 import useFillHeight from './useFillHeight';
+import useClipboard from './useClipboard';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
@@ -354,6 +355,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         canvas: () => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'),
     });
 
+    const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: menus.notify });
+
     // Full screen: the canvas and panel over the whole page. Escape leaves, unless something
     // (a popup, the canvas clearing its selection, a modal) used it first.
     const modalOpen = Boolean(removing || ownerConfirm);
@@ -420,6 +423,9 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     canSpliceNode={menus.canSpliceNode}
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
+                    onCopy={clipboard.onCopy}
+                    onDuplicate={clipboard.onDuplicate}
+                    onPaste={clipboard.onPaste}
                     onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
                     onTidy={() => dispatch({ type: 'tidyLayout' })}
                     overlay={menus.overlay}

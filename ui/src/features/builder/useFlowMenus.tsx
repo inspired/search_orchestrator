@@ -323,5 +323,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         onLineMenu,
         onSplice,
         canSpliceNode,
+        /** Shows `text` with an Undo button for 10 s (call before the edit it is about). */
+        notify: showMessage,
     };
 }

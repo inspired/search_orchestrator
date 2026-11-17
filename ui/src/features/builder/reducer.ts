@@ -3,6 +3,9 @@
 import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef, StepOutput, Trigger } from '../../api/types';
 import { actionsOf, changeLineOutcome, disconnectJob, dropActionKey, parseAction, parseCond, removeActionJob, removeNodesJob } from './flowEdits';
+import { pasteResult } from './clipboard';
+import type { Clip } from './clipboard';
+import { nextStepId, renameActions, renameStepTokens, renameTokens } from './stepRename';
 import { insertJob, remapLayout, removeStepJob, removeTriggerJob, renameStepKeys, setActions, spliceJob, spotRightOf } from './flowEdits';
 import { tidyJob, withNodes, withPlacedNode } from './flowEdits';
 import { wouldCycle } from './graphLogic';
@@ -43,6 +46,8 @@ export type BuilderAction =
     /** A save went through: `job` (the definition sent) is now what the server has. */
     | { type: 'saved'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
+    /** Puts a copied clip into the job as one undo step (callers select `pasteResult(...).keys`). */
+    | { type: 'paste'; clip: Clip; at: Pos }
     | { type: 'removeStep'; id: string }
     /** Any mix of steps, actions, triggers and conditions, as one undo step; `job` is ignored. */
     | { type: 'removeNodes'; keys: string[] }
@@ -80,6 +85,8 @@ export type BuilderAction =
     | { type: 'undo' }
     | { type: 'redo' };
 
+export { nextStepId, renameTokens };
+
 const HISTORY = 100;
 
 export function blankJob(): JobDefinition {
@@ -111,25 +118,6 @@ export function isDirty(state: BuilderState): boolean {
     return JSON.stringify(toDefinition(state.job)) !== JSON.stringify(toDefinition(state.savedJob));
 }
 
-/** The id addStep gives a new step: step_<n>, unused. */
-export function nextStepId(steps: StepDef[], prefix?: string): string {
-    const ids = new Set(steps.map((s) => s.id));
-    if (prefix) {
-        let k = 1;
-        let id = prefix;
-        while (ids.has(id)) {
-            k += 1;
-            id = `${prefix}_${k}`;
-        }
-        return id;
-    }
-    let n = steps.length + 1;
-    while (ids.has(`step_${n}`)) {
-        n += 1;
-    }
-    return `step_${n}`;
-}
-
 function edits(state: BuilderState, job: JobDefinition, key?: string): BuilderState {
     if (key && key === state.lastKey) {
         return { ...state, job, future: [], lastKey: key };
@@ -139,51 +127,6 @@ function edits(state: BuilderState, job: JobDefinition, key?: string): BuilderSt
 }
 
 const fieldKey = (...parts: string[]) => parts.join('\u0000');
-
-const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** Rewrites `$old.sid$`, `$old.resultCount$`, `$old.status$` and `$old.first.f$` (with an
- * optional `|default`) to the new id. Anything else, such as a literal `$` or `$old$`,
- * is left as it is (the token grammar of bin/so/tokens.py). */
-export function renameTokens(text: string, from: string, to: string): string {
-    const re = new RegExp(`\\$${escapeRe(from)}(\\.(?:sid|resultCount|status|first\\.[A-Za-z0-9_]+)(?:\\|[A-Za-z0-9_.:@ -]*)?\\$)`, 'g');
-    return text.replace(re, (_m, rest: string) => `$${to}${rest}`);
-}
-
-/** Every string inside an action (subject, message, payload, params values ...). */
-function renameInValue(value: unknown, from: string, to: string): unknown {
-    if (typeof value === 'string') {
-        return renameTokens(value, from, to);
-    }
-    if (Array.isArray(value)) {
-        return value.map((v) => renameInValue(v, from, to));
-    }
-    if (value && typeof value === 'object') {
-        const out: Record<string, unknown> = {};
-        Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
-            out[k] = renameInValue(v, from, to);
-        });
-        return out;
-    }
-    return value;
-}
-
-const renameActions = (actions: Action[] | undefined, from: string, to: string) =>
-    actions ? (actions.map((a) => renameInValue(a, from, to)) as Action[]) : actions;
-
-function renameStepTokens(step: StepDef, from: string, to: string): StepDef {
-    const out = { ...step };
-    if (typeof out.spl === 'string') {
-        out.spl = renameTokens(out.spl, from, to);
-    }
-    if (out.run_when && out.run_when.kind === 'expression' && typeof out.run_when.value === 'string') {
-        out.run_when = { ...out.run_when, value: renameTokens(out.run_when.value, from, to) };
-    }
-    if (out.actions) {
-        out.actions = renameActions(out.actions, from, to);
-    }
-    return out;
-}
 
 /** Switching a "Results of earlier steps" step to Search writes its generated input into the
  * SPL as `$step.sid$` tokens, so it keeps working. Switching to Results of earlier steps drops
@@ -334,6 +277,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const step: StepDef = { id, name: '', type: 'inline', spl: '', ...action.step };
             return edits(state, { ...job, steps: [...steps, step] });
         }
+        case 'paste':
+            return edits(state, pasteResult(job, action.clip, action.at).job);
         case 'removeStep':
             return edits(state, removeStepJob(job, action.id));
         case 'removeNodes': {
