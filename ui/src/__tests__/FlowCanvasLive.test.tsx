@@ -62,8 +62,17 @@ describe('FlowCanvas live run', () => {
         expect(line(AB).getAttribute('stroke-dasharray')).toBeTruthy();
         expect(line(AC)).toHaveAttribute('stroke-width', '1.5');
         expect(line(AC)).toHaveAttribute('stroke-dasharray', '4 4');
-        expect(line(AC)).toHaveAttribute('stroke-opacity', '0.35');
+        // Opacity (not stroke-opacity), so the arrowhead fades with the line.
+        expect(line(AC)).toHaveAttribute('opacity', '0.35');
+        expect(line(AC)).not.toHaveAttribute('stroke-opacity');
         expect(line(AC)).not.toHaveClass('so-flow');
+    });
+
+    test('a fired data line keeps its 3 px', () => {
+        const dataJob: JobDefinition = { ...job, steps: [job.steps![0], { id: 'b', type: 'previous', spl: '| stats count' }, job.steps![2]] };
+        const { line } = setup({ graph: buildGraph(dataJob), lineStates: { [AB]: 'fired', [AC]: 'fired' } });
+        expect(line(AB)).toHaveAttribute('stroke-width', '3');
+        expect(line(AC)).toHaveAttribute('stroke-width', '2');
     });
 
     test('a fired line is solid at 2 px; a pending one is drawn as in the builder', () => {
@@ -71,7 +80,7 @@ describe('FlowCanvas live run', () => {
         expect(line(AB)).toHaveAttribute('stroke-width', '2');
         expect(line(AB)).not.toHaveAttribute('stroke-dasharray');
         expect(line(AC)).toHaveAttribute('stroke-width', '1.5');
-        expect(line(AC)).not.toHaveAttribute('stroke-opacity');
+        expect(line(AC)).not.toHaveAttribute('opacity');
     });
 
     test('row labels replace the outcome label on data lines', () => {

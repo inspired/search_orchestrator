@@ -1,7 +1,8 @@
 /* The flow canvas's lines and their midpoint labels. On the run page each line can carry a run
- * state (`lineStates`): fired lines are solid in their outcome's colour at 2 px, flowing lines
+ * state (`lineStates`): fired lines are solid in their outcome's colour at 2 px (data lines keep
+ * their 3 px), flowing lines
  * (into a running step) are 3 px focusColor dashes that move toward the target (class `so-flow`,
- * left out with reduced motion), lines that will not fire are thin, dashed and faded, and pending
+ * left out with reduced motion), lines that will not fire are thin, dashed and faded with their arrowhead, and pending
  * lines are drawn as in the builder. `lineLabels` (row counts) replace a line's outcome label.
  * LiveStyles holds the keyframes for so-flow, so-spin and so-pulse, with one
  * `prefers-reduced-motion: reduce` block that stops them all. Theme tokens only. */
@@ -78,7 +79,7 @@ export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, m
             return { token: 'focusColor', width: 3 + extra, dash: '8 6', flow: motion };
         }
         if (state === 'fired') {
-            return { token, width: 2 + extra };
+            return { token, width: (l.data ? 3 : 2) + extra };
         }
         if (state === 'wont') {
             return { token, width: 1.5 + extra, dash: '4 4', opacity: 0.35 };
@@ -107,7 +108,7 @@ export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, m
                             stroke={theme[look.token]}
                             strokeWidth={look.width}
                             strokeDasharray={look.dash}
-                            strokeOpacity={look.opacity}
+                            opacity={look.opacity}
                             className={look.flow ? 'so-flow' : undefined}
                             markerEnd={markerUrl(look.token)}
                         />

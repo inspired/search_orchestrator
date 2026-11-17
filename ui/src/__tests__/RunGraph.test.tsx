@@ -108,13 +108,22 @@ describe('RunGraph', () => {
             expect(screen.getByTestId('node-action:a:0')).toHaveTextContent('Retrying in 30 s');
         });
 
+        test('a step left waiting in a run that is no longer active does not say it is waiting', () => {
+            // A cancelled run: a never finished, b never started.
+            const states: Record<string, StepStatus> = { a: { state: 'running', started_at: NOW }, b: { state: 'waiting' } };
+            renderThemed(<RunGraph definition={live} states={states} actions={[]} active={false} now={NOW} />);
+            expect(screen.getByTestId('node-step:b')).not.toHaveTextContent('Waiting for');
+        });
+
         test('a finished run shows the final picture with no animation', () => {
             const states: Record<string, StepStatus> = { a: { state: 'succeeded', started_at: NOW - 5, ended_at: NOW }, b: { state: 'running', started_at: NOW } };
             renderThemed(<RunGraph definition={live} states={states} actions={[]} active={false} now={NOW} />);
             const canvas = screen.getByRole('group', { name: /^Job flow/ });
             expect(canvas.querySelectorAll('.so-flow, .so-spin, .so-pulse')).toHaveLength(0);
             expect(screen.queryByTestId('timer-step:b')).toBeNull();
-            expect(line(AB)).toHaveAttribute('stroke-width', '2');
+            // Fired, not flowing: solid, and a data line keeps its 3 px.
+            expect(line(AB)).not.toHaveClass('so-flow');
+            expect(line(AB)).toHaveAttribute('stroke-width', '3');
             expect(screen.queryByRole('button', { name: 'Follow the run' })).toBeNull();
         });
 

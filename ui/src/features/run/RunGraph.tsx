@@ -2,7 +2,8 @@
  * are drawn too, always expanded, so running steps are never hidden. While the run is active the
  * graph is live: lines show what fired, what flows into a running step and what will not fire
  * (runFlow), finished search steps put their row counts on their data lines, running steps get
- * a pulsing outline, a spinner and a timer, waiting steps are dimmed and say what they wait for,
+ * a pulsing outline, a spinner and a timer, waiting steps are dimmed and (while the run is
+ * active) say what they wait for,
  * and actions show their live text ("Retrying in 30 s"). `now` is the page's one-second clock.
  * The canvas follows the running steps until the user pans or zooms; "Follow the run" turns it
  * back on. A finished run shows the final picture with no animation. */
@@ -76,7 +77,8 @@ export default function RunGraph({ definition, states, actions, onSelect, select
             if (st && FINISHED.includes(state) && st.started_at && st.ended_at) {
                 text = `${text} · ${formatElapsed(st.ended_at - st.started_at)}`;
             }
-            const wait = waitingFor(definition, states, s.id);
+            // Only a live run waits; a finished one just shows the state it was left in.
+            const wait = active ? waitingFor(definition, states, s.id) : null;
             const isRunning = active && RUNNING.includes(state);
             out[stepKey(s.id)] = {
                 text: wait || text,
