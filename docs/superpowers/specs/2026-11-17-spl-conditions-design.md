@@ -12,7 +12,7 @@ A condition line (an edge with `condition: "expression"`) can only use the small
 |---|---|
 | `expression_kind` | `simple` (default when absent), `eval` or `search` |
 | `expression` | The text: a simple comparison, an eval expression, or a search |
-| `earliest`, `latest` | `search` only. Relative to the run's scheduled time, the same presets as steps. Absent means "The 24 hours before" (`-24h`, `now`). |
+| `earliest`, `latest` | `search` only. Relative to the run's scheduled time, the same presets as steps. Both absent means "The 24 hours before" (`-24h`, `now`); both empty strings mean All time. The builder writes the default when you pick this mode. |
 | `hidden_search` | Written by the server at save (`eval`/`search`), never taken from the request. |
 
 - **Simple comparison** (`simple`): `expr.py`, evaluated in the engine, unchanged.

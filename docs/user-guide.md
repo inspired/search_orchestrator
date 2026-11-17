@@ -27,7 +27,7 @@ The job is drawn on the **Flow** tab as nodes and lines, read from left to right
 
 1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from the **+** handle on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
 2. **Connect nodes** by dragging from a node's **+** handle onto another node. A line between two steps makes the second depend on the first; a line to an action says when the action fires. Keyboard and screen-reader users can use **Depends on** in a step's panel, and **When** in an action's panel.
-3. **Select a node** to edit it in the side panel: a step's search, time range, run-when rule, delay and give-up times and retries; an action's fields; a trigger's schedule; a condition's expression.
+3. **Select a node** to edit it in the side panel: a step's search, time range, run-when rule, delay and give-up times and retries; an action's fields; a trigger's schedule; a condition's check.
 4. Use the other tabs for parameters, who may run, and job-wide settings such as the time zone and step defaults.
 5. **Save.** The builder checks for cycles, unknown tokens, bad cron, unreadable saved searches and tokens from steps that might be skipped.
 
@@ -62,13 +62,13 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | Finishes either way | ∞ | runs it whenever this step finishes | fires on complete |
 | Starts | ▶ | not allowed (actions only) | fires on start |
 | Is delayed | ⏱ | not allowed (actions only) | fires when the step is delayed |
-| If a condition is true | ◇ | adds an **If…** node; the next step runs when its expression is true | not allowed |
+| If a condition is true | ◇ | adds an **If…** node; the next step runs when its condition is true (see [Conditions](#conditions)) | not allowed |
 
 The **Whole job** list has no "If a condition is true"; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no +: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't made.
 
 **Outcome tabs.** Every outcome a node already uses shows as a small round tab on its right edge: just the symbol (✓ ✗ ∞ ▶ ⏱ ◇) in a ring in the outcome's colour. Point at a tab to see its name, such as "Succeeds" or "Fails"; screen readers read the name too. Its lines leave from that tab, and lines are coloured by outcome. Dragging from a tab draws another line with that outcome, without the When list. The tabs stack in a column centred on the node's middle, with the + to their right.
 
-**Line labels and the line menu.** Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome. The **selected** line shows its label in the middle ("✗ Fails"; a line out of an **If…** node shows its expression, shortened). **Show line labels** in the toolbar draws a label on every line, and **Hide line labels** turns them off again; the choice is remembered in this browser. With labels on, they hide when you zoom out below 70 %, except on the selected line. On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing. Click a line, or press `Enter` on a focused line, to select it and open its menu:
+**Line labels and the line menu.** Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome. The **selected** line shows its label in the middle ("✗ Fails"; a line out of an **If…** node shows its condition, shortened: the expression itself, "◇ where …" for an SPL expression or "◇ search …" for a search). **Show line labels** in the toolbar draws a label on every line, and **Hide line labels** turns them off again; the choice is remembered in this browser. With labels on, they hide when you zoom out below 70 %, except on the selected line. On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing. Click a line, or press `Enter` on a focused line, to select it and open its menu:
 
 - **Change to …** gives the line another outcome. On a line to an action this changes when the action fires; it stays on the same node. "If a condition is true" turns a line between steps into an **If…** node. On the line into an **If…** node, choosing another outcome turns it back into a plain line and drops the expression. Each change is one undo step.
 - **Insert a node** (lines between two steps) opens the search box and puts the new step on the line.
@@ -190,6 +190,36 @@ With the canvas focused:
 Durations take a unit (minutes, hours or days). A saved value shows in the largest whole unit, so 5400 seconds reads as 90 minutes. A value that isn't whole minutes shows rounded to minutes and keeps its exact seconds until you edit it.
 - **Retries** (default 0). A retry runs the search again, which can write duplicates to a summary index. See [Make steps safe to re-run](#make-steps-safe-to-re-run). Searches that never started are always retried up to 3 times.
 
+### Conditions
+
+An **If…** node (or a line set to **When a condition is true**) runs the next step only when its condition is true. **Check with** picks how the condition is written:
+
+| Check with | Write | True when |
+|---|---|---|
+| **Simple comparison** (the default, and what jobs saved before 1.17.0 use) | `$daily.resultCount$ > 0 and $run.param.region$ == 'eu'`: tokens, numbers and quoted strings compared with `==`, `!=`, `>`, `>=`, `<`, `<=`, joined with `and`, `or`, `not` | the comparison holds |
+| **SPL expression** | what you would write after `\| where`: any eval function, such as `now()`, `relative_time()`, `strftime()`, `match()`, `like()`, `if()`, `isnull()` | `\| makeresults \| where <expression>` returns a row |
+| **Search returns results** | a full search, like an alert's | the search returns at least one row |
+
+Examples:
+
+- SPL expression: `$daily.resultCount$ > 1000 AND tonumber(strftime(now(), "%w")) = 1` (more than 1000 rows, on a Monday).
+- SPL expression: `$run.now$ - $run.scheduled_time$ < 3600` (the source finished within an hour of the scheduled time).
+- SPL expression: `match("$daily.first.status$", "^(ok|done)$")`.
+- Search returns results: `index=_internal sourcetype=splunkd log_level=ERROR component=IndexProcessor` (run a clean-up step only when indexing errors were logged in the 24 hours before the scheduled time).
+- Search returns results: `| loadjob $daily.sid$ | where count > 0 | head 1` (rows of the earlier step match).
+
+How SPL conditions run:
+
+- **When the line's source finishes** (succeeds or fails), the condition search runs **as the job owner**, like a step, through a hidden saved search (`_so_<job>_cond_<hash>`) written when you save the job. The next step stays *Waiting* meanwhile. A source that was skipped never runs it: the line is not taken.
+- **Once per run.** The result is kept on the run. **Re-run from a step** checks the conditions into the steps it resets again.
+- **Time.** `now()` and the time range are relative to the run's **scheduled time**, as in steps, so `relative_time(now(), "@d")` is the scheduled day. `$run.now$` (and SPL's `time()`) is the clock time when the condition is checked. **Search returns results** has a **Time range** (default **The 24 hours before**); **All time** searches everything.
+- **Tokens** go in as quoted strings, as in steps. In an SPL expression, the number tokens (`$<step>.resultCount$`, `$run.scheduled_time$`, `$run.now$`) go in as numbers, so `$daily.resultCount$ > 0` compares numbers; in a search, wrap them in `tonumber()` inside `| where` or `| eval`.
+- **A condition only reads.** It can't use `collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail`, `delete` or `| orchestrate`; saving says so. An SPL expression can't contain `|` outside quotes; use **Search returns results** for a full search.
+- **A condition that fails counts as not met.** That covers a search error, a token with no value, and a search still running after **300 seconds** (it is stopped). The step after it is skipped, the run page's step details show the error, and the audit index gets `condition_failed`. Every result is audited as `condition_evaluated`.
+- **Limits.** A condition search counts toward the running-search limits, like a step. Previews never run conditions: a preview treats an SPL condition as met.
+
+The SPL field has the same colours and **Insert value** as a step's search. **Put each | on a new line** is offered for **Search returns results** only.
+
 ### Results of earlier steps
 
 A **Results of earlier steps** step searches the results of the steps it depends on, with no search of its own to repeat. Its SPL runs on their rows, as if each were loaded with `| loadjob`: the first dependency's results, then each later one appended, in the order the dependencies were connected.
@@ -211,10 +241,11 @@ Typing `|` puts it on a new line, as `| ` at the start of the line, so a pipelin
 Use these in SPL, expressions and action messages:
 
 - `$run.id$`, `$run.scheduled_time$`, `$run.param.<name>$`
+- `$run.now$`: the time, in epoch seconds, when the value is filled in: when a step's or condition's search starts, when an action's hook fires, or when a simple condition or run-when expression is checked. `$run.scheduled_time$` is when the run was scheduled.
 - `$<step>.sid$`, `$<step>.resultCount$`, `$<step>.status$`
 - `$<step>.first.<field>$`: a field from the step's first result row
 
-**Insert value** next to a search, an edge expression or an action message (the email subject and message, and the event payload) lists the tokens that exist at that point and puts the one you pick at the cursor. A selection is replaced. With no cursor in the field, the token goes at the end.
+**Insert value** next to a search, a condition or an action message (the email subject and message, and the event payload) lists the tokens that exist at that point and puts the one you pick at the cursor. A selection is replaced. With no cursor in the field, the token goes at the end.
 
 **Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. A token can't sit inside a ```` ``` ```` comment or right after a backslash (put the backslash in the value), and a parameter or result value containing a backtick fails the step. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. A step can't call `| orchestrate`; use a start-job action instead. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
 
@@ -384,7 +415,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false) and `condition_failed` (with `error`). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 
