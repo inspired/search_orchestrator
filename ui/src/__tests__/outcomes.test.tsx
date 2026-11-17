@@ -81,10 +81,10 @@ describe('lineMenuOutcomes', () => {
         const o = lineMenuOutcomes(job, link('step:a', 'step:b'));
         expect(o).toEqual(['success', 'failure', 'always', 'if']);
     });
-    it('condition lines list every step outcome', () => {
-        const all = ['success', 'failure', 'always', 'start', 'delayed', 'if'];
-        expect(lineMenuOutcomes(job, link('step:a', 'cond:a>c'))).toEqual(all);
-        expect(lineMenuOutcomes(job, link('cond:a>c', 'step:c'))).toEqual(all);
+    it('condition lines list only the outcomes a plain line can take (success, failure, always)', () => {
+        const plain = ['success', 'failure', 'always'];
+        expect(lineMenuOutcomes(job, link('step:a', 'cond:a>c'))).toEqual(plain);
+        expect(lineMenuOutcomes(job, link('cond:a>c', 'step:c'))).toEqual(plain);
     });
     it('is empty for trigger lines', () => {
         expect(lineMenuOutcomes(job, link('trigger:0', 'step:a'))).toEqual([]);

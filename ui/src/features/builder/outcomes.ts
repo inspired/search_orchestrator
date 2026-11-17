@@ -111,6 +111,8 @@ export function linkLabel(job: JobDefinition, link: FlowLink): string {
     return `${PORT_STYLE[link.port].glyph} ${OUTCOME_LABEL[link.port as Outcome]}`;
 }
 
+/** The outcomes a line's menu offers. A condition's legs can only become a plain line (the
+ * condition is dropped), so they offer Succeeds, Fails and Finishes either way. */
 export function lineMenuOutcomes(job: JobDefinition, link: FlowLink): Outcome[] {
     if (link.kind === 'trigger') {
         return [];
@@ -118,7 +120,8 @@ export function lineMenuOutcomes(job: JobDefinition, link: FlowLink): Outcome[] 
     if (link.kind === 'condition') {
         const cond = link.from.startsWith('cond:') ? link.from : link.to;
         const m = /^cond:(.*)>(.*)$/.exec(cond);
-        return m ? outcomesOf(job, `step:${m[1]}`) : [];
+        const plain: Outcome[] = ['success', 'failure', 'always'];
+        return m ? outcomesOf(job, `step:${m[1]}`).filter((o) => plain.includes(o)) : [];
     }
     return whenOptions(job, link.from, link.to).map((o) => o.outcome);
 }
