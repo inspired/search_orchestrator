@@ -5,6 +5,8 @@ runs one condition line (``condition: expression``) now, with the editor's previ
 and the same ``input`` as ``POST preview``:
 
 * the source step skipped: 200 ``{"status": "done", "result": false, "why"}``, no search;
+* an approval source step counts as approved with no comment, as in previews (with
+  ``input`` from a run, its recorded decision);
 * a ``simple`` comparison is evaluated here with ``expr.py``: 200 ``{"status": "done",
   "kind", "result", "filled", "values", "why"}`` (a parse error: ``result`` false, ``error``);
 * an ``eval`` or ``search`` condition is dispatched as an ad hoc search as the caller, under
@@ -106,7 +108,7 @@ def start(ctx, body):
     job, job_ref = _preview_target(ctx, body)
     src, dst = body.get("from"), body.get("to")
     edge = _find_edge(job, src, dst)
-    scope = _preview_scope(job, src)
+    scope = _preview_scope(job, src, approval_ok=True)
     params = _preview_params(job, body)
     scheduled = _scheduled_time(ctx, body)
     scope = scope + [src]

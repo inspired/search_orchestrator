@@ -181,3 +181,17 @@ def test_an_approval_step_is_never_previewed(w):
     assert out["error"]["message"] == \
         "An approval step has no search to preview; preview a step after it instead"
     assert not w.gw.preview_log
+
+
+def test_a_step_after_an_approval_step_previews_it_as_approved(w):
+    from so import preview as previewmod
+    from test_api import live
+    job = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults"},
+                          {"id": "gate", "type": "approval", "approval": {}},
+                          {"id": "b", "type": "inline", "spl": "| makeresults"}],
+                   edges=[{"from": "a", "to": "gate"}, {"from": "gate", "to": "b"}])
+    w.gw.script_job("so_preview_", ["done"], result_count=1)
+    sid = previewmod.make_sid("alice", "daily", "a", "p1")
+    w.gw.preview_dispatch("alice", "| makeresults", None, None, 0, sid)
+    status, out = preview(w, job=job, step_id="b", input=live(a={"sid": sid}))
+    assert status == 201, out

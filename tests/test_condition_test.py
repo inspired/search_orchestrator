@@ -120,3 +120,22 @@ def test_audited(w):
 
 def test_route_is_not_shadowed(w):
     assert run(w)[0] != 405
+
+
+def gate_cond_job(expression="$gate.first.decision$ == 'approve'"):
+    return job_body("cond", params=[], actions=[],
+                    steps=[{"id": "daily", "type": "inline", "spl": "| makeresults"},
+                           {"id": "gate", "type": "approval", "approval": {}},
+                           {"id": "weekly", "type": "inline", "spl": "| makeresults count=2"}],
+                    edges=[{"from": "daily", "to": "gate"},
+                           {"from": "gate", "to": "weekly", "condition": "expression",
+                            "expression": expression}])
+
+
+def test_a_line_from_an_approval_step_is_tested_as_approved_with_no_comment(w):
+    status, out = run(w, job=gate_cond_job(), **{"from": "gate"})
+    assert status == 200, out
+    assert out["result"] is True and out["filled"] == "approve == 'approve'"
+    status, out = run(w, job=gate_cond_job("$gate.first.comment$ == 'x'"), **{"from": "gate"})
+    assert status == 200 and out["result"] is False
+    assert not w.gw.preview_log
