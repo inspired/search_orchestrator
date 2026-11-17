@@ -2,6 +2,7 @@
  * splunkd's proxy at /<locale>/splunkd/__raw/services/orchestrator/... Every failure
  * throws ApiError with the server's {code, message, issues}. */
 import { createRESTURL } from '@splunk/splunk-utils/url';
+import { REST_BASE } from '../appNames';
 import { getCSRFToken } from '@splunk/splunk-utils/config';
 import type {
     AlertAction,
@@ -65,7 +66,7 @@ function url(path: string, query: Query = {}): string {
         }
     });
     params.append('output_mode', 'json');
-    return `${createRESTURL(`orchestrator/${path}`)}?${params.toString()}`;
+    return `${createRESTURL(`${REST_BASE}/${path}`)}?${params.toString()}`;
 }
 
 function enc(id: string): string {

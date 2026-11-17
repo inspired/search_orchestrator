@@ -4,6 +4,7 @@ import React from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Multiselect from '@splunk/react-ui/Multiselect';
+import { CAP_RUN } from '../../appNames';
 import LearnMore from '../../components/LearnMore';
 
 export interface AccessTabProps {
@@ -25,7 +26,7 @@ export default function AccessTab({ runRoles, owner, roles, onChange }: AccessTa
                 label="Who may run"
                 labelFor="access-run-roles"
                 labelPosition="top"
-                help="Members of these roles who also hold orchestrator_run can start runs. The owner and admins always can."
+                help={`Members of these roles who also hold ${CAP_RUN} can start runs. The owner and admins always can.`}
             >
                 <Multiselect
                     inputId="access-run-roles"

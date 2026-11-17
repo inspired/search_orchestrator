@@ -2,6 +2,7 @@
 import React from 'react';
 import Link from '@splunk/react-ui/Link';
 import type { Me } from '../../api/types';
+import { COMMAND } from '../../appNames';
 import { pageHref } from '../../components/PageShell';
 import TemplatePicker from '../builder/TemplatePicker';
 
@@ -23,7 +24,7 @@ export default function JobsEmpty({ me }: { me: Me | null | undefined }) {
                 {me.can_admin && (
                     <p>
                         Check the install first: run{' '}
-                        <Link to="/app/search/search?q=%7C%20orchestrate%20selftest">| orchestrate selftest</Link> in
+                        <Link to={`/app/search/search?q=${encodeURIComponent(`| ${COMMAND} selftest`)}`}>| {COMMAND} selftest</Link> in
                         Search.
                     </p>
                 )}

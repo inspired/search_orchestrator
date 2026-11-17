@@ -108,3 +108,30 @@ def test_license_and_roles_import_user():
     conf.read(APP / "default" / "authorize.conf")
     for role in ("role_orchestrator_user_role", "role_orchestrator_builder_role"):
         assert conf[role]["importRoles"] == "user", role
+
+
+def test_variant_package_renames_every_global_name(tmp_path):
+    # scripts/package_variant.sh: a copy that installs next to the normal app. A source change
+    # that moves a name breaks scripts/variant_rename.py's expected counts, and so this test.
+    splunk = ROOT / "ui" / "src" / "splunk"
+    ui = _fake_ui(tmp_path, "mkdir -p stage && cp -R '%s/.' stage/" % splunk)
+    out = subprocess.run([str(ROOT / "scripts" / "package_variant.sh"), "t1", "0.0.1"],
+                         env=dict(os.environ, SO_UI_DIR=str(ui)), check=True, capture_output=True, text=True)
+    path = out.stdout.strip().splitlines()[-1]
+    assert path.endswith("dist/search_orchestrator_t1-0.0.1.tgz")
+    tar = tarfile.open(path)
+    names = set(tar.getnames())
+    assert all(n.split("/")[0] == "search_orchestrator_t1" for n in names)
+    for rel in ["bin/orchestrator_engine_t1.py", "bin/orchestrator_rest_t1.py", "bin/orchestrate_t1.py",
+                "bin/start_orchestrator_job_t1.py", "default/data/ui/alerts/start_orchestrator_job_t1.html"]:
+        assert "search_orchestrator_t1/" + rel in names, rel
+
+    def read(rel):
+        return tar.extractfile("search_orchestrator_t1/" + rel).read().decode()
+    assert "label = Search Orchestrator (T1)" in read("default/app.conf")
+    assert "match = /orchestrator_t1\n" in read("default/restmap.conf")
+    assert "[role_orchestrator_user_role_t1]" in read("default/authorize.conf")
+    assert "index = orchestrator_t1\n" in read("default/inputs.conf")
+    assert "[commands/orchestrate_t1]" in read("metadata/default.meta")
+    assert "search_orchestrator_t1:/templates/run.html" in read("default/data/ui/views/run.xml")
+    os.remove(path)

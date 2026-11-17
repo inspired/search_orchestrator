@@ -11,6 +11,8 @@ where no job is involved (a new job, or an admin-only setting).
 ADMIN = "orchestrator_admin"
 BUILD = "orchestrator_build"
 RUN = "orchestrator_run"
+# Every capability this app defines (authorize.conf).
+CAPABILITIES = (ADMIN, BUILD, RUN)
 
 
 def _caps(user_caps):

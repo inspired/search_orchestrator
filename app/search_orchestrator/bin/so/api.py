@@ -959,7 +959,7 @@ def delete_destination(ctx, body, name):
 # Health and the caller.
 
 def health(ctx, body):
-    if not any(c.startswith("orchestrator_") for c in ctx.access["capabilities"]):
+    if not any(c in authz.CAPABILITIES for c in ctx.access["capabilities"]):
         raise ctx.deny("read_health")
     settings = ctx.store.get_settings() or {}
     fb = settings.get("fallback") or {}
@@ -986,7 +986,7 @@ def health(ctx, body):
 
 
 def me(ctx, body):
-    caps = sorted(c for c in ctx.access["capabilities"] if c.startswith("orchestrator_"))
+    caps = sorted(c for c in ctx.access["capabilities"] if c in authz.CAPABILITIES)
     return 200, {"user": ctx.user, "roles": list(ctx.access["roles"]), "capabilities": caps,
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
