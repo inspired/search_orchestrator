@@ -83,7 +83,7 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import authz, backfill, hidden, model, scheduler, tokens
+from . import approval, authz, backfill, hidden, model, scheduler, tokens
 from . import deadline as deadlinemod
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
@@ -210,6 +210,7 @@ def _action_texts(definition):
         if isinstance(a, dict):
             for key in ("subject", "message", "body", "payload", "params"):
                 yield from _strings(a.get(key))
+    yield from approval.message_texts(definition)  # an approval step's message
 
 
 class _Budget:

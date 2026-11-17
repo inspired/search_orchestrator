@@ -19,6 +19,7 @@ Step searches (``steps[i]``, written into the job definition):
   succeeded dependencies' sids) and ``hidden_search_empty`` from
   ``tokens.empty_step_spl`` (``| makeresults | where 1=0 <tail>``), dispatched
   when no dependency succeeded.
+* ``approval``: no search at all; ``plan`` writes nothing for it.
 * ``saved_search``: the two-mode rule, checked with the user's session through
   ``gateway.saved_search_info``. If the job owner owns it, it is private
   (sharing ``user``) and has ``dispatchAs = owner``: ``mode = "direct"`` and
@@ -236,6 +237,10 @@ def plan(gw, job):
     for step in steps:
         sid = step.get("id")
         step.pop("hidden_search_empty", None)  # only ever set here, never from the request
+        if step.get("type") == "approval":  # runs no search
+            step.pop("hidden_search", None)
+            step.pop("mode", None)
+            continue
         if step.get("type") == "previous":
             # It reads its inputs with loadjob: a time range (say, left from an earlier
             # type) would only reach the dispatch.

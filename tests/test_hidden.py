@@ -317,3 +317,16 @@ def test_previous_step_drops_earliest_and_latest():
     same = job(steps=[j["steps"][0], {"id": "b", "type": "previous", "spl": "| stats count"}],
                edges=j["edges"])
     assert hidden.plan(gw, same)[0]["steps"][1]["hidden_search"] == b["hidden_search"]
+
+
+def test_plan_writes_nothing_for_approval_steps():
+    gw = FakeGateway()
+    j = job()
+    j["steps"].append({"id": "gate", "type": "approval", "approval": {"message": "ok?"},
+                       "hidden_search": "_so_daily_gate_forged", "mode": "inline"})
+    j["edges"] = [{"from": "a", "to": "gate"}]
+    planned, searches, issues = hidden.plan(gw, j)
+    assert [s["name"] for s in searches] == [planned["steps"][0]["hidden_search"]]
+    gate = planned["steps"][1]
+    assert "hidden_search" not in gate and "mode" not in gate and not issues
+    assert hidden.used(planned, "alice") == {("alice", planned["steps"][0]["hidden_search"])}

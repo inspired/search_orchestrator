@@ -1933,3 +1933,24 @@ def test_routing_key_ignored_for_other_formats(w):
                             "routing_key": "NOPE"})
     assert status == 201 and out["destination"]["body_secret_set"] is False
     assert "NOPE" not in json.dumps(w.gw.secrets)
+
+
+def test_approval_requested_only_on_approval_steps(w):
+    body = job_body()
+    body["actions"].append({"hook": "on_approval_requested", "type": "email",
+                            "to": "ops@example.com"})
+    body["steps"][1]["actions"] = [{"hook": "on_approval_requested", "type": "email",
+                                    "to": "ops@example.com"}]
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 400
+    assert [(i["code"], i["message"], i["step"]) for i in out["error"]["issues"]
+            if i["level"] == "error"] == [
+        ("bad_action", "Asks for approval only exists on approval steps", None),
+        ("bad_action", "Asks for approval only exists on approval steps", "b")]
+    body = job_body()
+    body["steps"].append({"id": "gate", "type": "approval", "approval": {"message": "ok?"},
+                          "actions": [{"hook": "on_approval_requested", "type": "email",
+                                       "to": "ops@example.com"}]})
+    body["edges"].append({"from": "b", "to": "gate"})
+    job = saved(w, body=body)
+    assert "hidden_search" not in job["steps"][2]

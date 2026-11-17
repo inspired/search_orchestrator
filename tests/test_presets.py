@@ -114,3 +114,10 @@ def test_option_issues_accept_good_and_empty_options():
     assert presets.option_issues("generic", {}) == []
     assert presets.option_issues("teams", None) == []
     assert presets.option_issues("pagerduty", {"color": "red"})  # not an option of PagerDuty
+
+
+def test_approval_requested_default_message():
+    ctx = _ctx(hook="on_approval_requested", scope="step", step_id="gate", step="Sign-off",
+               status="awaiting_approval")
+    assert presets.default_message(ctx).startswith(
+        'Step "Sign-off" of job "Daily summary" is waiting for approval (run r1')

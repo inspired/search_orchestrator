@@ -17,9 +17,11 @@ trims the start_step list. A step it does not start stays ``ready`` (or
 
 Contract with the engine (Task 6)
 ---------------------------------
-Step states: waiting, ready, starting, running, retrying, succeeded, failed,
-skipped, cancelled, abandoned. ``starting`` is set by the engine while
+Step states: waiting, ready, starting, running, retrying, awaiting_approval, succeeded,
+failed, skipped, cancelled, abandoned. ``starting`` is set by the engine while
 dispatching and is treated exactly like ``running`` (never re-started).
+``awaiting_approval`` belongs to approval steps (``approval.py``): active, but not a
+search, so never started, polled, counted or cancelled as one.
 
 * evaluate owns ``attempt`` (1-based number of the current search attempt),
   ``next_attempt_at``, ``skip_kind`` ("run_when" | "not_taken"),
@@ -66,13 +68,14 @@ ended_at, gave_up, hooks_fired, delay_alerted. ``held`` belongs to the engine.
 """
 import copy
 
+from . import approval
 from . import cron as cronmod
 from . import expr as exprmod
 from . import model
 from . import tokens
 
 DISPATCH_RETRIES = 3
-ACTIVE = ("ready", "starting", "running", "retrying")
+ACTIVE = ("ready", "starting", "running", "retrying", approval.AWAITING)
 UNFINISHED = ("waiting",) + ACTIVE
 IN_FLIGHT = ("starting", "running")
 TERMINAL_RUN = ("succeeded", "failed", "cancelled")
@@ -80,7 +83,8 @@ _RESET_RUN_HOOKS = ("on_success", "on_failure", "on_complete", "on_delayed")
 _FRESH_STEP = {"state": "waiting", "skip_kind": None, "attempt": 0, "sid": None,
                "started_at": None, "ended_at": None, "next_attempt_at": None,
                "delay_alerted": False, "result_count": None, "first": None,
-               "error": None, "dispatch_errors": 0, "outcome": None, "hooks_fired": []}
+               "error": None, "dispatch_errors": 0, "outcome": None, "hooks_fired": [],
+               "approval_state": None}
 
 
 def condition_key(edge):
@@ -308,6 +312,8 @@ class _Eval:
     def attempts(self):
         for sid in self.order:
             st = self.steps[sid]
+            if st.get("state") == approval.AWAITING:
+                approval.settle(self, sid)
             if st.get("state") not in IN_FLIGHT:
                 continue
             if st.get("state") == "running" or st.get("started_at"):
@@ -453,7 +459,9 @@ class _Eval:
         if not self.paused:
             for sid in self.order:
                 st = self.steps[sid]
-                if st.get("state") == "ready" or (
+                if st.get("state") == "ready" and approval.is_approval(self.defs[sid]):
+                    approval.request(self, sid)  # never a search: no start_step
+                elif st.get("state") == "ready" or (
                         st.get("state") == "retrying"
                         and int(st.get("next_attempt_at") or 0) <= self.now):
                     starts.append(sid)
@@ -527,6 +535,9 @@ def preview_decision(definition, step_id, scheduled_time, params, upstream):
     for sid, st in (upstream or {}).items():
         if sid != step_id and isinstance(st, dict):
             steps[sid] = {k: st.get(k) for k in _UPSTREAM_FIELDS}
+    for s in definition.get("steps") or []:  # an approval step counts as approved
+        if approval.is_approval(s) and s.get("id") not in steps and s.get("id") != step_id:
+            steps[s["id"]] = copy.deepcopy(approval.PREVIEW_STATE)
     run = {"id": "preview", "definition": definition, "state": "running",
            "scheduled_time": scheduled_time, "params": dict(params or {}), "steps": steps}
     ev = _Eval(run, scheduled_time)

@@ -3,12 +3,13 @@
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
 unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_deadline, bad_shape, previous_needs_pipe,
-previous_needs_dependency; warnings timezone_fallback, previous_old_time_range.
+previous_needs_dependency, bad_approval; warnings timezone_fallback, previous_old_time_range.
 ``workload_pool`` was removed from the first version and is ignored.
 """
 import math
 import re
 
+from . import approval as approvalmod
 from . import cron as cronmod
 from . import deadline as deadlinemod
 from . import expr as exprmod
@@ -454,8 +455,13 @@ def _validate(job, known_saved_searches):
             elif not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
                                      "this step searches all time; set a time range to search less", sid))
+        elif approvalmod.is_approval(s):
+            issues.extend(_issue("error", "bad_approval", m, sid) for m in approvalmod.shape_issues(s))
+            message = approvalmod.config(s).get("message")
+            if isinstance(message, str):
+                _check_spl_tokens(message, ids, params, issues, sid, "message: ")
         else:
-            issues.append(_issue("error", "bad_step", "step type %r isn't supported; pick Search, Saved search or Results of earlier steps" % s.get("type"), sid))
+            issues.append(_issue("error", "bad_step", "step type %r isn't supported; pick Search, Saved search, Results of earlier steps or Approval" % s.get("type"), sid))
         rw = s.get("run_when")
         if rw:
             kind, val = rw.get("kind"), rw.get("value")
@@ -506,7 +512,8 @@ def _validate(job, known_saved_searches):
 
     # Warnings
     for s in steps:
-        if s.get("id") in ids and resolve_step(job, s)["retries"] > 0:
+        if s.get("id") in ids and resolve_step(job, s)["retries"] > 0 \
+                and not approvalmod.is_approval(s):
             issues.append(_issue("warning", "retries_duplicate_risk",
                                  "retries above 0 can write duplicates to a summary index; keep retries at 0 unless the step is safe to run twice", s["id"]))
     if not any(a.get("hook") == "on_failure" for a in job.get("actions", []) or []):

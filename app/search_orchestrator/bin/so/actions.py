@@ -227,10 +227,14 @@ class ActionRunner:
         if scope == "step" and step_id in steps:
             status = steps[step_id].get("state")
         job_id = run.get("job_id")
-        return {"job": definition.get("name") or job_id, "job_id": job_id,
-                "run_id": run.get("_key") or run.get("id"), "hook": hook, "scope": scope,
-                "step_id": step_id, "step": names.get(step_id, step_id) if step_id else None,
-                "status": status, "failed": failed}
+        ctx = {"job": definition.get("name") or job_id, "job_id": job_id,
+               "run_id": run.get("_key") or run.get("id"), "hook": hook, "scope": scope,
+               "step_id": step_id, "step": names.get(step_id, step_id) if step_id else None,
+               "status": status, "failed": failed}
+        if hook == "on_approval_requested":
+            ctx["approval_message"] = ((steps.get(step_id) or {}).get("approval_state")
+                                       or {}).get("message") or ""
+        return ctx
 
     def _ensure_fallback(self, row):
         key = fallback_key(row["run_id"], row["hook"], row["occurrence"])

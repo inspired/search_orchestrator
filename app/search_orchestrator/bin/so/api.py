@@ -50,7 +50,7 @@ from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
 from . import authz, backfill, hidden, history, model, presets, preview, scheduler, selftest
-from . import tokens
+from . import approval, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -68,7 +68,8 @@ AUDIT_INDEX = "orchestrator"
 RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
-HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late")
+HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late",
+         "on_approval_requested")
 PRESETS = tuple(presets.PRESETS)  # slack, generic, teams, pagerduty, servicenow
 # Integer settings and their upper bounds (the lower bound is 1).
 INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 1000,
@@ -348,6 +349,7 @@ def _job_issues(ctx, job):
                                  "succeeds or completes; choose one in Start when it"))
     dests = None
     scoped = [(None, a) for a in job.get("actions") or []]
+    approvals = {s.get("id") for s in job.get("steps") or [] if approval.is_approval(s)}
     for step in job.get("steps") or []:
         scoped.extend((step.get("id"), a) for a in step.get("actions") or [])
     for step_id, action in scoped:
@@ -364,6 +366,9 @@ def _job_issues(ctx, job):
         elif action["hook"] == "on_late" and step_id is not None:
             issues.append(_issue("error", "bad_action", "Is late is a whole-job outcome; "
                                  "connect it from the Whole job node", step_id))
+        elif action["hook"] == "on_approval_requested" and step_id not in approvals:
+            issues.append(_issue("error", "bad_action", "Asks for approval only exists on "
+                                 "approval steps", step_id))
         required = {"email": "to", "event": "index", "start_job": "job",
                     "alert_action": "action", "webhook": "destination"}[kind]
         if not isinstance(action.get(required), str) or not action[required]:

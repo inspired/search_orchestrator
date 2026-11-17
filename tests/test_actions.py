@@ -755,3 +755,15 @@ def test_body_template_ignores_options():
     w.submit()
     w.pump()
     assert json.loads(w.gw.webhook_log[0]["body"]) == {"text": "Nightly"}
+
+
+def test_ctx_has_approval_message_for_approval_requested():
+    run = {"_key": "r1", "job_id": "daily", "state": "running",
+           "definition": {"name": "Daily", "steps": [{"id": "gate", "name": "Sign-off",
+                                                      "type": "approval"}]},
+           "steps": {"gate": {"state": "awaiting_approval",
+                              "approval_state": {"requested_at": 1, "message": "Rows: 12",
+                                                 "decision": None}}}}
+    ctx = ActionRunner._ctx(run, "on_approval_requested", "step", "gate")
+    assert ctx["approval_message"] == "Rows: 12"
+    assert "approval_message" not in ActionRunner._ctx(run, "on_start", "step", "gate")

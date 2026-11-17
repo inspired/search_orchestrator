@@ -341,3 +341,69 @@ def test_job_without_deadline_has_no_new_issue():
     assert "deadline" not in j
     assert not [i for i in validate_job(j) if i["level"] == "error"]
     assert "bad_deadline" not in codes(validate_job(j))
+
+
+def _approval_job(**fields):
+    j = job(steps=("a",), edges=[("a", "gate")])
+    j["steps"].append(dict({"id": "gate", "type": "approval", "approval": {}}, **fields))
+    return j
+
+
+def _approval_errors(j):
+    return [(i["code"], i["message"], i["step"]) for i in validate_job(j)
+            if i["level"] == "error"]
+
+
+def test_approval_step_valid():
+    j = _approval_job(approval={"message": "Rows: $a.resultCount$", "timeout": 3600,
+                                "on_timeout": "approve", "approver_roles": ["ops"]},
+                      retries=0)
+    assert not [i for i in validate_job(j) if i["step"] == "gate"]
+    assert not _approval_errors(_approval_job())  # every approval field is optional
+
+
+def test_approval_step_errors():
+    cases = [
+        ({"spl": "| makeresults"}, "An approval step has no search; remove its SPL"),
+        ({"saved_search_ref": "x"}, "An approval step has no search; remove its SPL"),
+        ({"retries": 2}, "An approval step can't retry; set Retries to 0"),
+        ({"approval": {"timeout": 299}}, "Wait at most must be between 5 minutes and 7 days"),
+        ({"approval": {"timeout": 604801}}, "Wait at most must be between 5 minutes and 7 days"),
+        ({"approval": {"timeout": "1h"}}, "Wait at most must be between 5 minutes and 7 days"),
+        ({"approval": {"on_timeout": "skip"}}, "If nobody decides must be Reject or Approve"),
+        ({"approval": {"approver_roles": "ops"}}, "Who may approve must be a list of role names"),
+        ({"approval": {"approver_roles": ["ops", 3]}},
+         "Who may approve must be a list of role names"),
+        ({"approval": {"message": "x" * 501}}, "The message can be at most 500 characters"),
+    ]
+    for fields, message in cases:
+        assert _approval_errors(_approval_job(**fields)) == [("bad_approval", message, "gate")], fields
+    assert _approval_errors(_approval_job(approval={"timeout": 300})) == []
+    assert _approval_errors(_approval_job(approval={"timeout": 604800})) == []
+    assert _approval_errors(_approval_job(approval={"message": "x" * 500})) == []
+
+
+def test_approval_step_has_no_time_range_or_runtime():
+    assert _approval_errors(_approval_job(earliest="-1d")) == [
+        ("bad_approval", "An approval step has no time range; clear its time range", "gate")]
+    assert _approval_errors(_approval_job(max_runtime=60)) == [
+        ("bad_approval", "An approval step has no run time limit; clear Max runtime", "gate")]
+
+
+def test_approval_object_must_be_an_object():
+    assert "bad_approval" in codes(validate_job(_approval_job(approval="yes")))
+
+
+def test_approval_message_tokens_checked():
+    j = _approval_job(approval={"message": "Rows: $ghost.resultCount$ $run.param.nope$"})
+    found = [(c, m) for c, m, s in _approval_errors(j) if s == "gate"]
+    assert {c for c, _ in found} == {"unknown_token"}
+    assert any("$ghost.resultCount$" in m for _, m in found)
+    assert any("run.param.nope" in m for _, m in found)
+    assert all(m.startswith("message: ") for _, m in found)
+
+
+def test_approval_step_no_retry_warning_from_defaults():
+    j = _approval_job()
+    j["defaults"]["retries"] = 2
+    assert not [i for i in validate_job(j) if i["step"] == "gate"]
