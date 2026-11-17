@@ -34,6 +34,7 @@ import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import useBuilderData from './useBuilderData';
 import useFillHeight from './useFillHeight';
+import useLeaveWarning from './useLeaveWarning';
 import useClipboard from './useClipboard';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
@@ -42,7 +43,7 @@ import usePreviews, { PreviewApi, previewSummary } from './usePreviews';
 import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
-import { JobTemplate, templateByKey } from './templates';
+import { templateByKey } from './templates';
 
 export interface BuilderApi extends PreviewApi {
     getJob: (jobId: string) => Promise<Job>;
@@ -83,6 +84,8 @@ export interface BuilderPageProps {
     jobId?: string | null;
     /** From ?template=; a known key skips the picker. */
     template?: string | null;
+    /** From Import job: a new, unsaved job to start from. */
+    imported?: JobDefinition | null;
     api?: BuilderApi;
 }
 
@@ -94,12 +97,12 @@ const MIN_CANVAS = 480;
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
-export default function BuilderPage({ jobId: initialId = null, template = null, api = defaultApi }: BuilderPageProps) {
+export default function BuilderPage({ jobId: initialId = null, template = null, imported = null, api = defaultApi }: BuilderPageProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
-    const startTemplate = initialId ? null : templateByKey(template || null);
-    const [state, dispatch] = useReducer(reducer, startTemplate, (t: JobTemplate | null) => initialState(t ? t.build() : blankJob(), blankJob()));
-    const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startTemplate);
+    const startJob = initialId ? null : imported || templateByKey(template || null)?.build() || null;
+    const [state, dispatch] = useReducer(reducer, startJob, (j: JobDefinition | null) => initialState(j || blankJob(), blankJob()));
+    const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startJob);
     const [activeTab, setActiveTab] = useState<TabId>('steps');
     const [checklistDismissed, setChecklistDismissed] = useState(false);
     const [fullScreen, setFullScreen] = useState(false);
@@ -274,18 +277,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         }
     };
 
-    const dirty = isDirty(state);
-    useEffect(() => {
-        if (!dirty) {
-            return undefined;
-        }
-        const warn = (event: BeforeUnloadEvent) => {
-            event.preventDefault();
-            event.returnValue = '';
-        };
-        window.addEventListener('beforeunload', warn);
-        return () => window.removeEventListener('beforeunload', warn);
-    }, [dirty]);
+    useLeaveWarning(isDirty(state));
 
     const onSave = async () => {
         setNotice(null);
@@ -574,6 +566,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         roles={me ? me.roles : []}
                         steps={stepsTab}
                         issues={issues}
+                        canEdit={meta.canEdit}
                     />
                 </>
             )}

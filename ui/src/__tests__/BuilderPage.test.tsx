@@ -120,10 +120,10 @@ describe('BuilderPage wording', () => {
 });
 
 describe('BuilderPage flow', () => {
-    it('shows the tabs Flow, Parameters, Access and Settings', async () => {
+    it('shows the tabs Flow, Parameters, Access, Settings and Source', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Search Weekly rollup/ });
-        expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Flow', 'Parameters', 'Access', 'Settings']);
+        expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Flow', 'Parameters', 'Access', 'Settings', 'Source']);
         expect(screen.queryByRole('tab', { name: /Triggers/ })).toBeNull();
         expect(screen.queryByRole('tab', { name: /Actions/ })).toBeNull();
         expect(screen.getByRole('group', { name: /^Job flow/ })).toBeInTheDocument();

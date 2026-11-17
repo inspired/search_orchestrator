@@ -1,4 +1,4 @@
-/* Jobs: every job the user may see, with Run now, enable/disable, Delete and Create job. */
+/* Jobs: every job the user may see, with Run now, enable/disable, Delete, Create job and Import job. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
@@ -7,6 +7,7 @@ import * as client from '../../api/client';
 import type { Job, Me } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import DeleteJobDialog from './DeleteJobDialog';
+import ImportJobDialog from './ImportJobDialog';
 import JobsTable from './JobsTable';
 import RunNowDialog from './RunNowDialog';
 import usePoll from '../../hooks/usePoll';
@@ -33,6 +34,8 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
     const [fast, setFast] = useState(true);
     const jobs = usePoll(api.listJobs, fast ? 5000 : 30000, true);
     const [runNow, setRunNow] = useState<Job | null>(null);
+    const [importing, setImporting] = useState(false);
+    const importOpener = useRef<HTMLElement | null>(null);
     const [deleting, setDeleting] = useState<Job | null>(null);
     const deleteOpener = useRef<HTMLElement | null>(null);
     const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -68,7 +71,17 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
 
     const actions =
         me && me.can_build ? (
-            <Button appearance="primary" label="Create job" to={pageHref('builder')} />
+            <>
+                <Button
+                    appearance="secondary"
+                    label="Import job"
+                    onClick={() => {
+                        importOpener.current = document.activeElement as HTMLElement | null;
+                        setImporting(true);
+                    }}
+                />
+                <Button appearance="primary" label="Create job" to={pageHref('builder')} />
+            </>
         ) : undefined;
 
     return (
@@ -99,6 +112,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     }}
                 />
             )}
+            {importing && <ImportJobDialog onClose={() => setImporting(false)} returnFocus={importOpener} />}
             {runNow && (
                 <RunNowDialog
                     job={runNow}

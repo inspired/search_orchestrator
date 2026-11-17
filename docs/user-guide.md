@@ -257,6 +257,21 @@ On the job Settings tab:
 
 This setting is read from the job **as it is now**, not from the run's copy. Changing it affects runs already waiting.
 
+### Job source
+
+The **Source** tab, after Settings, shows the job as JSON text, so you can copy it, keep it in a file or paste it into another Splunk. Server fields (owner, created and updated details, hidden searches) are left out.
+
+- **Copy** puts the text on the clipboard. If your browser blocks that, the text is selected and the tab says "Press Ctrl+C to copy".
+- **Download** saves it as `<job id>.json` (`new-job.json` for a job that isn't saved yet).
+- Edit the text, then choose **Apply changes**. The whole job is replaced as one step, so **Undo** brings the previous job back. Problems with the new job show in the issue list and on the tabs as usual. Syntax errors say where: "The source isn't valid JSON: ... (line 3, column 7)". The text must be a job object with `name` and `steps`.
+- **Discard changes** puts back the text of the current job. If the job changes while you have unapplied edits (for example after Undo), your text is kept and the tab asks you to discard to see the latest.
+- **The id is kept.** An `id` in the pasted text is ignored; the job keeps its own id, and the tab tells you so.
+- If you can view a job but not edit it, the text is read only and only Copy and Download show.
+
+Switching to another tab drops unapplied edits, so apply or copy them first.
+
+To bring a job in from text, choose **Import job** on the Jobs page, paste the JSON or choose a `.json` file, and choose **Open in builder**. The job opens as a new, unsaved job (its id and server fields are dropped); choose **Save** to create it.
+
 ### Previewing steps
 
 **Preview step** runs one step in the editor and shows its rows. You don't need to save the job first. Nothing is stored in the run history, and previews never run actions.
