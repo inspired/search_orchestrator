@@ -370,6 +370,15 @@ def test_action_secret_not_in_audit():
         assert "SECRETTOKEN" not in blob and "TOPSECRET" not in blob
     done = w.audit.of("action_done")[0]
     assert done["scheme"] == "https" and done["host"] == "hooks.example.com"
+    assert done["preset"] == (WEBHOOK.get("preset") or "generic")  # Run health: Slack vs webhook
+
+
+def test_action_failure_carries_the_slack_preset():
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "missing",
+                    "preset": "slack"}])
+    w.submit()
+    w.pump()
+    assert w.audit.of("action_failed")[0]["preset"] == "slack"
 
 
 def test_removed_owner_fails_search_action_without_raising():

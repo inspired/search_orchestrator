@@ -47,6 +47,18 @@ def rules(s, label):
         ("default/indexes.conf", r"\$SPLUNK_DB/orchestrator/", "$SPLUNK_DB/orchestrator%s/" % s, 3),
         ("default/macros.conf", r"^\[orchestrator_index\]$", "[orchestrator_index%s]" % s, 1),
         ("default/macros.conf", r"^definition = index=orchestrator$", "definition = index=orchestrator" + s, 1),
+        # The _internal and _introspection macros of the Run health dashboard: their stanzas,
+        # and the exact script and command names that tell this copy's splunkd.log lines apart.
+        ("default/macros.conf", r"^\[orchestrator_(internal|engine_process)\]$", r"[orchestrator_\1%s]" % s, 2),
+        ("default/macros.conf", r'"orchestrator_engine\.py"', '"orchestrator_engine%s.py"' % s, 2),
+        ("default/macros.conf", r'"orchestrator_rest"', '"orchestrator_rest%s"' % s, 1),
+        ("default/macros.conf", r'"start_orchestrator_job"', '"start_orchestrator_job%s"' % s, 1),
+        ("default/macros.conf", r'"orchestrate"', '"%s"' % cmd, 1),
+        # The dashboard: its macros, and its links to the Run page (the app id).
+        ("default/data/ui/views/run_health.xml", r"`orchestrator_(index|internal|engine_process)`",
+         r"`orchestrator_\1%s`" % s, 11),
+        ("default/data/ui/views/run_health.xml", r"/app/search_orchestrator/run\?",
+         "/app/search_orchestrator%s/run?" % s, 2),
         ("default/props.conf", r"^\[orchestrator:audit\]$", "[orchestrator:audit%s]" % s, 1),
         ("bin/so/audit.py", r'^SOURCETYPE = "orchestrator:audit"$', 'SOURCETYPE = "orchestrator:audit%s"' % s, 1),
         ("bin/so/audit.py", r'^SOURCE = "orchestrator_engine"$', 'SOURCE = "orchestrator_engine%s"' % s, 1),

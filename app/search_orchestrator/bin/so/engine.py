@@ -745,6 +745,7 @@ class Engine:
     def _set_step(self, run, sid, fields, pending, now):
         st = run["steps"].setdefault(sid, {})
         old = st.get("state")
+        was_delayed = bool(st.get("delay_alerted"))
         st.update(fields)
         if "state" in fields and fields["state"] != old:
             event = self._event(run, "step_state", now, step_id=sid, attempt=st.get("attempt"),
@@ -753,6 +754,10 @@ class Engine:
                 if st.get(key) is not None:
                     event[key] = st[key]
             pending.events.append(event)
+        if fields.get("delay_alerted") and not was_delayed:
+            # Whether or not the step has an on_delayed action (the Run health dashboard).
+            pending.events.append(self._event(run, "step_delayed", now, step_id=sid,
+                                              attempt=st.get("attempt"), state=st.get("state")))
 
     def _set_run(self, run, fields, pending, now):
         old = run.get("state")

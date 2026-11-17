@@ -1,0 +1,814 @@
+<?xml version="1.0"?>
+<dashboard version="2" theme="dark">
+    <label>Run health</label>
+    <description>Runs, steps, actions and engine health</description>
+    <definition><![CDATA[
+{
+  "title": "Run health",
+  "description": "How runs, steps and actions are doing, from the audit index, and the engine's own health from _internal.",
+  "theme": "dark",
+  "inputs": {
+    "input_time": {
+      "type": "input.timerange",
+      "title": "Time range",
+      "options": {
+        "token": "global_time",
+        "defaultValue": "-24h,now"
+      }
+    },
+    "input_job": {
+      "type": "input.dropdown",
+      "title": "Job",
+      "dataSources": {
+        "primary": "ds_jobs"
+      },
+      "options": {
+        "token": "job",
+        "defaultValue": "*",
+        "items": "> primary | frame(label, value) | prepend(formattedStatics) | objects()"
+      },
+      "context": {
+        "formattedConfig": {
+          "number": {
+            "prefix": ""
+          }
+        },
+        "formattedStatics": "> statics | formatByType(formattedConfig)",
+        "statics": [
+          [
+            "All"
+          ],
+          [
+            "*"
+          ]
+        ],
+        "label": "> primary | seriesByName('job_id') | renameSeries('label') | formatByType(formattedConfig)",
+        "value": "> primary | seriesByName('job_id') | renameSeries('value') | formatByType(formattedConfig)"
+      }
+    }
+  },
+  "defaults": {
+    "dataSources": {
+      "ds.search": {
+        "options": {
+          "queryParameters": {
+            "earliest": "$global_time.earliest$",
+            "latest": "$global_time.latest$"
+          }
+        }
+      }
+    }
+  },
+  "dataSources": {
+    "ds_jobs": {
+      "type": "ds.search",
+      "name": "Jobs",
+      "options": {
+        "query": "`orchestrator_index` job_id=*\n| stats count by job_id\n| sort job_id\n| fields job_id"
+      }
+    },
+    "ds_runs": {
+      "type": "ds.search",
+      "name": "Runs",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type IN (\"run_created\", \"run_state\", \"run_held\", \"run_dismissed\", \"step_attempt\")\n| eval state_to=if(type=\"run_state\", 'to', null()), started=if(type=\"run_state\" AND 'to'=\"running\", _time, null()), ended=if(type=\"run_state\" AND in('to', \"succeeded\", \"failed\", \"cancelled\"), _time, null()), held_at=if(type=\"run_held\", _time, null()), dismissed_at=if(type=\"run_dismissed\", _time, null()), gave_up_at=if(type=\"run_state\" AND gave_up=\"true\", _time, null()), fail_error=if(type=\"step_attempt\" AND outcome=\"failed\", step_id . \": \" . error, null())\n| stats latest(state_to) as state, max(started) as started, max(ended) as ended, max(held_at) as held_at, max(dismissed_at) as dismissed_at, max(gave_up_at) as gave_up_at, latest(fail_error) as reason, min(_time) as first_seen, max(_time) as last_seen by run_id, job_id\n| eval state=case(state=\"failed\" AND isnotnull(held_at) AND (isnull(dismissed_at) OR held_at>dismissed_at), \"held\", in(state, \"succeeded\", \"failed\", \"blocked\", \"cancelled\"), state, true(), \"in progress\")\n| eval duration=if(isnotnull(ended) AND isnotnull(started) AND ended>=started AND in(state, \"succeeded\", \"failed\", \"held\", \"cancelled\"), ended-started, null())\n| eval reason=case(isnotnull(reason), reason, isnotnull(gave_up_at), \"gave up before every step finished\", true(), \"\")\n| eval _time=first_seen\n| fields _time, run_id, job_id, state, duration, reason, last_seen"
+      }
+    },
+    "ds_kpi": {
+      "type": "ds.chain",
+      "name": "Run KPIs",
+      "options": {
+        "extend": "ds_runs",
+        "query": "| stats count as runs, count(eval(state=\"succeeded\")) as succeeded, count(eval(state=\"failed\")) as failed, count(eval(in(state, \"held\", \"blocked\"))) as held_blocked, count(eval(in(state, \"succeeded\", \"failed\", \"held\"))) as finished, median(duration) as median_s\n| eval success_rate=if(finished>0, round(100*succeeded/finished, 1), null()), median_duration=if(isnull(median_s), \"none\", tostring(round(median_s), \"duration\"))\n| fields runs, succeeded, failed, held_blocked, success_rate, median_duration"
+      }
+    },
+    "ds_runs_over_time": {
+      "type": "ds.chain",
+      "name": "Runs over time",
+      "options": {
+        "extend": "ds_runs",
+        "query": "| timechart count by state\n| fields _time, succeeded, failed, held, blocked, cancelled, \"in progress\""
+      }
+    },
+    "ds_attention": {
+      "type": "ds.chain",
+      "name": "Runs that need attention",
+      "options": {
+        "extend": "ds_runs",
+        "query": "| search state IN (\"failed\", \"held\", \"blocked\")\n| sort - last_seen\n| eval last_change=strftime(last_seen, \"%Y-%m-%d %H:%M:%S\"), reason=substr(reason, 1, 300)\n| rename job_id as job\n| table job, run_id, state, last_change, reason"
+      }
+    },
+    "ds_step_failures": {
+      "type": "ds.search",
+      "name": "Steps that fail most",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type=\"step_attempt\"\n| eval fail_error=if(outcome=\"failed\", error, null()), failed_at=if(outcome=\"failed\", _time, null())\n| stats count as attempts, count(eval(outcome=\"failed\")) as failures, latest(fail_error) as latest_error, max(failed_at) as failed_at by job_id, step_id\n| where failures>0\n| eval failure_pct=round(100*failures/attempts, 1), last_failure=strftime(failed_at, \"%Y-%m-%d %H:%M:%S\"), latest_error=substr(latest_error, 1, 300)\n| sort - failures, - failed_at\n| head 20\n| rename job_id as job, step_id as step\n| table job, step, failures, attempts, failure_pct, last_failure, latest_error"
+      }
+    },
+    "ds_slow_steps": {
+      "type": "ds.search",
+      "name": "Slowest steps",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type IN (\"step_dispatched\", \"step_attempt\", \"step_delayed\", \"action_submitted\")\n| where type!=\"action_submitted\" OR (hook=\"on_delayed\" AND isnotnull(step_id))\n| eval dispatched=if(type=\"step_dispatched\", _time, null()), finished=if(type=\"step_attempt\" AND isnotnull(sid), _time, null()), delayed=if(in(type, \"step_delayed\", \"action_submitted\"), 1, 0), attempt=coalesce(attempt, \"-\")\n| stats min(dispatched) as dispatched, max(finished) as finished, max(delayed) as delayed by job_id, step_id, run_id, attempt\n| eval duration=if(isnotnull(dispatched) AND isnotnull(finished) AND finished>=dispatched, finished-dispatched, null()), ran=if(isnotnull(dispatched), run_id, null()), delayed_run=if(delayed=1, run_id, null())\n| stats count(duration) as attempts, median(duration) as median_s, perc95(duration) as p95_s, dc(ran) as runs, dc(delayed_run) as delayed_runs by job_id, step_id\n| where attempts>0 OR delayed_runs>0\n| eval delayed_pct=if(runs>0, round(100*delayed_runs/runs, 0), null())\n| sort - p95_s\n| head 20\n| eval median=tostring(round(median_s), \"duration\"), p95=tostring(round(p95_s), \"duration\")\n| rename job_id as job, step_id as step\n| table job, step, attempts, median, p95, delayed_runs, delayed_pct"
+      }
+    },
+    "ds_actions_by_type": {
+      "type": "ds.search",
+      "name": "Actions by type",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type IN (\"action_done\", \"action_failed\")\n| eval action=case(action_type=\"fallback\", \"Fallback notification\", action_type=\"webhook\" AND (preset=\"slack\" OR like(host, \"%slack.com\")), \"Slack\", action_type=\"webhook\", \"Webhook\", action_type=\"email\", \"Email\", action_type=\"event\", \"Event\", action_type=\"alert_action\", \"Alert action\", action_type=\"start_job\", \"Start job\", true(), coalesce(action_type, \"other\"))\n| eval outcome=if(type=\"action_done\", \"sent\", \"failed\")\n| chart count over action by outcome\n| fillnull value=0 sent failed\n| sort - failed, - sent\n| fields action, sent, failed"
+      }
+    },
+    "ds_action_failures": {
+      "type": "ds.search",
+      "name": "Latest action failures",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type=\"action_failed\"\n| eval action=case(action_type=\"fallback\", \"Fallback notification\", action_type=\"webhook\" AND (preset=\"slack\" OR like(host, \"%slack.com\")), \"Slack\", action_type=\"webhook\", \"Webhook\", action_type=\"email\", \"Email\", action_type=\"event\", \"Event\", action_type=\"alert_action\", \"Alert action\", action_type=\"start_job\", \"Start job\", true(), coalesce(action_type, \"other\"))\n| sort - _time\n| head 50\n| eval time=strftime(_time, \"%Y-%m-%d %H:%M:%S\"), error=substr(error, 1, 300)\n| rename job_id as job, step_id as step\n| table time, job, run_id, action, hook, step, attempts, error"
+      }
+    },
+    "ds_engine_errors": {
+      "type": "ds.search",
+      "name": "Engine errors and warnings",
+      "options": {
+        "query": "`orchestrator_internal`\n| eval script=case(component=\"ExecProcessor\", \"engine\", component=\"PersistentScript\", \"REST handler\", component=\"sendmodalert\", \"alert action\", component=\"ChunkedExternProcessor\", \"search command\", true(), component)\n| rex field=_raw \"(?:message from \\\"[^\\\"]+\\\"|From \\{[^}]*\\}:|STDERR -|ChunkedExternProcessor \\[[^\\]]*\\] -)\\s*(?<message>.*)$\"\n| eval message=coalesce(message, _raw)\n| rex field=message \"^(?:orchestrator_rest\\w*:\\s*)?(?<script_level>DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)\\b\"\n| eval level=upper(coalesce(script_level, log_level)), level=case(in(level, \"WARN\", \"WARNING\"), \"warning\", in(level, \"ERROR\", \"CRITICAL\", \"FATAL\"), \"error\", true(), lower(level))\n| where in(level, \"error\", \"warning\")\n| stats count, latest(message) as latest_message, max(_time) as last_seen by script, level\n| eval last_seen=strftime(last_seen, \"%Y-%m-%d %H:%M:%S\"), latest_message=substr(latest_message, 1, 300)\n| sort - count\n| table script, level, count, last_seen, latest_message"
+      }
+    },
+    "ds_tracebacks": {
+      "type": "ds.search",
+      "name": "Python tracebacks",
+      "options": {
+        "query": "`orchestrator_internal`\n| eval script=case(component=\"ExecProcessor\", \"engine\", component=\"PersistentScript\", \"REST handler\", component=\"sendmodalert\", \"alert action\", component=\"ChunkedExternProcessor\", \"search command\", true(), component)\n| rex field=_raw \"(?:message from \\\"[^\\\"]+\\\"|From \\{[^}]*\\}:|STDERR -|ChunkedExternProcessor \\[[^\\]]*\\] -)\\s*(?<message>.*)$\"\n| eval message=coalesce(message, _raw)\n| rex field=message \"^(?:orchestrator_rest\\w*:\\s*)?(?<script_level>DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)\\b\"\n| eval level=upper(coalesce(script_level, log_level)), level=case(in(level, \"WARN\", \"WARNING\"), \"warning\", in(level, \"ERROR\", \"CRITICAL\", \"FATAL\"), \"error\", true(), lower(level))\n| rex field=message \"^(?:orchestrator_rest\\w*:\\s*)?(?:(?:ERROR|CRITICAL)\\s+)?(?<exception>[A-Za-z_][\\w.]*(?:Error|Exception|Exit|Interrupt))(?::\\s*(?<detail>.*))?$\"\n| eval is_traceback=if(like(message, \"%Traceback (most recent call last)%\"), 1, 0)\n| where is_traceback=1 OR isnotnull(exception)\n| stats sum(is_traceback) as tracebacks, count(exception) as exceptions, latest(exception) as exception, latest(detail) as detail, max(_time) as last_seen by script\n| eval last_seen=strftime(last_seen, \"%Y-%m-%d %H:%M:%S\"), detail=substr(detail, 1, 300)\n| sort - tracebacks\n| table script, tracebacks, exceptions, exception, detail, last_seen"
+      }
+    },
+    "ds_engine_last": {
+      "type": "ds.search",
+      "name": "Last engine activity",
+      "options": {
+        "query": "search (`orchestrator_engine_process`) OR (`orchestrator_internal` component=ExecProcessor) OR (`orchestrator_index` source=\"orchestrator_engine*\")\n| stats max(_time) as last\n| eval minutes=if(isnull(last), 99999, round((now()-last)/60, 1)), last_seen=if(isnull(last), \"none in this time range\", strftime(last, \"%Y-%m-%d %H:%M:%S\"))\n| fields minutes, last_seen"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_md_overview": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Overview\nRuns with activity in the time range, from the audit index. A run counts by its latest state: **held** is a failed run that keeps later runs of its job waiting; **blocked** waits for a re-run, a cancel or its deadline. Success rate is succeeded out of finished runs (succeeded, failed, held); cancelled runs are left out.",
+        "fontSize": "default"
+      }
+    },
+    "viz_kpi_runs": {
+      "type": "splunk.singlevalue",
+      "title": "Runs",
+      "dataSources": {
+        "primary": "ds_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('runs') | lastPoint()",
+        "underLabel": "runs in range",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off"
+      }
+    },
+    "viz_kpi_succeeded": {
+      "type": "splunk.singlevalue",
+      "title": "Succeeded",
+      "dataSources": {
+        "primary": "ds_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('succeeded') | lastPoint()",
+        "underLabel": "runs succeeded",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off",
+        "majorColor": "> primary | seriesByName('succeeded') | lastPoint() | rangeValue(countColors)"
+      },
+      "context": {
+        "countColors": [
+          {
+            "to": 1,
+            "value": "#708794"
+          },
+          {
+            "from": 1,
+            "value": "#53A051"
+          }
+        ]
+      }
+    },
+    "viz_kpi_failed": {
+      "type": "splunk.singlevalue",
+      "title": "Failed",
+      "dataSources": {
+        "primary": "ds_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('failed') | lastPoint()",
+        "underLabel": "runs failed",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off",
+        "majorColor": "> primary | seriesByName('failed') | lastPoint() | rangeValue(countColors)"
+      },
+      "context": {
+        "countColors": [
+          {
+            "to": 1,
+            "value": "#708794"
+          },
+          {
+            "from": 1,
+            "value": "#DC4E41"
+          }
+        ]
+      }
+    },
+    "viz_kpi_held": {
+      "type": "splunk.singlevalue",
+      "title": "Held or blocked",
+      "dataSources": {
+        "primary": "ds_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('held_blocked') | lastPoint()",
+        "underLabel": "runs held or blocked",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off",
+        "majorColor": "> primary | seriesByName('held_blocked') | lastPoint() | rangeValue(countColors)"
+      },
+      "context": {
+        "countColors": [
+          {
+            "to": 1,
+            "value": "#708794"
+          },
+          {
+            "from": 1,
+            "value": "#F8BE34"
+          }
+        ]
+      }
+    },
+    "viz_kpi_rate": {
+      "type": "splunk.singlevalue",
+      "title": "Success rate",
+      "dataSources": {
+        "primary": "ds_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('success_rate') | lastPoint()",
+        "underLabel": "of finished runs",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off",
+        "unit": "%",
+        "unitPosition": "after",
+        "majorColor": "> primary | seriesByName('success_rate') | lastPoint() | rangeValue(rateColors)"
+      },
+      "context": {
+        "rateColors": [
+          {
+            "to": 80,
+            "value": "#DC4E41"
+          },
+          {
+            "from": 80,
+            "to": 95,
+            "value": "#F8BE34"
+          },
+          {
+            "from": 95,
+            "value": "#53A051"
+          }
+        ]
+      }
+    },
+    "viz_kpi_duration": {
+      "type": "splunk.singlevalue",
+      "title": "Median run duration",
+      "dataSources": {
+        "primary": "ds_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('median_duration') | lastPoint()",
+        "underLabel": "start to finish (hh:mm:ss)",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off"
+      }
+    },
+    "viz_md_over_time": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Runs over time\nRuns by the time they were created, stacked by their latest state.",
+        "fontSize": "default"
+      }
+    },
+    "viz_runs_over_time": {
+      "type": "splunk.column",
+      "title": "Runs by state",
+      "dataSources": {
+        "primary": "ds_runs_over_time"
+      },
+      "options": {
+        "stackMode": "stacked",
+        "seriesColorsByField": {
+          "succeeded": "#53A051",
+          "failed": "#DC4E41",
+          "held": "#F1813F",
+          "blocked": "#F8BE34",
+          "cancelled": "#708794",
+          "in progress": "#006D9C"
+        },
+        "xAxisTitleVisibility": "hide",
+        "yAxisTitleText": "Runs",
+        "legendDisplay": "right"
+      }
+    },
+    "viz_md_attention": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Runs that need attention\nFailed, held and blocked runs, newest first, with the last step error. Click a row to open the run.",
+        "fontSize": "default"
+      }
+    },
+    "viz_attention": {
+      "type": "splunk.table",
+      "title": "Failed, held and blocked runs",
+      "dataSources": {
+        "primary": "ds_attention"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false,
+        "columnFormat": {
+          "state": {
+            "data": "> table | seriesByName(\"state\")",
+            "rowColors": "> table | seriesByName(\"state\") | matchValue(stateColors)"
+          }
+        },
+        "drilldown": "all"
+      },
+      "context": {
+        "stateColors": [
+          {
+            "match": "succeeded",
+            "value": "#53A051"
+          },
+          {
+            "match": "failed",
+            "value": "#DC4E41"
+          },
+          {
+            "match": "held",
+            "value": "#F1813F"
+          },
+          {
+            "match": "blocked",
+            "value": "#F8BE34"
+          },
+          {
+            "match": "cancelled",
+            "value": "#708794"
+          },
+          {
+            "match": "in progress",
+            "value": "#006D9C"
+          },
+          {
+            "match": "error",
+            "value": "#DC4E41"
+          },
+          {
+            "match": "warning",
+            "value": "#F8BE34"
+          }
+        ]
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/app/search_orchestrator/run?run_id=$row.run_id.value|u$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "viz_md_steps": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Steps\nWhich steps fail most, and which run longest: duration is from dispatch to the engine seeing the search finish (to within one engine tick). A delayed step passed its *delayed after* time while unfinished.",
+        "fontSize": "default"
+      }
+    },
+    "viz_step_failures": {
+      "type": "splunk.table",
+      "title": "Steps that fail most",
+      "dataSources": {
+        "primary": "ds_step_failures"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false
+      },
+      "description": "Failed attempts per job and step, with the latest error"
+    },
+    "viz_slow_steps": {
+      "type": "splunk.table",
+      "title": "Slowest steps",
+      "dataSources": {
+        "primary": "ds_slow_steps"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false
+      },
+      "description": "Median and 95th percentile duration per step (hh:mm:ss), and runs where it was delayed"
+    },
+    "viz_md_actions": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Actions\nNotifications and follow-up actions sent and given up on (after retries), per type.",
+        "fontSize": "default"
+      }
+    },
+    "viz_actions_by_type": {
+      "type": "splunk.bar",
+      "title": "Sent and failed per type",
+      "dataSources": {
+        "primary": "ds_actions_by_type"
+      },
+      "options": {
+        "stackMode": "stacked",
+        "seriesColorsByField": {
+          "sent": "#53A051",
+          "failed": "#DC4E41"
+        },
+        "xAxisTitleVisibility": "hide",
+        "yAxisTitleVisibility": "hide",
+        "legendDisplay": "bottom"
+      }
+    },
+    "viz_action_failures": {
+      "type": "splunk.table",
+      "title": "Latest action failures",
+      "dataSources": {
+        "primary": "ds_action_failures"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false,
+        "drilldown": "all"
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/app/search_orchestrator/run?run_id=$row.run_id.value|u$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "viz_md_engine": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Engine health\nFrom `_internal` (splunkd.log): errors and warnings of the engine modular input, the REST handler, the alert action and the search command, and Python tracebacks. The search command logs most of its errors to the search's own job log instead. Engine activity also counts the engine process in `_introspection` and its audit events; it turns red after 5 minutes.",
+        "fontSize": "default"
+      }
+    },
+    "viz_engine_last": {
+      "type": "splunk.singlevalue",
+      "title": "Last engine activity",
+      "dataSources": {
+        "primary": "ds_engine_last"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('minutes') | lastPoint()",
+        "unit": "min ago",
+        "unitPosition": "after",
+        "underLabel": "since the engine was last seen",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off",
+        "numberPrecision": 1,
+        "majorColor": "> primary | seriesByName('minutes') | lastPoint() | rangeValue(ageColors)"
+      },
+      "context": {
+        "ageColors": [
+          {
+            "to": 5,
+            "value": "#53A051"
+          },
+          {
+            "from": 5,
+            "value": "#DC4E41"
+          }
+        ]
+      }
+    },
+    "viz_engine_errors": {
+      "type": "splunk.table",
+      "title": "Errors and warnings",
+      "dataSources": {
+        "primary": "ds_engine_errors"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false,
+        "columnFormat": {
+          "level": {
+            "data": "> table | seriesByName(\"level\")",
+            "rowColors": "> table | seriesByName(\"level\") | matchValue(stateColors)"
+          }
+        }
+      },
+      "description": "Per script and level, with the latest message",
+      "context": {
+        "stateColors": [
+          {
+            "match": "succeeded",
+            "value": "#53A051"
+          },
+          {
+            "match": "failed",
+            "value": "#DC4E41"
+          },
+          {
+            "match": "held",
+            "value": "#F1813F"
+          },
+          {
+            "match": "blocked",
+            "value": "#F8BE34"
+          },
+          {
+            "match": "cancelled",
+            "value": "#708794"
+          },
+          {
+            "match": "in progress",
+            "value": "#006D9C"
+          },
+          {
+            "match": "error",
+            "value": "#DC4E41"
+          },
+          {
+            "match": "warning",
+            "value": "#F8BE34"
+          }
+        ]
+      }
+    },
+    "viz_tracebacks": {
+      "type": "splunk.table",
+      "title": "Python tracebacks",
+      "dataSources": {
+        "primary": "ds_tracebacks"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false
+      },
+      "description": "Tracebacks and the latest exception per script"
+    }
+  },
+  "layout": {
+    "globalInputs": [
+      "input_time",
+      "input_job"
+    ],
+    "tabs": {
+      "items": [
+        {
+          "layoutId": "layout_main",
+          "label": "Run health"
+        }
+      ],
+      "options": {
+        "barPosition": "top",
+        "showTabBar": false
+      }
+    },
+    "layoutDefinitions": {
+      "layout_main": {
+        "type": "absolute",
+        "options": {
+          "width": 1440,
+          "height": 2795
+        },
+        "structure": [
+          {
+            "item": "viz_md_overview",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 10,
+              "w": 1400,
+              "h": 70
+            }
+          },
+          {
+            "item": "viz_kpi_runs",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 90,
+              "w": 223,
+              "h": 130
+            }
+          },
+          {
+            "item": "viz_kpi_succeeded",
+            "type": "block",
+            "position": {
+              "x": 255,
+              "y": 90,
+              "w": 223,
+              "h": 130
+            }
+          },
+          {
+            "item": "viz_kpi_failed",
+            "type": "block",
+            "position": {
+              "x": 490,
+              "y": 90,
+              "w": 223,
+              "h": 130
+            }
+          },
+          {
+            "item": "viz_kpi_held",
+            "type": "block",
+            "position": {
+              "x": 725,
+              "y": 90,
+              "w": 223,
+              "h": 130
+            }
+          },
+          {
+            "item": "viz_kpi_rate",
+            "type": "block",
+            "position": {
+              "x": 960,
+              "y": 90,
+              "w": 223,
+              "h": 130
+            }
+          },
+          {
+            "item": "viz_kpi_duration",
+            "type": "block",
+            "position": {
+              "x": 1195,
+              "y": 90,
+              "w": 223,
+              "h": 130
+            }
+          },
+          {
+            "item": "viz_md_over_time",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 240,
+              "w": 1400,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_runs_over_time",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 305,
+              "w": 1400,
+              "h": 300
+            }
+          },
+          {
+            "item": "viz_md_attention",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 625,
+              "w": 1400,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_attention",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 690,
+              "w": 1400,
+              "h": 380
+            }
+          },
+          {
+            "item": "viz_md_steps",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 1090,
+              "w": 1400,
+              "h": 70
+            }
+          },
+          {
+            "item": "viz_step_failures",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 1165,
+              "w": 690,
+              "h": 400
+            }
+          },
+          {
+            "item": "viz_slow_steps",
+            "type": "block",
+            "position": {
+              "x": 730,
+              "y": 1165,
+              "w": 690,
+              "h": 400
+            }
+          },
+          {
+            "item": "viz_md_actions",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 1585,
+              "w": 1400,
+              "h": 60
+            }
+          },
+          {
+            "item": "viz_actions_by_type",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 1650,
+              "w": 480,
+              "h": 360
+            }
+          },
+          {
+            "item": "viz_action_failures",
+            "type": "block",
+            "position": {
+              "x": 520,
+              "y": 1650,
+              "w": 900,
+              "h": 360
+            }
+          },
+          {
+            "item": "viz_md_engine",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 2030,
+              "w": 1400,
+              "h": 90
+            }
+          },
+          {
+            "item": "viz_engine_last",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 2125,
+              "w": 330,
+              "h": 170
+            }
+          },
+          {
+            "item": "viz_engine_errors",
+            "type": "block",
+            "position": {
+              "x": 370,
+              "y": 2125,
+              "w": 1050,
+              "h": 320
+            }
+          },
+          {
+            "item": "viz_tracebacks",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 2465,
+              "w": 1400,
+              "h": 300
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+]]></definition>
+</dashboard>
