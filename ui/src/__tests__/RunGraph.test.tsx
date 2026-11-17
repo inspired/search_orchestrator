@@ -156,6 +156,23 @@ describe('RunGraph', () => {
             expect(view().getAttribute('transform')).toBe('translate(-720,0) scale(1)');
             expect(screen.queryByRole('button', { name: 'Follow the run' })).toBeNull();
         });
+    
+        test('selecting a step (in the graph or the table) turns follow off, so the next poll keeps it in view', () => {
+            size(400, 300);
+            const props: RunGraphProps = { definition: live, states: { a: { state: 'running', started_at: NOW } }, actions: [], active: true, now: NOW };
+            const r = render(themed(<RunGraph {...props} />));
+            expect(screen.queryByRole('button', { name: 'Follow the run' })).toBeNull();
+            r.rerender(themed(<RunGraph {...props} selected="a" />));
+            expect(screen.getByRole('button', { name: 'Follow the run' })).toBeInTheDocument();
+            const before = view().getAttribute('transform');
+            r.rerender(themed(<RunGraph {...props} selected="a" states={{ a: { state: 'succeeded' }, b: { state: 'running', started_at: NOW } }} />));
+            expect(view().getAttribute('transform')).toBe(before);
+        });
+
+        test('opening the graph with a step already selected starts with follow off', () => {
+            const props: RunGraphProps = { definition: live, states: { a: { state: 'running', started_at: NOW } }, actions: [], active: true, now: NOW, selected: 'b' };
+            render(themed(<RunGraph {...props} />));
+            expect(screen.getByRole('button', { name: 'Follow the run' })).toBeInTheDocument();
+        });
     });
 });
-

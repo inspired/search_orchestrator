@@ -5,9 +5,9 @@
  * a pulsing outline, a spinner and a timer, waiting steps are dimmed and (while the run is
  * active) say what they wait for,
  * and actions show their live text ("Retrying in 30 s"). `now` is the page's one-second clock.
- * The canvas follows the running steps until the user pans or zooms; "Follow the run" turns it
+ * The canvas follows the running steps until the user pans, zooms or selects a step; "Follow the run" turns it
  * back on. A finished run shows the final picture with no animation. */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { ActionRun, JobDefinition, StepStatus } from '../../api/types';
 import { isStepDelayed, statusIcon, statusLabel } from '../../components/StatusText';
@@ -41,7 +41,14 @@ export default function RunGraph({ definition, states, actions, onSelect, select
     const theme = useSplunkTheme() as unknown as Theme;
     const graph = useMemo(() => buildGraph(definition), [definition]);
     const [compact, toggleCompact] = useCompactPref();
-    const [follow, setFollow] = useState(true);
+    // Selecting a step (here or in the timeline) turns follow off, so the next poll never pans
+    // away from the step just revealed.
+    const [follow, setFollow] = useState(!selected);
+    useEffect(() => {
+        if (selected) {
+            setFollow(false);
+        }
+    }, [selected]);
     const positions = useMemo(() => layoutFlow(graph, definition.layout?.nodes, compact), [graph, definition, compact]);
     const groups = useMemo(() => readGroups(definition), [definition]);
     const acts = useMemo(() => actionStates(definition, actions), [definition, actions]);
