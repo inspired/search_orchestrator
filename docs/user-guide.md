@@ -314,7 +314,7 @@ An action failing never changes the run's outcome; it shows on the run's Actions
 
 ### Deadline
 
-On the job Settings tab, the **Deadline** section sets when a run must be finished. Fill in either field or both:
+On the job Settings tab, the **Finish by** and **Finish within** fields set when a run must be finished. Fill in either one or both:
 
 - **Finish by**: a time of day such as `06:00`, in the job's time zone. It means the first 06:00 at or after the run's scheduled time.
 - **Finish within**: a time after the scheduled time (1 minute to 7 days).
@@ -446,7 +446,7 @@ A backfill runs a job once for each time in a past range, oldest first, for exam
 
 The dialog counts the runs before you start. A backfill can hold up to 100 runs over at most 400 days; narrow the range or lengthen the step if it is too big. Each run's scheduled time is its time in the range, so steps summarise that period's window. Backfill runs have no deadline.
 
-On the **Runs** page, a backfill shows as a line with its progress ("12 of 30 runs started") and **Cancel backfill**. Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm. Starting and cancelling a backfill needs the right to run the job, and is audited as `backfill_created`, `backfill_cancelled` and `backfill_done`.
+On the **Runs** page, a backfill shows as a line with its progress ("Backfill of 30 runs: 12 finished, 1 running, 17 to go.") and **Cancel backfill**. Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm. Starting a backfill needs the right to run the job. Cancelling needs you to be its creator, to be allowed to edit the job, or to be an admin. Both are audited as `backfill_created`, `backfill_cancelled` and `backfill_done`.
 
 ## Re-run from a step
 
