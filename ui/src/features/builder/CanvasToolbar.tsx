@@ -1,0 +1,42 @@
+/* The buttons above the Flow canvas: Add node and Tidy up (when the caller handles them and the
+ * job can be edited), zoom, reset and frame, the node-type legend and Full screen. "/" in the
+ * toolbar opens the node search at the view centre, as it does in the canvas. */
+import React from 'react';
+import Button from '@splunk/react-ui/Button';
+
+export interface CanvasToolbarProps {
+    canEdit: boolean;
+    onAddNode?: () => void;
+    onTidy?: () => void;
+    /** Multiply the zoom by this factor. */
+    onZoom: (factor: number) => void;
+    onReset: () => void;
+    onFrame: () => void;
+    legendOpen: boolean;
+    onToggleLegend: () => void;
+    fullScreen: boolean;
+    onToggleFullScreen?: () => void;
+}
+
+export default function CanvasToolbar(p: CanvasToolbarProps) {
+    return (
+        <div
+            style={{ display: 'flex', gap: '4px', marginBottom: '4px', flexWrap: 'wrap' }}
+            onKeyDown={(ev) => {
+                if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && p.onAddNode && p.canEdit) {
+                    ev.preventDefault();
+                    p.onAddNode();
+                }
+            }}
+        >
+            {p.canEdit && p.onAddNode && <Button appearance="secondary" label="Add node" onClick={p.onAddNode} />}
+            {p.canEdit && p.onTidy && <Button appearance="subtle" label="Tidy up" onClick={p.onTidy} />}
+            <Button appearance="subtle" label="Zoom in" onClick={() => p.onZoom(1.2)} />
+            <Button appearance="subtle" label="Zoom out" onClick={() => p.onZoom(1 / 1.2)} />
+            <Button appearance="subtle" label="Reset view" onClick={p.onReset} />
+            <Button appearance="subtle" label="Frame all" onClick={p.onFrame} />
+            <Button appearance="subtle" label={p.legendOpen ? 'Hide node types' : 'Show node types'} onClick={p.onToggleLegend} />
+            {p.onToggleFullScreen && <Button appearance="subtle" label={p.fullScreen ? 'Leave full screen' : 'Full screen'} onClick={p.onToggleFullScreen} />}
+        </div>
+    );
+}

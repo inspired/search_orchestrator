@@ -574,4 +574,40 @@ describe('FlowCanvas', () => {
             expect(screen.getByRole('button', { name: 'Search a, Failed' })).toBeInTheDocument();
         });
     });
+
+    describe('context menu', () => {
+        test('right-click on a node selects it first and reports it with the pointer position', () => {
+            const { props } = setup({ onContext: jest.fn() });
+            expect(fireEvent.contextMenu(screen.getByTestId('node-step:a'), { clientX: 300, clientY: 130 })).toBe(false);
+            expect(props.onSelect).toHaveBeenCalledWith({ kind: 'node', key: 'step:a' });
+            expect(props.onContext).toHaveBeenCalledWith({ kind: 'node', key: 'step:a' }, { left: 300, top: 130 });
+        });
+
+        test('a node inside a multi-selection reports all of them and keeps the selection', () => {
+            const { props } = setup({ onContext: jest.fn(), selected: { kind: 'nodes', keys: ['step:a', 'step:b'] } });
+            fireEvent.contextMenu(screen.getByTestId('node-step:b'), { clientX: 600, clientY: 130 });
+            expect(props.onSelect).not.toHaveBeenCalled();
+            expect(props.onContext).toHaveBeenCalledWith({ kind: 'nodes', keys: ['step:a', 'step:b'] }, { left: 600, top: 130 });
+        });
+
+        test('the empty canvas reports a canvas point; Shift+F10 on the canvas uses the view centre', () => {
+            const { props, canvas } = setup({ onContext: jest.fn() });
+            fireEvent.contextMenu(canvas, { clientX: 40, clientY: 50 });
+            expect(props.onContext).toHaveBeenLastCalledWith({ kind: 'canvas', at: { x: 40, y: 50 } }, { left: 40, top: 50 });
+            fireEvent.keyDown(canvas, { key: 'F10', shiftKey: true });
+            expect(props.onContext).toHaveBeenCalledTimes(2);
+            expect((props.onContext as jest.Mock).mock.calls[1][0].kind).toBe('canvas');
+        });
+
+        test('the Menu key on a focused node reports it; without onContext nothing is prevented', () => {
+            const { props } = setup({ onContext: jest.fn() });
+            fireEvent.keyDown(screen.getByTestId('node-step:a'), { key: 'ContextMenu' });
+            expect((props.onContext as jest.Mock).mock.calls[0][0]).toEqual({ kind: 'node', key: 'step:a' });
+        });
+
+        test('read-only canvases leave the browser menu alone', () => {
+            setup({ onContext: jest.fn(), readOnly: true });
+            expect(fireEvent.contextMenu(screen.getByTestId('node-step:a'))).toBe(true);
+        });
+    });
 });

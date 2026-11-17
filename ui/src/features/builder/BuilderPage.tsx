@@ -28,6 +28,7 @@ import NodePanel from './NodePanel';
 import RemoveNodeModal from './RemoveNodeModal';
 import SetupChecklist from './SetupChecklist';
 import PreviewBar from './PreviewBar';
+import { previewRefusal } from './previewLogic';
 import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import useBuilderData from './useBuilderData';
@@ -342,6 +343,20 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         dispatch({ type: 'connectPort', from, port, to });
     };
 
+    // The step whose name field to focus once its panel shows (right-click, Rename).
+    const [renaming, setRenaming] = useState<string | null>(null);
+    useEffect(() => {
+        if (!renaming) {
+            return undefined;
+        }
+        const timer = window.setTimeout(() => {
+            document.getElementById(`step-${renaming}-name`)?.focus();
+            setRenaming(null);
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [renaming]);
+
+    const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: (text) => menus.notify(text) });
     const menus = useFlowMenus({
         job,
         graph,
@@ -353,9 +368,22 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         returnFocus,
         rememberFocus,
         canvas: () => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'),
+        context: {
+            rename: (key) => {
+                setSelectedState({ kind: 'node', key });
+                setRenaming(key.slice('step:'.length));
+            },
+            duplicate: clipboard.onDuplicate,
+            copy: clipboard.onCopy,
+            paste: clipboard.onPaste,
+            tidy: (keys) => dispatch({ type: 'tidyLayout', keys }),
+            requestRemove,
+            requestRemoveNodes: picked.requestRemoveNodes,
+            preview: meta.canEdit ? (id) => previews.preview(id) : undefined,
+            previewRefusal: (id) => previewRefusal(job, id, source === 'live'),
+        },
     });
 
-    const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: menus.notify });
 
     // Full screen: the canvas and panel over the whole page. Escape leaves, unless something
     // (a popup, the canvas clearing its selection, a modal) used it first.
@@ -419,6 +447,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onDropOnNode={menus.onDropOnNode}
                     onDropOnCanvas={menus.onDropOnCanvas}
                     onLineMenu={menus.onLineMenu}
+                    onContext={menus.onContext}
                     onSplice={menus.onSplice}
                     canSpliceNode={menus.canSpliceNode}
                     onRequestRemove={requestRemove}

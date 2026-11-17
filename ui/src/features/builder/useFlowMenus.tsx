@@ -1,6 +1,7 @@
 /* The Flow tab's popups and what they do: the When list (from a node's +, or a line dropped on a
  * node or on empty canvas), the node search (quick-add), and a line's menu (change outcome,
- * insert a node, remove). Also the short message after a node is put on a line, with Undo, which
+ * insert a node, remove) and the right-click menu (CanvasMenu: a node, a multi-selection or the
+ * empty canvas; its items run the page's `context` actions). Also the short message after a node is put on a line, with Undo, which
  * hides itself after 10 s, or once the job is edited again. Returns the overlay to draw over the
  * canvas, that message, and the canvas callbacks. Popups take focus; closing one with Escape
  * gives focus back to where it was. */
@@ -11,11 +12,14 @@ import type { JobDefinition } from '../../api/types';
 import type { FlowSelection, ScreenPoint } from './FlowCanvas';
 import { canInsert, parseCond } from './flowEdits';
 import type { Pos, Positions } from './graphLogic';
+import CanvasMenu from './CanvasMenu';
+import type { MenuItem } from './CanvasMenu';
+import type { ContextTarget } from './useContextTrigger';
 import LineMenu, { LineChoice } from './LineMenu';
 import { targetKinds } from './nodeCatalog';
-import { condKey } from './nodeModel';
+import { JOB_KEY, condKey } from './nodeModel';
 import type { FlowGraph, FlowLink, NodeKind, PortId } from './nodeModel';
-import { PORT_STYLE } from './nodeStyle';
+import { PORT_STYLE, hasHandle } from './nodeStyle';
 import { OUTCOME_LABEL, lineMenuOutcomes, whenOptions } from './outcomes';
 import type { Outcome } from './outcomes';
 import QuickAdd from './QuickAdd';
@@ -51,7 +55,25 @@ type Menu =
     | ({ kind: 'quick' } & QuickAddState)
     /** With `to`, choosing connects to it; otherwise the node search follows. */
     | { kind: 'when'; from: string; to?: string; at?: Pos; screen: ScreenPoint }
-    | { kind: 'line'; link: string; screen: ScreenPoint };
+    | { kind: 'line'; link: string; screen: ScreenPoint }
+    | { kind: 'context'; target: Exclude<ContextTarget, { kind: 'link' }>; screen: ScreenPoint };
+
+/** What the right-click menu's items do; the page supplies these. */
+export interface ContextActions {
+    /** Selects the step and focuses the properties panel's name field. */
+    rename: (key: string) => void;
+    duplicate: () => void;
+    copy: () => void;
+    paste: (at: Pos) => void;
+    /** With keys, tidies only those nodes. */
+    tidy: (keys?: string[]) => void;
+    requestRemove: (key: string) => void;
+    requestRemoveNodes: (keys: string[]) => void;
+    /** Absent when previews are off (no edit rights). */
+    preview?: (stepId: string) => void;
+    /** Why the step can't be previewed, or null. */
+    previewRefusal?: (stepId: string) => string | null;
+}
 
 export interface FlowMenusOptions {
     job: JobDefinition;
@@ -68,6 +90,7 @@ export interface FlowMenusOptions {
     rememberFocus: () => void;
     /** The canvas element, to keep popups inside it. */
     canvas: () => Element | null;
+    context: ContextActions;
 }
 
 /** `screen` moved so a `w` × `h` box stays inside the canvas (only left and top when unknown). */
@@ -89,7 +112,7 @@ function insertKinds(job: JobDefinition, graph: FlowGraph, link: FlowLink): Node
 }
 
 export default function useFlowMenus(opts: FlowMenusOptions) {
-    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas } = opts;
+    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context } = opts;
     const [menu, setMenu] = useState<Menu | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     /** The job just before the splice the message is about, then the job just after it: if the
@@ -201,6 +224,76 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         }
     };
 
+    const onContext = (target: ContextTarget, screen: ScreenPoint) =>
+        target.kind === 'link' ? open({ kind: 'line', link: target.key, screen }) : open({ kind: 'context', target, screen });
+
+    /** The items of the right-click menu for a node, a multi-selection or the canvas. */
+    const contextItems = (target: Exclude<ContextTarget, { kind: 'link' }>): { label: string; items: MenuItem[]; run: (id: string, screen: ScreenPoint) => void } => {
+        const leave = (then: () => void) => () => {
+            finish();
+            then();
+        };
+        if (target.kind === 'canvas') {
+            return {
+                label: 'Canvas',
+                items: [
+                    { id: 'add', label: 'Add node here' },
+                    { id: 'paste', label: 'Paste' },
+                    { id: 'tidy', label: 'Tidy up' },
+                ],
+                run: (id, screen) => {
+                    if (id === 'add') {
+                        setMenu({ kind: 'quick', at: target.at, screen });
+                    } else {
+                        leave(id === 'paste' ? () => context.paste(target.at) : () => context.tidy())();
+                    }
+                },
+            };
+        }
+        if (target.kind === 'nodes') {
+            return {
+                label: 'Selected nodes',
+                items: [
+                    { id: 'duplicate', label: 'Duplicate' },
+                    { id: 'copy', label: 'Copy' },
+                    { id: 'tidy', label: 'Tidy up selection' },
+                    { id: 'remove', label: 'Remove nodes' },
+                ],
+                run: (id) =>
+                    leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
+            };
+        }
+        const node = graph.nodes.find((n) => n.key === target.key);
+        const kind = node ? node.kind : null;
+        const copyable = Boolean(node) && kind !== 'job' && kind !== 'condition';
+        const refusal = node && node.stepId && context.previewRefusal ? context.previewRefusal(node.stepId) : null;
+        const items: MenuItem[] = [
+            ...(node && node.stepId ? [{ id: 'rename', label: 'Rename' }] : []),
+            ...(copyable ? [{ id: 'duplicate', label: 'Duplicate' }, { id: 'copy', label: 'Copy' }] : []),
+            ...((kind === 'search' || kind === 'saved_search') && context.preview ? [{ id: 'preview', label: 'Preview', disabled: Boolean(refusal), reason: refusal || undefined }] : []),
+            ...(kind && kind !== 'condition' && hasHandle(kind) ? [{ id: 'line', label: 'Add a line' }] : []),
+            ...(target.key !== JOB_KEY ? [{ id: 'remove', label: 'Remove' }] : []),
+        ];
+        return {
+            label: 'Node',
+            items,
+            run: (id, screen) => {
+                const stepId = node ? node.stepId : undefined;
+                if (id === 'rename') {
+                    returnFocus.current = null;
+                    setMenu(null);
+                    context.rename(target.key);
+                } else if (id === 'line') {
+                    setMenu({ kind: 'when', from: target.key, screen });
+                } else {
+                    leave(
+                        id === 'duplicate' ? context.duplicate : id === 'copy' ? context.copy : id === 'preview' ? () => stepId && context.preview?.(stepId) : () => context.requestRemove(target.key)
+                    )();
+                }
+            },
+        };
+    };
+
     const onLineMenu = (link: string, screen: ScreenPoint) => open({ kind: 'line', link, screen });
 
     const onSplice = (node: string, link: string, at: Pos) => {
@@ -294,6 +387,13 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         }
     }
 
+    if (menu && menu.kind === 'context') {
+        const { label, items, run } = contextItems(menu.target);
+        overlay = (
+            <CanvasMenu open at={clampInto(menu.screen, LINE_MENU_W, items.length * ROW_H + 8, canvas())} label={label} items={items} onChoose={(id) => run(id, menu.screen)} onClose={finish} />
+        );
+    }
+
     const notice = message && (
         <div data-testid="splice-message">
             <Message type="info" appearance="default">
@@ -321,6 +421,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         onDropOnNode,
         onDropOnCanvas,
         onLineMenu,
+        onContext,
         onSplice,
         canSpliceNode,
         /** Shows `text` with an Undo button for 10 s (call before the edit it is about). */

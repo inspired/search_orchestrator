@@ -54,3 +54,16 @@ export function SelectionBox({ from, to, theme }: { from: Pos; to: Pos; theme: T
         />
     );
 }
+
+/** The arrowheads lines end in, one per colour token, referenced as `url(#<uid>-arrow-<token>)`. */
+export function ArrowMarkers({ uid, tokens, theme }: { uid: string; tokens: string[]; theme: Theme }) {
+    return (
+        <defs>
+            {tokens.map((token) => (
+                <marker key={token} id={`${uid}-arrow-${token}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill={theme[token]} />
+                </marker>
+            ))}
+        </defs>
+    );
+}

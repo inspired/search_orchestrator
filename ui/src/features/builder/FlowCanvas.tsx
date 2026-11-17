@@ -9,13 +9,14 @@
  * dropped on a line the caller allows is spliced in (`onSplice`). Gestures, including auto-pan
  * near the edge, live in useCanvasGestures.
  * Shift+click, Shift+Space or a Shift+drag box on empty canvas select several nodes; Ctrl/Cmd+A
- * selects all but the whole job; Ctrl/Cmd+C, V and D copy, paste and duplicate them; they move, nudge and are removed (`onRequestRemoveNodes`) together.
+ * selects all but the whole job; Ctrl/Cmd+C, V and D copy, paste and duplicate them; they move,
+ * nudge and are removed (`onRequestRemoveNodes`) together. Right-click, the Menu key or Shift+F10
+ * asks for a menu (`onContext`, see useContextTrigger).
  * Keyboard: Tab through nodes, then lines; Enter selects, + or Shift+Enter opens the When list, arrows
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
  * node, Tidy up and Full screen when the caller handles them. Colours come from theme tokens only. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import CrossCircle from '@splunk/react-icons/CrossCircle';
 import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
@@ -33,10 +34,13 @@ import { bezierAt, clampZoom, frameView, linkEnds, linkPath } from './flowCanvas
 import LineLabel, { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
-import { DraftLine, SelectionBox } from './DragFeedback';
+import { ArrowMarkers, DraftLine, SelectionBox } from './DragFeedback';
+import CanvasToolbar from './CanvasToolbar';
+import useContextTrigger from './useContextTrigger';
+import type { ContextTarget } from './useContextTrigger';
 import { runClipboardShortcut } from './clipboard';
 
-export type { FlowSelection, ScreenPoint };
+export type { ContextTarget, FlowSelection, ScreenPoint };
 
 export interface FlowCanvasProps {
     graph: FlowGraph;
@@ -77,6 +81,9 @@ export interface FlowCanvasProps {
     /** A click on a line's label, or Enter on a focused line: the caller opens the line menu at
      * `screen` (just below the label, relative to the canvas' top-left). */
     onLineMenu?: (link: string, screen: ScreenPoint) => void;
+    /** Right-click, Menu key or Shift+F10 on a node, a multi-selection, a line or the empty canvas
+     * (`at` in canvas coordinates): the caller opens the menu at `screen`. */
+    onContext?: (target: ContextTarget, screen: ScreenPoint) => void;
     /** A node with no lines dropped onto a line that `canSpliceNode` allows, at canvas point `at`. */
     onSplice?: (node: string, link: string, at: Pos) => void;
     canSpliceNode?: (node: string, link: string) => boolean;
@@ -138,6 +145,7 @@ export default function FlowCanvas({
     onTidy,
     overlay,
     onLineMenu,
+    onContext,
     onSplice,
     canSpliceNode,
     height = 480,
@@ -218,9 +226,7 @@ export default function FlowCanvas({
         }
         const svg = svgRef.current;
         const { pan: p, zoom: z } = view.current;
-        const w = svg ? svg.clientWidth : 0;
-        const h = svg ? svg.clientHeight : 0;
-        return { x: (w / 2 - p.x) / z, y: (h / 2 - p.y) / z };
+        return { x: ((svg ? svg.clientWidth : 0) / 2 - p.x) / z, y: ((svg ? svg.clientHeight : 0) / 2 - p.y) / z };
     };
 
     const frameAll = () => {
@@ -237,7 +243,24 @@ export default function FlowCanvas({
         onSelect(l.kind === 'action' ? { kind: 'node', key: l.to } : { kind: 'link', key: l.key });
     };
 
+    const context = useContextTrigger({
+        svg: () => svgRef.current,
+        onContext: readOnly ? undefined : onContext,
+        selected,
+        onSelect,
+        selectLink: (key) => {
+            const l = graph.links.find((x) => x.key === key);
+            if (l) {
+                selectLink(l);
+            }
+        },
+        toCanvas,
+    });
+
     const onKeyDown = (ev: React.KeyboardEvent) => {
+        if (context.onKey(ev)) {
+            return;
+        }
         const el = ev.target as Element;
         const focusedNode = el.closest ? el.closest('[data-node-key]')?.getAttribute('data-node-key') || null : null;
         const focusedLink = el.closest ? el.closest('[data-link-key]')?.getAttribute('data-link-key') || null : null;
@@ -377,9 +400,7 @@ export default function FlowCanvas({
         const family = FAMILY_STYLE[FAMILY_OF[n.kind]].label;
         const head = family === n.label ? n.label : `${family} ${n.label}`;
         const note = n.stepId ? notes[n.stepId] : undefined;
-        return [head, detail && status && status[n.key] ? detail.text : n.detail, ...counts, note ? note.text : '']
-            .filter(Boolean)
-            .join(', ');
+        return [head, detail && status && status[n.key] ? detail.text : n.detail, ...counts, note ? note.text : ''].filter(Boolean).join(', ');
     };
 
     const help = readOnly
@@ -388,32 +409,18 @@ export default function FlowCanvas({
 
     return (
         <div>
-            {/* "/" opens quick-add from the toolbar too. */}
-            <div
-                style={{ display: 'flex', gap: '4px', marginBottom: '4px', flexWrap: 'wrap' }}
-                onKeyDown={(ev) => {
-                    if (ev.key === '/' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && onQuickAdd && !readOnly) {
-                        ev.preventDefault();
-                        openQuickAdd(true);
-                    }
-                }}
-            >
-                {!readOnly && onQuickAdd && <Button appearance="secondary" label="Add node" onClick={() => openQuickAdd(true)} />}
-                {!readOnly && onTidy && <Button appearance="subtle" label="Tidy up" onClick={onTidy} />}
-                <Button appearance="subtle" label="Zoom in" onClick={() => setZoom((z) => clampZoom(z * 1.2))} />
-                <Button appearance="subtle" label="Zoom out" onClick={() => setZoom((z) => clampZoom(z / 1.2))} />
-                <Button
-                    appearance="subtle"
-                    label="Reset view"
-                    onClick={() => {
-                        setZoom(1);
-                        setPan({ x: 0, y: 0 });
-                    }}
-                />
-                <Button appearance="subtle" label="Frame all" onClick={frameAll} />
-                <Button appearance="subtle" label={legendOpen ? 'Hide node types' : 'Show node types'} onClick={() => setLegendOpen((o) => !o)} />
-                {onToggleFullScreen && <Button appearance="subtle" label={fullScreen ? 'Leave full screen' : 'Full screen'} onClick={onToggleFullScreen} />}
-            </div>
+            <CanvasToolbar
+                canEdit={!readOnly}
+                onAddNode={onQuickAdd ? () => openQuickAdd(true) : undefined}
+                onTidy={onTidy}
+                onZoom={(f) => setZoom((z) => clampZoom(z * f))}
+                onReset={() => (setZoom(1), setPan({ x: 0, y: 0 }))}
+                onFrame={frameAll}
+                legendOpen={legendOpen}
+                onToggleLegend={() => setLegendOpen((o) => !o)}
+                fullScreen={fullScreen}
+                onToggleFullScreen={onToggleFullScreen}
+            />
             <div style={{ position: 'relative' }}>
             <svg
                 ref={svgRef}
@@ -443,23 +450,9 @@ export default function FlowCanvas({
                 onPointerUp={g.onPointerUp}
                 onPointerCancel={g.endGesture}
                 onKeyDown={onKeyDown}
+                onContextMenu={onContext && !readOnly ? context.onContextMenu : undefined}
             >
-                <defs>
-                    {MARKER_TOKENS.map((token) => (
-                        <marker
-                            key={token}
-                            id={`${uid}-arrow-${token}`}
-                            viewBox="0 0 10 10"
-                            refX="9"
-                            refY="5"
-                            markerWidth="7"
-                            markerHeight="7"
-                            orient="auto-start-reverse"
-                        >
-                            <path d="M0,0 L10,5 L0,10 z" fill={theme[token]} />
-                        </marker>
-                    ))}
-                </defs>
+                <ArrowMarkers uid={uid} tokens={MARKER_TOKENS} theme={theme} />
                 <g data-view="true" transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
                     {linkGeometry.map(({ l, d }) => {
                         const trigger = l.kind === 'trigger' || !l.port;
@@ -471,6 +464,7 @@ export default function FlowCanvas({
                             <g
                                 key={l.key}
                                 data-testid={`link-${l.key}`}
+                                data-link-hit={trigger ? undefined : l.key}
                                 pointerEvents={trigger ? 'none' : undefined}
                                 onPointerDown={trigger ? undefined : (ev) => ev.stopPropagation()}
                                 onClick={trigger ? undefined : () => selectLink(l)}

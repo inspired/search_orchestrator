@@ -30,6 +30,7 @@ export default function LineLabel({ linkKey, text, at, theme, colorToken, onPick
     return (
         <g
             data-testid={`line-label-${linkKey}`}
+            data-link-hit={onPick ? linkKey : undefined}
             pointerEvents={onPick ? undefined : 'none'}
             onPointerDown={onPick ? (ev) => ev.stopPropagation() : undefined}
             onClick={onPick}
