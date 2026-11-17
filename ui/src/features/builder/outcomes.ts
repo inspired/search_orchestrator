@@ -22,6 +22,7 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
     always: 'Finishes either way',
     start: 'Starts',
     delayed: 'Is delayed',
+    late: 'Is late',
     if: 'If a condition is true',
 };
 
@@ -54,14 +55,14 @@ export function whenOptions(job: JobDefinition, from: string, to?: string | null
                 glyph: PORT_STYLE[o].glyph,
                 count: graph.links.filter((l) => l.from === from && l.port === o).length,
             };
-            if (!to && (o === 'start' || o === 'delayed')) {
+            if (!to && (o === 'start' || o === 'delayed' || o === 'late')) {
                 opt.note = 'actions only';
             }
             return opt;
         });
 }
 
-const ORDER: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'if', 'then'];
+const ORDER: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late', 'if', 'then'];
 
 export function usedOutcomes(graph: FlowGraph, key: string): PortId[] {
     const used = new Set<PortId>();

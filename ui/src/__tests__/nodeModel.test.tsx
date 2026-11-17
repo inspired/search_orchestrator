@@ -51,14 +51,14 @@ describe('buildGraph', () => {
 describe('ports', () => {
     it('lists output ports', () => {
         expect(outputPorts('search')).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'if']);
-        expect(outputPorts('job')).toEqual(['success', 'failure', 'always', 'start', 'delayed']);
+        expect(outputPorts('job')).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'late']);
         expect(outputPorts('condition')).toEqual(['then']);
         expect(outputPorts('trigger_cron')).toEqual([]);
         expect(outputPorts('email')).toEqual([]);
     });
     it('maps ports', () => {
-        expect(HOOK_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'on_complete', start: 'on_start', delayed: 'on_delayed', if: null, then: null });
-        expect(EDGE_CONDITION_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'always', start: null, delayed: null, if: 'expression', then: null });
+        expect(HOOK_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'on_complete', start: 'on_start', delayed: 'on_delayed', late: 'on_late', if: null, then: null });
+        expect(EDGE_CONDITION_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'always', start: null, delayed: null, late: null, if: 'expression', then: null });
     });
 });
 

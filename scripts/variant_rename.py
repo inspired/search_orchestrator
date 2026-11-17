@@ -56,9 +56,9 @@ def rules(s, label):
         ("default/macros.conf", r'"orchestrate"', '"%s"' % cmd, 1),
         # The dashboard: its macros, and its links to the Run page (the app id).
         ("default/data/ui/views/run_health.xml", r"`orchestrator_(index|internal|engine_process)`",
-         r"`orchestrator_\1%s`" % s, 11),
+         r"`orchestrator_\1%s`" % s, 12),
         ("default/data/ui/views/run_health.xml", r"/app/search_orchestrator/run\?",
-         "/app/search_orchestrator%s/run?" % s, 2),
+         "/app/search_orchestrator%s/run?" % s, 3),
         ("default/props.conf", r"^\[orchestrator:audit\]$", "[orchestrator:audit%s]" % s, 1),
         ("bin/so/audit.py", r'^SOURCETYPE = "orchestrator:audit"$', 'SOURCETYPE = "orchestrator:audit%s"' % s, 1),
         ("bin/so/audit.py", r'^SOURCE = "orchestrator_engine"$', 'SOURCE = "orchestrator_engine%s"' % s, 1),

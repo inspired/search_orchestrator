@@ -25,7 +25,7 @@ describe('Legend', () => {
             const row = within(when).getByText(OUTCOME_LABEL[o]).closest('li') as HTMLElement;
             expect(within(row).getByText(PORT_STYLE[o].glyph)).toBeInTheDocument();
         });
-        expect(within(when).getAllByText('actions only')).toHaveLength(2);
+        expect(within(when).getAllByText('actions only')).toHaveLength(3);
         expect(screen.queryByText('Succeeded')).toBeNull();
         expect(screen.getByTestId('legend-plus')).toBeInTheDocument();
         expect(screen.getByText(/Point at a node to show \+; click it to choose what happens next/)).toBeInTheDocument();

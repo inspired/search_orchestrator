@@ -18,6 +18,7 @@ import RunBanner from '../../components/RunBanner';
 import useNow from '../../hooks/useNow';
 import usePoll from '../../hooks/usePoll';
 import ActionsTab from '../../features/run/ActionsTab';
+import DeadlineMessage from '../../features/run/DeadlineMessage';
 import ErrorMessage from '../../features/run/ErrorMessage';
 import LogsTab from '../../features/run/LogsTab';
 import ParamsTab from '../../features/run/ParamsTab';
@@ -97,6 +98,7 @@ function RunPage() {
                     {actionError && <ErrorMessage error={actionError} />}
                     {poll.error && <ErrorMessage error={poll.error} />}
                     <RunBanner run={run} now={now} />
+                    <DeadlineMessage run={run} now={now} timezone={run.definition.timezone} />
                     <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setTab(selectedTabId || 'timeline')}>
                         <TabBar.Tab label="Timeline" tabId="timeline" />
                         <TabBar.Tab label="Graph" tabId="graph" />

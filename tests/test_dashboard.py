@@ -91,3 +91,17 @@ def test_macros_and_nav():
     assert conf["orchestrator_engine_process"]["definition"].startswith("index=_introspection ")
     views = [v.get("name") for v in ET.parse(NAV).getroot().iter("view")]
     assert "run_health" in views
+
+
+def test_late_runs_panels():
+    d = _definition()
+    placed = [i["item"] for lay in d["layout"]["layoutDefinitions"].values() for i in lay["structure"]]
+    for viz_id, kind in (("viz_kpi_late", "splunk.singlevalue"), ("viz_late_runs", "splunk.table")):
+        viz = d["visualizations"][viz_id]
+        assert viz["title"] == "Late runs" and viz["type"] == kind
+        assert viz_id in placed
+        for ds_id in viz["dataSources"].values():
+            ds = d["dataSources"][ds_id]
+            root = ds if ds["type"] == "ds.search" else d["dataSources"][ds["options"]["extend"]]
+            assert "`orchestrator_index`" in root["options"]["query"]
+            assert "type=run_late" in root["options"]["query"]

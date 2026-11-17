@@ -62,14 +62,15 @@ describe('ActionPanel', () => {
         expect(onMoved).toHaveBeenCalledWith('action:a:0');
     });
 
-    test('lists every step and the whole job with all five outcomes', () => {
+    test('lists every step and the whole job with its outcomes', () => {
         setup('a', 0);
         fireEvent.click(screen.getByRole('combobox', { name: 'When' }));
         const names = screen.getAllByRole('option').map((o) => o.textContent);
-        expect(names).toHaveLength(15);
+        expect(names).toHaveLength(16);
         expect(names[0]).toBe('Daily summary · Succeeded');
         expect(names[5]).toBe('Weekly · Succeeded');
         expect(names[14]).toBe('Whole job · Delayed');
+        expect(names[15]).toBe('Whole job · Late');
     });
 
     test('editing an email field dispatches updateAction with only that field', () => {

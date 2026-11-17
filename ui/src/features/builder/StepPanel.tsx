@@ -36,6 +36,8 @@ export interface DurationFieldProps {
     inherited: number;
     inheritedFrom: string;
     help?: string;
+    /** Replaces the "<inheritedFrom> (<inherited>)" placeholder. */
+    placeholder?: string;
     onChange: (seconds: number | null) => void;
 }
 
@@ -46,7 +48,7 @@ const UNIT_LABELS: Record<DurationUnit, string> = { minutes: 'Minutes', hours: '
 /** An amount and a unit in the field; seconds in the job. Empty inherits. Zero is refused (a
  * give-up of 0 would give up at once): the field shows an error and the job keeps its
  * previous value. A value that is not whole minutes keeps its seconds until edited. */
-export function DurationField({ id, label, value, inherited, inheritedFrom, help, onChange }: DurationFieldProps) {
+export function DurationField({ id, label, value, inherited, inheritedFrom, help, placeholder, onChange }: DurationFieldProps) {
     const initial = value === null || value === undefined ? null : splitDuration(value);
     const [unit, setUnit] = useState<DurationUnit>(initial ? initial.unit : 'minutes');
     const [amount, setAmount] = useState<number | undefined>(initial ? initial.amount : undefined);
@@ -87,7 +89,7 @@ export function DurationField({ id, label, value, inherited, inheritedFrom, help
                 roundTo={0}
                 value={amount}
                 error={zero}
-                {...{ placeholder: `${inheritedFrom} (${formatDuration(inherited)})` }}
+                {...{ placeholder: placeholder ?? `${inheritedFrom} (${formatDuration(inherited)})` }}
                 onChange={(_e: unknown, { value: next }: { value?: number }) => {
                     if (next === undefined || Number.isNaN(next)) {
                         setZero(false);

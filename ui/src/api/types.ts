@@ -59,7 +59,7 @@ export interface RunWhen {
 }
 
 export interface Action {
-    hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed';
+    hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed' | 'on_late';
     type: 'webhook' | 'email' | 'event' | 'start_job' | 'alert_action';
     [field: string]: unknown;
 }
@@ -143,6 +143,8 @@ export interface JobDefinition {
     edges?: Edge[];
     actions?: Action[];
     defaults?: Defaults;
+    /** Finish a scheduled or chained run by a time of day, or within a span of its start; omit when unset. */
+    deadline?: { finish_by?: string; within?: number };
     run_roles?: string[];
     /** Node positions on the canvas, by node key, and the groups (backdrops) drawn behind them.
      * Omit when unset; the server rejects null. A layout that holds groups may have no `nodes`. */
@@ -234,6 +236,8 @@ export interface RunSummary {
     gave_up: boolean;
     rerun_count: number;
     chain_depth: number;
+    deadline_at?: number | null;
+    late_at?: number | null;
     steps: Record<string, StepStatus>;
     /** SPL condition results (absent before any ran). */
     conditions?: Record<string, ConditionStatus>;

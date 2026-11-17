@@ -41,6 +41,7 @@ export const PORT_STYLE: Record<PortId, { glyph: string; label: string; colorTok
     always: { glyph: '∞', label: 'Finished either way', colorToken: 'contentColorMuted' },
     start: { glyph: '▶', label: 'Started', colorToken: 'contentColorMuted' },
     delayed: { glyph: '⏱', label: 'Delayed', colorToken: 'statusColorMedium' },
+    late: { glyph: '⌛', label: 'Late', colorToken: 'statusColorMedium' },
     if: { glyph: '◇', label: 'If…', colorToken: 'contentColorMuted' },
     then: { glyph: '→', label: 'Then', colorToken: 'contentColorMuted' },
 };

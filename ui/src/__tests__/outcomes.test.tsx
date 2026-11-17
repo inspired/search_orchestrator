@@ -1,4 +1,5 @@
 import type { JobDefinition } from '../api/types';
+import { initialState, reducer } from '../features/builder/reducer';
 import { buildGraph } from '../features/builder/nodeModel';
 import { linkLabel, lineMenuOutcomes, usedOutcomes, whenOptions } from '../features/builder/outcomes';
 
@@ -40,7 +41,7 @@ describe('whenOptions', () => {
         expect(toAction.find((x) => x.outcome === 'start')!.note).toBeUndefined();
     });
     it('has no if for the whole job', () => {
-        expect(whenOptions(job, 'job').map((x) => x.outcome)).toEqual(['success', 'failure', 'always', 'start', 'delayed']);
+        expect(whenOptions(job, 'job').map((x) => x.outcome)).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'late']);
     });
     it('is empty for nodes without outcomes', () => {
         expect(whenOptions(job, 'action:job:0')).toEqual([]);
@@ -88,5 +89,17 @@ describe('lineMenuOutcomes', () => {
     });
     it('is empty for trigger lines', () => {
         expect(lineMenuOutcomes(job, link('trigger:0', 'step:a'))).toEqual([]);
+    });
+});
+
+describe('the late outcome', () => {
+    it('is offered on the whole job only, as actions only', () => {
+        expect(whenOptions(job, 'job')).toContainEqual(expect.objectContaining({ outcome: 'late', label: 'Is late', note: 'actions only' }));
+        expect(whenOptions(job, 'step:a').map((o) => o.outcome)).not.toContain('late');
+    });
+
+    it('connecting it to a new email makes a job action on_late', () => {
+        const s = reducer(initialState(job), { type: 'addNode', kind: 'email', from: { key: 'job', port: 'late' } });
+        expect(s.job.actions).toContainEqual({ hook: 'on_late', type: 'email', to: '' });
     });
 });

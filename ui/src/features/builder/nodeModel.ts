@@ -22,7 +22,7 @@ export type NodeKind =
     | 'alert_action'
     | 'start_job'
     | 'job';
-export type PortId = 'success' | 'failure' | 'always' | 'start' | 'delayed' | 'if' | 'then';
+export type PortId = 'success' | 'failure' | 'always' | 'start' | 'delayed' | 'if' | 'then' | 'late';
 export type ActionScope = 'job' | string; // 'job' or a step id
 
 export const JOB_KEY = 'job';
@@ -64,6 +64,7 @@ export const HOOK_FOR_PORT: Record<PortId, Action['hook'] | null> = {
     always: 'on_complete',
     start: 'on_start',
     delayed: 'on_delayed',
+    late: 'on_late',
     if: null,
     then: null,
 };
@@ -74,6 +75,7 @@ export const EDGE_CONDITION_FOR_PORT: Record<PortId, Edge['condition'] | null> =
     always: 'always',
     start: null,
     delayed: null,
+    late: null,
     if: 'expression',
     then: null,
 };
@@ -88,6 +90,8 @@ export function portForHook(hook: Action['hook']): PortId {
             return 'start';
         case 'on_delayed':
             return 'delayed';
+        case 'on_late':
+            return 'late';
         default:
             return 'success';
     }
@@ -138,7 +142,7 @@ const STEP_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_i
 
 export function outputPorts(kind: NodeKind): PortId[] {
     if (kind === 'job') {
-        return ['success', 'failure', 'always', 'start', 'delayed'];
+        return ['success', 'failure', 'always', 'start', 'delayed', 'late'];
     }
     if (kind === 'condition') {
         return ['then'];

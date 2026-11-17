@@ -532,8 +532,13 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const key = action.type === 'updateGroup' && ['title', 'w', 'h'].includes(field) ? fieldKey('group', action.id, field) : undefined;
             return next ? edits(state, next, key) : state;
         }
-        case 'setJobField':
-            return edits(state, { ...job, [action.field]: action.value } as JobDefinition, fieldKey('job', action.field));
+        case 'setJobField': {
+            const next = { ...job, [action.field]: action.value } as JobDefinition;
+            if (action.value === undefined) {
+                delete next[action.field]; // an unset field is absent, not an undefined key
+            }
+            return edits(state, next, fieldKey('job', action.field));
+        }
         case 'undo': {
             const prev = state.past[state.past.length - 1];
             if (!prev) {

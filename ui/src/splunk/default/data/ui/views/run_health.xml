@@ -140,6 +140,21 @@
         "query": "`orchestrator_internal`\n| eval script=case(component=\"ExecProcessor\", \"engine\", component=\"PersistentScript\", \"REST handler\", component=\"sendmodalert\", \"alert action\", component=\"ChunkedExternProcessor\", \"search command\", true(), component)\n| rex field=_raw \"(?:message from \\\"[^\\\"]+\\\"|From \\{[^}]*\\}:|STDERR -|ChunkedExternProcessor \\[[^\\]]*\\] -)\\s*(?<message>.*)$\"\n| eval message=coalesce(message, _raw)\n| rex field=message \"^(?:orchestrator_rest\\w*:\\s*)?(?<script_level>DEBUG|INFO|WARN|WARNING|ERROR|CRITICAL|FATAL)\\b\"\n| eval level=upper(coalesce(script_level, log_level)), level=case(in(level, \"WARN\", \"WARNING\"), \"warning\", in(level, \"ERROR\", \"CRITICAL\", \"FATAL\"), \"error\", true(), lower(level))\n| rex field=message \"^(?:orchestrator_rest\\w*:\\s*)?(?:(?:ERROR|CRITICAL)\\s+)?(?<exception>[A-Za-z_][\\w.]*(?:Error|Exception|Exit|Interrupt))(?::\\s*(?<detail>.*))?$\"\n| eval is_traceback=if(like(message, \"%Traceback (most recent call last)%\"), 1, 0)\n| where is_traceback=1 OR isnotnull(exception)\n| stats sum(is_traceback) as tracebacks, count(exception) as exceptions, latest(exception) as exception, latest(detail) as detail, max(_time) as last_seen by script\n| eval last_seen=strftime(last_seen, \"%Y-%m-%d %H:%M:%S\"), detail=substr(detail, 1, 300)\n| sort - tracebacks\n| table script, tracebacks, exceptions, exception, detail, last_seen"
       }
     },
+    "ds_late": {
+          "type": "ds.search",
+          "name": "Late runs",
+          "options": {
+                "query": "`orchestrator_index` job_id=$job|s$ (type=run_late OR type=run_created OR type=run_state)\n| eval scheduled=if(type=\"run_created\", scheduled_time, null()), deadline=if(type=\"run_late\", deadline_at, null()), late_time=if(type=\"run_late\", _time, null()), state_to=if(type=\"run_state\", 'to', null()), ended=if(type=\"run_state\" AND in('to', \"succeeded\", \"failed\", \"cancelled\"), _time, null())\n| stats max(scheduled) as scheduled, max(deadline) as deadline, min(late_time) as late_time, max(ended) as ended, latest(state_to) as state by run_id, job_id\n| where isnotnull(deadline)\n| eval state=if(in(state, \"succeeded\", \"failed\", \"blocked\", \"cancelled\"), state, \"in progress\"), late_by=tostring(round(coalesce(ended, late_time) - deadline), \"duration\"), _time=scheduled\n| convert ctime(deadline) timeformat=\"%Y-%m-%d %H:%M\"\n| sort - _time\n| fields _time, job_id, run_id, deadline, late_by, state"
+          }
+    },
+    "ds_late_kpi": {
+          "type": "ds.chain",
+          "name": "Late run count",
+          "options": {
+                "extend": "ds_late",
+                "query": "| stats count as late_runs\n| fields late_runs"
+          }
+    },
     "ds_engine_last": {
       "type": "ds.search",
       "name": "Last engine activity",
@@ -457,6 +472,41 @@
         "showInternalFields": false,
         "drilldown": "all"
       },
+      "eventHandlers": [
+        {
+          "type": "drilldown.customUrl",
+          "options": {
+            "url": "/app/search_orchestrator/run?run_id=$row.run_id.value|u$",
+            "newTab": false
+          }
+        }
+      ]
+    },
+    "viz_kpi_late": {
+      "type": "splunk.singlevalue",
+      "title": "Late runs",
+      "dataSources": {
+        "primary": "ds_late_kpi"
+      },
+      "options": {
+        "majorValue": "> primary | seriesByName('late_runs') | lastPoint()",
+        "underLabel": "runs missed their deadline",
+        "trendDisplay": "off",
+        "sparklineDisplay": "off"
+      }
+    },
+    "viz_late_runs": {
+      "type": "splunk.table",
+      "title": "Late runs",
+      "dataSources": {
+        "primary": "ds_late"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false,
+        "drilldown": "all"
+      },
+      "description": "Runs that missed their deadline: scheduled time, deadline, how late and state",
       "eventHandlers": [
         {
           "type": "drilldown.customUrl",
@@ -803,6 +853,26 @@
               "y": 2465,
               "w": 1400,
               "h": 300
+            }
+          },
+          {
+            "item": "viz_kpi_late",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 2785,
+              "w": 330,
+              "h": 170
+            }
+          },
+          {
+            "item": "viz_late_runs",
+            "type": "block",
+            "position": {
+              "x": 370,
+              "y": 2785,
+              "w": 1050,
+              "h": 320
             }
           }
         ]

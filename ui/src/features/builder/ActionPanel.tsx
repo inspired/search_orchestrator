@@ -30,7 +30,7 @@ export interface ActionPanelProps {
     onRequestRemove: (key: string) => void;
 }
 
-const WHEN_PORTS: PortId[] = ['success', 'failure', 'always', 'start', 'delayed'];
+const WHEN_PORTS: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late'];
 const encode = (scope: ActionScope, hook: Action['hook']) => `${scope}:${hook}`;
 const decode = (value: string): { scope: ActionScope; hook: Action['hook'] } => {
     const at = value.lastIndexOf(':');
@@ -80,7 +80,7 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
             <ControlGroup label="When" labelFor="action-when" labelPosition="top">
                 <Select inputId="action-when" value={current} onChange={(_e: unknown, { value }: { value: unknown }) => onWhen(String(value))}>
                     {sources.map((src) =>
-                        WHEN_PORTS.map((port) => {
+                        WHEN_PORTS.filter((port) => port !== 'late' || src.scope === 'job').map((port) => {
                             const hook = HOOK_FOR_PORT[port] as Action['hook'];
                             return <Select.Option key={encode(src.scope, hook)} label={`${src.label} · ${PORT_STYLE[port].label}`} value={encode(src.scope, hook)} />;
                         })

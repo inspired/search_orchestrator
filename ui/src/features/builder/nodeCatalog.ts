@@ -57,6 +57,7 @@ export function targetKinds(port: PortId | null, fromKind: NodeKind | null): Nod
             return [...steps, ...actions];
         case 'start':
         case 'delayed':
+        case 'late':
             return actions;
         default:
             return steps;

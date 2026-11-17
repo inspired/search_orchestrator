@@ -65,7 +65,7 @@ export default function Legend() {
                             {PORT_STYLE[o].glyph}
                         </span>
                         <span>{OUTCOME_LABEL[o]}</span>
-                        {(o === 'start' || o === 'delayed') && <span style={{ color: theme.contentColorMuted }}>actions only</span>}
+                        {(o === 'start' || o === 'delayed' || o === 'late') && <span style={{ color: theme.contentColorMuted }}>actions only</span>}
                     </li>
                 ))}
             </ul>

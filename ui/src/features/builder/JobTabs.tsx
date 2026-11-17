@@ -13,6 +13,7 @@ import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
 import type { Issue, Defaults, JobDefinition } from '../../api/types';
+import DeadlineFields from './DeadlineFields';
 import AccessTab from './AccessTab';
 import ParamsTab from './ParamsTab';
 import HistoryTab from './HistoryTab';
@@ -103,6 +104,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
                     <Select.Option label="Skip missed times" value="none" />
                 </Select>
             </ControlGroup>
+            <DeadlineFields job={job} dispatch={dispatch} />
             <Heading level={3}>Step defaults</Heading>
             <p>Steps that leave these empty use them.</p>
             <DurationField
