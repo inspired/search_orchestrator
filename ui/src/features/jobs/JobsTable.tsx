@@ -1,5 +1,5 @@
 /* The Jobs table: name, owner, next run, last run outcome, enabled switch, Run now and
- * Delete (only for users who may edit the job). */
+ * Backfill… (for users who may run the job) and Delete (only for users who may edit it). */
 import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -21,6 +21,8 @@ export interface JobsTableProps {
     loadFailed?: boolean;
     me: Me | null | undefined;
     onRunNow: (job: Job) => void;
+    /** Opens the Backfill dialog; the button shows only when this is given. */
+    onBackfill?: (job: Job) => void;
     onToggleEnabled: (job: Job, enabled: boolean) => void;
     /** Shown only for jobs the user may edit. The event's target is the button, for focus. */
     onDelete?: (job: Job, opener: HTMLElement) => void;
@@ -41,7 +43,7 @@ function nextRunText(job: Job): string {
     return job.next_run_beyond ? '\u2014' : 'Not scheduled';
 }
 
-export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onToggleEnabled, onDelete, busy = {}, onBrowseExamples }: JobsTableProps) {
+export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples }: JobsTableProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     if (!jobs.length) {
@@ -133,6 +135,15 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onTo
                                                     aria-label={`Run now: ${job.name}`}
                                                     disabled={!job.enabled}
                                                     onClick={() => onRunNow(job)}
+                                                />
+                                            )}
+                                            {canRun && onBackfill && (
+                                                <Button
+                                                    appearance="secondary"
+                                                    label="Backfill…"
+                                                    aria-label={`Backfill ${job.name}`}
+                                                    disabled={!job.enabled}
+                                                    onClick={() => onBackfill(job)}
                                                 />
                                             )}
                                             {canEdit && onDelete && (

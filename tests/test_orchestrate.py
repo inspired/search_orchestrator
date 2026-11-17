@@ -311,3 +311,64 @@ def test_error_text_with_braces_survives_splunklib_format():
     raw = 'HTTP 503: {"messages": [{"type": "ERROR", "text": "x"}]}'
     # splunklib's write_message calls message_text.format(); braces must come back literal.
     assert orchestrate._literal(raw).format() == raw
+
+
+class RecordingGateway:
+    """Records each loopback call and answers from ``replies`` (path -> (status, payload))."""
+
+    def __init__(self, replies=None):
+        self.calls, self.replies = [], replies or {}
+
+    def orchestrator_api(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        return self.replies.get(path, (201, {"backfill": {
+            "id": "bf0123456789ab", "count": 30, "slots": [1700000000, 1702505600]}}))
+
+
+def test_backfill_posts_the_job_schedule_by_default():
+    gw = RecordingGateway()
+    rows = orchestrate.execute(["backfill", "job=daily", "from=-30d@d", "to=@d"], gw)
+    assert gw.calls == [("POST", "jobs/daily/backfills",
+                         {"from": "-30d@d", "to": "@d", "source": "schedule"})]
+    assert rows == [{"ok": 1, "backfill_id": "bf0123456789ab", "runs": 30,
+                     "first": 1700000000, "last": 1702505600}]
+
+
+def test_backfill_step_concurrency_and_params():
+    gw = RecordingGateway()
+    orchestrate.execute(["backfill", "job=daily", "from=-30d@d", "to=@d", "step=1d",
+                         "concurrency=2", "param.region=eu"], gw)
+    assert gw.calls[0][2] == {"from": "-30d@d", "to": "@d", "source": "step", "step": 86400,
+                              "concurrency": 2, "params": {"region": "eu"}}
+    for text, seconds in (("30m", 1800), ("1h", 3600), ("3600", 3600)):
+        gw = RecordingGateway()
+        orchestrate.execute(["backfill", "job=daily", "from=1", "to=2", "step=" + text], gw)
+        assert gw.calls[0][2]["step"] == seconds
+
+
+def test_backfill_refuses_a_bad_step_and_needs_its_range():
+    with pytest.raises(orchestrate.CommandError, match="^step must be like 30m, 1h or 1d$"):
+        orchestrate.execute(["backfill", "job=daily", "from=-30d@d", "to=@d", "step=1w"],
+                            RecordingGateway())
+    with pytest.raises(orchestrate.CommandError, match="from, to is required"):
+        orchestrate.execute(["backfill", "job=daily"], RecordingGateway())
+
+
+def test_status_of_a_backfill_lists_its_runs():
+    runs = [{"id": "daily:backfill-bf0123456789ab:100", "state": "succeeded",
+             "scheduled_time": 100},
+            {"id": "daily:backfill-bf0123456789ab:200", "state": "queued", "scheduled_time": 200}]
+    gw = RecordingGateway({"backfills/bf0123456789ab": (200, {
+        "backfill": {"id": "bf0123456789ab"}, "runs": runs})})
+    rows = orchestrate.execute(["status", "backfill=bf0123456789ab"], gw)
+    assert gw.calls == [("GET", "backfills/bf0123456789ab", None)]
+    assert rows == [{"run_id": r["id"], "state": r["state"],
+                     "scheduled_time": r["scheduled_time"]} for r in runs]
+
+
+def test_backfill_end_to_end_through_the_rest_handler(w):
+    saved(w)
+    rows = run_cmd(w, "backfill job=daily from=1700000000 to=1700003600 step=10m")
+    assert rows[0]["ok"] == 1 and rows[0]["runs"] == 6
+    assert rows[0]["first"] == 1700000000 and rows[0]["last"] == 1700003000
+    assert run_cmd(w, "status backfill=%s" % rows[0]["backfill_id"]) == []

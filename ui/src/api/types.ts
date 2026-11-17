@@ -217,7 +217,10 @@ export interface RunSummary {
     id: string;
     job_id: string;
     owner: string;
+    /** How the run started, such as manual, cron, completion or backfill. */
     trigger: string;
+    /** The backfill that created the run (trigger "backfill"). */
+    backfill?: string | null;
     upstream: string | null;
     scheduled_time: number;
     params: Record<string, string>;

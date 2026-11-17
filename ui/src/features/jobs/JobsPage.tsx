@@ -1,10 +1,11 @@
-/* Jobs: every job the user may see, with Run now, enable/disable, Delete, Create job, Import job
- * and Browse examples. */
+/* Jobs: every job the user may see, with Run now, Backfill…, enable/disable, Delete, Create job,
+ * Import job and Browse examples. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import * as client from '../../api/client';
+import BackfillDialog from './BackfillDialog';
 import type { Job, Me } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import DeleteJobDialog from './DeleteJobDialog';
@@ -38,6 +39,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
     const [fast, setFast] = useState(true);
     const jobs = usePoll(api.listJobs, fast ? 5000 : 30000, true);
     const [runNow, setRunNow] = useState<Job | null>(null);
+    const [backfilling, setBackfilling] = useState<Job | null>(null);
     const [importing, setImporting] = useState(false);
     const importOpener = useRef<HTMLElement | null>(null);
     const [browsing, setBrowsing] = useState(false);
@@ -117,6 +119,10 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     me={me}
                     busy={busy}
                     onRunNow={(job) => setRunNow(job)}
+                    onBackfill={(job) => {
+                        returnFocus.current = document.activeElement as HTMLElement | null;
+                        setBackfilling(job);
+                    }}
                     onToggleEnabled={onToggle}
                     onBrowseExamples={browseExamples}
                     onDelete={(job, opener) => {
@@ -144,6 +150,17 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     onClose={() => setRunNow(null)}
                     onStarted={(runId) => {
                         window.location.href = pageHref('run', { run_id: runId });
+                    }}
+                />
+            )}
+            {backfilling && (
+                <BackfillDialog
+                    job={backfilling}
+                    open
+                    returnFocus={returnFocus}
+                    onClose={() => setBackfilling(null)}
+                    onStarted={(b) => {
+                        window.location.href = pageHref('runs', { job_id: b.job_id });
                     }}
                 />
             )}

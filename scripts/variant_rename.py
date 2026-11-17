@@ -109,7 +109,7 @@ def rules(s, label):
         # Search command: stanzas, searchbnf, and SPL that emits or matches it.
         ("default/commands.conf", r"^\[orchestrate\]$", "[%s]" % cmd, 1),
         ("default/commands.conf", r"^filename = orchestrate\.py$", "filename = %s.py" % cmd, 1),
-        ("default/searchbnf.conf", r"\borchestrate\b", cmd, 11),
+        ("default/searchbnf.conf", r"\borchestrate\b", cmd, 13),
         ("metadata/default.meta", r"^\[commands/orchestrate\]$", "[commands/%s]" % cmd, 1),
         ("metadata/default.meta", r"^\[searchbnf/orchestrate-(command|action|option)\]$",
          r"[searchbnf/%s-\1]" % cmd, 3),
@@ -119,7 +119,7 @@ def rules(s, label):
          lambda m: '_ORCHESTRATE_RE = re.compile(r"\\|\\s*orchestrate(%s)?\\b", re.IGNORECASE)' % cmd[len("orchestrate"):], 1),
         ("bin/so/model.py", r"\| orchestrate\b", "| " + cmd, 2),  # steps and conditions
         ("bin/so/selftest.py", r"\| orchestrate\b", "| " + cmd, 3),
-        ("bin/orchestrate.py", r"\| orchestrate\b", "| " + cmd, 9),
+        ("bin/orchestrate.py", r"\| orchestrate\b", "| " + cmd, 11),
         ("default/data/ui/alerts/start_orchestrator_job.html", r'search="\| orchestrate jobs"',
          'search="| %s jobs"' % cmd, 1),
     ]

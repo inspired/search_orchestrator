@@ -34,6 +34,7 @@ import { previewRefusal } from './previewLogic';
 import type { PreviewContext } from './previewLogic';
 import useAutoValidate from './useAutoValidate';
 import useBuilderData from './useBuilderData';
+import BuilderToolbarExtras from './BuilderToolbarExtras';
 import useFillHeight from './useFillHeight';
 import useLeaveWarning from './useLeaveWarning';
 import useClipboard from './useClipboard';
@@ -503,6 +504,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         <>
             <Button appearance="subtle" label="Undo" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
             <Button appearance="subtle" label="Redo" disabled={!state.future.length} onClick={() => dispatch({ type: 'redo' })} />
+            <BuilderToolbarExtras jobId={jobId} job={job} me={me} />
             {auto.checking && <Typography as="span" variant="body">Checking…</Typography>}
             <Button appearance="primary" label="Save" disabled={busy || loading || !meta.canEdit} onClick={onSave} />
         </>

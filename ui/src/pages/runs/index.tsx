@@ -1,4 +1,5 @@
-/* Runs: every run the user may see, newest first, filterable by job and state. */
+/* Runs: every run the user may see, newest first, filterable by job and state. Filtered by a
+ * job, each of its running backfills shows as a line above the table. */
 import React, { useEffect, useRef, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
@@ -6,6 +7,7 @@ import { listJobs, listRuns } from '../../api/client';
 import { RUN_STATES } from '../../api/types';
 import type { RunState, RunSummary } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
+import BackfillLines from '../../features/runs/BackfillLines';
 import RunsTable, { RunsTableFilters } from '../../features/runs/RunsTable';
 import usePoll from '../../hooks/usePoll';
 
@@ -98,6 +100,7 @@ function RunsPage() {
                     {`The runs could not be loaded: ${runs.error.message}`}
                 </Message>
             )}
+            {filters.job_id && <BackfillLines key={filters.job_id} jobId={filters.job_id} />}
             {runs.loading && !runs.data ? (
                 <WaitSpinner size="medium" />
             ) : (
