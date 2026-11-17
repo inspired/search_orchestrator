@@ -7,7 +7,8 @@ manual, REST, alert-action, backfill and catch-up runs are often scheduled in th
 past and would be late at once.
 
 ``deadline_at`` is computed once, when the run is created, and stored on the run;
-a re-run keeps it. ``within`` is the scheduled time plus that many seconds.
+a re-run keeps it. A run that ended before its deadline met it; a re-run of it
+is never late (``keep_met``). ``within`` is the scheduled time plus that many seconds.
 ``finish_by`` is the first ``HH:MM`` in the job's time zone at or after the
 scheduled time; a time that does not exist on a DST day is the first instant
 after the gap. With both, the earlier wins. The deadline is wall-clock time, so
@@ -82,8 +83,15 @@ def deadline_at(definition, scheduled_time, trigger, catchup):
     return min(candidates) if candidates else None
 
 
+def keep_met(old, new):
+    """Mark the re-run ``new`` as having met its deadline when ``old`` ended before it."""
+    at, ended = old.get("deadline_at"), old.get("ended_at")
+    if at is not None and ended is not None and int(ended) < int(at):
+        new["deadline_met"] = True
+
+
 def is_late(run, now):
     """True when an unfinished run has passed its deadline and was not yet marked late."""
     at = run.get("deadline_at")
-    return (run.get("state") in LATE_STATES and at is not None
+    return (run.get("state") in LATE_STATES and at is not None and not run.get("deadline_met")
             and run.get("late_at") is None and int(now) >= int(at))

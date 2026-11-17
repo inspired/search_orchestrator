@@ -83,6 +83,7 @@ import time
 
 from . import expr as exprmod
 from . import authz, hidden, model, scheduler, tokens
+from . import deadline as deadlinemod
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
 from .gateway import DispatchError, GatewayError, KvError
@@ -301,6 +302,7 @@ class Engine:
         held = [r for r in self.store.list_runs({"held": True}) if r.get("state") == "failed"]
         self._hold_alerts(held, jobs, now)
         self._promote(runs, held, jobs, now)
+        self._lateness(runs, now)
         self._keep_lease()
         self._advance_all(runs, jobs, settings, now)
         self._keep_lease()
@@ -474,6 +476,7 @@ class Engine:
                               if st.get("sid") and st.get("state") != "waiting"})
         if definition is not None:
             new["owner"] = job.get("owner")
+        deadlinemod.keep_met(run, new)
         if new["state"] == "queued":
             new["queued_at"] = now
         old_steps = run.get("steps") or {}
@@ -534,6 +537,21 @@ class Engine:
                                 "delay_base": int(run["scheduled_time"]) if on_time else now,
                                 "giveup_base": now, "paused_seconds": 0, "paused_at": None},
                           pending, now)
+            self._save(run, pending)
+
+    def _lateness(self, runs, now):
+        """Mark each unfinished run past its deadline late once and fire ``on_late``.
+        The hook is submitted before ``late_at`` is saved: a replayed tick finds the row."""
+        for run in runs:
+            if not deadlinemod.is_late(run, now):
+                continue
+            pending = _Pending()
+            if self.actions.submit(run, "on_late", "job", None, occurrence=0):
+                pending.events.append(self._event(run, "action_submitted", now, hook="on_late",
+                                                  scope="job", step_id=None, occurrence=0))
+            run["late_at"] = now
+            pending.events.append(self._event(run, "run_late", now, state=run.get("state"),
+                                              deadline_at=run.get("deadline_at")))
             self._save(run, pending)
 
     # -- runs -----------------------------------------------------------------
