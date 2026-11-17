@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.14.0 (2026-11-17)
+
+Job source: copy, paste and keep job definitions as text.
+
+- New **Source** tab in the builder shows the job as JSON. **Copy** and **Download** it; edit it and choose **Apply changes** to replace the job as one undo step, or **Discard changes**. Syntax errors show the line and column. The job keeps its own id.
+- New **Import job** button on the Jobs page: paste JSON or choose a .json file to open it in the builder as a new, unsaved job.
+- Viewers see the source read only, with Copy and Download.
+
 ## 1.13.1 (2026-11-17)
 
 Quieter canvas: fewer names on the lines.

@@ -1,6 +1,6 @@
 # Search Orchestrator
 
-Version 1.13.1.
+Version 1.14.0.
 
 Makes dependent Splunk searches run as one unit. A job is a graph of search steps; a step starts only when the steps it depends on have finished. Jobs have schedules, delay alerts, deadlines, retries, ordered queuing, re-run from a step, and actions such as webhooks and email. All logic and state live inside Splunk.
 
