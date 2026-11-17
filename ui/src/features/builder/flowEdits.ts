@@ -1,10 +1,11 @@
-/* Pure edits of the job for the node editor: saved positions (job.layout.nodes) and the
- * edge changes behind changing an outcome, splicing a node into a line and placing a node. */
-import type { Edge, JobDefinition } from '../../api/types';
+/* Pure edits of the job for the node editor: saved positions (job.layout.nodes), removing
+ * nodes, tidying them up, and the edge changes behind changing an outcome, splicing a node into
+ * a line and placing a node. */
+import type { Action, Edge, JobDefinition } from '../../api/types';
 import { layoutFlow, freeSpotRightOf } from './flowLayout';
 import type { Pos } from './graphLogic';
 import { EDGE_CONDITION_FOR_PORT, actionKey, buildGraph, canConnect, condKey, outputPorts, stepKey, triggerKey } from './nodeModel';
-import type { NodeKind } from './nodeModel';
+import type { ActionScope, FlowGraph, NodeKind } from './nodeModel';
 import type { Outcome } from './outcomes';
 import { canSplice, splicedEdges } from './splice';
 
@@ -176,4 +177,109 @@ export function canInsert(job: JobDefinition, link: string, kind: NodeKind): boo
 /** `added` (`job` with the new step `node` of `kind`) with that step on `link`; null when it cannot be. */
 export function insertJob(job: JobDefinition, added: JobDefinition, kind: NodeKind, node: string, link: string, at?: Pos, shown?: Record<string, Pos>): JobDefinition | null {
     return canInsert(job, link, kind) ? spliceJob(added, node, link, at, shown) : null;
+}
+
+export const actionsOf = (job: JobDefinition, scope: ActionScope): Action[] =>
+    (scope === 'job' ? job.actions : (job.steps || []).find((s) => s.id === scope)?.actions) || [];
+
+export function setActions(job: JobDefinition, scope: ActionScope, actions: Action[]): JobDefinition {
+    if (scope === 'job') {
+        return { ...job, actions };
+    }
+    return { ...job, steps: (job.steps || []).map((s) => (s.id === scope ? { ...s, actions } : s)) };
+}
+
+/** The job without step `id`, its lines and their saved positions. */
+export function removeStepJob(job: JobDefinition, id: string): JobDefinition {
+    const steps = (job.steps || []).filter((s) => s.id !== id);
+    const edges = (job.edges || []).filter((e) => e.from !== id && e.to !== id);
+    return dropStepKeys({ ...job, steps, edges }, id);
+}
+
+/** The job without the line from `from` to `to` (and its condition's position). */
+export function disconnectJob(job: JobDefinition, from: string, to: string): JobDefinition {
+    const edgeList = job.edges || [];
+    const gone = edgeList.find((e) => e.from === from && e.to === to);
+    const next = { ...job, edges: edgeList.filter((e) => e !== gone) };
+    return gone?.condition === 'expression' ? dropCondKey(next, from, to) : next;
+}
+
+/** The job without action `index` of `scope`; null when there is none. */
+export function removeActionJob(job: JobDefinition, scope: ActionScope, index: number): JobDefinition | null {
+    const list = actionsOf(job, scope);
+    if (!list[index]) {
+        return null;
+    }
+    return dropActionKey(setActions(job, scope, list.filter((_, i) => i !== index)), scope, index);
+}
+
+export function removeTriggerJob(job: JobDefinition, index: number): JobDefinition | null {
+    const list = job.triggers || [];
+    if (!list[index]) {
+        return null;
+    }
+    return dropTriggerKey({ ...job, triggers: list.filter((_, i) => i !== index) }, index);
+}
+
+/** The job without the nodes `keys`; null when none of them can be removed (`job` never can).
+ * Actions go first, highest index first in each list, then conditions, then triggers (highest
+ * first), then steps, so every key still names the node it named. */
+export function removeNodesJob(job: JobDefinition, keys: string[]): JobDefinition | null {
+    const actions = keys.map(parseAction).filter((a): a is { scope: string; index: number } => a !== null);
+    const conds = keys.map(parseCond).filter((c): c is { from: string; to: string } => c !== null);
+    const triggers = keys.map((k) => /^trigger:(\d+)$/.exec(k)).filter((m): m is RegExpExecArray => m !== null).map((m) => Number(m[1]));
+    const steps = keys.filter((k) => k.startsWith('step:')).map((k) => k.slice('step:'.length));
+    let next = job;
+    let changed = false;
+    const apply = (out: JobDefinition | null) => {
+        if (out) {
+            next = out;
+            changed = true;
+        }
+    };
+    actions.sort((a, b) => b.index - a.index).forEach((a) => apply(removeActionJob(next, a.scope, a.index)));
+    conds.forEach((c) => apply((next.edges || []).some((e) => e.from === c.from && e.to === c.to) ? disconnectJob(next, c.from, c.to) : null));
+    triggers.sort((a, b) => b - a).forEach((i) => apply(removeTriggerJob(next, i)));
+    steps.forEach((id) => apply((next.steps || []).some((s) => s.id === id) ? removeStepJob(next, id) : null));
+    return changed ? next : null;
+}
+
+/** Tidy up: without `keys`, forget every saved position (null when there are none). With
+ * `keys`, place only those nodes again, as automatic placement would lay them out among
+ * themselves, with the top-left corner of the group where it was; every other node is saved
+ * where it is shown. */
+export function tidyJob(job: JobDefinition, keys?: string[]): JobDefinition | null {
+    if (!keys) {
+        if (!job.layout) {
+            return null;
+        }
+        const next = { ...job };
+        delete next.layout;
+        return next;
+    }
+    const graph = buildGraph(job);
+    const mine = new Set(keys.filter((k) => graph.nodes.some((n) => n.key === k)));
+    if (!mine.size) {
+        return null;
+    }
+    const shown = layoutFlow(graph, job.layout?.nodes);
+    // Lines among the chosen nodes, and a step-to-step line through a condition left out.
+    const links = graph.links.filter((l) => mine.has(l.from) && mine.has(l.to));
+    (job.edges || []).forEach((e) => {
+        const [from, to] = [stepKey(e.from), stepKey(e.to)];
+        if (mine.has(from) && mine.has(to) && !links.some((l) => l.from === from && l.to === to)) {
+            links.push({ key: `${from}>${to}`, from, to, port: null, kind: 'edge', data: false });
+        }
+    });
+    const sub: FlowGraph = { nodes: graph.nodes.filter((n) => mine.has(n.key)), links };
+    const auto = layoutFlow(sub);
+    const ks = Array.from(mine);
+    const corner = (pos: Record<string, Pos>) => ({ x: Math.min(...ks.map((k) => pos[k].x)), y: Math.min(...ks.map((k) => pos[k].y)) });
+    const from = corner(auto);
+    const to = corner(shown);
+    const placed: Record<string, Pos> = {};
+    ks.forEach((k) => {
+        placed[k] = { x: auto[k].x - from.x + to.x, y: auto[k].y - from.y + to.y };
+    });
+    return withNodes(job, { ...shown, ...placed });
 }

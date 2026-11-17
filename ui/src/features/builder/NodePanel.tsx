@@ -1,6 +1,6 @@
 /* The Flow tab's side panel: the editor for whatever is selected on the canvas (a step, an
- * action, a trigger, a condition, a step-to-step line or the whole job), or a hint when nothing
- * is. Each editor is keyed by the selection so its drafts never carry over to another node. */
+ * action, a trigger, a condition, a step-to-step line, the whole job or several nodes), or a hint
+ * when nothing is. Each editor is keyed by the selection so its drafts never carry over to another node. */
 import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { AlertAction, Destination, Issue, Job, JobDefinition } from '../../api/types';
@@ -14,6 +14,7 @@ import JobNodePanel from './JobNodePanel';
 import { FlowGraph, JOB_KEY, stepKey } from './nodeModel';
 import type { BuilderAction } from './reducer';
 import type { NextSlots } from './ScheduleEditor';
+import SelectionPanel from './SelectionPanel';
 import StepPanel from './StepPanel';
 import { availableTokens } from './tokens';
 import TriggerPanel from './TriggerPanel';
@@ -34,6 +35,8 @@ export interface NodePanelProps {
     onSelect: (sel: FlowSelection) => void;
     /** The page confirms, then removes the node with this key. */
     onRequestRemove: (key: string) => void;
+    /** The same for several nodes at once. */
+    onRequestRemoveNodes?: (keys: string[]) => void;
     onOpenSettings: () => void;
     destinations: Destination[];
     alertActions: AlertAction[] | null;
@@ -67,6 +70,15 @@ export default function NodePanel(props: NodePanelProps) {
         />
     );
 
+    if (selection && selection.kind === 'nodes') {
+        return (
+            <SelectionPanel
+                keys={selection.keys}
+                onTidy={(keys) => dispatch({ type: 'tidyLayout', keys })}
+                onRequestRemove={(keys) => props.onRequestRemoveNodes && props.onRequestRemoveNodes(keys)}
+            />
+        );
+    }
     if (selection && selection.kind === 'link') {
         const link = graph.links.find((l) => l.key === selection.key);
         if (link && link.kind === 'edge') {

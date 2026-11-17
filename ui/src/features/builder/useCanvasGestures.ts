@@ -1,13 +1,16 @@
-/* Pointer gestures on the flow canvas: pan (drag the background), wheel zoom, node drag, and
- * line drag from the + handle or an outcome tab. A press that moves less than 4 px is a click:
- * on a node it selects, on the + it asks for a "when" (`onPlus`), on the background it clears
- * the selection. A line released on a node reports that node (never its own source), anywhere
- * else the canvas point; released on the source's own + or tabs, nothing. A node with no lines
- * dragged with its centre over a line the caller allows (`canSpliceNode`) marks that line
- * (`spliceLink`) and, dropped there, is reported with `onSplice` (and where it was dropped)
- * instead of `onMove`. Escape
- * cancels a drag. While a node or line is dragged near the canvas edge, a requestAnimationFrame
- * loop scrolls the view (`autoPanStep`) and keeps the dragged item under the pointer. */
+/* Pointer gestures on the flow canvas: pan (drag the background), wheel zoom, node drag, line
+ * drag from the + handle or an outcome tab, and a selection box (Shift+drag the background, which
+ * adds the nodes it touches to the selection). A press that moves less than 4 px is a click:
+ * on a node it selects (with Shift, adds it to or takes it out of the selection), on the + it
+ * asks for a "when" (`onPlus`), on the background it clears the selection. Dragging a node of a
+ * multi-selection moves them all, reported with one `onMove`, and never splices. A line
+ * released on a node reports that node (never its own source), anywhere else the canvas point;
+ * released on the source's own + or tabs, nothing. A node with no lines dragged with its centre
+ * over a line the caller allows (`canSpliceNode`) marks that line (`spliceLink`) and, dropped
+ * there, is reported with `onSplice` (and where it was dropped) instead of `onMove`. Escape
+ * cancels a drag. While a node, line or box is dragged near the canvas edge, a
+ * requestAnimationFrame loop scrolls the view (`autoPanStep`) and keeps the dragged item (or the
+ * box's corner) under the pointer. */
 import React, { useEffect, useRef, useState } from 'react';
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, PortId } from './nodeModel';
@@ -16,6 +19,7 @@ import { clampZoom, linkAt, nodeAt, snap } from './flowCanvasGeometry';
 import { autoPanStep } from './autoPan';
 import { usedOutcomes } from './outcomes';
 import { tabBox } from './PlusHandle';
+import { FlowSelection, keysInBox, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 
 export type ScreenPoint = { left: number; top: number };
 
@@ -24,7 +28,10 @@ export const CLICK_SLOP = 4;
 
 export type Gesture =
     | { kind: 'pan'; startX: number; startY: number; origin: Pos; moved: boolean }
-    | { kind: 'node'; key: string; startX: number; startY: number; moved: boolean }
+    /** `group`: every node that moves with it (a multi-selection it belongs to). */
+    | { kind: 'node'; key: string; startX: number; startY: number; moved: boolean; shift: boolean; group?: string[] }
+    /** A selection box from canvas point `start` to the pointer. */
+    | { kind: 'box'; start: Pos; startX: number; startY: number; moved: boolean }
     | { kind: 'line'; from: string; outcome?: PortId; startX: number; startY: number; moved: boolean };
 
 export interface GestureOptions {
@@ -32,7 +39,10 @@ export interface GestureOptions {
     graph: FlowGraph;
     positions: Positions;
     canMove: boolean;
-    onSelect: (sel: { kind: 'node'; key: string } | null) => void;
+    /** Shift+click and the selection box add to `selected`. */
+    canSelectMany: boolean;
+    selected: FlowSelection;
+    onSelect: (sel: FlowSelection) => void;
     onMove?: (positions: Record<string, Pos>) => void;
     onPlus?: (from: string, screen: ScreenPoint) => void;
     onConnect?: (from: string, outcome: PortId, to: string) => void;
@@ -48,7 +58,8 @@ const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)
 const HANDLE_SLOP = 4;
 
 export default function useCanvasGestures(opts: GestureOptions) {
-    const { svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode } = opts;
+    const { svgRef, graph, positions, canMove, canSelectMany, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode } =
+        opts;
     const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -107,10 +118,18 @@ export default function useCanvasGestures(opts: GestureOptions) {
         return () => window.removeEventListener('keydown', onKey, { capture: true });
     }, [dragging]);
 
-    const shown: Positions =
-        gesture && gesture.kind === 'node' && drag && positions[gesture.key]
-            ? { ...positions, [gesture.key]: { x: positions[gesture.key].x + drag.x, y: positions[gesture.key].y + drag.y } }
-            : positions;
+    const shown: Positions = (() => {
+        if (!gesture || gesture.kind !== 'node' || !drag) {
+            return positions;
+        }
+        const out = { ...positions };
+        (gesture.group || [gesture.key]).forEach((k) => {
+            if (positions[k]) {
+                out[k] = { x: positions[k].x + drag.x, y: positions[k].y + drag.y };
+            }
+        });
+        return out;
+    })();
 
     const toCanvas = (clientX: number, clientY: number): Pos => {
         const rect = svgRef.current ? svgRef.current.getBoundingClientRect() : { left: 0, top: 0 };
@@ -147,13 +166,19 @@ export default function useCanvasGestures(opts: GestureOptions) {
     const startPan = (ev: React.PointerEvent) => {
         capture(ev);
         panned.current = { x: 0, y: 0 };
+        if (ev.shiftKey && canSelectMany) {
+            setGesture({ kind: 'box', start: toCanvas(ev.clientX, ev.clientY), startX: ev.clientX, startY: ev.clientY, moved: false });
+            return;
+        }
         setGesture({ kind: 'pan', startX: ev.clientX, startY: ev.clientY, origin: view.current.pan, moved: false });
     };
 
     const startNode = (ev: React.PointerEvent, key: string) => {
         capture(ev);
         panned.current = { x: 0, y: 0 };
-        setGesture({ kind: 'node', key, startX: ev.clientX, startY: ev.clientY, moved: false });
+        const keys = selectedKeys(selected);
+        const group = keys.length > 1 && keys.includes(key) ? keys : undefined;
+        setGesture({ kind: 'node', key, startX: ev.clientX, startY: ev.clientY, moved: false, shift: ev.shiftKey && canSelectMany, group });
     };
 
     const startLine = (ev: React.PointerEvent, from: string, outcome?: PortId) => {
@@ -169,11 +194,13 @@ export default function useCanvasGestures(opts: GestureOptions) {
         return { x: (clientX - g.startX - panned.current.x) / z, y: (clientY - g.startY - panned.current.y) / z };
     };
 
-    /** The line a lineless node dragged by `offset` would be spliced into, if the caller allows. */
-    const spliceTarget = (key: string, offset: Pos): string | null => {
+    /** The line a lineless node dragged by `offset` would be spliced into, if the caller allows;
+     * never for a multi-selection. */
+    const spliceTarget = (g: Extract<Gesture, { kind: 'node' }>, offset: Pos): string | null => {
+        const { key } = g;
         const n = graph.nodes.find((x) => x.key === key);
         const p = positions[key];
-        if (!n || !p || !onSplice || !canSpliceNode || !canMove) {
+        if (!n || !p || !onSplice || !canSpliceNode || !canMove || g.group) {
             return null;
         }
         if (graph.links.some((l) => l.kind !== 'trigger' && (l.from === key || l.to === key))) {
@@ -190,10 +217,10 @@ export default function useCanvasGestures(opts: GestureOptions) {
             if (canMove) {
                 const offset = nodeOffset(g, clientX, clientY);
                 setDrag(offset);
-                const target = spliceTarget(g.key, offset);
+                const target = spliceTarget(g, offset);
                 setSpliceLink((cur) => (cur === target ? cur : target));
             }
-        } else if (g.kind === 'line') {
+        } else if (g.kind === 'line' || g.kind === 'box') {
             setCursor(toCanvas(clientX, clientY));
         }
     };
@@ -220,7 +247,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         }
     };
 
-    // Auto-pan: while a node or line drag is under way, every frame with the pointer near an edge
+    // Auto-pan: while a node, line or box drag is under way, every frame with the pointer near an edge
     // scrolls the view and moves the dragged item with it, so it stays under the pointer.
     const autoPanning = gesture !== null && gesture.kind !== 'pan' && gesture.moved;
     const followRef = useRef(follow);
@@ -302,13 +329,29 @@ export default function useCanvasGestures(opts: GestureOptions) {
             if (g.kind === 'node') {
                 const p = positions[g.key];
                 const offset = nodeOffset(g, ev.clientX, ev.clientY);
-                const into = moved ? spliceTarget(g.key, offset) : null;
+                const into = moved ? spliceTarget(g, offset) : null;
                 if (into && onSplice && p) {
                     onSplice(g.key, into, { x: snap(p.x + offset.x), y: snap(p.y + offset.y) });
                 } else if (moved && canMove && p && onMove) {
-                    onMove({ [g.key]: { x: snap(p.x + offset.x), y: snap(p.y + offset.y) } });
+                    // The dragged node snaps to the grid; the others move as far as it did.
+                    const dx = snap(p.x + offset.x) - p.x;
+                    const dy = snap(p.y + offset.y) - p.y;
+                    const out: Record<string, Pos> = {};
+                    (g.group || [g.key]).forEach((k) => {
+                        if (positions[k]) {
+                            out[k] = { x: positions[k].x + dx, y: positions[k].y + dy };
+                        }
+                    });
+                    onMove(out);
+                } else if (!moved && g.shift) {
+                    onSelect(toggleInSelection(selected, g.key));
                 } else if (!moved || !canMove) {
                     onSelect({ kind: 'node', key: g.key });
+                }
+            } else if (g.kind === 'box') {
+                if (moved) {
+                    const hits = keysInBox(graph, shown, g.start, toCanvas(ev.clientX, ev.clientY));
+                    onSelect(normaliseSelection([...selectedKeys(selected), ...hits]));
                 }
             } else if (g.kind === 'line') {
                 if (moved) {

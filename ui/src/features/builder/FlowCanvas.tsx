@@ -8,6 +8,8 @@
  * focused line, selects the line and asks for its menu (`onLineMenu`). A node with no lines
  * dropped on a line the caller allows is spliced in (`onSplice`). Gestures, including auto-pan
  * near the edge, live in useCanvasGestures.
+ * Shift+click, Shift+Space or a Shift+drag box on empty canvas select several nodes; Ctrl/Cmd+A
+ * selects all but the whole job; they move, nudge and are removed (`onRequestRemoveNodes`) together.
  * Keyboard: Tab through nodes, then lines; Enter selects, + or Shift+Enter opens the When list, arrows
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
@@ -21,7 +23,7 @@ import type { Issue } from '../../api/types';
 import { issuesByStep, Pos, Positions } from './graphLogic';
 import { NodeGroup, Theme } from './GraphView';
 import { FlowGraph, FlowLink, FlowNode, JOB_KEY, PortId } from './nodeModel';
-import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, handleOffset, hasHandle, nodeSize, tabOffset } from './nodeStyle';
+import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, hasHandle, nodeSize } from './nodeStyle';
 import { NodeShape } from './NodeShape';
 import PlusHandle from './PlusHandle';
 import Legend from './Legend';
@@ -30,10 +32,10 @@ import { flowLinkLabel, usedOutcomes } from './outcomes';
 import { bezierAt, clampZoom, frameView, linkEnds, linkPath } from './flowCanvasGeometry';
 import LineLabel, { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
+import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
+import { DraftLine, SelectionBox } from './DragFeedback';
 
-export type { ScreenPoint };
-
-export type FlowSelection = { kind: 'node'; key: string } | { kind: 'link'; key: string } | null;
+export type { FlowSelection, ScreenPoint };
 
 export interface FlowCanvasProps {
     graph: FlowGraph;
@@ -59,6 +61,8 @@ export interface FlowCanvasProps {
      * corner on screen, for placing the quick-add box (see `overlay`). */
     onDropOnCanvas?: (from: string, at: Pos, screen: ScreenPoint, outcome?: PortId) => void;
     onRequestRemove?: (key: string) => void;
+    /** Delete on a multi-selection: the caller confirms, then removes them all. */
+    onRequestRemoveNodes?: (keys: string[]) => void;
     /** Also adds an "Add node" button to the toolbar, which opens it at the view centre. */
     onQuickAdd?: (at: Pos, screen: ScreenPoint) => void;
     /** Adds a "Tidy up" button to the toolbar. */
@@ -121,6 +125,7 @@ export default function FlowCanvas({
     onDropOnNode,
     onDropOnCanvas,
     onRequestRemove,
+    onRequestRemoveNodes,
     onQuickAdd,
     onTidy,
     overlay,
@@ -139,7 +144,7 @@ export default function FlowCanvas({
 
     const canMove = !readOnly && !!onMove;
     const g = useCanvasGestures({
-        svgRef, graph, positions, canMove, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode,
+        svgRef, graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode,
     });
     const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
@@ -152,6 +157,8 @@ export default function FlowCanvas({
         return out;
     }, [graph]);
     const selectedNode = selected && selected.kind === 'node' ? selected.key : null;
+    const many = selected && selected.kind === 'nodes' ? selected.keys : null;
+    const chosen = new Set(selectedKeys(selected));
 
     // Keep the selected node in view, for example a node just added outside the visible area.
     useEffect(() => {
@@ -233,6 +240,11 @@ export default function FlowCanvas({
             }
             return;
         }
+        if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'a' || ev.key === 'A') && !readOnly) {
+            ev.preventDefault();
+            onSelect(normaliseSelection(graph.nodes.map((n) => n.key).filter((k) => k !== JOB_KEY)));
+            return;
+        }
         if (ev.ctrlKey || ev.metaKey || ev.altKey) {
             return;
         }
@@ -250,6 +262,11 @@ export default function FlowCanvas({
                 ev.preventDefault();
                 onPlus(n.key, at);
             }
+            return;
+        }
+        if (ev.key === ' ' && ev.shiftKey && focusedNode && !readOnly) {
+            ev.preventDefault();
+            onSelect(toggleInSelection(selected, focusedNode));
             return;
         }
         if (ev.key === 'Enter' || ev.key === ' ') {
@@ -280,19 +297,24 @@ export default function FlowCanvas({
             frameAll();
             return;
         }
+        // A multi-selection acts as one, unless the focused node is outside it.
+        const group = many && (!focusedNode || many.includes(focusedNode)) ? many : null;
         const target = focusedNode || selectedNode;
         if (ev.key === 'Delete' || ev.key === 'Backspace') {
-            if (target && target !== JOB_KEY && !readOnly && onRequestRemove) {
+            if (group && !readOnly && onRequestRemoveNodes) {
+                ev.preventDefault();
+                onRequestRemoveNodes(group);
+            } else if (!group && target && target !== JOB_KEY && !readOnly && onRequestRemove) {
                 ev.preventDefault();
                 onRequestRemove(target);
             }
             return;
         }
         const step = ARROWS[ev.key];
-        const p = target ? positions[target] : undefined;
-        if (step && target && p && canMove && onMove) {
+        const moving = (group || (target ? [target] : [])).filter((k) => positions[k]);
+        if (step && moving.length && canMove && onMove) {
             ev.preventDefault();
-            onMove({ [target]: { x: p.x + step.x, y: p.y + step.y } });
+            onMove(Object.fromEntries(moving.map((k) => [k, { x: positions[k].x + step.x, y: positions[k].y + step.y }])));
         }
     };
 
@@ -349,35 +371,9 @@ export default function FlowCanvas({
             .join(', ');
     };
 
-    const draft = (() => {
-        if (!gesture || gesture.kind !== 'line' || !cursor) {
-            return null;
-        }
-        const n = byKey.get(gesture.from);
-        const p = shown[gesture.from];
-        if (!n || !p) {
-            return null;
-        }
-        const tabs = tabsOf[n.key] || [];
-        const i = gesture.outcome ? tabs.indexOf(gesture.outcome) : -1;
-        const o = i >= 0 ? tabOffset(n.kind, i, tabs.length) : handleOffset(n.kind);
-        return (
-            <path
-                data-testid="link-draft"
-                d={linkPath({ x: p.x + o.x, y: p.y + o.y }, cursor)}
-                fill="none"
-                stroke={theme.focusColor}
-                strokeWidth={1.5}
-                strokeDasharray="4 3"
-                pointerEvents="none"
-            />
-        );
-    })();
-
-
     const help = readOnly
         ? 'Job flow. Tab to a node, Enter to select it, F to frame all.'
-        : 'Job flow. Tab to a node, Enter to select it, + to choose what happens next, arrow keys to move it, Delete to remove it, / to add a node, F to frame all.';
+        : 'Job flow. Tab to a node, Enter to select it, Shift+Space to add it to the selection, + to choose what happens next, arrow keys to move it, Delete to remove it, / to add a node, F to frame all.';
 
     return (
         <div>
@@ -422,7 +418,7 @@ export default function FlowCanvas({
                     border: `1px solid ${theme.borderColor}`,
                     borderRadius: '4px',
                     touchAction: 'none',
-                    cursor: gesture && gesture.kind === 'pan' ? 'grabbing' : 'grab',
+                    cursor: gesture && gesture.kind === 'box' ? 'crosshair' : gesture && gesture.kind === 'pan' ? 'grabbing' : 'grab',
                 }}
                 onPointerEnter={() => {
                     over.current = true;
@@ -501,13 +497,15 @@ export default function FlowCanvas({
                             />
                         );
                     })}
-                    {draft}
+                    {gesture && gesture.kind === 'line' && cursor && (
+                        <DraftLine node={byKey.get(gesture.from)} at={shown[gesture.from]} tabs={tabsOf[gesture.from] || []} outcome={gesture.outcome} to={cursor} theme={theme} />
+                    )}
                     {graph.nodes.map((n) => {
                         const p = shown[n.key];
                         if (!p) {
                             return null;
                         }
-                        const isSelected = selectedNode === n.key;
+                        const isSelected = chosen.has(n.key);
                         const { detail, counts } = detailOf(n);
                         const note = n.stepId ? notes[n.stepId] : undefined;
                         const { h } = nodeSize(n.kind);
@@ -578,6 +576,7 @@ export default function FlowCanvas({
                                 <path d={d} fill="none" stroke="none" />
                             </NodeGroup>
                         ))}
+                    {gesture && gesture.kind === 'box' && gesture.moved && cursor && <SelectionBox from={gesture.start} to={cursor} theme={theme} />}
                 </g>
             </svg>
             {legendOpen && (

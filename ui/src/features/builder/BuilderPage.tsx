@@ -22,7 +22,7 @@ import JobTabs, { TabId } from './JobTabs';
 import { ChecklistItem, readiness } from './readiness';
 import IssueSummary from './IssueSummary';
 import { nodeForIssue, tabForIssue } from './issueTabs';
-import { JOB_KEY, buildGraph, stepKey } from './nodeModel';
+import { buildGraph, stepKey } from './nodeModel';
 import type { PortId } from './nodeModel';
 import NodePanel from './NodePanel';
 import RemoveNodeModal from './RemoveNodeModal';
@@ -33,9 +33,9 @@ import useAutoValidate from './useAutoValidate';
 import useBuilderData from './useBuilderData';
 import useFillHeight from './useFillHeight';
 import useFlowMenus from './useFlowMenus';
+import useSelection from './useSelection';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
 import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
-import type { BuilderAction } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
 import { JobTemplate, templateByKey } from './templates';
@@ -98,13 +98,11 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startTemplate);
     const [activeTab, setActiveTab] = useState<TabId>('steps');
     const [checklistDismissed, setChecklistDismissed] = useState(false);
-    const [selected, setSelectedState] = useState<FlowSelection>(null);
     const [fullScreen, setFullScreen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
     const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
     const [ownerConfirm, setOwnerConfirm] = useState<{ newOwner: string } | null>(null);
-    const [removing, setRemovingState] = useState<string | null>(null);
     const [scheduledTime, setScheduledTime] = useState(() => Math.floor(Date.now() / 1000));
     const timeTouched = useRef(false);
     const [paramValues, setParamValues] = useState<Record<string, string>>({});
@@ -114,17 +112,12 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const rememberFocus = () => {
         returnFocus.current = document.activeElement as HTMLElement | null;
     };
-    const setRemoving = (key: string | null) => {
-        if (key) {
-            rememberFocus();
-        }
-        setRemovingState(key);
-    };
     // Selecting anything (or clicking the empty canvas) closes the popups (see useFlowMenus).
     const setSelected = (sel: FlowSelection) => {
         menus.close();
         setSelectedState(sel);
     };
+    const setSelectedState = (sel: FlowSelection) => picked.setSelected(sel);
     const selectNode = (key: string) => setSelected({ kind: 'node', key });
 
     const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
@@ -206,12 +199,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
     const graph = useMemo(() => buildGraph(job), [job]);
     const positions = useMemo(() => layoutFlow(graph, job.layout?.nodes), [graph, job.layout]);
-    // A selection whose node or line is gone (removed, undone, renamed) counts as none.
-    const selection: FlowSelection =
-        selected &&
-        (selected.kind === 'node' ? graph.nodes.some((n) => n.key === selected.key) : graph.links.some((l) => l.key === selected.key))
-            ? selected
-            : null;
+    const picked = useSelection({ job, graph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
+    const { selection, removing, requestRemove, confirmRemove } = picked;
     const goToIssue = (issue: Issue) => {
         setActiveTab(tabForIssue(issue));
         const key = nodeForIssue(job, issue);
@@ -341,39 +330,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         return () => window.clearTimeout(timer);
     }, [focusNext, removing]);
 
-    const requestRemove = (key: string) => {
-        if (key !== JOB_KEY) {
-            setRemoving(key);
-        }
-    };
-
-    const confirmRemove = (action: BuilderAction) => {
-        if (removing) {
-            let next: string | null = null;
-            if (action.type === 'removeStep') {
-                const ids = job.steps.map((s) => s.id);
-                const at = ids.indexOf(action.id);
-                const id = ids[at + 1] !== undefined ? ids[at + 1] : ids[at - 1];
-                next = id === undefined ? null : stepKey(id);
-            }
-            returnFocus.current = null;
-            setFocusNext({ key: next });
-            dispatch(action);
-            // Later actions in the same list, and later triggers, move down a place, so a
-            // selection among them would point at a different node: drop it.
-            const shifting = removing.startsWith('action:')
-                ? removing.slice(0, removing.lastIndexOf(':') + 1)
-                : removing.startsWith('trigger:')
-                  ? 'trigger:'
-                  : null;
-            const key = selection && selection.kind === 'node' ? selection.key : null;
-            if (key && (key === removing || (shifting && key.startsWith(shifting)))) {
-                setSelected(null);
-            }
-        }
-        setRemoving(null);
-    };
-
     // A line onto an action can move it to another list: keep the selection on it.
     const connectLine = (from: string, port: PortId, to: string) => {
         if (selection && selection.kind === 'node') {
@@ -463,6 +419,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onSplice={menus.onSplice}
                     canSpliceNode={menus.canSpliceNode}
                     onRequestRemove={requestRemove}
+                    onRequestRemoveNodes={picked.requestRemoveNodes}
                     onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
                     onTidy={() => dispatch({ type: 'tidyLayout' })}
                     overlay={menus.overlay}
@@ -490,6 +447,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     dispatch={dispatch}
                     onSelect={setSelected}
                     onRequestRemove={requestRemove}
+                    onRequestRemoveNodes={picked.requestRemoveNodes}
                     onOpenSettings={() => setActiveTab('settings')}
                     destinations={destinations}
                     alertActions={alertActions}
@@ -593,7 +551,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                 </Modal>
             )}
             {removing && (
-                <RemoveNodeModal job={job} nodeKey={removing} returnFocus={returnFocus} onCancel={() => setRemoving(null)} onConfirm={confirmRemove} />
+                <RemoveNodeModal job={job} nodeKey={removing} returnFocus={returnFocus} onCancel={picked.cancelRemove} onConfirm={confirmRemove} />
             )}
         </PageShell>
     );

@@ -2,8 +2,9 @@
  * are saved in job.layout; every other node is placed by the flow layout. */
 import { toDefinition } from '../../api/client';
 import type { Action, Edge, JobDefinition, StepDef, StepOutput, Trigger } from '../../api/types';
-import { changeLineOutcome, dropActionKey, dropCondKey, dropStepKeys, dropTriggerKey, parseAction, parseCond } from './flowEdits';
-import { insertJob, remapLayout, renameStepKeys, spliceJob, spotRightOf, withNodes, withPlacedNode } from './flowEdits';
+import { actionsOf, changeLineOutcome, disconnectJob, dropActionKey, parseAction, parseCond, removeActionJob, removeNodesJob } from './flowEdits';
+import { insertJob, remapLayout, removeStepJob, removeTriggerJob, renameStepKeys, setActions, spliceJob, spotRightOf } from './flowEdits';
+import { tidyJob, withNodes, withPlacedNode } from './flowEdits';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
 import {
@@ -43,13 +44,16 @@ export type BuilderAction =
     | { type: 'saved'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
     | { type: 'removeStep'; id: string }
+    /** Any mix of steps, actions, triggers and conditions, as one undo step; `job` is ignored. */
+    | { type: 'removeNodes'; keys: string[] }
     | { type: 'updateStep'; id: string; changes: Partial<StepDef> }
     | { type: 'connect'; from: string; to: string; condition?: Edge['condition'] }
     | { type: 'disconnect'; from: string; to: string }
     | { type: 'updateEdge'; from: string; to: string; changes: Partial<Edge> }
     /** Saved positions merge into job.layout.nodes: one undo step per drop. */
     | { type: 'moveNodes'; positions: Record<string, Pos> }
-    | { type: 'tidyLayout' }
+    /** With `keys`, re-places only those nodes, keeping the selection's top-left corner. */
+    | { type: 'tidyLayout'; keys?: string[] }
     /** With `at`, `shown` (the positions on screen) is saved too, so other nodes stay put. */
     | {
           type: 'addNode';
@@ -202,8 +206,6 @@ function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepD
     return { ...after, spl: tail ? `${input} ${tail}` : input };
 }
 
-
-
 const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
 const ID_PREFIX: Partial<Record<NodeKind, string>> = { summary_index: 'summary', lookup: 'lookup' };
 const newStepId = (steps: StepDef[], kind: NodeKind) => nextStepId(steps, ID_PREFIX[kind]);
@@ -219,16 +221,6 @@ const ACTION_DEFAULTS: Partial<Record<NodeKind, Omit<Action, 'hook'>>> = {
 /** Where a new action goes: the step the line starts from, else the whole job. */
 function actionScope(from?: { key: string; port: PortId }): ActionScope {
     return from && from.key.startsWith('step:') ? from.key.slice(5) : 'job';
-}
-
-const actionsOf = (job: JobDefinition, scope: ActionScope): Action[] =>
-    (scope === 'job' ? job.actions : (job.steps || []).find((s) => s.id === scope)?.actions) || [];
-
-function setActions(job: JobDefinition, scope: ActionScope, actions: Action[]): JobDefinition {
-    if (scope === 'job') {
-        return { ...job, actions };
-    }
-    return { ...job, steps: (job.steps || []).map((s) => (s.id === scope ? { ...s, actions } : s)) };
 }
 
 /** The key the node `key` has after connectPort with `line`: a line onto an action from
@@ -343,17 +335,11 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return edits(state, { ...job, steps: [...steps, step] });
         }
         case 'removeStep':
-            return edits(
-                state,
-                dropStepKeys(
-                    {
-                        ...job,
-                        steps: steps.filter((s) => s.id !== action.id),
-                        edges: edgeList.filter((e) => e.from !== action.id && e.to !== action.id),
-                    },
-                    action.id
-                )
-            );
+            return edits(state, removeStepJob(job, action.id));
+        case 'removeNodes': {
+            const next = removeNodesJob(job, action.keys);
+            return next ? edits(state, next) : state;
+        }
         case 'updateStep': {
             const newId = action.changes.id;
             const renamed = newId !== undefined && newId !== action.id;
@@ -410,11 +396,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const edge: Edge = { from: action.from, to: action.to, condition: action.condition || 'on_success' };
             return edits(state, { ...job, edges: [...edgeList, edge] });
         }
-        case 'disconnect': {
-            const gone = edgeList.find((e) => same(e, action.from, action.to));
-            const next = { ...job, edges: edgeList.filter((e) => !same(e, action.from, action.to)) };
-            return edits(state, gone?.condition === 'expression' ? dropCondKey(next, action.from, action.to) : next);
-        }
+        case 'disconnect':
+            return edits(state, disconnectJob(job, action.from, action.to));
         case 'updateEdge':
             return edits(
                 state,
@@ -440,12 +423,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return edits(state, withNodes(job, { ...job.layout?.nodes, ...action.positions }));
         }
         case 'tidyLayout': {
-            if (!job.layout) {
-                return state;
-            }
-            const next = { ...job };
-            delete next.layout;
-            return edits(state, next);
+            const next = tidyJob(job, action.keys);
+            return next ? edits(state, next) : state;
         }
         case 'addNode': {
             const key = addNodeKey(job, action.kind, action.from);
@@ -494,12 +473,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             );
         }
         case 'removeAction': {
-            const list = actionsOf(job, action.scope);
-            if (!list[action.index]) {
-                return state;
-            }
-            const next = setActions(job, action.scope, list.filter((_, i) => i !== action.index));
-            return edits(state, dropActionKey(next, action.scope, action.index));
+            const next = removeActionJob(job, action.scope, action.index);
+            return next ? edits(state, next) : state;
         }
         case 'moveAction': {
             const list = actionsOf(job, action.scope);
@@ -540,11 +515,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             );
         }
         case 'removeTrigger': {
-            const list = job.triggers || [];
-            if (!list[action.index]) {
-                return state;
-            }
-            return edits(state, dropTriggerKey({ ...job, triggers: list.filter((_, i) => i !== action.index) }, action.index));
+            const next = removeTriggerJob(job, action.index);
+            return next ? edits(state, next) : state;
         }
         case 'connectPort': {
             if (!canConnect(job, action.from, action.port, action.to).ok) {
