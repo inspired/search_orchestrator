@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <nav search_view="search">
-    <view name="jobs" default="true" />
-    <view name="runs" />
-    <view name="run_health" />
-    <view name="settings" />
-    <view name="help" />
+    <view name="jobs" default="true" icon="layerstriple" />
+    <view name="runs" icon="pulse" />
+    <view name="run_health" icon="chartgauge" />
+    <view name="settings" icon="cog" />
+    <view name="help" icon="organizernotebook" />
 </nav>

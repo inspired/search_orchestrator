@@ -76,11 +76,12 @@ export async function resolveColorScheme(): Promise<ColorScheme> {
     }
 }
 
-/** Mounts a page into Splunk's layout, themed to the user's Splunk theme. */
+/** Mounts a page into Splunk's layout, themed to the user's Splunk theme. `navLayout: 'auto'`
+ * uses the side navigation where Splunk has it (10.4+) and the classic app bar elsewhere. */
 export function renderPage(element: React.ReactElement, pageTitle: string): void {
     resolveColorScheme()
-        .then((theme) => layout(element, { pageTitle, theme }))
-        .catch(() => layout(element, { pageTitle }));
+        .then((theme) => layout(element, { pageTitle, theme, navLayout: 'auto' }))
+        .catch(() => layout(element, { pageTitle, navLayout: 'auto' }));
 }
 
 /** The link to a page of this app, relative to the current page (/app/search_orchestrator/<page>). */

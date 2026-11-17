@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.1 (2026-11-17)
+
+- On Splunk 10.4 and later, the app's pages use the modern side navigation instead of the old app bar (`navLayout: "auto"`). Older Splunk versions keep the classic bar.
+- Menu items have icons in the side navigation: Jobs, Runs, Run health, Settings and Help.
+
 ## 1.16.0 (2026-11-17)
 
 A Run health dashboard and colours in the job source view.
