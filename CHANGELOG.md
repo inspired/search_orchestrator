@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.1 (2026-11-17)
+
+Quieter canvas: fewer names on the lines.
+
+- Lines carry no label by default; the selected line shows its label, and lines stay coloured by outcome.
+- New toolbar toggle **Show line labels** / **Hide line labels**, remembered in your browser. On the run page, row counts show on data lines when it is on or while the line is flowing.
+- Click a line itself, not only its label, to select it and open its menu.
+- Outcome tabs on nodes are now small round tabs with just the symbol in a coloured ring; the name shows when you point at one and is read by screen readers. Dragging from a tab works as before.
+
 ## 1.13.0 (2026-11-17)
 
 The live run graph: watch a run move through its flow.
