@@ -114,17 +114,17 @@ describe('FlowCanvas', () => {
         expect(view().getAttribute('transform')).toBe('translate(0,0) scale(1)');
     });
 
-    const plusAt = { clientX: 450, clientY: 138 };
+    const plusAt = { clientX: 485, clientY: 138 };
 
     test('a click on + calls onPlus, and a 3 px movement still counts as a click', () => {
         const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
         fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
         fireEvent.pointerUp(canvas, plusAt);
         expect(props.onPlus).toHaveBeenCalledTimes(1);
-        expect(props.onPlus).toHaveBeenCalledWith('step:a', { left: 463, top: 138 });
+        expect(props.onPlus).toHaveBeenCalledWith('step:a', { left: 498, top: 138 });
         fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
-        fireEvent.pointerMove(canvas, { clientX: 453, clientY: 135 });
-        fireEvent.pointerUp(canvas, { clientX: 453, clientY: 135 });
+        fireEvent.pointerMove(canvas, { clientX: 488, clientY: 135 });
+        fireEvent.pointerUp(canvas, { clientX: 488, clientY: 135 });
         expect(props.onPlus).toHaveBeenCalledTimes(2);
         expect(props.onSelect).not.toHaveBeenCalled();
         expect(props.onDropOnNode).not.toHaveBeenCalled();
@@ -159,11 +159,11 @@ describe('FlowCanvas', () => {
     test('a short drag released on its own + or tab does nothing', () => {
         const { props, canvas } = setup({ onPlus: jest.fn(), onDropOnNode: jest.fn() });
         fireEvent.pointerDown(screen.getByTestId('plus-step:a'), plusAt);
-        fireEvent.pointerMove(canvas, { clientX: 458, clientY: 138 });
-        fireEvent.pointerUp(canvas, { clientX: 458, clientY: 138 });
-        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
-        fireEvent.pointerMove(canvas, { clientX: 468, clientY: 92 });
-        fireEvent.pointerUp(canvas, { clientX: 468, clientY: 92 });
+        fireEvent.pointerMove(canvas, { clientX: 493, clientY: 138 });
+        fireEvent.pointerUp(canvas, { clientX: 493, clientY: 138 });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 149 });
+        fireEvent.pointerMove(canvas, { clientX: 468, clientY: 149 });
+        fireEvent.pointerUp(canvas, { clientX: 468, clientY: 149 });
         expect(props.onPlus).not.toHaveBeenCalled();
         expect(props.onDropOnNode).not.toHaveBeenCalled();
         expect(props.onDropOnCanvas).not.toHaveBeenCalled();
@@ -207,18 +207,18 @@ describe('FlowCanvas', () => {
 
     test('a line from a tab carries its outcome, onto the canvas or a node', () => {
         const { props, canvas } = setup({ onDropOnNode: jest.fn() });
-        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 149 });
         fireEvent.pointerMove(canvas, { clientX: 900, clientY: 700 });
         fireEvent.pointerUp(canvas, { clientX: 900, clientY: 700 });
         expect(props.onDropOnCanvas).toHaveBeenCalledWith('step:a', { x: 900, y: 700 }, { left: 900, top: 700 }, 'failure');
-        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 149 });
         fireEvent.pointerUp(canvas, centre('step:b'));
         expect(props.onDropOnNode).toHaveBeenCalledWith('step:a', 'step:b', { left: 650, top: 130 }, 'failure');
     });
 
     test('without onDropOnNode, a tab dropped on a node connects with its outcome', () => {
         const { props, canvas } = setup();
-        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 92 });
+        fireEvent.pointerDown(screen.getByTestId('tab-step:a-failure'), { clientX: 460, clientY: 149 });
         fireEvent.pointerUp(canvas, centre('step:b'));
         expect(props.onConnect).toHaveBeenCalledWith('step:a', 'failure', 'step:b');
     });
@@ -244,7 +244,7 @@ describe('FlowCanvas', () => {
         const { props } = setup({ onPlus: jest.fn() });
         const a = screen.getByTestId('node-step:a');
         expect(fireEvent.keyDown(a, { key: '+' })).toBe(false);
-        expect(props.onPlus).toHaveBeenCalledWith('step:a', { left: 463, top: 138 });
+        expect(props.onPlus).toHaveBeenCalledWith('step:a', { left: 498, top: 138 });
         fireEvent.keyDown(a, { key: 'Enter', shiftKey: true });
         expect(props.onPlus).toHaveBeenCalledTimes(2);
         expect(props.onSelect).not.toHaveBeenCalled();
@@ -252,6 +252,20 @@ describe('FlowCanvas', () => {
         expect(props.onSelect).toHaveBeenCalledWith({ kind: 'node', key: 'step:a' });
         fireEvent.keyDown(screen.getByTestId('node-action:a:0'), { key: '+' });
         expect(props.onPlus).toHaveBeenCalledTimes(2);
+    });
+
+    test('the + is hidden unless the node is hovered, selected or focused, and then takes the pointer', () => {
+        const { unmount } = renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
+        expect(screen.getByTestId('plus-step:a')).not.toHaveAttribute('data-plus-shown');
+        expect(screen.getByTestId('plus-step:a')).toHaveAttribute('data-plus');
+        const rules = Array.from(document.querySelectorAll('style')).map((st) => st.textContent).join('');
+        expect(rules).toMatch(/:focus-within \[data-plus\]/);
+        expect(rules).toMatch(/:hover \[data-plus\]/);
+        unmount();
+        renderThemed(<FlowCanvas graph={graph} positions={positions} selected={{ kind: 'nodes', keys: ['step:a', 'step:b'] }} issues={[]} onSelect={jest.fn()} />);
+        expect(screen.getByTestId('plus-step:a')).toHaveAttribute('data-plus-shown', 'true');
+        expect(screen.getByTestId('plus-step:b')).toHaveAttribute('data-plus-shown', 'true');
+        expect(screen.getByTestId('plus-job')).not.toHaveAttribute('data-plus-shown');
     });
 
     test('steps, the whole job and conditions have a +; triggers and actions do not', () => {
@@ -326,11 +340,11 @@ describe('FlowCanvas', () => {
         test('a link starts at the tab of its outcome and ends at the input', () => {
             setup();
             const d = screen.getByTestId('link-step:a-success->step:b').querySelector('path')!.getAttribute('d') || '';
-            // step 200×76: + at y 38; tab 0 sits 13 + 11 px above it, tab 1 another 22 px up.
-            expect(d.startsWith('M470,114 ')).toBe(true);
+            // step 200×76, mid height 38: two tabs straddle it, 22 px apart.
+            expect(d.startsWith('M470,127 ')).toBe(true);
             expect(d.endsWith('550,138')).toBe(true);
             const f = screen.getByTestId('link-step:a-failure->action:a:0').querySelector('path')!.getAttribute('d') || '';
-            expect(f.startsWith('M470,92 ')).toBe(true);
+            expect(f.startsWith('M470,149 ')).toBe(true);
         });
 
         test('a data link is drawn thicker than a signal link', () => {
@@ -701,7 +715,8 @@ describe('FlowCanvas', () => {
             window.localStorage.setItem('so.flow.compact', '1');
             setup();
             const ring = screen.getByTestId('plus-step:a').querySelector('circle')!;
-            expect(ring.getAttribute('cx')).toBe('140');
+            // step:a has two tabs, so the + sits right of their column.
+            expect(ring.getAttribute('cx')).toBe('175');
             expect(ring.getAttribute('cy')).toBe('16');
         });
 
@@ -724,7 +739,7 @@ describe('FlowCanvas', () => {
             window.localStorage.setItem('so.flow.compact', '1');
             const { props, canvas } = setup({ onDropOnNode: jest.fn() });
             const plus = screen.getByTestId('plus-step:a');
-            fireEvent.pointerDown(plus, { clientX: 390, clientY: 116 });
+            fireEvent.pointerDown(plus, { clientX: 425, clientY: 116 });
             fireEvent.pointerMove(canvas, { clientX: 640, clientY: 116 });
             fireEvent.pointerUp(canvas, { clientX: 640, clientY: 116 });
             expect(props.onDropOnNode).toHaveBeenCalledWith('step:a', 'step:b', expect.anything());

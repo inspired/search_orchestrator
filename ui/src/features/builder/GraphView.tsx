@@ -19,6 +19,17 @@ export const NodeGroup = styled.g`
         stroke: ${variables.focusColor};
         stroke-width: 3px;
     }
+    /* The + shows only on hover, selection (data-plus-shown) or focus within the node; hidden, it takes no pointer. */
+    [data-plus] {
+        opacity: 0;
+        pointer-events: none;
+    }
+    [data-plus-shown='true'],
+    &:hover [data-plus],
+    &:focus-within [data-plus] {
+        opacity: 1;
+        pointer-events: auto;
+    }
     /* The + handle of a focused node is ringed as on hover (PlusHandle). */
     &:focus-visible [data-plus-ring] {
         stroke-opacity: 1;

@@ -1,11 +1,11 @@
-/* The + handle on the right edge of a node with outcomes, and the compact outcome tabs (a glyph in a coloured ring) stacked above it.
+/* The + handle on the right edge of a node with outcomes, and the compact outcome tabs (a glyph in a coloured ring) stacked on the node's vertical middle, with the + to their right.
  * Click the + to choose "when" from a list; drag it, or a tab, to draw a line. Neither is a Tab
  * stop: the keyboard reaches the + through its node (+ or Shift+Enter). Theme tokens only. */
 import React, { useState } from 'react';
 import type { Theme } from './GraphView';
 import type { NodeKind, PortId } from './nodeModel';
 import { OUTCOME_LABEL, Outcome } from './outcomes';
-import { HANDLE_R, PORT_STYLE, TAB_D, handleOffset, tabOffset } from './nodeStyle';
+import { HANDLE_R, PORT_STYLE, TAB_D, TAB_GAP, handleOffset, tabOffset } from './nodeStyle';
 
 /** "Succeeds", "Fails"; an If line's tab reads "If". The tab itself shows only the glyph. */
 export function tabWord(outcome: PortId): string {
@@ -26,6 +26,8 @@ export interface PlusHandleProps {
     tabs: readonly PortId[];
     /** Draw the + (not on the run page). */
     plus: boolean;
+    /** Keep the + visible (the node is selected); otherwise it shows on hover or focus (NodeGroup's CSS). */
+    reveal?: boolean;
     onPlusDown?: (ev: React.PointerEvent) => void;
     onTabDown?: (ev: React.PointerEvent, outcome: PortId) => void;
     /** Compact nodes: the handle and tabs sit on the smaller node. */
@@ -34,11 +36,15 @@ export interface PlusHandleProps {
     testIdPrefix?: string;
 }
 
-export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDown, onTabDown, compact = false, testIdPrefix = '' }: PlusHandleProps) {
+export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, reveal = false, onPlusDown, onTabDown, compact = false, testIdPrefix = '' }: PlusHandleProps) {
     const [hover, setHover] = useState(false);
-    const h = handleOffset(kind, compact);
+    const h = handleOffset(kind, compact, tabs.length);
     return (
         <>
+            {plus && tabs.length > 0 && (
+                // Bridges the gap between the node, its tabs and the + so the pointer keeps the node hovered.
+                <rect data-testid={`${testIdPrefix}plus-bridge-${nodeKey}`} data-plus data-plus-bridge x={h.x - HANDLE_R - TAB_GAP} y={h.y - HANDLE_R} width={HANDLE_R * 2 + TAB_GAP} height={HANDLE_R * 2} fill="transparent" data-plus-shown={reveal ? 'true' : undefined} />
+            )}
             {tabs.map((outcome, i) => {
                 const word = tabWord(outcome);
                 const box = tabBox(kind, i, tabs.length, outcome, compact);
@@ -78,6 +84,8 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
             {plus && (
                 <g
                     data-testid={`${testIdPrefix}plus-${nodeKey}`}
+                    data-plus
+                    data-plus-shown={reveal ? 'true' : undefined}
                     aria-hidden
                     style={{ cursor: 'crosshair' }}
                     onPointerEnter={() => setHover(true)}

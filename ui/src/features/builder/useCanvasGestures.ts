@@ -183,7 +183,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (!n || !p) {
             return null;
         }
-        const o = handleOffset(n.kind, compact);
+        const count = n.kind === 'condition' ? 0 : usedOutcomes(graph, key).length;
+        const o = handleOffset(n.kind, compact, count);
         return toScreen({ x: p.x + o.x + HANDLE_R, y: p.y + o.y });
     };
 
@@ -398,11 +399,11 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (!n || !p) {
             return false;
         }
-        const h = handleOffset(n.kind, compact);
+        const tabs = n.kind === 'condition' ? [] : usedOutcomes(graph, key);
+        const h = handleOffset(n.kind, compact, tabs.length);
         if (Math.hypot(pt.x - (p.x + h.x), pt.y - (p.y + h.y)) <= HANDLE_R + HANDLE_SLOP) {
             return true;
         }
-        const tabs = n.kind === 'condition' ? [] : usedOutcomes(graph, key);
         return tabs.some((o, i) => {
             const b = tabBox(n.kind, i, tabs.length, o, compact);
             return pt.x >= p.x + b.x && pt.x <= p.x + b.x + b.w && pt.y >= p.y + b.y && pt.y <= p.y + b.y + b.h;

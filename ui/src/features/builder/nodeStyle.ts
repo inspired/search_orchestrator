@@ -101,27 +101,21 @@ export function hasHandle(kind: NodeKind): boolean {
 }
 
 export const HANDLE_R = 13;
-const TAB_GAP = 22;
+export const TAB_GAP = 22;
 /** Outcome tabs are 18 px circles, 2 px outside the node's right edge. */
 export const TAB_D = 18;
 
-/** Centre of the single + handle: right edge, vertical centre. */
-export function handleOffset(kind: NodeKind, compact = false): { x: number; y: number } {
+/** Centre of the + handle: right edge at mid height, or just right of the tab column when `tabCount` tabs exist. */
+export function handleOffset(kind: NodeKind, compact = false, tabCount = 0): { x: number; y: number } {
     const { w, h } = nodeSize(kind, compact);
-    return { x: w, y: h / 2 };
+    return { x: tabCount > 0 ? w + TAB_GAP + HANDLE_R : w, y: h / 2 };
 }
 
-/** Tabs above the handle; more stack downward below it, so six stay within one node height. */
-const TABS_ABOVE = 4;
-
-/** Anchor of the `index`th outcome tab (0 nearest): the first four stacked above the handle,
- * 22 px apart, the rest below it. */
-export function tabOffset(kind: NodeKind, index: number, _count: number, compact = false): { x: number; y: number } {
-    const o = handleOffset(kind, compact);
-    if (index >= TABS_ABOVE) {
-        return { x: o.x, y: o.y + HANDLE_R + TAB_GAP / 2 + (index - TABS_ABOVE) * TAB_GAP };
-    }
-    return { x: o.x, y: o.y - HANDLE_R - TAB_GAP / 2 - index * TAB_GAP };
+/** Anchor of the `index`th outcome tab (0 topmost): the column is centred on the node's vertical
+ * middle, 22 px apart, tab centres on x = w + 11. */
+export function tabOffset(kind: NodeKind, index: number, count: number, compact = false): { x: number; y: number } {
+    const { w, h } = nodeSize(kind, compact);
+    return { x: w, y: h / 2 + (index - (count - 1) / 2) * TAB_GAP };
 }
 
 /** Where a line leaves a tab: the right edge of its circle. */

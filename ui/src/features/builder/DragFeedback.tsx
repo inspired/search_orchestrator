@@ -25,7 +25,7 @@ export function DraftLine({ node, at, tabs, outcome, to, theme, compact = false 
         return null;
     }
     const i = outcome ? tabs.indexOf(outcome) : -1;
-    const o = i >= 0 ? tabExit(node.kind, i, tabs.length, compact) : handleOffset(node.kind, compact);
+    const o = i >= 0 ? tabExit(node.kind, i, tabs.length, compact) : handleOffset(node.kind, compact, tabs.length);
     return (
         <path
             data-testid="link-draft"

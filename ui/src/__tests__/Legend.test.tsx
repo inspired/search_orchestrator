@@ -28,7 +28,7 @@ describe('Legend', () => {
         expect(within(when).getAllByText('actions only')).toHaveLength(2);
         expect(screen.queryByText('Succeeded')).toBeNull();
         expect(screen.getByTestId('legend-plus')).toBeInTheDocument();
-        expect(screen.getByText(/Click \+ to choose what happens next/)).toBeInTheDocument();
+        expect(screen.getByText(/Point at a node to show \+; click it to choose what happens next/)).toBeInTheDocument();
         expect(screen.getByTestId('legend-tab')).toHaveTextContent('✓');
         expect(screen.getByText(/drag it to add another line/)).toBeInTheDocument();
         expect(screen.getByText(/Lines are coloured by outcome/)).toBeInTheDocument();

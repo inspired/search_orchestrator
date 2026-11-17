@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import type { FlowNode, NodeKind, PortId } from '../features/builder/nodeModel';
 import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, HANDLE_R, handleOffset, hasHandle, inputOffset, nodeSize, shapePath, tabOffset } from '../features/builder/nodeStyle';
+import { tabBox } from '../features/builder/PlusHandle';
 import { NodeShape } from '../features/builder/NodeShape';
 
 const theme: Record<string, string> = {
@@ -94,29 +95,29 @@ describe('handle and tab geometry', () => {
         expect(handleOffset('search')).toEqual({ x: w, y: h / 2 });
         expect(HANDLE_R).toBe(13);
     });
-    it('stacks tabs upward, 22 px apart, clear of the handle', () => {
-        const h = handleOffset('search');
-        const t = [0, 1, 2].map((i) => tabOffset('search', i, 3));
-        expect(t[1].y - t[0].y).toBe(-22);
-        expect(t[2].y - t[1].y).toBe(-22);
-        t.forEach((p) => {
-            expect(p.x).toBe(h.x);
-            expect(h.y - p.y).toBeGreaterThan(HANDLE_R);
-        });
+    it('centres the tab column on the node middle, 22 px apart, tab centres on x = w + 11', () => {
+        const { w, h } = nodeSize('search');
+        expect(tabOffset('search', 0, 1)).toEqual({ x: w, y: h / 2 });
+        const two = [0, 1].map((i) => tabOffset('search', i, 2));
+        expect(two[0].y).toBe(h / 2 - 11);
+        expect(two[1].y).toBe(h / 2 + 11);
+        const three = [0, 1, 2].map((i) => tabOffset('search', i, 3));
+        expect(three.map((p) => p.y - h / 2)).toEqual([-22, 0, 22]);
+        expect(tabBox('search', 0, 1)).toEqual({ x: w + 2, y: h / 2 - 9, w: 18, h: 18 });
     });
-    it('with every outcome in use, tabs stay within one node height above the node, the rest stack below the +', () => {
+    it('puts the + right of the tab column when tabs exist, on the edge otherwise', () => {
+        const { w, h } = nodeSize('search');
+        expect(handleOffset('search', false, 0)).toEqual({ x: w, y: h / 2 });
+        expect(handleOffset('search', false, 3)).toEqual({ x: w + 22 + HANDLE_R, y: h / 2 });
+        expect(handleOffset('condition', false, 0)).toEqual({ x: nodeSize('condition').w, y: nodeSize('condition').h / 2 });
+    });
+    it('with every outcome in use, the tabs stay symmetric about the middle and do not overlap', () => {
         (['search', 'previous', 'summary_index', 'job'] as const).forEach((kind) => {
-            const { h: height } = nodeSize(kind);
-            const h = handleOffset(kind);
+            const { h } = nodeSize(kind);
             const count = kind === 'job' ? 5 : 6;
             const t = Array.from({ length: count }, (_, i) => tabOffset(kind, i, count));
-            t.forEach((p) => {
-                // 9 px is half a tab's height.
-                expect(p.y - 9).toBeGreaterThanOrEqual(-height);
-                expect(Math.abs(p.y - h.y)).toBeGreaterThan(HANDLE_R);
-            });
             expect(new Set(t.map((p) => p.y)).size).toBe(count);
-            expect(t.some((p) => p.y > h.y)).toBe(true);
+            expect(t[0].y - h / 2).toBeCloseTo(-(t[count - 1].y - h / 2));
         });
     });
     it('compact nodes are 140×32, except the diamond and the whole job', () => {
@@ -130,7 +131,8 @@ describe('handle and tab geometry', () => {
     it('handle, tabs and input follow the compact size', () => {
         expect(handleOffset('search', true)).toEqual({ x: 140, y: 16 });
         expect(tabOffset('search', 0, 1, true).x).toBe(140);
-        expect(tabOffset('search', 0, 1, true).y).toBe(16 - HANDLE_R - 11);
+        expect(tabOffset('search', 0, 1, true).y).toBe(16);
+        expect(handleOffset('search', true, 1)).toEqual({ x: 140 + 22 + HANDLE_R, y: 16 });
         expect(inputOffset('search', true)).toEqual({ x: 0, y: 16 });
     });
 });

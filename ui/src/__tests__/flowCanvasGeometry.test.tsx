@@ -76,7 +76,7 @@ describe('linkEnds from tabs', () => {
         const from = g.nodes.find((n) => n.key === l.from)!;
         const to = g.nodes.find((n) => n.key === l.to)!;
         const pos = { [from.key]: { x: 10, y: 20 }, [to.key]: { x: 300, y: 40 } };
-        const h = handleOffset(from.kind);
+        const h = handleOffset(from.kind, false, 0);
         expect(linkEnds(l, from, to, pos)!.a).toEqual({ x: 10 + h.x, y: 20 + h.y });
     });
     it('starts a condition line at the right tip of the diamond', () => {

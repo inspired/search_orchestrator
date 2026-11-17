@@ -141,6 +141,7 @@ export function FlowNodes({ nodes, shown, look, chosen, tabsOf, theme, compact, 
                                 theme={theme}
                                 tabs={tabsOf[n.key] || []}
                                 plus={!readOnly}
+                                reveal={isSelected}
                                 compact={compact}
                                 onPlusDown={readOnly ? undefined : (ev) => onLineDown(ev, n.key)}
                                 onTabDown={readOnly ? undefined : (ev, outcome) => onLineDown(ev, n.key, outcome)}
@@ -182,7 +183,7 @@ export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme, tabsO
                 return (
                     <g key={n.key} data-testid={`node-full-${n.key}`} transform={`translate(${p.x},${p.y})`} pointerEvents="none" aria-hidden>
                         <NodeShape node={n} theme={theme} selected={isSelected} stroke={detail ? detail.color : undefined} {...previewProps} />
-                        {hasHandle(n.kind) && <PlusHandle nodeKey={n.key} kind={n.kind} theme={theme} tabs={tabsOf[n.key] || []} plus={!readOnly} compact testIdPrefix="overlay-" />}
+                        {hasHandle(n.kind) && <PlusHandle nodeKey={n.key} kind={n.kind} theme={theme} tabs={tabsOf[n.key] || []} plus={!readOnly} reveal compact testIdPrefix="overlay-" />}
                         {running && running.has(n.key) && <RunningMark node={n} theme={theme} compact={false} motion={motion} timer={detail ? detail.timer : undefined} testIdPrefix="overlay-" />}
                     </g>
                 );

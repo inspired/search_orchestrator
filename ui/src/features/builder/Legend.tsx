@@ -74,7 +74,7 @@ export default function Legend() {
                     <circle cx={16} cy={14} r={HANDLE_R} fill={theme.backgroundColorSection} stroke={theme.borderColorStrong} strokeWidth={1.5} />
                     <path d="M10,14 H22 M16,8 V20" stroke={theme.contentColorDefault} strokeWidth={2} strokeLinecap="round" />
                 </svg>
-                <span>Click + to choose what happens next, or drag it onto another node.</span>
+                <span>Point at a node to show +; click it to choose what happens next, or drag it onto another node.</span>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
                 <svg width={22} height={22} aria-hidden style={{ flex: 'none' }} data-testid="legend-tab">
