@@ -168,6 +168,78 @@ def _check_expr_tokens(text, ids, params, issues, step, what):
             issues.append(_issue("error", "unknown_token", "%s: $%s$ isn't a token this job has; pick one with Insert value" % (what, name), step))
 
 
+def _check_spl_tokens(spl, ids, params, issues, step, prefix=""):
+    """Unknown tokens in SPL (a step's search or an SPL condition)."""
+    for m in _DOTTED_RE.finditer(spl):
+        first, rest = m.group(1), m.group(2)
+        name = first + "." + rest
+        if (first == "run" or first in ids or _SUFFIX_RE.search("." + rest)) \
+                and not _token_ok(name, ids, params):
+            issues.append(_issue("error", "unknown_token", prefix + "%s isn't a token this job has; pick one with Insert value or fix the spelling" % m.group(0), step))
+    for name in tk.find_tokens(spl, ids):
+        if name.startswith("run.param.") and not _token_ok(name, ids, params):
+            issues.append(_issue("error", "unknown_token", prefix + "$%s$ uses a parameter the job doesn't declare; add it on the Parameters tab" % name, step))
+
+
+# SPL commands that write data (the builder's writingCommands.ts list). A condition only reads.
+WRITING_COMMANDS = ("collect", "outputlookup", "outputcsv", "tscollect", "mcollect",
+                    "meventcollect", "sendemail", "delete")
+_COMMAND_WORD_RE = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _pipes(spl):
+    """Each ``|`` that starts a command (top level or in a subsearch), with the command word
+    after it (lower case, or ""). Double-quoted strings, ``'field names'``, backtick macros
+    and ```` ``` ```` comments are skipped, and ``||`` is the eval "or", not a pipe."""
+    out, i, n = [], 0, len(spl)
+    while i < n:
+        c = spl[i]
+        if c in ('"', "'"):
+            i += 1
+            while i < n and spl[i] != c:
+                i += 2 if spl[i] == "\\" else 1
+            i += 1
+        elif c == "`":
+            close = "```" if spl.startswith("```", i) else "`"
+            end = spl.find(close, i + len(close))
+            i = i + 1 if end < 0 else end + len(close)
+        elif c == "|":
+            if spl.startswith("||", i):
+                i += 2
+                continue
+            m = _COMMAND_WORD_RE.match(spl, i + 1)
+            out.append(m.group(1).lower() if m else "")
+            i += 1
+        else:
+            i += 1
+    return out
+
+
+def writing_command(spl):
+    """The first writing command ``spl`` uses as a command, lower case, or None."""
+    return next((w for w in _pipes(spl) if w in WRITING_COMMANDS), None)
+
+
+def _check_spl_condition(text, kind, ids, params, issues, step, where):
+    if not text.strip():
+        what = "an SPL expression" if kind == "eval" else "a search"
+        issues.append(_issue("error", "bad_expression", "%s: the condition is empty; write %s, or pick another condition" % (where, what), step))
+        return
+    if kind == "eval" and _pipes(text):
+        issues.append(_issue("error", "bad_expression", "%s: an SPL expression can't contain | outside quotes; write only what follows | where, or pick Search returns results for a full search" % where, step))
+    else:
+        cmd = writing_command(text)
+        if cmd:
+            issues.append(_issue("error", "condition_writes", "%s: a condition only reads, so it can't use %s; move %s into a step and check that step's results here" % (where, cmd, cmd), step))
+    if _ORCHESTRATE_RE.search(text):
+        issues.append(_issue("error", "condition_writes", "%s: a condition can't call | orchestrate; use a start-job action instead" % where, step))
+    try:
+        tk.compile_spl(text, ids)
+    except tk.TokenError as e:
+        issues.append(_issue("error", "unsafe_token_position", "%s: %s: %s" % (where, e.token, e.reason), step))
+    _check_spl_tokens(text, ids, params, issues, step, where + ": ")
+
+
 def _token_ok(name, ids, params):
     if not tk.is_valid_name(name, ids):
         return False
@@ -287,7 +359,8 @@ def _shape_issues(job):
     for e in _lst(job, "edges"):
         if not isinstance(e, dict):
             continue
-        for k in ("from", "to", "condition", "expression"):
+        for k in ("from", "to", "condition", "expression", "expression_kind", "earliest",
+                  "latest", "hidden_search"):
             if e.get(k) is not None and not isinstance(e[k], str):
                 bad("edge %s must be a string" % k)
     for t in _lst(job, "triggers"):
@@ -387,16 +460,7 @@ def _validate(job, known_saved_searches):
                 _check_expr_tokens(val, ids, params, issues, sid, "run when")
             else:
                 issues.append(_issue("error", "bad_run_when", "run when type %r isn't supported; pick one in Run when" % kind, sid))
-        spl = s.get("spl") or ""
-        for m in _DOTTED_RE.finditer(spl):
-            first, rest = m.group(1), m.group(2)
-            name = first + "." + rest
-            if (first == "run" or first in ids or _SUFFIX_RE.search("." + rest)) \
-                    and not _token_ok(name, ids, params):
-                issues.append(_issue("error", "unknown_token", "%s isn't a token this job has; pick one with Insert value or fix the spelling" % m.group(0), sid))
-        for name in tk.find_tokens(spl, ids):
-            if name.startswith("run.param.") and not _token_ok(name, ids, params):
-                issues.append(_issue("error", "unknown_token", "$%s$ uses a parameter the job doesn't declare; add it on the Parameters tab" % name, sid))
+        _check_spl_tokens(s.get("spl") or "", ids, params, issues, sid)
 
     edges = job.get("edges", []) or []
     for e in edges:
@@ -408,8 +472,16 @@ def _validate(job, known_saved_searches):
         if cond not in _EDGE_CONDITIONS:
             issues.append(_issue("error", "bad_edge", "dependency condition %r isn't supported; pick on success, on failure, always or an expression" % (cond,)))
         elif cond == "expression":
-            _check_expr_tokens(e.get("expression"), ids, params, issues, b if b in ids else None,
-                               "dependency %s->%s" % (a, b))
+            where = "dependency %s->%s" % (a, b)
+            kind = e.get("expression_kind") or "simple"
+            if kind == "simple":
+                _check_expr_tokens(e.get("expression"), ids, params, issues,
+                                   b if b in ids else None, where)
+            elif kind in ("eval", "search"):
+                _check_spl_condition(e.get("expression") or "", kind, ids, params, issues,
+                                     b if b in ids else None, where)
+            else:
+                issues.append(_issue("error", "bad_edge", "%s: condition check %r isn't supported; pick Simple comparison, SPL expression or Search returns results" % (where, kind), b if b in ids else None))
 
     _, succ = _graph(job)
     try:

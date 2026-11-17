@@ -30,6 +30,16 @@ Step searches (``steps[i]``, written into the job definition):
   a search this app's context can't see (not saved in this app and not
   shared globally) is a ``saved_search_not_visible`` error.
 
+Condition searches
+------------------
+An edge with ``condition = "expression"`` and ``expression_kind`` ``eval`` or ``search``
+(SPL conditions, 1.17.0) gets a hidden search named by content,
+``_so_<job>_cond_<hash8>``, written into the edge as ``hidden_search``.
+``tokens.compile_condition`` gives its SPL: ``| makeresults | where <expr>`` for
+``eval`` (time range ``-1m``..``now``), or the search itself with its own
+earliest/latest (default ``-24h``..``now``). The engine dispatches it as the owner when
+the line's source step finishes; it is true when it returns a row.
+
 Action searches
 ---------------
 Actions of type ``email``, ``event`` and ``alert_action`` run as the job
@@ -84,6 +94,8 @@ FALLBACK_OWNER = "nobody"
 SEARCH_ACTIONS = ("email", "event", "alert_action")
 ACTION_EARLIEST = "-1m"
 ACTION_LATEST = "now"
+CONDITION_EARLIEST = "-24h"  # "The 24 hours before", a search condition's default range
+CONDITION_LATEST = "now"
 _ALERT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 PARAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
@@ -96,6 +108,29 @@ def action_search_name(job_id, action_index, compiled_hash):
 def action_hash(job_id, action_index, action_type, spl):
     text = "\0".join(["action", job_id, str(int(action_index)), action_type or "", spl])
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def condition_search_name(job_id, compiled_hash):
+    """``_so_<job>_cond_<hash8>`` for an SPL condition on a line."""
+    return "_so_%s_cond_%s" % (job_id, compiled_hash[:8])
+
+
+def condition_hash(job_id, edge, compiled_spl, earliest, latest):
+    text = "\0".join(["cond", job_id, str(edge.get("from")), str(edge.get("to")),
+                      tokens.condition_kind(edge), compiled_spl, earliest or "", latest or ""])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def condition_time_range(edge):
+    """``(earliest, latest)`` a condition search is dispatched with: a ``search``
+    condition's own range (default the 24 hours before the scheduled time); an ``eval``
+    condition reads no events."""
+    if tokens.condition_kind(edge) == "search":
+        earliest, latest = edge.get("earliest") or "", edge.get("latest") or ""
+        if not earliest and not latest:
+            return CONDITION_EARLIEST, CONDITION_LATEST
+        return earliest, latest
+    return ACTION_EARLIEST, ACTION_LATEST
 
 
 def step_hash(job_id, step_id, compiled_spl, earliest, latest):
@@ -234,6 +269,22 @@ def plan(gw, job):
                              "earliest": earliest, "latest": latest,
                              "description": "Search Orchestrator job %s, step %s (no inputs)"
                                             % (job_id, sid)})
+    for edge in job.get("edges") or []:
+        edge.pop("hidden_search", None)  # only ever set here, never from the request
+        kind = tokens.condition_kind(edge)
+        if edge.get("condition") != "expression" or kind not in ("eval", "search"):
+            continue
+        try:
+            spl, _ = tokens.compile_condition(edge.get("expression") or "", ids, kind)
+        except tokens.TokenError:
+            continue  # validation reports it; a run then fails this condition clearly
+        earliest, latest = condition_time_range(edge)
+        name = condition_search_name(job_id, condition_hash(job_id, edge, spl, earliest, latest))
+        edge["hidden_search"] = name
+        searches.append({"owner": owner, "name": name, "search": spl, "earliest": earliest,
+                         "latest": latest,
+                         "description": "Search Orchestrator job %s, condition %s to %s"
+                                        % (job_id, edge.get("from"), edge.get("to"))})
     for index, step_id, action in _indexed(job):
         action.pop("hidden_search", None)  # only ever set here, never from the request
         if action.get("type") not in SEARCH_ACTIONS:
@@ -290,6 +341,9 @@ def used(definition, owner):
             out.add((owner, step["hidden_search"]))
         if step.get("hidden_search_empty"):
             out.add((owner, step["hidden_search_empty"]))
+    for edge in definition.get("edges") or []:
+        if edge.get("hidden_search"):
+            out.add((owner, edge["hidden_search"]))
     for _, _, action in _indexed(definition):
         if action.get("type") in SEARCH_ACTIONS and action.get("hidden_search"):
             out.add((owner, action["hidden_search"]))

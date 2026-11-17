@@ -191,7 +191,7 @@ class ActionRunner:
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),
                "scope": scope, "hook": hook, "step_id": step_id, "occurrence": occurrence,
-               "ctx": ctx, "tokens": tokens.run_context(run) if matching else None,
+               "ctx": ctx, "tokens": tokens.run_context(run, int(self.clock())) if matching else None,
                "chain_depth": int(run.get("chain_depth") or 0),
                "chain_rerun": chain_rerun(run),
                "actions": [_entry(i, a) for i, a in matching],

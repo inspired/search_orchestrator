@@ -117,7 +117,7 @@ def rules(s, label):
         ("bin/so/model.py", r'^_ORCHESTRATE_RE = re\.compile\(r"\\\|\\s\*orchestrate\\b", re\.IGNORECASE\)$',
          # Refuse both this copy's command and the normal app's.
          lambda m: '_ORCHESTRATE_RE = re.compile(r"\\|\\s*orchestrate(%s)?\\b", re.IGNORECASE)' % cmd[len("orchestrate"):], 1),
-        ("bin/so/model.py", r"\| orchestrate\b", "| " + cmd, 1),
+        ("bin/so/model.py", r"\| orchestrate\b", "| " + cmd, 2),  # steps and conditions
         ("bin/so/selftest.py", r"\| orchestrate\b", "| " + cmd, 3),
         ("bin/orchestrate.py", r"\| orchestrate\b", "| " + cmd, 9),
         ("default/data/ui/alerts/start_orchestrator_job.html", r'search="\| orchestrate jobs"',

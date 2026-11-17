@@ -272,7 +272,7 @@ def _preview_search(ctx, job, step, scheduled, params, upstream):
     ids = [s.get("id") for s in job.get("steps") or []]
     try:
         spl = preview.step_search(step, ids,
-                                  preview.token_context(job, scheduled, params, upstream),
+                                  preview.token_context(job, scheduled, params, upstream, ctx.now),
                                   preview.input_sids(job, step["id"], upstream))
     except tokens.TokenError as err:
         raise _invalid([_issue("error", "bad_token", "token %s: %s" % (err.token, err.reason),

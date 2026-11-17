@@ -8,6 +8,7 @@ happen next. It never mutates ``run``. Effects, in the order returned:
     ("set_run", fields)                merge fields into the run
     ("hook", "step"|"job", hook, step_id|None)
     ("notify_fallback_check", hook, step_id|None)   after on_delayed/on_failure
+    ("start_condition", edge_key)      an SPL condition to run now ("<from>><to>")
     ("start_step", step_id)            every ready or due step, in topo order
 
 Concurrency limits (global 10, per job 4) are NOT applied here: the engine
@@ -55,12 +56,20 @@ ended_at, gave_up, hooks_fired, delay_alerted. ``held`` belongs to the engine.
   succeeded, failed or cancelled.
 * A run whose state the engine set to ``cancelled`` gets its running searches
   cancelled and its unfinished steps ``cancelled``.
+* SPL conditions (edge ``expression_kind`` ``eval`` or ``search``): the engine keeps
+  their results in ``run["conditions"][edge_key]`` (``state`` starting, running, met,
+  not_met, failed or cancelled). An edge whose source succeeded or failed is unresolved
+  until the result is met, not_met or failed (only met satisfies it); with no record (or
+  a cancelled one) evaluate asks for ``start_condition``, except while paused. A pending
+  condition counts as activity, so the run is not blocked meanwhile. A skipped source
+  never runs one: the edge is not satisfied.
 """
 import copy
 
 from . import cron as cronmod
 from . import expr as exprmod
 from . import model
+from . import tokens
 
 DISPATCH_RETRIES = 3
 ACTIVE = ("ready", "starting", "running", "retrying")
@@ -72,6 +81,14 @@ _FRESH_STEP = {"state": "waiting", "skip_kind": None, "attempt": 0, "sid": None,
                "started_at": None, "ended_at": None, "next_attempt_at": None,
                "delay_alerted": False, "result_count": None, "first": None,
                "error": None, "dispatch_errors": 0, "outcome": None, "hooks_fired": []}
+
+
+def condition_key(edge):
+    """The key of an edge's SPL condition result in ``run["conditions"]``."""
+    return "%s>%s" % (edge.get("from"), edge.get("to"))
+
+
+CONDITION_FINAL = ("met", "not_met", "failed")
 
 
 def backoff(n):
@@ -120,6 +137,10 @@ class _Eval:
         self.hooks = []
         self.run_hooks = list(run.get("hooks_fired") or [])
         self.paused = run.get("state") == "paused"
+        self.conditions = run.get("conditions") or {}
+        self.condition_starts = []
+        self.cond_waiting = False  # an SPL condition is out or about to start
+        self.assume_conditions = False  # previews: an SPL condition counts as met
 
     # -- helpers --
     def set(self, step_id, **fields):
@@ -161,6 +182,8 @@ class _Eval:
                 return self.run.get("id") or self.run.get("_key")
             if name == "run.scheduled_time":
                 return self.run.get("scheduled_time")
+            if name == "run.now":
+                return self.now
             if len(parts) == 3 and parts[1] == "param":
                 return (self.run.get("params") or {}).get(parts[2])
             return None
@@ -187,6 +210,22 @@ class _Eval:
         except exprmod.ExprError:
             return False
 
+    def condition(self, e):
+        """An expression edge whose source succeeded or failed: True, False or None."""
+        if tokens.condition_kind(e) == "simple":
+            return self.expression(e.get("expression"))
+        if self.assume_conditions:
+            return True
+        key = condition_key(e)
+        c = self.conditions.get(key) or {}
+        if c.get("state") in CONDITION_FINAL:
+            return c["state"] == "met"
+        self.cond_waiting = True
+        if (not c or c.get("state") == "cancelled") and not self.paused \
+                and key not in self.condition_starts:
+            self.condition_starts.append(key)
+        return None
+
     # -- edges and readiness --
     def edge(self, e):
         """None if unresolved, else True (satisfied) / False (not satisfied)."""
@@ -198,13 +237,13 @@ class _Eval:
                 return True
             if cond == "on_failure":
                 return False
-            return self.expression(e.get("expression"))
+            return self.condition(e)
         if s == "failed":
             if cond == "on_success":
                 return None
             if cond in ("on_failure", "always"):
                 return True
-            return self.expression(e.get("expression"))
+            return self.condition(e)
         if s == "skipped":
             if cond == "always":
                 return True
@@ -311,8 +350,8 @@ class _Eval:
         elapsed = self.now - int(base) - self.paused_total()
         # An unhandled failure's deadline counts only once the run is blocked:
         # it must not cut short a parallel branch that can still progress.
-        blocked = self.run.get("state") == "blocked" or not any(
-            self.steps[s].get("state") in ACTIVE for s in self.order)
+        blocked = self.run.get("state") == "blocked" or not (self.cond_waiting or any(
+            self.steps[s].get("state") in ACTIVE for s in self.order))
         expired = []
         for sid in self.order:
             s = self.steps[sid].get("state")
@@ -360,7 +399,7 @@ class _Eval:
 
     def run_state(self):
         states = [self.steps[s].get("state") for s in self.order]
-        if any(s in ACTIVE for s in states):
+        if any(s in ACTIVE for s in states) or self.cond_waiting:
             return
         failed = [s for s in self.order if self.steps[s].get("state") == "failed"]
         if any(not self.handled(s) for s in failed):
@@ -393,6 +432,7 @@ class _Eval:
         if self.run_changes:
             out.append(("set_run", self.run_changes))
         out.extend(self.hooks)
+        out.extend(("start_condition", key) for key in self.condition_starts)
         out.extend(("start_step", sid) for sid in starts)
         return out
 
@@ -419,7 +459,8 @@ class _Eval:
                     starts.append(sid)
         self.run_state()
         if not self.paused and rs == "blocked" and self.run_changes.get("state") is None \
-                and any(self.steps[s].get("state") in ACTIVE for s in self.order):
+                and (self.cond_waiting
+                     or any(self.steps[s].get("state") in ACTIVE for s in self.order)):
             self.run_changes["state"] = "running"
         return self.effects(starts)
 
@@ -448,12 +489,17 @@ def reset_for_rerun(run, step_id, now, definition=None):
     old_steps = new.get("steps") or {}
     steps = {sid: old_steps[sid] for sid in ids if sid in old_steps}
     reset = {step_id} | downstream(job, step_id)
+    refreshed = set()
     for sid in ids:
         st = steps.get(sid)
         if st is None or sid in reset or st.get("state") not in ("succeeded", "skipped", "failed"):
             fresh = copy.deepcopy(_FRESH_STEP)
             steps[sid] = dict(st or {}, **fresh)
+            refreshed.add(sid)
     new["steps"] = steps
+    # Conditions into a step that starts again are evaluated again.
+    new["conditions"] = {k: v for k, v in (new.get("conditions") or {}).items()
+                         if k.split(">", 1)[-1] not in refreshed}
     new["state"] = "running" if run.get("state") == "blocked" else "queued"
     new.update(ended_at=None, gave_up=False, held=False, delay_alerted=False,
                delay_base=now, giveup_base=now, paused_seconds=0, paused_at=None)
@@ -473,7 +519,8 @@ def preview_decision(definition, step_id, scheduled_time, params, upstream):
     failed behind an ``on_success`` edge).
 
     It builds a synthetic run and asks ``_Eval.edge`` and ``_Eval.run_when_applies``, so it
-    follows the run rules exactly. An unknown ``step_id`` raises KeyError. A bad ``run_when``
+    follows the run rules exactly, except that an SPL condition (``eval``/``search``) is
+    taken as met: a preview never runs condition searches. An unknown ``step_id`` raises KeyError. A bad ``run_when``
     raises CronError (a ValueError), ValueError or TypeError, where a real run would fail
     the step."""
     steps = {}
@@ -483,6 +530,7 @@ def preview_decision(definition, step_id, scheduled_time, params, upstream):
     run = {"id": "preview", "definition": definition, "state": "running",
            "scheduled_time": scheduled_time, "params": dict(params or {}), "steps": steps}
     ev = _Eval(run, scheduled_time)
+    ev.assume_conditions = True  # a preview never runs condition searches
     if step_id not in ev.steps:
         raise KeyError(step_id)
     incoming = ev.incoming[step_id]

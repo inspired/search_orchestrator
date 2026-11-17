@@ -82,7 +82,7 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import authz, model, scheduler, tokens
+from . import authz, hidden, model, scheduler, tokens
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
 from .gateway import DispatchError, GatewayError, KvError
@@ -103,6 +103,7 @@ LIVE = ("running", "blocked", "paused")
 PRUNE_BATCH = 200
 LEASE_RENEW_EVERY = 10
 UNKNOWN_LIMIT = 300  # seconds a dispatch's fate may stay unknown before the attempt fails
+CONDITION_TIMEOUT = 300  # seconds an SPL condition search may run before it counts as failed
 COMMAND_ATTEMPTS = 10
 COMPLETION_STATES = {"success": ("succeeded",), "complete": ("succeeded", "failed", "cancelled")}
 
@@ -126,7 +127,10 @@ def _check_auth(err):
 
 
 def _inflight(run):
-    return sum(1 for st in (run.get("steps") or {}).values() if st.get("state") in IN_FLIGHT)
+    """Searches the run has out: steps and SPL conditions."""
+    return (sum(1 for st in (run.get("steps") or {}).values() if st.get("state") in IN_FLIGHT)
+            + sum(1 for c in (run.get("conditions") or {}).values()
+                  if c.get("state") in IN_FLIGHT))
 
 
 def _run_id(run):
@@ -164,7 +168,11 @@ def first_fields(definition):
         found |= tokens.find_tokens(s.get("spl") or "", ids)
     for text in _action_texts(definition):
         found |= tokens.find_tokens(text, ids)
-    texts = [e.get("expression") for e in definition.get("edges") or [] if e.get("expression")]
+    edges = [e for e in definition.get("edges") or [] if e.get("expression")]
+    for e in edges:
+        if tokens.condition_kind(e) != "simple":
+            found |= tokens.find_tokens(e["expression"], ids)
+    texts = [e["expression"] for e in edges if tokens.condition_kind(e) == "simple"]
     texts += [(s.get("run_when") or {}).get("value") for s in steps
               if (s.get("run_when") or {}).get("kind") == "expression"]
     for text in texts:
@@ -588,7 +596,10 @@ class Engine:
                 st = run["steps"][sid]
                 if st.get("state") in IN_FLIGHT and st.get("sid") and not st.get("outcome"):
                     self._poll(run, sid, defs[sid], now, pending)
-        starts, hooks = [], []
+        cond_redispatch = []
+        if run.get("state") != "cancelled":
+            cond_redispatch = self._conditions_before(run, now, pending)
+        starts, hooks, cond_starts = [], [], []
         for effect in statemod.evaluate(run, now):
             kind = effect[0]
             if kind == "set_step":
@@ -601,6 +612,8 @@ class Engine:
                 hooks.append(effect[1:])
             elif kind == "start_step":
                 starts.append(effect[1])
+            elif kind == "start_condition":
+                cond_starts.append(effect[1])
         for sid in unresolved:
             if run["steps"][sid].get("state") != "starting":  # cancelled or given up meanwhile
                 self._orphan(run, sid, defs[sid], now, pending, "the run ended before it could "
@@ -612,6 +625,7 @@ class Engine:
                                                   occurrence=run.get("rerun_count") or 0))
         ttl_sids = []
         if run.get("state") in TERMINAL_RUN_STATES:
+            self._conditions_ended(run, now, pending)
             if not run.get("closed"):
                 self._fire_completions(run, settings, now, pending)
                 run["closed"] = True
@@ -627,10 +641,23 @@ class Engine:
             to_dispatch = [sid for sid in redispatch if run["steps"][sid].get("state") == "starting"
                            and not run["steps"][sid].get("sid")
                            and not run["steps"][sid].get("outcome")]
+        cond_dispatch = []
         if budget is not None:
             budget.adjust(run.get("job_id"), _inflight(run) - before)
+            if run.get("state") not in TERMINAL_RUN_STATES:
+                # Redispatches are already counted as in flight (starting).
+                cond_dispatch = list(cond_redispatch)
+                new_conds = [k for k in cond_starts if k not in cond_redispatch]
+                new_conds = new_conds[:budget.room(run.get("job_id"))]
+                for key in new_conds:
+                    self._set_condition(run, key, {"state": "starting", "intent_at": now,
+                                                   "sid": None, "started_at": None,
+                                                   "ended_at": None, "error": None,
+                                                   "result_count": None})
+                budget.adjust(run.get("job_id"), len(new_conds))
+                cond_dispatch.extend(new_conds)
             chosen = starts[:budget.room(run.get("job_id"))]
-            if chosen:
+            if chosen or cond_dispatch:
                 for sid in chosen:
                     st = run["steps"][sid]
                     # A dispatch-error retry of the same attempt keeps its first intent_at,
@@ -643,6 +670,8 @@ class Engine:
                 self._save(run, pending)
                 pending = _Pending()
                 to_dispatch.extend(chosen)
+        for key in cond_dispatch:
+            self._dispatch_condition(run, key, now, pending)
         for sid in to_dispatch:
             self._dispatch(run, sid, defs[sid], now, pending)
         self._save(run, pending)
@@ -965,12 +994,12 @@ class Engine:
             return sdef.get("hidden_search_empty")
         return sdef.get("hidden_search")
 
-    def _render_args(self, run, sdef):
+    def _render_args(self, run, sdef, now=None):
         definition = run.get("definition") or {}
         ids = [s["id"] for s in definition.get("steps") or []]
         spl = sdef.get("spl") or ""
         _, arg_names = tokens.step_spl(sdef, ids)
-        args = tokens.render_args(arg_names, tokens.run_context(run),
+        args = tokens.render_args(arg_names, tokens.run_context(run, now),
                                   tokens.token_defaults(spl, ids))
         if sdef.get("type") == "previous":
             sids = self._input_sids(run, sdef)
@@ -1011,7 +1040,7 @@ class Engine:
                                             "step %s are still available" % up, now, pending)
             return None  # stays starting; checked again next tick
         try:
-            args = self._render_args(run, sdef)
+            args = self._render_args(run, sdef, now)
         except tokens.TokenError as err:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
@@ -1122,6 +1151,160 @@ class Engine:
             return ("hidden saved search %r was not found for owner %r: it was deleted outside "
                     "the app; re-save the job to recreate it (%s)" % (name, owner, err))
         return "dispatch of %r was rejected: %s" % (name, err)
+
+    # -- SPL conditions ---------------------------------------------------------
+
+    @staticmethod
+    def _edge(run, key):
+        for e in (run.get("definition") or {}).get("edges") or []:
+            if statemod.condition_key(e) == key:
+                return e
+        return None
+
+    @staticmethod
+    def _set_condition(run, key, fields):
+        c = run.setdefault("conditions", {}).setdefault(key, {})
+        c.update(fields)
+        return c
+
+    def _condition_event(self, run, kind, key, now, **fields):
+        edge = self._edge(run, key) or {}
+        return self._event(run, kind, now, edge=key, from_step=edge.get("from"),
+                           step_id=edge.get("to"), check=tokens.condition_kind(edge), **fields)
+
+    def _condition_done(self, run, key, state, now, pending, error=None, result_count=None):
+        """Record an SPL condition's final result: met, not_met or failed (not met)."""
+        c = self._set_condition(run, key, {"state": state, "ended_at": now, "error": error,
+                                           "result_count": result_count})
+        if state == "failed":
+            pending.events.append(self._condition_event(run, "condition_failed", key, now,
+                                                        sid=c.get("sid"), error=error))
+        pending.events.append(self._condition_event(run, "condition_evaluated", key, now,
+                                                    sid=c.get("sid"), result=state == "met",
+                                                    result_count=result_count, error=error))
+
+    def _conditions_before(self, run, now, pending):
+        """Before evaluate: adopt or poll every condition search that is out. Returns the
+        keys of starting conditions that history shows never started (dispatch them)."""
+        redispatch = []
+        for key, c in sorted((run.get("conditions") or {}).items()):
+            if c.get("state") == "starting" and not c.get("sid"):
+                found = self._adopt_condition(run, key, now, pending)
+                if found == "none":
+                    redispatch.append(key)
+                    continue
+                if found != "adopted":
+                    continue
+            if c.get("state") in IN_FLIGHT and c.get("sid"):
+                self._poll_condition(run, key, now, pending)
+        return redispatch
+
+    def _adopt_condition(self, run, key, now, pending):
+        """A condition saved as starting whose search ID was never saved (a crash or lost
+        lease mid-dispatch): adopt the newest search history has since its intent_at.
+        "adopted", "none" (dispatch it), "pending" (history unavailable) or "failed"."""
+        c = run["conditions"][key]
+        name = (self._edge(run, key) or {}).get("hidden_search")
+        if not name:
+            return "none"  # the dispatch fails it clearly
+        try:
+            found = self.gw.history(run.get("owner"), name, c.get("intent_at") or now)
+        except GatewayError as err:
+            _check_auth(err)
+            log.warning("history of %s failed: %s", name, err)
+            if err.transient and now - int(c.get("intent_at") or now) < UNKNOWN_LIMIT:
+                return "pending"
+            self._condition_done(run, key, "failed", now, pending,
+                                 error="Could not confirm whether the condition search "
+                                       "started: %s" % err)
+            return "failed"
+        if not found:
+            return "none"
+        self._set_condition(run, key, {"state": "running", "sid": found[0],
+                                       "started_at": c.get("intent_at") or now})
+        return "adopted"
+
+    def _poll_condition(self, run, key, now, pending):
+        c = run["conditions"][key]
+        try:
+            status = self.gw.job_status(c["sid"])
+        except GatewayError as err:
+            _check_auth(err)
+            log.warning("status of condition search %s failed: %s", c["sid"], err)
+            status = {"state": "running"}
+        state = status.get("state")
+        if state == "running":
+            started = int(c.get("started_at") or c.get("intent_at") or now)
+            if now - started >= CONDITION_TIMEOUT:
+                self._control(c["sid"], "cancel")
+                self._condition_done(run, key, "failed", now, pending,
+                                     error="the condition search took longer than %d seconds "
+                                           "and was stopped" % CONDITION_TIMEOUT)
+            return
+        if state == "done" and not status.get("finalized"):
+            count = int(status.get("result_count") or 0)
+            self._condition_done(run, key, "met" if count > 0 else "not_met", now, pending,
+                                 result_count=count)
+            return
+        if state == "done":
+            error = "condition search %s was stopped early outside the orchestrator" % c["sid"]
+        elif state == "failed":
+            error = "condition search %s failed: %s" % (c["sid"], status.get("error")
+                                                        or "unknown error")
+        else:
+            error = ("condition search %s no longer exists: it expired or was deleted "
+                     "outside the orchestrator" % c["sid"])
+        self._condition_done(run, key, "failed", now, pending, error=error)
+
+    def _dispatch_condition(self, run, key, now, pending):
+        """Dispatch an SPL condition's hidden search as the owner (saved ``starting``
+        first, so a restart adopts it). Problems fail the condition (not met)."""
+        edge = self._edge(run, key)
+        name = (edge or {}).get("hidden_search")
+        if not name:
+            return self._condition_done(
+                run, key, "failed", now, pending,
+                error="the condition has no hidden saved search in the run's definition; "
+                      "re-save the job to create it")
+        definition = run.get("definition") or {}
+        ids = [s["id"] for s in definition.get("steps") or []]
+        text = edge.get("expression") or ""
+        try:
+            _, arg_names = tokens.compile_condition(text, ids, tokens.condition_kind(edge))
+            args = tokens.render_args(arg_names, tokens.run_context(run, now),
+                                      tokens.token_defaults(text, ids))
+        except tokens.TokenError as err:
+            return self._condition_done(run, key, "failed", now, pending,
+                                        error="token %s: %s" % (err.token, err.reason))
+        earliest, latest = hidden.condition_time_range(edge)
+        self._keep_lease(force=True)
+        try:
+            search_id = self.gw.dispatch(run.get("owner"), name, int(run["scheduled_time"]), args,
+                                         earliest, latest, trigger_actions=False)
+        except DispatchError as err:
+            _check_auth(err)
+            if err.transient:
+                c = run["conditions"][key]
+                if now - int(c.get("intent_at") or now) < UNKNOWN_LIMIT:
+                    c["error"] = "dispatch failed, trying again: %s" % err
+                    return None  # stays starting; history is asked first next tick
+            return self._condition_done(run, key, "failed", now, pending,
+                                        error=self._dispatch_failure(run, name, err))
+        self._set_condition(run, key, {"state": "running", "sid": search_id,
+                                       "started_at": now, "error": None})
+        pending.events.append(self._condition_event(run, "condition_dispatched", key, now,
+                                                    sid=search_id, hidden_search=name,
+                                                    owner=run.get("owner"),
+                                                    dispatch_now=int(run["scheduled_time"])))
+        return None
+
+    def _conditions_ended(self, run, now, pending):
+        """The run ended (cancel, give-up): stop condition searches still out."""
+        for key, c in sorted((run.get("conditions") or {}).items()):
+            if c.get("state") in IN_FLIGHT:
+                if c.get("sid"):
+                    self._control(c["sid"], "cancel")
+                self._set_condition(run, key, {"state": "cancelled", "ended_at": now})
 
     # -- retention --------------------------------------------------------------
 
