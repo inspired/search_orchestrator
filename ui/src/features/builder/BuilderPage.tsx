@@ -40,7 +40,8 @@ import useClipboard from './useClipboard';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
 import useGroups from './useGroups';
-import usePreviews, { PreviewApi, previewSummary } from './usePreviews';
+import usePreviews, { PreviewApi } from './usePreviews';
+import usePreviewViews from './usePreviewViews';
 import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
@@ -167,24 +168,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         return { scheduledTime, params, source };
     }, [scheduledTime, paramValues, source]);
     const previews = usePreviews(previewJob, previewCtx, api);
-    // Result fields of each step's current preview, for the first-row tokens.
-    const previewFields = useMemo(() => {
-        const out: Record<string, string[]> = {};
-        Object.keys(previews.previews).forEach((id) => {
-            const p = previews.previews[id];
-            if (p && !p.stale && p.results) {
-                out[id] = p.results.fields;
-            }
-        });
-        return out;
-    }, [previews.previews]);
-    const nodePreviews = useMemo(() => {
-        const out: Record<string, ReturnType<typeof previewSummary>> = {};
-        Object.keys(previews.previews).forEach((id) => {
-            out[id] = previewSummary(previews.previews[id]);
-        });
-        return out;
-    }, [previews.previews]);
+    const { previewFields, nodePreviews } = usePreviewViews(previews.previews);
     // Server warnings stay until the next check. Once the job is edited, server errors the
     // client check also finds are recomputed live; the rest stay until the next check.
     const issues = useMemo(() => {
