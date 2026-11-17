@@ -38,6 +38,7 @@ import BuilderToolbarExtras from './BuilderToolbarExtras';
 import useFillHeight from './useFillHeight';
 import useLeaveWarning from './useLeaveWarning';
 import useClipboard from './useClipboard';
+import useSnippets from './useSnippets';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
 import useGroups from './useGroups';
@@ -345,11 +346,13 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     }, [renaming]);
 
     const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: (text) => menus.notify(text), compact });
+    const snippets = useSnippets({ job, positions, me, put: clipboard.put });
     const menus = useFlowMenus({
         job,
         graph,
         positions,
         compact,
+        snippets,
         dispatch,
         select: setSelectedState,
         focusNode: (key) => setFocusNext({ key }),
@@ -494,6 +497,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     previewLive={source === 'live'}
                     groupPanel={grouping.panel}
                     roles={me ? me.roles : []}
+                    onSaveSnippet={snippets.canUse ? snippets.requestSave : undefined}
                 />
             </div>
         </div>
@@ -505,7 +509,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         <>
             <Button appearance="subtle" label="Undo" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
             <Button appearance="subtle" label="Redo" disabled={!state.future.length} onClick={() => dispatch({ type: 'redo' })} />
-            <BuilderToolbarExtras jobId={jobId} job={job} me={me} />
+            <BuilderToolbarExtras jobId={jobId} job={job} me={me} snippets={snippets} />
             {auto.checking && <Typography as="span" variant="body">Checking…</Typography>}
             <Button appearance="primary" label="Save" disabled={busy || loading || !meta.canEdit} onClick={onSave} />
         </>

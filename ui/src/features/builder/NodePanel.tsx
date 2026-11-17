@@ -70,6 +70,8 @@ export interface NodePanelProps {
     groupPanel?: React.ReactNode;
     /** Roles an approval step's Who may approve offers (the caller's own). */
     roles?: string[];
+    /** Save as snippet for a multi-selection (absent: not offered). */
+    onSaveSnippet?: (keys: string[]) => void;
 }
 
 export default function NodePanel(props: NodePanelProps) {
@@ -103,6 +105,7 @@ export default function NodePanel(props: NodePanelProps) {
                 onTidy={(keys) => (props.onTidy ? props.onTidy(keys) : dispatch({ type: 'tidyLayout', keys }))}
                 onArrange={props.onArrange}
                 onRequestRemove={(keys) => props.onRequestRemoveNodes && props.onRequestRemoveNodes(keys)}
+                onSaveSnippet={props.onSaveSnippet}
             />
         );
     }

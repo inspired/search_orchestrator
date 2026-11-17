@@ -7,6 +7,8 @@ import { renderThemed, runSummary } from './fixtures';
 import * as versions from '../api/versions';
 
 jest.mock('../api/versions');
+// Quick-add on the canvas asks for snippets; these tests don't need the answer.
+jest.mock('../api/snippets', () => ({ listSnippets: jest.fn(() => new Promise(() => undefined)) }));
 
 /** Renders and lets the page's start-up requests settle. */
 async function show(ui: React.ReactElement) {

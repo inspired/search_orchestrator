@@ -1,9 +1,10 @@
 /* The side panel for several selected nodes: how many, and what can be done to all of them at
- * once (align them, spread them out evenly, tidy them up, remove them). */
+ * once (align them, spread them out evenly, tidy them up, save them as a snippet, remove them). */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
 import Heading from '@splunk/react-ui/Heading';
 import { ALIGN_LABEL, AlignHow, Arrange, DISTRIBUTE_LABEL, DISTRIBUTE_REASON } from './align';
+import { hasCopyable } from './clipboard';
 
 export interface SelectionPanelProps {
     keys: string[];
@@ -12,11 +13,13 @@ export interface SelectionPanelProps {
     onArrange?: (keys: string[], how: Arrange) => void;
     /** The page confirms, then removes them. */
     onRequestRemove: (keys: string[]) => void;
+    /** Opens Save as snippet for them (absent: no button). */
+    onSaveSnippet?: (keys: string[]) => void;
 }
 
 const row = { display: 'flex', flexWrap: 'wrap', gap: '4px' } as const;
 
-export default function SelectionPanel({ keys, onTidy, onArrange, onRequestRemove }: SelectionPanelProps) {
+export default function SelectionPanel({ keys, onTidy, onArrange, onRequestRemove, onSaveSnippet }: SelectionPanelProps) {
     const enough = keys.length >= 3;
     return (
         <section aria-label="Selected nodes">
@@ -38,6 +41,7 @@ export default function SelectionPanel({ keys, onTidy, onArrange, onRequestRemov
                     </>
                 )}
                 <Button appearance="secondary" label="Tidy up selection" onClick={() => onTidy(keys)} />
+                {onSaveSnippet && hasCopyable(keys) && <Button appearance="secondary" label="Save as snippet" onClick={() => onSaveSnippet(keys)} />}
                 <Button appearance="destructive" label="Remove nodes" onClick={() => onRequestRemove(keys)} />
             </div>
         </section>

@@ -4,6 +4,8 @@ import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi, rollupJob } from './builderFixtures';
 import { renderThemed } from './fixtures';
 
+jest.mock('../api/snippets', () => ({ listSnippets: jest.fn().mockResolvedValue([]) }));
+
 async function show(api = fakeApi()) {
     renderThemed(<BuilderPage jobId="rollups" api={api} />);
     await act(async () => {
@@ -27,7 +29,7 @@ describe('BuilderPage right-click menu', () => {
         await show();
         fireEvent.contextMenu(screen.getByTestId('node-step:weekly'), { clientX: 300, clientY: 200 });
         expect(screen.getByRole('menu', { name: 'Node' })).toBeInTheDocument();
-        expect(names()).toEqual(['Rename', 'Duplicate', 'Copy', 'Preview', 'Add a line', 'Remove']);
+        expect(names()).toEqual(['Rename', 'Duplicate', 'Copy', 'Save as snippet', 'Preview', 'Add a line', 'Remove']);
         expect(screen.getByRole('region', { name: /Weekly rollup/ })).toBeInTheDocument();
     });
 
@@ -43,7 +45,7 @@ describe('BuilderPage right-click menu', () => {
         const node = screen.getByRole('button', { name: /^Search Weekly rollup/ });
         node.focus();
         fireEvent.keyDown(node, { key: 'F10', shiftKey: true });
-        expect(names()).toEqual(['Rename', 'Duplicate', 'Copy', 'Preview', 'Add a line', 'Remove']);
+        expect(names()).toEqual(['Rename', 'Duplicate', 'Copy', 'Save as snippet', 'Preview', 'Add a line', 'Remove']);
         fireEvent.keyDown(screen.getByRole('menu', { name: 'Node' }), { key: 'Escape' });
         expect(screen.queryByRole('menu')).toBeNull();
         expect(screen.getByRole('button', { name: /^Search Weekly rollup/ })).toHaveFocus();
@@ -55,6 +57,19 @@ describe('BuilderPage right-click menu', () => {
         node.focus();
         fireEvent.keyDown(node, { key: 'ContextMenu' });
         expect(screen.getByRole('menu', { name: 'Node' })).toBeInTheDocument();
+    });
+
+    it('Save as snippet from the keyboard opens the save dialog', async () => {
+        await show();
+        const node = screen.getByRole('button', { name: /^Search Weekly rollup/ });
+        node.focus();
+        fireEvent.keyDown(node, { key: 'F10', shiftKey: true });
+        const menu = screen.getByRole('menu', { name: 'Node' });
+        fireEvent.keyDown(menu, { key: 'ArrowDown' });
+        fireEvent.keyDown(menu, { key: 'ArrowDown' });
+        fireEvent.keyDown(menu, { key: 'ArrowDown' });
+        fireEvent.keyDown(menu, { key: 'Enter' });
+        expect(within(screen.getByRole('dialog')).getByRole('heading', { name: 'Save as snippet' })).toBeInTheDocument();
     });
 
     it('Rename selects the node and focuses the name field', async () => {
@@ -86,6 +101,8 @@ describe('BuilderPage right-click menu', () => {
         expect(names()).toEqual(['Add node here', 'Paste', 'Tidy up']);
         fireEvent.click(screen.getByRole('menuitem', { name: 'Add node here' }));
         expect(screen.getByPlaceholderText('Search for a node')).toBeInTheDocument();
+        // Its snippets load (none here).
+        await waitFor(() => expect(screen.queryByText('Loading snippets…')).toBeNull());
     });
 
     it('a multi-selection keeps its selection on right-click and lists the group actions', async () => {
@@ -93,7 +110,7 @@ describe('BuilderPage right-click menu', () => {
         shiftClick('step:daily');
         shiftClick('step:weekly');
         fireEvent.contextMenu(screen.getByTestId('node-step:weekly'), { clientX: 300, clientY: 200 });
-        expect(names()).toEqual(['Duplicate', 'Copy', 'Align…', 'Distribute…Select three or more nodes', 'Tidy up selection', 'Group', 'Remove nodes']);
+        expect(names()).toEqual(['Duplicate', 'Copy', 'Save as snippet', 'Align…', 'Distribute…Select three or more nodes', 'Tidy up selection', 'Group', 'Remove nodes']);
         expect(screen.getByRole('heading', { name: '2 nodes selected' })).toBeInTheDocument();
     });
 
@@ -158,6 +175,7 @@ describe('BuilderPage right-click menu', () => {
             fireEvent.contextMenu(screen.getByTestId('node-action:daily:0'), { clientX: 300, clientY: 200 });
             expect(names()).not.toContain('Duplicate');
             expect(names()).not.toContain('Copy');
+            expect(names()).not.toContain('Save as snippet');
         });
 
         it('a selection of actions only has no Duplicate or Copy, and Ctrl+D and Ctrl+C are left alone', async () => {

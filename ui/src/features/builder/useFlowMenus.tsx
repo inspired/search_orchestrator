@@ -28,6 +28,7 @@ import type { Outcome } from './outcomes';
 import QuickAdd from './QuickAdd';
 import { addNodeKey } from './reducer';
 import type { BuilderAction } from './reducer';
+import type { Snippets } from './useSnippets';
 import { canSplice, spliceCandidates, spliceMessage } from './splice';
 import WhenMenu from './WhenMenu';
 
@@ -102,7 +103,12 @@ export interface FlowMenusOptions {
     context: ContextActions;
     /** Nodes are drawn compact. */
     compact?: boolean;
+    /** Save as snippet on the menus, and a Snippets section in a quick-add opened on the canvas. */
+    snippets?: Snippets;
 }
+
+/** Whether a quick-add box offers snippets: opened at a canvas point, not for a line. */
+const offersSnippets = (q: QuickAddState) => Boolean(q.at && !q.from && !q.insert && !q.kinds);
 
 /** `screen` moved so a `w` × `h` box stays inside the canvas (only left and top when unknown). */
 function clampInto(screen: ScreenPoint, w: number, h: number, canvas: Element | null): ScreenPoint {
@@ -123,8 +129,18 @@ function insertKinds(job: JobDefinition, graph: FlowGraph, link: FlowLink): Node
 }
 
 export default function useFlowMenus(opts: FlowMenusOptions) {
-    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context, compact } = opts;
+    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context, compact, snippets } = opts;
     const [menu, setMenu] = useState<Menu | null>(null);
+    const snippetsOn = Boolean(snippets && snippets.canUse);
+    const snippetItem = (keys: string[]): MenuItem[] => (snippetsOn && hasCopyable(keys) ? [{ id: 'snippet', label: 'Save as snippet' }] : []);
+    const quickWithSnippets = Boolean(snippetsOn && menu && menu.kind === 'quick' && offersSnippets(menu));
+    useEffect(() => {
+        if (quickWithSnippets) {
+            snippets?.refresh();
+        }
+        // Once each time such a box opens.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [quickWithSnippets, menu]);
     const [message, setMessage] = useState<string | null>(null);
     /** The job just before the splice the message is about, then the job just after it: if the
      * splice changed nothing, or once the job is edited again, the message goes. */
@@ -266,6 +282,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
                 label: 'Selected nodes',
                 items: [
                     ...(hasCopyable(target.keys) ? [{ id: 'duplicate', label: 'Duplicate' }, { id: 'copy', label: 'Copy' }] : []),
+                    ...snippetItem(target.keys),
                     { id: 'align', label: 'Align…' },
                     { id: 'distribute', label: 'Distribute…', disabled: target.keys.length < 3, reason: target.keys.length < 3 ? DISTRIBUTE_REASON : undefined },
                     { id: 'tidy', label: 'Tidy up selection' },
@@ -275,7 +292,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
                 run: (id, screen) =>
                     id === 'align' || id === 'distribute'
                         ? setMenu({ kind: 'arrange', mode: id, keys: target.keys, screen })
-                        : leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), group: () => context.group?.(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
+                        : leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), group: () => context.group?.(target.keys), snippet: () => snippets?.requestSave(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
             };
         }
         const node = graph.nodes.find((n) => n.key === target.key);
@@ -285,6 +302,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         const items: MenuItem[] = [
             ...(node && node.stepId ? [{ id: 'rename', label: 'Rename' }] : []),
             ...(copyable ? [{ id: 'duplicate', label: 'Duplicate' }, { id: 'copy', label: 'Copy' }] : []),
+            ...(node ? snippetItem([target.key]) : []),
             ...(node && node.stepId && context.preview ? [{ id: 'preview', label: 'Preview', disabled: Boolean(refusal), reason: refusal || undefined }] : []),
             ...(kind && kind !== 'condition' && hasHandle(kind) ? [{ id: 'line', label: 'Add a line' }] : []),
             ...(target.key !== JOB_KEY ? [{ id: 'remove', label: 'Remove' }] : []),
@@ -300,6 +318,8 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
                     context.rename(target.key);
                 } else if (id === 'line') {
                     setMenu({ kind: 'when', from: target.key, screen });
+                } else if (id === 'snippet') {
+                    leave(() => snippets?.requestSave([target.key]))();
                 } else {
                     leave(
                         id === 'duplicate' ? context.duplicate : id === 'copy' ? context.copy : id === 'preview' ? () => stepId && context.preview?.(stepId) : () => context.requestRemove(target.key)
@@ -359,6 +379,9 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
                 kinds={menu.kinds}
                 onChoose={(kind) => addNode(kind, menu)}
                 onClose={finish}
+                {...(quickWithSnippets && snippets && menu.at
+                    ? { snippets: snippets.snippets, snippetError: snippets.error, onPickSnippet: (id: string) => snippets.insert(id, menu.at as Pos).then(finish, () => undefined) }
+                    : {})}
             />
         );
     } else if (menu && menu.kind === 'when') {

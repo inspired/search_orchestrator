@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import QuickAdd from '../features/builder/QuickAdd';
 import { CATALOG, searchCatalog, targetKinds } from '../features/builder/nodeCatalog';
@@ -123,5 +123,42 @@ describe('QuickAdd', () => {
         render(<QuickAdd {...base} />);
         await userEvent.type(screen.getByRole('combobox'), 'zzz');
         expect(screen.getByText('No matching nodes. Try a different word.')).toBeInTheDocument();
+    });
+
+    describe('snippets', () => {
+        const snippets = [
+            { id: 'sn0123456789ab', name: 'Hourly checks', description: 'Count errors each hour', owner: 'alice', updated_at: 1, node_count: 3 },
+            { id: 'sn0123456789cd', name: 'Nightly', description: 'Runs hourly too, at night', owner: 'bob', updated_at: 1, node_count: 1 },
+            { id: 'sn0123456789ef', name: 'Cleanup', description: 'Delete old lookups', owner: 'bob', updated_at: 1, node_count: 2 },
+        ];
+        it('lists matching snippets under Snippets, after the node kinds, by name and description', async () => {
+            render(<QuickAdd {...base} snippets={snippets} onPickSnippet={jest.fn()} />);
+            await userEvent.type(screen.getByRole('combobox'), 'hourly');
+            const group = screen.getByRole('group', { name: 'Snippets' });
+            expect(within(group).getAllByRole('option').map((o) => o.textContent)).toEqual([
+                expect.stringContaining('Hourly checks'),
+                expect.stringContaining('Nightly'),
+            ]);
+            const options = screen.getAllByRole('option');
+            expect(options[options.length - 1]).toHaveTextContent('Nightly');
+        });
+        it('Enter on a snippet picks it; a click does too', async () => {
+            const onPickSnippet = jest.fn();
+            render(<QuickAdd {...base} snippets={snippets} onPickSnippet={onPickSnippet} />);
+            await userEvent.type(screen.getByRole('combobox'), 'nightly{Enter}');
+            expect(onPickSnippet).toHaveBeenCalledWith('sn0123456789cd');
+            expect(base.onChoose).not.toHaveBeenCalled();
+            await userEvent.click(screen.getByRole('option', { name: /^Nightly/ }));
+            expect(onPickSnippet).toHaveBeenCalledTimes(2);
+        });
+        it('has no Snippets section without onPickSnippet', async () => {
+            render(<QuickAdd {...base} snippets={snippets} />);
+            await userEvent.type(screen.getByRole('combobox'), 'hourly');
+            expect(screen.queryByRole('group', { name: 'Snippets' })).toBeNull();
+        });
+        it('shows why the list failed', () => {
+            render(<QuickAdd {...base} snippets={null} snippetError="Snippets couldn't load: KV store is down" onPickSnippet={jest.fn()} />);
+            expect(screen.getByText("Snippets couldn't load: KV store is down")).toBeInTheDocument();
+        });
     });
 });

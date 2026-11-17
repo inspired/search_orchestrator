@@ -1,6 +1,9 @@
-/* The "add a node" box, like Nuke's Tab menu: type to filter, arrows to move, Enter to add. */
+/* The "add a node" box, like Nuke's Tab menu: type to filter, arrows to move, Enter to add.
+ * Opened on the canvas (not to continue a line), it also lists matching snippets after the
+ * node kinds. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import type { SnippetInfo } from '../../api/snippets';
 import { searchCatalog } from './nodeCatalog';
 import type { CatalogEntry } from './nodeCatalog';
 import type { NodeKind } from './nodeModel';
@@ -13,6 +16,11 @@ export interface QuickAddProps {
     kinds?: NodeKind[];
     onChoose: (kind: NodeKind) => void;
     onClose: () => void;
+    /** Snippets to offer (null while loading); a Snippets section shows only with onPickSnippet. */
+    snippets?: SnippetInfo[] | null;
+    /** Why the snippets couldn't load or be inserted. */
+    snippetError?: string | null;
+    onPickSnippet?: (id: string) => void;
 }
 
 /** The popup frame shared with the When list: positioned from the canvas' top-left corner. */
@@ -32,19 +40,19 @@ export function popupStyle(theme: Record<string, string>, at: { left: number; to
     };
 }
 
-export default function QuickAdd({ open, at, kinds, onChoose, onClose }: QuickAddProps) {
+export default function QuickAdd({ open, at, kinds, onChoose, onClose, snippets, snippetError, onPickSnippet }: QuickAddProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     if (!open) {
         return null;
     }
     return (
         <div style={popupStyle(theme, at)}>
-            <NodeSearchList kinds={kinds} onChoose={onChoose} onClose={onClose} />
+            <NodeSearchList kinds={kinds} onChoose={onChoose} onClose={onClose} snippets={snippets} snippetError={snippetError} onPickSnippet={onPickSnippet} />
         </div>
     );
 }
 
-export interface NodeSearchListProps {
+export interface NodeSearchListProps extends Pick<QuickAddProps, 'snippets' | 'snippetError' | 'onPickSnippet'> {
     kinds?: NodeKind[];
     onChoose: (kind: NodeKind) => void;
     onClose: () => void;
@@ -53,7 +61,20 @@ export interface NodeSearchListProps {
 }
 
 /** The search box and grouped node list; focuses its box when it mounts. */
-export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchListProps) {
+/** Snippets whose name or description holds `query` (all for an empty one), names first. */
+export function matchSnippets(snippets: SnippetInfo[], query: string): SnippetInfo[] {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+        return snippets;
+    }
+    const byName = snippets.filter((s) => s.name.toLowerCase().includes(q));
+    return [...byName, ...snippets.filter((s) => !byName.includes(s) && s.description.toLowerCase().includes(q))];
+}
+
+/** One row of the list, in arrow order: a node kind or a snippet. */
+type Row = { kind: NodeKind; snippet?: undefined } | { kind?: undefined; snippet: SnippetInfo };
+
+export function NodeSearchList({ kinds, onChoose, onClose, onBack, snippets, snippetError, onPickSnippet }: NodeSearchListProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(0);
@@ -79,16 +100,24 @@ export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchL
         });
         return { results: groups.flatMap((g) => g.items), families: groups };
     }, [query, kinds]);
+    const shownSnippets = useMemo(() => (onPickSnippet && snippets ? matchSnippets(snippets, query) : []), [onPickSnippet, snippets, query]);
+    const rows: Row[] = [...results.map((r) => ({ kind: r.kind })), ...shownSnippets.map((sn) => ({ snippet: sn }))];
 
-    const activeKind = results[Math.min(active, results.length - 1)]?.kind;
+    const optionId = (row: Row): string => (row.snippet ? `${uid}-opt-snippet-${row.snippet.id}` : `${uid}-opt-${row.kind}`);
+    const activeRow: Row | undefined = rows[Math.min(active, rows.length - 1)];
+    const activeId = activeRow ? optionId(activeRow) : undefined;
     useEffect(() => {
-        if (activeKind) {
-            document.getElementById(`${uid}-opt-${activeKind}`)?.scrollIntoView?.({ block: 'nearest' });
+        if (activeId) {
+            document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' });
         }
-    }, [activeKind, uid]);
-
-    const optionId = (kind: NodeKind): string => `${uid}-opt-${kind}`;
-    const activeEntry: CatalogEntry | undefined = results[Math.min(active, results.length - 1)];
+    }, [activeId]);
+    const pick = (row: Row) => (row.snippet ? onPickSnippet?.(row.snippet.id) : onChoose(row.kind));
+    const rowStyle = (isActive: boolean): React.CSSProperties => ({
+        padding: '6px 10px',
+        cursor: 'pointer',
+        background: isActive ? theme.backgroundColorHover : 'transparent',
+    });
+    const heading: React.CSSProperties = { padding: '6px 10px 2px', fontSize: 12, color: theme.contentColorMuted };
 
     const onKeyDown = (e: React.KeyboardEvent) => {
         if (onBack && ((e.key === 'Tab' && e.shiftKey) || (e.key === 'ArrowLeft' && query === ''))) {
@@ -96,14 +125,14 @@ export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchL
             onBack();
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setActive((a) => Math.min(a + 1, results.length - 1));
+            setActive((a) => Math.min(a + 1, rows.length - 1));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             setActive((a) => Math.max(a - 1, 0));
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            if (activeEntry) {
-                onChoose(activeEntry.kind);
+            if (activeRow) {
+                pick(activeRow);
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -121,7 +150,7 @@ export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchL
                 aria-expanded
                 aria-autocomplete="list"
                 aria-controls={listId}
-                aria-activedescendant={activeEntry ? optionId(activeEntry.kind) : undefined}
+                aria-activedescendant={activeId}
                 placeholder="Search for a node"
                 value={query}
                 onChange={(e) => {
@@ -142,29 +171,23 @@ export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchL
                 }}
             />
             <div id={listId} role="listbox" aria-label="Nodes" style={{ maxHeight: 320, overflowY: 'auto' }}>
-                {results.length === 0 && (
+                {rows.length === 0 && (
                     <div style={{ padding: 10, color: theme.contentColorMuted }}>No matching nodes. Try a different word.</div>
                 )}
                 {families.map((g) => (
                     <div key={g.family} role="group" aria-label={FAMILY_STYLE[g.family].label}>
-                        <div style={{ padding: '6px 10px 2px', fontSize: 12, color: theme.contentColorMuted }}>
-                            {FAMILY_STYLE[g.family].label}
-                        </div>
+                        <div style={heading}>{FAMILY_STYLE[g.family].label}</div>
                         {g.items.map((r) => {
-                            const isActive = activeEntry?.kind === r.kind;
+                            const isActive = activeRow?.kind === r.kind;
                             return (
                                 <div
                                     key={r.kind}
-                                    id={optionId(r.kind)}
+                                    id={optionId({ kind: r.kind })}
                                     role="option"
                                     aria-selected={isActive}
                                     onMouseEnter={() => setActive(results.indexOf(r))}
                                     onClick={() => onChoose(r.kind)}
-                                    style={{
-                                        padding: '6px 10px',
-                                        cursor: 'pointer',
-                                        background: isActive ? theme.backgroundColorHover : 'transparent',
-                                    }}
+                                    style={rowStyle(isActive)}
                                 >
                                     <div>{r.label}</div>
                                     <div style={{ fontSize: 12, color: theme.contentColorMuted }}>{r.description}</div>
@@ -173,6 +196,32 @@ export function NodeSearchList({ kinds, onChoose, onClose, onBack }: NodeSearchL
                         })}
                     </div>
                 ))}
+                {onPickSnippet && (shownSnippets.length > 0 || snippetError || !snippets) && (
+                    <div role="group" aria-label="Snippets">
+                        <div style={heading}>Snippets</div>
+                        {snippetError && <div style={{ padding: '6px 10px', color: theme.contentColorMuted }}>{snippetError}</div>}
+                        {!snippets && !snippetError && <div style={{ padding: '6px 10px', color: theme.contentColorMuted }}>Loading snippets…</div>}
+                        {shownSnippets.map((sn, i) => {
+                            const isActive = activeRow?.snippet?.id === sn.id;
+                            return (
+                                <div
+                                    key={sn.id}
+                                    id={optionId({ snippet: sn })}
+                                    role="option"
+                                    aria-selected={isActive}
+                                    onMouseEnter={() => setActive(results.length + i)}
+                                    onClick={() => onPickSnippet(sn.id)}
+                                    style={rowStyle(isActive)}
+                                >
+                                    <div>{sn.name}</div>
+                                    <div style={{ fontSize: 12, color: theme.contentColorMuted }}>
+                                        {`${sn.node_count} node${sn.node_count === 1 ? '' : 's'}${sn.description ? ` · ${sn.description}` : ''}`}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         </>
     );

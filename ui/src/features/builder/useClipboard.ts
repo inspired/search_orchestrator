@@ -29,10 +29,11 @@ export default function useClipboard({ job, positions, selection, dispatch, sele
     // The job as it is when a paste is read from the clipboard, not when the key was pressed.
     const latest = useRef(job);
     latest.current = job;
-    const put = (clip: Clip, at: Pos) => {
+    /** `say` rewords the message (a snippet names itself). */
+    const put = (clip: Clip, at: Pos, say: (message: string) => string = (m) => m) => {
         const now = latest.current;
         const result = pasteResult(now, clip, at, compact);
-        notify(result.message);
+        notify(say(result.message));
         dispatch({ type: 'paste', clip, at, compact });
         select(normaliseSelection(result.keys));
     };
@@ -41,6 +42,8 @@ export default function useClipboard({ job, positions, selection, dispatch, sele
         return clipIsEmpty(clip) ? null : clip;
     };
     return {
+        /** Pastes `clip` at `at` as Paste does: one undo step, the new nodes selected. */
+        put,
         onCopy: () => {
             const clip = copied();
             if (clip) {
