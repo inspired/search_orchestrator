@@ -6,7 +6,7 @@ import { JOB_KEY, actionKey, condKey, stepKey, triggerKey } from './nodeModel';
 const TRIGGER_CODES = ['bad_cron', 'bad_trigger', 'job_chain_cycle'];
 const ACTION_CODES = ['bad_action', 'unknown_destination', 'no_failure_notification'];
 const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes'];
-const SETTINGS_CODES = ['bad_timezone', 'timezone_fallback'];
+const SETTINGS_CODES = ['bad_timezone', 'timezone_fallback', 'bad_deadline'];
 
 export function tabForIssue(issue: Issue): TabId {
     if (SETTINGS_CODES.includes(issue.code)) {

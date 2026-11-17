@@ -15,6 +15,7 @@ describe('tabForIssue', () => {
         ['bad_trigger', null, 'steps'],
         ['job_chain_cycle', null, 'steps'],
         ['bad_timezone', null, 'settings'],
+        ['bad_deadline', null, 'settings'],
         ['timezone_fallback', null, 'settings'],
         ['bad_param', null, 'params'],
         ['bad_action', null, 'steps'],
