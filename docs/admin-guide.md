@@ -1,6 +1,6 @@
 # Search Orchestrator: admin guide
 
-Version 1.12.0. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
+Version 1.13.0. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
 
 ## Supported platforms
 

@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.12.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.13.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -292,13 +292,29 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 
 ### The run graph
 
-The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Click a step to open its details. Actions say how they went in plain text, with the same icons as step states (a clock for Retrying):
+The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Groups are always drawn expanded here, so no step is hidden. Click a step to open its details.
 
-| Action state | Meaning |
+A strip above the graph shows the run's state with its icon and how long it has been going ("Running · 2 m 14 s"; the time ticks every second), a thin bar and how many steps are finished ("3 of 5 steps finished"; succeeded, failed and skipped steps count). While the run is active (queued, running, paused or blocked) it also says **Updates every 5 s**: the page asks the server for news every five seconds and the clocks tick in between.
+
+While the run is active the graph is live:
+
+- **Running steps** have a blue outline that pulses gently, a small spinner and a timer in their top-right corner ("0:31", or "1:02:05" past an hour).
+- **Lines** show how the run went. A line that fired is solid in its outcome's colour. A line into a running step flows: thick blue dashes moving toward the step. A line that won't fire this run (its step finished with another outcome, or the next step was skipped as not taken) is thin, dashed and faded. A line whose step hasn't finished stays as drawn in the builder.
+- **Row counts** ride on a finished search step's data lines ("1,204 rows →").
+- **Finished steps** show their outcome and how long they took ("Succeeded · 1 m 2 s"). **Waiting steps** are dimmed and say what they wait for ("Waiting for Weekly rollup"). Skipped steps are dimmed with their skip reason.
+- **Following:** the graph moves to keep the running steps in view. When you pan or zoom (drag, wheel, the zoom buttons, **Frame all** or the minimap), it stops following you; **Follow the run** in the toolbar turns it back on.
+- **Reduced motion:** if your system asks for reduced motion, there is no pulse, spinner or moving dashes. Colours, timers and text stay.
+
+A finished run shows the final picture, with no animation.
+
+Actions say how they went in plain text, with the same icons as step states (a clock while retrying):
+
+| Action text | Meaning |
 |---|---|
 | Sent | The action ran and succeeded. |
 | Failed | The action gave up. The run's outcome doesn't change; the Actions tab has the error. |
-| Retrying | An attempt failed and another is coming. |
+| Sending… | An attempt is under way. |
+| Retrying in 30 s | An attempt failed; the next one starts in the time shown, counted down. |
 | Not sent yet | The step or job hasn't reached the action, or its first attempt hasn't started. |
 
 ## Re-run from a step

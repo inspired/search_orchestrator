@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.13.0 (2026-11-17)
+
+The live run graph: watch a run move through its flow.
+
+- A strip above the run graph shows the run's state, the elapsed time ticking every second, a progress bar, "3 of 5 steps finished" and, while the run is active, "Updates every 5 s".
+- Running steps have a pulsing blue outline, a spinner and a timer. Waiting steps are dimmed and say what they wait for; finished steps show their outcome and duration.
+- Lines show the run: solid when they fired, flowing blue dashes into a running step, faded and dashed when they won't fire. Finished search steps put their row count on their data lines.
+- Actions show live text: "Sending…", "Retrying in 30 s" (counted down), "Sent", "Failed" or "Not sent yet".
+- The graph follows the running steps until you pan or zoom; **Follow the run** turns it back on.
+- With reduced motion, there is no pulse, spinner or moving dashes. A finished run shows its final picture without animation.
+- The user guide's "The run graph" section describes all of this.
+
 ## 1.12.0 (2026-11-17)
 
 Editing at scale in the flow editor: select, copy, align, group and see results on nodes.
