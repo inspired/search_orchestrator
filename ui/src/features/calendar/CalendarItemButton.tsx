@@ -98,6 +98,7 @@ export default function CalendarItemButton({ item, onOpen, style }: CalendarItem
                 <>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.job_name}</span>
                     <StatusText state={item.state} />
+                    {item.late && <span style={{ color: theme.statusColorMedium }}>Late</span>}
                 </>
             ) : (
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>

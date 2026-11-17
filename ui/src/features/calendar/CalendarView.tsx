@@ -14,6 +14,9 @@ import type { Overflow, Placed } from './calendarLayout';
 export const PX_PER_HOUR = 72;
 const GUTTER = 56;
 const FIRST_HOUR_SHOWN = 7;
+/** Width of the strip at a column's right edge where "+N more" sits, beside lanes 0-2; the
+ * lanes share the rest of the column, so the overflow never covers an item. */
+export const MORE_STRIP = 52;
 
 export interface CalendarViewProps {
     days: Date[];
@@ -37,7 +40,24 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
     const scroller = useRef<HTMLDivElement>(null);
     const [more, setMore] = useState<Overflow | null>(null);
     const opener = useRef<HTMLElement | null>(null);
+    // However the list closes (Close, Escape, an item), focus goes back to its "+N more".
+    useEffect(() => {
+        if (!more && opener.current) {
+            if (opener.current.isConnected) {
+                opener.current.focus();
+            }
+            opener.current = null;
+        }
+    }, [more]);
     const today = new Date(now * 1000);
+    // The day view's heading keeps focus after an arrow key moves the shown day.
+    const refocus = useRef(false);
+    useEffect(() => {
+        if (refocus.current && headings.current[0]) {
+            refocus.current = false;
+            headings.current[0].focus();
+        }
+    }, [days]);
 
     useEffect(() => {
         if (scroller.current) {
@@ -53,6 +73,7 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
         e.preventDefault();
         if (days.length === 1) {
             onShiftDay(step);
+            refocus.current = true;
             return;
         }
         const next = headings.current[index + step];
@@ -72,7 +93,7 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
                     const isToday = sameDay(d, today);
                     return (
                         <h3
-                            key={d.getTime()}
+                            key={i}
                             ref={(el) => {
                                 headings.current[i] = el;
                             }}
@@ -141,6 +162,7 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
                                     }}
                                 />
                             )}
+                            <div data-lanes style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: `${MORE_STRIP}px` }}>
                             {entries.map((e) =>
                                 e.kind === 'item' ? (
                                     <CalendarItemButton
@@ -166,12 +188,16 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
                                         }}
                                         style={{
                                             position: 'absolute',
-                                            top: `${e.overflow.top + MIN_HEIGHT}px`,
-                                            left: '2px',
+                                            top: `${e.overflow.top}px`,
+                                            right: `${2 - MORE_STRIP}px`,
+                                            width: `${MORE_STRIP - 4}px`,
+                                            overflow: 'hidden',
+                                            whiteSpace: 'nowrap',
+                                            textAlign: 'left',
                                             height: `${MIN_HEIGHT}px`,
                                             padding: '0 4px',
                                             font: 'inherit',
-                                            fontSize: '12px',
+                                            fontSize: '11px',
                                             cursor: 'pointer',
                                             background: 'none',
                                             border: 'none',
@@ -183,6 +209,7 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
                                     </button>
                                 )
                             )}
+                            </div>
                         </div>
                     );
                 })}
@@ -191,7 +218,8 @@ export default function CalendarView({ days, items, now, onOpen, onShiftDay }: C
                 <Modal
                     open
                     onRequestClose={() => setMore(null)}
-                    returnFocus={() => opener.current && opener.current.isConnected && opener.current.focus()}
+                    // The effect above returns focus, also when the list unmounts without closing.
+                    returnFocus={() => undefined}
                     style={{ width: '440px' }}
                 >
                     <Modal.Header title={`More at ${clockTime(itemTime(more.items[0]))}`} />
