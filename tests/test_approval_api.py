@@ -116,14 +116,46 @@ def test_admin_always_decides(w):
 
 
 def test_the_user_who_started_the_run_may_decide(w):
-    # carol holds only orchestrator_run (an ops member of run_roles) and is not in ops-leads.
-    run_id = awaiting(w, user="carol", approver_roles=["ops-leads"])
+    # carol holds only orchestrator_run (an ops member of run_roles), not orchestrator_approve.
+    run_id = awaiting(w, user="carol")
     assert w.store.get_run(run_id)["started_by"] == "carol"
     status, out = post(w, run_id, {"step_id": "gate", "decision": "approve"}, user="carol")
     assert status == 202, out
+    assert w.gw.kv_query(COMMANDS)[-1]["as_starter"] is True
     # alice, the job's owner, did not start this run and holds no orchestrator_approve.
     status, out = post(w, run_id, {"step_id": "gate", "decision": "approve"}, user="alice")
     assert (status, error(out)) == (403, "forbidden")
+    w.engine_tick()
+    decided = w.audit.of("approval_decided")
+    assert len(decided) == 1 and decided[0]["user"] == "carol"
+    assert decided[0]["as_starter"] is True
+
+
+def test_a_normal_approver_is_not_flagged_as_starter(w):
+    run_id = awaiting(w)
+    post(w, run_id, {"step_id": "gate", "decision": "approve"})
+    assert w.gw.kv_query(COMMANDS)[-1]["as_starter"] is False
+    w.engine_tick()
+    assert w.audit.of("approval_decided")[0]["as_starter"] is False
+
+
+def test_the_starter_needs_a_listed_role(w):
+    run_id = awaiting(w, user="carol", approver_roles=["ops-leads"])
+    status, out = post(w, run_id, {"step_id": "gate", "decision": "approve"}, user="carol")
+    assert (status, error(out), out["error"]["message"]) == \
+        (403, "forbidden", "Only members of ops-leads may approve this step")
+    assert w.audit.of("permission_denied")[-1]["action"] == "approve_step"
+    assert not w.gw.kv_query(COMMANDS)
+
+
+def test_the_starter_who_can_no_longer_see_the_job_gets_404(w):
+    run_id = awaiting(w, user="carol")
+    job = w.store.get_job("daily")
+    job["run_roles"] = []
+    w.store.save_job(job)
+    status, out = post(w, run_id, {"step_id": "gate", "decision": "approve"}, user="carol")
+    assert (status, error(out)) == (404, "not_found")
+    assert not w.gw.kv_query(COMMANDS)
 
 
 def test_me_says_whether_the_user_may_approve(w):

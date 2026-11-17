@@ -108,14 +108,32 @@ def test_decision_and_timeout_in_same_tick():
     assert len(w.action_rows(hook="on_failure", step_id="gate", scope="step")) == 1
 
 
+def test_reject_beats_a_timeout_that_would_approve():
+    w, r = gate_world({"timeout": 300, "on_timeout": "approve"})
+    started = w.step(r, "gate")["started_at"]
+    approve(w, r, "reject", comment="too risky")
+    w.tick(at=started + 300)  # had the timeout won, the step would have succeeded
+    gate = w.step(r, "gate")
+    assert gate["state"] == "failed" and gate["error"] == "Rejected by bob: too risky"
+    assert gate["approval_state"]["by"] == "bob"
+    decided = w.audit.of("approval_decided", run_id=r)
+    assert len(decided) == 1 and decided[0]["by_timeout"] is False
+    assert not w.action_rows(hook="on_success", step_id="gate", scope="step")
+    assert not w.dispatched("after")
+
+
 def test_timeout_decision_is_audited():
     w, r = gate_world({"timeout": 300, "on_timeout": "approve"})
     w.tick(at=w.step(r, "gate")["started_at"] + 300)
     assert w.step(r, "gate")["state"] == "succeeded"
     decided = w.audit.of("approval_decided", run_id=r)
     assert len(decided) == 1
-    assert {k: decided[0].get(k) for k in ("step_id", "decision", "user", "by_timeout")} == \
-        {"step_id": "gate", "decision": "approve", "user": "timeout", "by_timeout": True}
+    assert {k: decided[0].get(k) for k in ("step_id", "decision", "user", "comment",
+                                           "by_timeout")} == \
+        {"step_id": "gate", "decision": "approve", "user": "timeout", "comment": "",
+         "by_timeout": True}
+    assert w.step(r, "gate")["approval_state"]["comment"] == ""
+    assert w.step(r, "gate")["first"] == {"decision": "approve", "by": "timeout", "comment": ""}
     approve(w, r)
     w.tick(advance=5)
     assert w.audit.of("approval_ignored", run_id=r)[0]["reason"] == "already decided by timeout"

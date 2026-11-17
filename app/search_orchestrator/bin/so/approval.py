@@ -108,7 +108,7 @@ def settle(ev, sid):
         if not timeout or st.get("started_at") is None \
                 or ev.now - int(st["started_at"]) < int(timeout):
             return
-        state.update(decision=cfg.get("on_timeout") or "reject", by="timeout", comment=None)
+        state.update(decision=cfg.get("on_timeout") or "reject", by="timeout", comment="")
         ev.set(sid, approval_state=state)
     decision, by, comment = state["decision"], state.get("by"), state.get("comment")
     if decision == "approve":
@@ -152,7 +152,8 @@ def apply_command(run, command, now):
         st["approval_state"] = dict(state, decision=decision, by=user, comment=comment,
                                     decided_at=now)
         return "ok", None, [_event(run, sid, "approval_decided", now, decision=decision,
-                                   user=user, comment=comment, by_timeout=False)]
+                                   user=user, comment=comment, by_timeout=False,
+                                   as_starter=command.get("as_starter") is True)]
     return "rejected", reason, [_event(run, sid, "approval_ignored", now, user=user,
                                        decision=decision, reason=reason)]
 
@@ -165,4 +166,5 @@ def step_events(old_state, fields):
     decided = fields.get("approval_state") or {}
     if decided.get("by") == "timeout" and decided.get("decision") in ON_TIMEOUT:
         yield "approval_decided", {"decision": decided["decision"], "user": "timeout",
-                                   "comment": decided.get("comment"), "by_timeout": True}
+                                   "comment": decided.get("comment") or "",
+                                   "by_timeout": True}
