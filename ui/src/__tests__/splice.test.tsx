@@ -2,7 +2,7 @@ import type { JobDefinition } from '../api/types';
 import { canInsert } from '../features/builder/flowEdits';
 import { buildGraph } from '../features/builder/nodeModel';
 import { blankJob, initialState, reducer } from '../features/builder/reducer';
-import { canSplice, spliceMessage } from '../features/builder/splice';
+import { canSplice, spliceCandidates, spliceMessage } from '../features/builder/splice';
 
 const job: JobDefinition = {
     ...blankJob(),
@@ -111,5 +111,21 @@ describe('canInsert', () => {
         expect(canInsert(job, lk(job, 'step:a', 'step:b'), 'trigger_cron')).toBe(false);
         expect(canInsert(job, lk(job, 'step:b', 'cond:b>c'), 'search')).toBe(false);
         expect(canInsert(job, lk(job, 'step:a', 'action:a:0'), 'search')).toBe(false);
+    });
+});
+
+describe('spliceCandidates', () => {
+    it('lists up to five steps with no lines that can go on the line, in job order', () => {
+        const many: JobDefinition = {
+            ...job,
+            steps: [...(job.steps || []), ...[1, 2, 3, 4, 5, 6].map((i) => ({ id: `s${i}`, type: 'inline' as const, spl: 'search s' }))],
+        };
+        const out = spliceCandidates(many, lk(many, 'step:a', 'step:b'));
+        expect(out.map((c) => c.node)).toEqual(['step:n', 'step:s1', 'step:s2', 'step:s3', 'step:s4']);
+        expect(out[0].label).toBe('New one');
+        expect(out[1].label).toBe('s1');
+    });
+    it('is empty for a line that cannot be split', () => {
+        expect(spliceCandidates(job, lk(job, 'step:b', 'cond:b>c'))).toEqual([]);
     });
 });

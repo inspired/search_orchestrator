@@ -63,3 +63,21 @@ export function spliceMessage(job: JobDefinition, node: string, link: string): s
     const name = (s?: StepDef) => (s ? stepLabel(s) : '');
     return `${name(b)} now runs after ${name(n)} succeeds. Undo brings back the old line.`;
 }
+
+/** How many nodes a line's menu offers to move onto the line. */
+export const MAX_SPLICE_CHOICES = 5;
+
+/** The steps that can be moved onto `link` (the keyboard way to drop a node on a line): steps
+ * with no lines that `canSplice` accepts, in job order, at most `max`. */
+export function spliceCandidates(job: JobDefinition, link: string, max = MAX_SPLICE_CHOICES): { node: string; label: string }[] {
+    const out: { node: string; label: string }[] = [];
+    for (const s of job.steps || []) {
+        if (out.length >= max) {
+            break;
+        }
+        if (canSplice(job, `step:${s.id}`, link).ok) {
+            out.push({ node: `step:${s.id}`, label: stepLabel(s) });
+        }
+    }
+    return out;
+}

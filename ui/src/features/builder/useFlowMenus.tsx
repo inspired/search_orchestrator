@@ -28,7 +28,7 @@ import type { Outcome } from './outcomes';
 import QuickAdd from './QuickAdd';
 import { addNodeKey } from './reducer';
 import type { BuilderAction } from './reducer';
-import { canSplice, spliceMessage } from './splice';
+import { canSplice, spliceCandidates, spliceMessage } from './splice';
 import WhenMenu from './WhenMenu';
 
 /** How long the message after a splice stays. */
@@ -325,7 +325,12 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             setMenu({ kind: 'quick', kinds: insertKinds(job, graph, link), insert: link.key, screen: menu ? menu.screen : { left: 8, top: 8 } });
             return;
         }
-        if (choice.kind === 'outcome') {
+        if (choice.kind === 'splice') {
+            // From the keyboard: the node goes on the line and stays where it is.
+            showMessage(spliceMessage(job, choice.node, link.key));
+            dispatch({ type: 'splice', node: choice.node, link: link.key });
+            select({ kind: 'node', key: choice.node });
+        } else if (choice.kind === 'outcome') {
             dispatch({ type: 'changeOutcome', link: link.key, outcome: choice.outcome });
             // A line's key names its outcome: keep the changed line (or its action) selected; a
             // line turned into a condition selects the condition, to type its expression.
@@ -384,16 +389,18 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             const outcomes = lineMenuOutcomes(job, link)
                 .filter((o) => o !== link.port)
                 .map((o) => ({ outcome: o, label: OUTCOME_LABEL[o], glyph: PORT_STYLE[o].glyph }));
-            const canInsert = insertKinds(job, graph, link).length > 0;
+            const insertable = insertKinds(job, graph, link).length > 0;
+            const moves = spliceCandidates(job, link.key);
             // Actions always belong somewhere: their lines are moved, never removed.
             const canRemove = link.kind === 'edge' || link.kind === 'condition';
-            const rows = outcomes.length + (canInsert ? 1 : 0) + (canRemove ? 1 : 0);
+            const rows = outcomes.length + (insertable ? 1 : 0) + moves.length + (canRemove ? 1 : 0);
             overlay = (
                 <LineMenu
                     open
                     at={clampInto(menu.screen, LINE_MENU_W, Math.max(1, rows) * ROW_H + 8, canvas())}
                     outcomes={outcomes}
-                    canInsert={canInsert}
+                    canInsert={insertable}
+                    moves={moves}
                     canRemove={canRemove}
                     onChoose={(choice) => chooseLine(link, choice)}
                     onClose={finish}
