@@ -72,6 +72,7 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 
 - **Change to …** gives the line another outcome. On a line to an action this changes when the action fires; it stays on the same node. "If a condition is true" turns a line between steps into an **If…** node. On the line into an **If…** node, choosing another outcome turns it back into a plain line and drops the expression. Each change is one undo step.
 - **Insert a node** (lines between two steps) opens the search box and puts the new step on the line.
+- **Move … onto this line** (lines between two steps) puts a step that has no lines yet on the line, where it is; up to five such steps are listed. This is the keyboard way to drag a node onto a line.
 - **Remove line** (lines between steps and **If…** lines). An action's line can't be removed, because an action always belongs to a step or the whole job; change its outcome instead, or move it in the action's panel.
 
 **Put a node on a line.** Drag a step that has no lines yet onto a line between two steps: the line lights up, and when you drop the step, A → B becomes A → new step → B. A → new step keeps the line's outcome; new step → B is Succeeds. A line out of an **If…** node can't be split. Because B now runs after the new step, and reads its results if the line carries data, a message says what changed, for example "Weekly rollup now runs after Filter hosts succeeds. Undo brings back the old line." The message has an **Undo** button and goes away after 10 seconds. **Insert a node** in the line menu does the same.
@@ -137,7 +138,7 @@ A group is a coloured backdrop that gathers nodes under a title. It never change
 
 - Select nodes and press `Ctrl+G` (`Cmd+G`), choose **Group selection** in the toolbar, or right-click and choose **Group**.
 - Click the group to edit its **Title**, **Colour**, **Width** and **Height** in the side panel. With the group selected, `Shift+arrows` resize it.
-- **Collapse** shrinks the group to its title bar and hides its nodes; **Expand** shows them again. The run page always shows groups expanded.
+- **Collapse** shrinks the group to its title bar and hides its nodes; **Expand** shows them again. A faint dashed outline shows the area the collapsed group covers: drop, add or paste a node there and the group expands, so the node stays in view. The run page always shows groups expanded.
 - **Remove group** asks "Remove group …?". The nodes in it stay.
 
 #### Keyboard shortcuts
