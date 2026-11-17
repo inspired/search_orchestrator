@@ -40,6 +40,8 @@ export interface NodePanelProps {
     onRequestRemoveNodes?: (keys: string[]) => void;
     /** Align or distribute several nodes (one undo step). */
     onArrange?: (keys: string[], how: Arrange) => void;
+    /** Tidy up the selected nodes (the caller knows the node size in use). */
+    onTidy?: (keys: string[]) => void;
     onOpenSettings: () => void;
     destinations: Destination[];
     alertActions: AlertAction[] | null;
@@ -77,7 +79,7 @@ export default function NodePanel(props: NodePanelProps) {
         return (
             <SelectionPanel
                 keys={selection.keys}
-                onTidy={(keys) => dispatch({ type: 'tidyLayout', keys })}
+                onTidy={(keys) => (props.onTidy ? props.onTidy(keys) : dispatch({ type: 'tidyLayout', keys }))}
                 onArrange={props.onArrange}
                 onRequestRemove={(keys) => props.onRequestRemoveNodes && props.onRequestRemoveNodes(keys)}
             />

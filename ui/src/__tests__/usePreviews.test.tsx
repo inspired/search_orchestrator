@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { ApiError } from '../api/client';
 import type { JobDefinition, PreviewRequest } from '../api/types';
 import type { PreviewContext } from '../features/builder/previewLogic';
-import usePreviews, { PreviewApi, previewErrorText } from '../features/builder/usePreviews';
+import usePreviews, { PreviewApi, PreviewView, previewErrorText, previewSummary } from '../features/builder/usePreviews';
 
 const job: JobDefinition = {
     name: 'j',
@@ -732,5 +732,24 @@ describe('usePreviews', () => {
         await flush();
         expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
         expect(result.current.previews.a.state).toBe('failed');
+    });
+});
+
+describe('previewSummary', () => {
+    const base = { stale: false } as unknown as PreviewView;
+    test('rows and seconds of a finished preview', () => {
+        expect(previewSummary({ ...base, state: 'done', status: { state: 'done', result_count: 1204, run_duration: 3.24, messages: [] } } as PreviewView)).toEqual({ rows: 1204, seconds: 3.24 });
+        expect(previewSummary({ ...base, state: 'done', results: { fields: [], rows: [], total: 7 } } as PreviewView)).toEqual({ rows: 7 });
+    });
+    test('running and failed', () => {
+        expect(previewSummary({ ...base, state: 'running' } as PreviewView)).toEqual({ running: true });
+        expect(previewSummary({ ...base, state: 'failed', error: 'Bad SPL\nsecond line' } as PreviewView)).toEqual({ error: 'Bad SPL\nsecond line' });
+        expect(previewSummary({ ...base, state: 'failed' } as PreviewView)).toEqual({ error: 'The preview failed.' });
+    });
+    test('nothing for out of date, skipped or missing previews', () => {
+        expect(previewSummary(undefined)).toBeUndefined();
+        expect(previewSummary({ ...base, stale: true, state: 'done' } as PreviewView)).toBeUndefined();
+        expect(previewSummary({ ...base, state: 'skipped' } as PreviewView)).toBeUndefined();
+        expect(previewSummary({ ...base, state: 'missing' } as PreviewView)).toBeUndefined();
     });
 });

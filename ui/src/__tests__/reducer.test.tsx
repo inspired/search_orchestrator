@@ -433,4 +433,14 @@ describe('addNode rightOf', () => {
         expect(s.job.layout?.nodes['step:step_2']).toEqual({ x: 360, y: 50 });
         expect(s.job.layout?.nodes['step:a']).toEqual({ x: 100, y: 50 });
     });
+
+    test('addNode right of a node uses compact sizes when asked', () => {
+        const s0 = initialState(job);
+        const shown = { 'step:daily': { x: 0, y: 0 }, 'step:weekly': { x: 260, y: 60 }, 'step:monthly': { x: 520, y: 0 } };
+        const spot = (compact: boolean) =>
+            reducer(s0, { type: 'addNode', kind: 'search', rightOf: 'step:daily', shown, compact }).job.layout?.nodes['step:s1'] ||
+            Object.entries(reducer(s0, { type: 'addNode', kind: 'search', rightOf: 'step:daily', shown, compact }).job.layout?.nodes || {}).find(([k]) => !shown[k as keyof typeof shown])?.[1];
+        expect(spot(true)).toEqual({ x: 260, y: 0 });
+        expect(spot(false)?.y).toBeGreaterThan(60);
+    });
 });

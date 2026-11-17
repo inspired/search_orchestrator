@@ -39,30 +39,31 @@ export function linkEnds(
     from: FlowNode,
     to: FlowNode,
     pos: Positions,
-    tabs: readonly PortId[] = []
+    tabs: readonly PortId[] = [],
+    compact = false
 ): { a: Pos; b: Pos } | null {
     const pa = pos[from.key];
     const pb = pos[to.key];
     if (!pa || !pb) {
         return null;
     }
-    const s = nodeSize(from.kind);
+    const s = nodeSize(from.kind, compact);
     let o = { x: s.w, y: s.h / 2 };
     if (link.port && from.kind !== 'condition') {
         const i = tabs.indexOf(link.port);
-        o = i >= 0 ? tabOffset(from.kind, i, tabs.length) : handleOffset(from.kind);
+        o = i >= 0 ? tabOffset(from.kind, i, tabs.length, compact) : handleOffset(from.kind, compact);
     }
-    const i = inputOffset(to.kind) || { x: 0, y: nodeSize(to.kind).h / 2 };
+    const i = inputOffset(to.kind, compact) || { x: 0, y: nodeSize(to.kind, compact).h / 2 };
     return { a: { x: pa.x + o.x, y: pa.y + o.y }, b: { x: pb.x + i.x, y: pb.y + i.y } };
 }
 
 /** The topmost node whose box contains `pt` (later nodes are drawn on top). */
-export function nodeAt(graph: FlowGraph, pos: Positions, pt: Pos): string | null {
+export function nodeAt(graph: FlowGraph, pos: Positions, pt: Pos, compact = false): string | null {
     for (let i = graph.nodes.length - 1; i >= 0; i -= 1) {
         const n = graph.nodes[i];
         const p = pos[n.key];
         if (p) {
-            const { w, h } = nodeSize(n.kind);
+            const { w, h } = nodeSize(n.kind, compact);
             if (pt.x >= p.x && pt.x <= p.x + w && pt.y >= p.y && pt.y <= p.y + h) {
                 return n.key;
             }
@@ -83,13 +84,13 @@ function distToSegment(p: Pos, a: Pos, b: Pos): number {
 
 /** The line nearest `pt` within `tolerance` canvas px, sampling each curve at 24 points; trigger
  * lines (which cannot be selected) are skipped. */
-export function linkAt(graph: FlowGraph, pos: Positions, pt: Pos, tolerance = 8): string | null {
+export function linkAt(graph: FlowGraph, pos: Positions, pt: Pos, tolerance = 8, compact = false): string | null {
     const byKey = new Map(graph.nodes.map((n) => [n.key, n] as const));
     let best: { key: string; d: number } | null = null;
     graph.links.forEach((l) => {
         const from = byKey.get(l.from);
         const to = byKey.get(l.to);
-        const ends = l.kind !== 'trigger' && from && to ? linkEnds(l, from, to, pos, usedOutcomes(graph, l.from)) : null;
+        const ends = l.kind !== 'trigger' && from && to ? linkEnds(l, from, to, pos, usedOutcomes(graph, l.from), compact) : null;
         if (!ends) {
             return;
         }
@@ -112,9 +113,10 @@ export function frameView(
     pos: Positions,
     width: number,
     height: number,
-    margin = 40
+    margin = 40,
+    compact = false
 ): { pan: Pos; zoom: number } | null {
-    const b = graphBounds(graph, pos);
+    const b = graphBounds(graph, pos, compact);
     if (!width || !height || (b.width === 0 && b.height === 0)) {
         return null;
     }

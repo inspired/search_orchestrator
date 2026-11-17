@@ -47,7 +47,7 @@ export type BuilderAction =
     | { type: 'saved'; job: JobDefinition }
     | { type: 'addStep'; step?: Partial<StepDef> }
     /** Puts a copied clip into the job as one undo step (callers select `pasteResult(...).keys`). */
-    | { type: 'paste'; clip: Clip; at: Pos }
+    | { type: 'paste'; clip: Clip; at: Pos; compact?: boolean }
     | { type: 'removeStep'; id: string }
     /** Any mix of steps, actions, triggers and conditions, as one undo step; `job` is ignored. */
     | { type: 'removeNodes'; keys: string[] }
@@ -58,7 +58,7 @@ export type BuilderAction =
     /** Saved positions merge into job.layout.nodes: one undo step per drop. */
     | { type: 'moveNodes'; positions: Record<string, Pos> }
     /** With `keys`, re-places only those nodes, keeping the selection's top-left corner. */
-    | { type: 'tidyLayout'; keys?: string[] }
+    | { type: 'tidyLayout'; keys?: string[]; compact?: boolean }
     /** With `at`, `shown` (the positions on screen) is saved too, so other nodes stay put. */
     | {
           type: 'addNode';
@@ -68,6 +68,8 @@ export type BuilderAction =
           shown?: Record<string, Pos>;
           /** Without `at`: place the node in the first free spot right of this node. */
           rightOf?: string;
+          /** Nodes are drawn compact, so spots and layouts use compact sizes. */
+          compact?: boolean;
       }
     /** Changes the outcome of a line (its key is a FlowLink.key). */
     | { type: 'changeOutcome'; link: string; outcome: Outcome }
@@ -278,7 +280,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return edits(state, { ...job, steps: [...steps, step] });
         }
         case 'paste':
-            return edits(state, pasteResult(job, action.clip, action.at).job);
+            return edits(state, pasteResult(job, action.clip, action.at, action.compact).job);
         case 'removeStep':
             return edits(state, removeStepJob(job, action.id));
         case 'removeNodes': {
@@ -368,7 +370,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return edits(state, withNodes(job, { ...job.layout?.nodes, ...action.positions }));
         }
         case 'tidyLayout': {
-            const next = tidyJob(job, action.keys);
+            const next = tidyJob(job, action.keys, action.compact);
             return next ? edits(state, next) : state;
         }
         case 'addNode': {
@@ -379,7 +381,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             }
             let { at, shown } = action;
             if (!at && action.rightOf) {
-                ({ at, shown } = spotRightOf(job, next, action.rightOf, action.kind, shown));
+                ({ at, shown } = spotRightOf(job, next, action.rightOf, action.kind, shown, action.compact));
             }
             return edits(state, at ? withPlacedNode(next, key, at, shown) : next);
         }

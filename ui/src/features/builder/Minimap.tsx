@@ -23,20 +23,21 @@ export interface MinimapProps {
     height: number;
     /** Called with the pan that centres the clicked point. */
     onPan: (pan: Pos) => void;
+    compact?: boolean;
 }
 
 /** True when the graph, at this zoom, does not fit the visible canvas. */
-export function exceedsView(graph: FlowGraph, positions: Positions, zoom: number, width: number, height: number): boolean {
+export function exceedsView(graph: FlowGraph, positions: Positions, zoom: number, width: number, height: number, compact = false): boolean {
     if (!width || !height) {
         return false;
     }
-    const b = graphBounds(graph, positions);
+    const b = graphBounds(graph, positions, compact);
     return b.width * zoom > width || b.height * zoom > height;
 }
 
-export default function Minimap({ graph, positions, pan, zoom, width, height, onPan }: MinimapProps) {
+export default function Minimap({ graph, positions, pan, zoom, width, height, onPan, compact = false }: MinimapProps) {
     const theme = useSplunkTheme() as unknown as Theme;
-    const b = graphBounds(graph, positions);
+    const b = graphBounds(graph, positions, compact);
     const view = { x: -pan.x / zoom, y: -pan.y / zoom, w: width / zoom, h: height / zoom };
     // The map covers the graph and the view, so the outline is always on it.
     const minX = Math.min(b.x, view.x);
@@ -77,7 +78,7 @@ export default function Minimap({ graph, positions, pan, zoom, width, height, on
                 if (!p) {
                     return null;
                 }
-                const { w, h } = nodeSize(n.kind);
+                const { w, h } = nodeSize(n.kind, compact);
                 return (
                     <rect
                         key={n.key}

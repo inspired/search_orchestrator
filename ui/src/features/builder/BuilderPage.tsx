@@ -15,7 +15,8 @@ import * as client from '../../api/client';
 import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
-import { layoutFlow } from './flowLayout';
+import useCompactPref from './useCompactPref';
+import useFlowLayout from './useFlowLayout';
 import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
@@ -36,8 +37,7 @@ import useFillHeight from './useFillHeight';
 import useClipboard from './useClipboard';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
-import usePreviews, { PreviewApi, previewNote } from './usePreviews';
-import { arrange as arrangeNodes, Arrange } from './align';
+import usePreviews, { PreviewApi, previewSummary } from './usePreviews';
 import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
@@ -171,10 +171,10 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         });
         return out;
     }, [previews.previews]);
-    const notes = useMemo(() => {
-        const out: Record<string, ReturnType<typeof previewNote>> = {};
+    const nodePreviews = useMemo(() => {
+        const out: Record<string, ReturnType<typeof previewSummary>> = {};
         Object.keys(previews.previews).forEach((id) => {
-            out[id] = previewNote(previews.previews[id]);
+            out[id] = previewSummary(previews.previews[id]);
         });
         return out;
     }, [previews.previews]);
@@ -201,7 +201,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const errorIssues = errorsIn(issues);
     const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
     const graph = useMemo(() => buildGraph(job), [job]);
-    const positions = useMemo(() => layoutFlow(graph, job.layout?.nodes), [graph, job.layout]);
+    const [compact, toggleCompact] = useCompactPref();
+    const { positions, move, tidy, arrange } = useFlowLayout(job, graph, compact, dispatch);
     const picked = useSelection({ job, graph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
     const { selection, removing, requestRemove, confirmRemove } = picked;
     const goToIssue = (issue: Issue) => {
@@ -357,18 +358,12 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         return () => window.clearTimeout(timer);
     }, [renaming]);
 
-    /** Align or distribute nodes: one `moveNodes`, so one undo step. */
-    const arrange = (keys: string[], how: Arrange) => {
-        const moved = arrangeNodes(graph, positions, keys, how);
-        if (Object.keys(moved).length) {
-            dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } });
-        }
-    };
-    const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: (text) => menus.notify(text) });
+    const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: (text) => menus.notify(text), compact });
     const menus = useFlowMenus({
         job,
         graph,
         positions,
+        compact,
         dispatch,
         select: setSelectedState,
         focusNode: (key) => setFocusNext({ key }),
@@ -384,7 +379,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             duplicate: clipboard.onDuplicate,
             copy: clipboard.onCopy,
             paste: clipboard.onPaste,
-            tidy: (keys) => dispatch({ type: 'tidyLayout', keys }),
+            tidy,
             arrange,
             requestRemove,
             requestRemoveNodes: picked.requestRemoveNodes,
@@ -446,11 +441,11 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     positions={positions}
                     selected={selection}
                     issues={issues}
-                    notes={notes}
+                    previews={nodePreviews}
+                    compact={compact}
+                    onToggleCompact={toggleCompact}
                     onSelect={setSelected}
-                    // Every shown position is written with the move, so nodes the layout placed
-                    // stay where they are instead of being placed again around the moved one.
-                    onMove={(moved) => dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } })}
+                    onMove={move}
                     onConnect={connectLine}
                     onPlus={menus.onPlus}
                     onDropOnNode={menus.onDropOnNode}
@@ -465,7 +460,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onDuplicate={clipboard.onDuplicate}
                     onPaste={clipboard.onPaste}
                     onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
-                    onTidy={() => dispatch({ type: 'tidyLayout' })}
+                    onTidy={() => tidy()}
                     overlay={menus.overlay}
                     height={canvasHeight}
                     fullScreen={fullScreen}
@@ -493,6 +488,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
                     onArrange={arrange}
+                    onTidy={tidy}
                     onOpenSettings={() => setActiveTab('settings')}
                     destinations={destinations}
                     alertActions={alertActions}

@@ -27,6 +27,8 @@ const ICON: Record<Family, Icon> = {
 
 const STRIPE = 4;
 const ICON_SIZE = 16;
+const BAR_PAD = 14;
+const BAR_H = 3;
 
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, Math.max(1, max - 1))}…` : s);
 
@@ -41,22 +43,30 @@ export interface NodeShapeProps {
     statusIcon?: React.ReactNode;
     /** Colour of the status text and icon. */
     statusColor?: string;
+    /** Marks the status text as the preview of this step (test id `preview-text-<id>`). */
+    previewId?: string;
+    /** A 3 px bar under the text, this fraction (0 to 1) of the node's inner width, in the family colour. */
+    bar?: number;
+    /** Icon and name only (see nodeSize); the diamond is drawn as ever. */
+    compact?: boolean;
 }
 
-export function NodeShape({ node, theme, selected = false, stroke, status, statusIcon, statusColor }: NodeShapeProps) {
+export function NodeShape({ node, theme, selected = false, stroke, status, statusIcon, statusColor, previewId, bar, compact = false }: NodeShapeProps) {
     const family = FAMILY_OF[node.kind];
     const { shape, colorToken } = FAMILY_STYLE[family];
     const color = theme[colorToken];
-    const { w, h } = nodeSize(node.kind);
+    const { w, h } = nodeSize(node.kind, compact);
     const d = shapePath(shape, w, h);
     const Glyph = ICON[family];
-    const clipId = `so-clip-${node.key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+    // Compact and full drawings of one node can be on screen together: their ids differ.
+    const clipId = `so-clip-${node.key.replace(/[^A-Za-z0-9_-]/g, '_')}${compact ? '-c' : ''}`;
     const outline = selected ? theme.focusColor : stroke || theme.borderColorStrong;
     const outlineWidth = selected ? 2.5 : 1.5;
     const inset = shape === 'stadium' || shape === 'parallelogram' ? 22 : 14;
     const textX = inset + ICON_SIZE + 6;
     const chars = Math.max(6, Math.floor((w - textX - 26) / 6.5));
     const diamond = shape === 'diamond';
+    const small = compact && !diamond;
     const detailFill = (status != null && statusColor) || theme.contentColorMuted;
     const withIcon = status != null && statusIcon != null && !diamond;
 
@@ -94,6 +104,10 @@ export function NodeShape({ node, theme, selected = false, stroke, status, statu
                         {status ?? clip(node.detail, 28)}
                     </text>
                 </>
+            ) : small ? (
+                <text x={textX} y={h / 2 + 4} fontSize={13} fill={theme.contentColorDefault} fontFamily={theme.fontFamily} fontWeight={theme.fontWeightSemiBold}>
+                    {clip(node.label, Math.max(6, Math.floor((w - textX - 12) / 6.5)))}
+                </text>
             ) : (
                 <>
                     <text x={textX} y={h / 2 - 3} fontSize={13} fill={theme.contentColorDefault} fontFamily={theme.fontFamily} fontWeight={theme.fontWeightSemiBold}>
@@ -104,9 +118,23 @@ export function NodeShape({ node, theme, selected = false, stroke, status, statu
                             {statusIcon}
                         </svg>
                     )}
-                    <text x={withIcon ? textX + 16 : textX} y={h / 2 + 13} fontSize={11} fill={detailFill} fontFamily={theme.fontFamily}>
-                        {status ?? clip(node.detail, chars)}
-                    </text>
+                    {/* A nested svg clips a long status (a preview error) to the node. */}
+                    <svg x={withIcon ? textX + 16 : textX} y={h / 2 + 2} width={Math.max(10, w - (withIcon ? textX + 16 : textX) - 12)} height={14}>
+                        <text data-testid={previewId ? `preview-text-${previewId}` : undefined} x={0} y={11} fontSize={11} fill={detailFill} fontFamily={theme.fontFamily}>
+                            {status ?? clip(node.detail, chars)}
+                        </text>
+                    </svg>
+                    {bar !== undefined && bar > 0 && (
+                        <rect
+                            data-testid={previewId ? `preview-bar-${previewId}` : undefined}
+                            x={BAR_PAD}
+                            y={h - BAR_H - 7}
+                            width={bar * (w - 2 * BAR_PAD)}
+                            height={BAR_H}
+                            rx={1.5}
+                            fill={color}
+                        />
+                    )}
                 </>
             )}
         </>

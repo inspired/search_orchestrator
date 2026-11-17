@@ -17,14 +17,15 @@ export interface DraftLineProps {
     outcome?: PortId;
     to: Pos;
     theme: Theme;
+    compact?: boolean;
 }
 
-export function DraftLine({ node, at, tabs, outcome, to, theme }: DraftLineProps) {
+export function DraftLine({ node, at, tabs, outcome, to, theme, compact = false }: DraftLineProps) {
     if (!node || !at) {
         return null;
     }
     const i = outcome ? tabs.indexOf(outcome) : -1;
-    const o = i >= 0 ? tabOffset(node.kind, i, tabs.length) : handleOffset(node.kind);
+    const o = i >= 0 ? tabOffset(node.kind, i, tabs.length, compact) : handleOffset(node.kind, compact);
     return (
         <path
             data-testid="link-draft"

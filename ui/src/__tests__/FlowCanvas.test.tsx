@@ -565,12 +565,33 @@ describe('FlowCanvas', () => {
             expect(screen.getByTestId('node-step:a')).toHaveTextContent('1 error');
         });
 
-        test('preview notes show as plain text under the step', () => {
-            setup({ notes: { a: { text: '✓ 7 rows' }, b: { text: 'preview failed', failed: true } } });
-            expect(screen.getByTestId('note-a')).toHaveTextContent('✓ 7 rows');
-            expect(screen.getByTestId('note-b')).toHaveTextContent('preview failed');
-            expect(screen.getByTestId('note-b').getAttribute('fill')).not.toBe(screen.getByTestId('note-a').getAttribute('fill'));
-            expect(screen.getByRole('button', { name: 'Search a, Search, ✓ 7 rows' })).toBeInTheDocument();
+        test('preview results show under the name, with a bar relative to the largest', () => {
+            const fmt = (n: number) => new Intl.NumberFormat().format(n);
+            setup({ previews: { a: { rows: 1204, seconds: 3.2 }, b: { rows: 301, seconds: 0.5 } } });
+            expect(screen.getByTestId('node-step:a')).toHaveTextContent(`${fmt(1204)} rows · 3.2 s`);
+            expect(screen.getByTestId('node-step:b')).toHaveTextContent(`${fmt(301)} rows · 0.5 s`);
+            const full = Number(screen.getByTestId('preview-bar-a').getAttribute('width'));
+            const part = Number(screen.getByTestId('preview-bar-b').getAttribute('width'));
+            expect(screen.getByTestId('preview-bar-a')).toHaveAttribute('height', '3');
+            expect(full).toBe(200 - 28);
+            expect(part / full).toBeCloseTo(301 / 1204, 2);
+            expect(screen.getByRole('button', { name: new RegExp(`Search a, Search, ${fmt(1204)} rows`) })).toBeInTheDocument();
+        });
+
+        test('no bar for zero rows, a running preview says so, a failed one shows the first line', () => {
+            setup({ previews: { a: { rows: 0, seconds: 1 }, b: { error: `Error in search: ${'x'.repeat(80)}\nsecond` } } });
+            expect(screen.getByTestId('node-step:a')).toHaveTextContent('0 rows · 1.0 s');
+            expect(screen.queryByTestId('preview-bar-a')).toBeNull();
+            const b = screen.getByTestId('node-step:b');
+            expect(b).toHaveTextContent('Preview failed: Error in search: ');
+            expect(b).not.toHaveTextContent('second');
+            expect(screen.getByTestId('preview-text-b').textContent!.length).toBeLessThanOrEqual('Preview failed: '.length + 60);
+            expect(screen.getByTestId('preview-text-b').getAttribute('fill')).not.toBe(screen.getByTestId('preview-text-a').getAttribute('fill'));
+        });
+
+        test('running preview', () => {
+            setup({ previews: { a: { running: true } } });
+            expect(screen.getByTestId('node-step:a')).toHaveTextContent('Previewing…');
         });
 
         test('status replaces the detail with text, an icon and an outline colour', () => {
@@ -620,6 +641,57 @@ describe('FlowCanvas', () => {
         test('read-only canvases leave the browser menu alone', () => {
             setup({ onContext: jest.fn(), readOnly: true });
             expect(fireEvent.contextMenu(screen.getByTestId('node-step:a'))).toBe(true);
+        });
+    });
+
+    describe('compact nodes', () => {
+        beforeEach(() => window.localStorage.removeItem('so.flow.compact'));
+        afterEach(() => window.localStorage.removeItem('so.flow.compact'));
+
+        test('the toggle is remembered and changes what is drawn', () => {
+            const { unmount } = renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
+            const stripeWidth = () => screen.getByTestId('node-step:a').querySelector('path')!.getAttribute('d');
+            const fullPath = stripeWidth();
+            fireEvent.click(screen.getByRole('button', { name: 'Compact nodes' }));
+            expect(window.localStorage.getItem('so.flow.compact')).toBe('1');
+            expect(stripeWidth()).not.toBe(fullPath);
+            expect(screen.getByRole('button', { name: 'Full nodes' })).toBeInTheDocument();
+            unmount();
+            renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
+            expect(screen.getByRole('button', { name: 'Full nodes' })).toBeInTheDocument();
+        });
+
+        test('the + sits on the compact right edge', () => {
+            window.localStorage.setItem('so.flow.compact', '1');
+            setup();
+            const ring = screen.getByTestId('plus-step:a').querySelector('circle')!;
+            expect(ring.getAttribute('cx')).toBe('140');
+            expect(ring.getAttribute('cy')).toBe('16');
+        });
+
+        test('hover or selection draws the full node over it, without moving anything', () => {
+            window.localStorage.setItem('so.flow.compact', '1');
+            const { unmount } = renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} previews={{ a: { rows: 5, seconds: 1 } }} onSelect={jest.fn()} />);
+            expect(screen.queryByTestId('node-full-step:a')).toBeNull();
+            expect(screen.getByTestId('node-step:a')).not.toHaveTextContent('5 rows');
+            fireEvent.pointerEnter(screen.getByTestId('node-step:a'));
+            expect(screen.getByTestId('node-full-step:a')).toHaveTextContent('5 rows · 1.0 s');
+            expect(screen.getByTestId('node-step:a')).toHaveAttribute('transform', 'translate(250,100)');
+            fireEvent.pointerLeave(screen.getByTestId('node-step:a'));
+            expect(screen.queryByTestId('node-full-step:a')).toBeNull();
+            unmount();
+            renderThemed(<FlowCanvas graph={graph} positions={positions} selected={{ kind: 'node', key: 'step:b' }} issues={[]} onSelect={jest.fn()} />);
+            expect(screen.getByTestId('node-full-step:b')).toBeInTheDocument();
+        });
+
+        test('a drop is hit-tested against the compact box', () => {
+            window.localStorage.setItem('so.flow.compact', '1');
+            const { props, canvas } = setup({ onDropOnNode: jest.fn() });
+            const plus = screen.getByTestId('plus-step:a');
+            fireEvent.pointerDown(plus, { clientX: 390, clientY: 116 });
+            fireEvent.pointerMove(canvas, { clientX: 640, clientY: 116 });
+            fireEvent.pointerUp(canvas, { clientX: 640, clientY: 116 });
+            expect(props.onDropOnNode).toHaveBeenCalledWith('step:a', 'step:b', expect.anything());
         });
     });
 });

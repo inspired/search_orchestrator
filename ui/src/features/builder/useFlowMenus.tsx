@@ -97,6 +97,8 @@ export interface FlowMenusOptions {
     /** The canvas element, to keep popups inside it. */
     canvas: () => Element | null;
     context: ContextActions;
+    /** Nodes are drawn compact. */
+    compact?: boolean;
 }
 
 /** `screen` moved so a `w` × `h` box stays inside the canvas (only left and top when unknown). */
@@ -118,7 +120,7 @@ function insertKinds(job: JobDefinition, graph: FlowGraph, link: FlowLink): Node
 }
 
 export default function useFlowMenus(opts: FlowMenusOptions) {
-    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context } = opts;
+    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context, compact } = opts;
     const [menu, setMenu] = useState<Menu | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     /** The job just before the splice the message is about, then the job just after it: if the
@@ -190,7 +192,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             return;
         }
         const key = addNodeKey(job, kind, q.from);
-        dispatch({ type: 'addNode', kind, at: q.at, from: q.from, rightOf: q.rightOf, shown: q.at || q.rightOf ? positions : undefined });
+        dispatch({ type: 'addNode', kind, at: q.at, from: q.from, rightOf: q.rightOf, compact, shown: q.at || q.rightOf ? positions : undefined });
         if (key) {
             select({ kind: 'node', key });
             focusNode(key);

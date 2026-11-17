@@ -21,17 +21,19 @@ export interface ClipboardOptions {
     select: (sel: FlowSelection) => void;
     /** Shows a message with Undo (call before the edit it is about). */
     notify: (text: string) => void;
+    /** Nodes are drawn compact. */
+    compact?: boolean;
 }
 
-export default function useClipboard({ job, positions, selection, dispatch, select, notify }: ClipboardOptions) {
+export default function useClipboard({ job, positions, selection, dispatch, select, notify, compact = false }: ClipboardOptions) {
     // The job as it is when a paste is read from the clipboard, not when the key was pressed.
     const latest = useRef(job);
     latest.current = job;
     const put = (clip: Clip, at: Pos) => {
         const now = latest.current;
-        const result = pasteResult(now, clip, at);
+        const result = pasteResult(now, clip, at, compact);
         notify(result.message);
-        dispatch({ type: 'paste', clip, at });
+        dispatch({ type: 'paste', clip, at, compact });
         select(normaliseSelection(result.keys));
     };
     const copied = () => {

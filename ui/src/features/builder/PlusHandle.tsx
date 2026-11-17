@@ -21,8 +21,8 @@ export function tabLabel(outcome: PortId): string {
 }
 
 /** A tab's box relative to the node's top-left: just outside the right edge, at `tabOffset`. */
-export function tabBox(kind: NodeKind, index: number, count: number, outcome: PortId): { x: number; y: number; w: number; h: number } {
-    const o = tabOffset(kind, index, count);
+export function tabBox(kind: NodeKind, index: number, count: number, outcome: PortId, compact = false): { x: number; y: number; w: number; h: number } {
+    const o = tabOffset(kind, index, count, compact);
     return { x: o.x + 2, y: o.y - TAB_H / 2, w: Math.round(tabLabel(outcome).length * CHAR_W + 2 * TAB_PAD), h: TAB_H };
 }
 
@@ -36,16 +36,18 @@ export interface PlusHandleProps {
     plus: boolean;
     onPlusDown?: (ev: React.PointerEvent) => void;
     onTabDown?: (ev: React.PointerEvent, outcome: PortId) => void;
+    /** Compact nodes: the handle and tabs sit on the smaller node. */
+    compact?: boolean;
 }
 
-export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDown, onTabDown }: PlusHandleProps) {
+export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDown, onTabDown, compact = false }: PlusHandleProps) {
     const [hover, setHover] = useState(false);
-    const h = handleOffset(kind);
+    const h = handleOffset(kind, compact);
     return (
         <>
             {tabs.map((outcome, i) => {
                 const label = tabLabel(outcome);
-                const box = tabBox(kind, i, tabs.length, outcome);
+                const box = tabBox(kind, i, tabs.length, outcome, compact);
                 const color = theme[PORT_STYLE[outcome].colorToken];
                 return (
                     <g

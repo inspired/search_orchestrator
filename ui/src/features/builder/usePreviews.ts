@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../../api/client';
 import type { JobDefinition, PreviewInput, PreviewInputRead, PreviewRequest, PreviewResults, PreviewStatus, SkipKind } from '../../api/types';
+import type { PreviewSummary } from './nodePreview';
 import { BUILTIN_DEFAULTS, isStale, LivePreview, PreviewContext, previewKeys, previewRefusal, previousInputs, toBeRun, upstreamOf } from './previewLogic';
 
 export interface PreviewApi {
@@ -472,23 +473,24 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
     return { previews: views, preview, cancel };
 }
 
-/** The short plain-text note a previewed step shows on the graph. */
-export function previewNote(p: PreviewView | undefined): { text: string; failed: boolean } | null {
+/** What a node shows of a step's preview (see nodePreview): rows and seconds of a current
+ * finished one, "running", or the error. Out of date, skipped and missing previews show nothing. */
+export function previewSummary(p: PreviewView | undefined): PreviewSummary | undefined {
     if (!p) {
-        return null;
+        return undefined;
     }
     if (p.state === 'running') {
-        return { text: 'previewing…', failed: false };
+        return { running: true };
     }
-    if (p.stale || p.state === 'missing') {
-        return { text: 'out of date', failed: false };
+    if (p.stale || p.state === 'missing' || p.state === 'skipped') {
+        return undefined;
     }
     if (p.state === 'failed') {
-        return { text: 'preview failed', failed: true };
+        return { error: p.error || (p.status && p.status.error) || 'The preview failed.' };
     }
-    if (p.state === 'skipped') {
-        return { text: 'would be skipped', failed: false };
+    const out: PreviewSummary = { rows: p.status ? p.status.result_count : p.results ? p.results.total : 0 };
+    if (p.status && typeof p.status.run_duration === 'number') {
+        out.seconds = p.status.run_duration;
     }
-    const n = p.status ? p.status.result_count : p.results ? p.results.total : 0;
-    return { text: `✓ ${n} row${n === 1 ? '' : 's'}`, failed: false };
+    return out;
 }

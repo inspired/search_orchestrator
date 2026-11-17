@@ -24,7 +24,9 @@ import type { Issue } from '../../api/types';
 import { issuesByStep, Pos, Positions } from './graphLogic';
 import { NodeGroup, Theme } from './GraphView';
 import { FlowGraph, FlowLink, FlowNode, JOB_KEY, PortId } from './nodeModel';
-import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, hasHandle, nodeSize } from './nodeStyle';
+import { previewLine, barFraction, maxRows, PreviewSummary } from './nodePreview';
+import useCompactPref from './useCompactPref';
+import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, hasHandle } from './nodeStyle';
 import { NodeShape } from './NodeShape';
 import PlusHandle from './PlusHandle';
 import Legend from './Legend';
@@ -49,8 +51,13 @@ export interface FlowCanvasProps {
     positions: Positions;
     selected: FlowSelection;
     issues: Issue[];
-    /** A short preview note under each previewed step, by step id, such as "✓ 7 rows". */
-    notes?: Record<string, { text: string; failed?: boolean } | null | undefined>;
+    /** What a node shows of its step's preview, by step id (see nodePreview): "1 204 rows · 3.2 s"
+     * with a bar relative to the largest count on the canvas, "Previewing…" or "Preview failed: …". */
+    previews?: Record<string, PreviewSummary | undefined>;
+    /** Draw nodes compact (icon and name only). The caller lays the nodes out with the same flag;
+     * without it the canvas keeps the choice itself (`so.flow.compact`) and the toolbar toggles it. */
+    compact?: boolean;
+    onToggleCompact?: () => void;
     /** No + handles, no moving: for the run page. */
     readOnly?: boolean;
     /** Replaces a node's detail line, by node key. `icon` is drawn in a 24×24 viewBox. */
@@ -97,7 +104,6 @@ export interface FlowCanvasProps {
 }
 
 const NUDGE = 10;
-const CONDITION_LABEL = 36;
 /** Below this zoom, line labels show only on the selected line. */
 const LABEL_ZOOM = 0.7;
 const ARROWS: Record<string, Pos> = {
@@ -129,7 +135,9 @@ export default function FlowCanvas({
     positions,
     selected,
     issues,
-    notes = {},
+    previews = {},
+    compact: compactProp,
+    onToggleCompact,
     readOnly = false,
     status,
     onSelect,
@@ -159,11 +167,15 @@ export default function FlowCanvas({
     const svgRef = useRef<SVGSVGElement | null>(null);
     const [legendOpen, setLegendOpen] = useState(false);
     const [gridOn, toggleGrid] = useGridPref();
+    const [ownCompact, toggleOwnCompact] = useCompactPref();
+    const compact = compactProp ?? ownCompact;
+    const toggleCompact = onToggleCompact ?? toggleOwnCompact;
+    const [hovered, setHovered] = useState<string | null>(null);
     const [size, setSize] = useState({ w: 0, h: 0 });
 
     const canMove = !readOnly && !!onMove;
     const g = useCanvasGestures({
-        svgRef, graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode,
+        svgRef, graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact,
     });
     const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, guides, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
@@ -179,7 +191,8 @@ export default function FlowCanvas({
     const many = selected && selected.kind === 'nodes' ? selected.keys : null;
     const chosen = new Set(selectedKeys(selected));
 
-    useRevealNode(svgRef, selectedNode ? byKey.get(selectedNode) : undefined, positions, view, setPan);
+    useRevealNode(svgRef, selectedNode ? byKey.get(selectedNode) : undefined, positions, view, setPan, compact);
+    const mostRows = useMemo(() => maxRows(previews, graph.nodes.flatMap((n) => (n.stepId ? [n.stepId] : []))), [previews, graph]);
 
     // Track the visible canvas size for the minimap: after every render, and when the window resizes.
     const measure = () => {
@@ -212,7 +225,7 @@ export default function FlowCanvas({
 
     const frameAll = () => {
         const svg = svgRef.current;
-        const next = svg ? frameView(graph, positions, svg.clientWidth, svg.clientHeight) : null;
+        const next = svg ? frameView(graph, positions, svg.clientWidth, svg.clientHeight, undefined, compact) : null;
         if (next) {
             setZoom(next.zoom);
             setPan(next.pan);
@@ -337,7 +350,7 @@ export default function FlowCanvas({
         .map((l) => {
             const from = byKey.get(l.from);
             const to = byKey.get(l.to);
-            const ends = from && to ? linkEnds(l, from, to, shown, tabsOf[l.from]) : null;
+            const ends = from && to ? linkEnds(l, from, to, shown, tabsOf[l.from], compact) : null;
             return from && to && ends ? { l, from, to, d: linkPath(ends.a, ends.b), mid: bezierAt(ends.a, ends.b, 0.5) } : null;
         })
         .filter((x): x is LinkGeometry => x !== null);
@@ -380,8 +393,8 @@ export default function FlowCanvas({
     const ariaLabelOf = (n: FlowNode, detail: Detail | null, counts: string[]) => {
         const family = FAMILY_STYLE[FAMILY_OF[n.kind]].label;
         const head = family === n.label ? n.label : `${family} ${n.label}`;
-        const note = n.stepId ? notes[n.stepId] : undefined;
-        return [head, detail && status && status[n.key] ? detail.text : n.detail, ...counts, note ? note.text : ''].filter(Boolean).join(', ');
+        const line = previewLine(n.stepId ? previews[n.stepId] : undefined);
+        return [head, detail && status && status[n.key] ? detail.text : n.detail, ...counts, line ? line.text : ''].filter(Boolean).join(', ');
     };
 
     const help = readOnly
@@ -401,6 +414,8 @@ export default function FlowCanvas({
                 onToggleLegend={() => setLegendOpen((o) => !o)}
                 gridOn={gridOn}
                 onToggleGrid={toggleGrid}
+                compact={compact}
+                onToggleCompact={toggleCompact}
                 fullScreen={fullScreen}
                 onToggleFullScreen={onToggleFullScreen}
             />
@@ -487,7 +502,7 @@ export default function FlowCanvas({
                         );
                     })}
                     {gesture && gesture.kind === 'line' && cursor && (
-                        <DraftLine node={byKey.get(gesture.from)} at={shown[gesture.from]} tabs={tabsOf[gesture.from] || []} outcome={gesture.outcome} to={cursor} theme={theme} />
+                        <DraftLine node={byKey.get(gesture.from)} at={shown[gesture.from]} tabs={tabsOf[gesture.from] || []} outcome={gesture.outcome} to={cursor} theme={theme} compact={compact} />
                     )}
                     {graph.nodes.map((n) => {
                         const p = shown[n.key];
@@ -496,8 +511,19 @@ export default function FlowCanvas({
                         }
                         const isSelected = chosen.has(n.key);
                         const { detail, counts } = detailOf(n);
-                        const note = n.stepId ? notes[n.stepId] : undefined;
-                        const { h } = nodeSize(n.kind);
+                        const line = previewLine(n.stepId ? previews[n.stepId] : undefined);
+                        // Issues and run status keep the detail line; a preview takes it otherwise.
+                        const text = detail ? detail.text : line ? line.text : undefined;
+                        const icon = detail ? detail.icon : line && line.failed ? <CrossCircle aria-hidden width={24} height={24} /> : undefined;
+                        const color = detail ? detail.color : line && line.failed ? theme.statusColorHigh : undefined;
+                        const previewProps = {
+                            status: text,
+                            statusIcon: icon,
+                            statusColor: color,
+                            previewId: n.stepId,
+                            bar: n.stepId ? barFraction(previews[n.stepId], mostRows) : 0,
+                        };
+                        const overlaid = compact && n.kind !== 'condition' && (hovered === n.key || isSelected);
                         return (
                             <NodeGroup
                                 key={n.key}
@@ -508,6 +534,8 @@ export default function FlowCanvas({
                                 tabIndex={0}
                                 aria-label={ariaLabelOf(n, detail, counts)}
                                 aria-pressed={isSelected}
+                                onPointerEnter={() => setHovered(n.key)}
+                                onPointerLeave={() => setHovered((k) => (k === n.key ? null : k))}
                                 onPointerDown={(ev) => {
                                     ev.stopPropagation();
                                     g.startNode(ev, n.key);
@@ -519,21 +547,14 @@ export default function FlowCanvas({
                                     theme={theme}
                                     selected={isSelected}
                                     stroke={detail ? detail.color : undefined}
-                                    status={detail ? detail.text : undefined}
-                                    statusIcon={detail ? detail.icon : undefined}
-                                    statusColor={detail ? detail.color : undefined}
+                                    compact={compact}
+                                    {...(compact ? {} : previewProps)}
                                 />
-                                {note && (
-                                    <text
-                                        data-testid={`note-${n.stepId}`}
-                                        x={0}
-                                        y={(n.kind === 'condition' ? h + CONDITION_LABEL : h) + 14}
-                                        fontSize={11}
-                                        fill={note.failed ? theme.statusColorHigh : theme.contentColorMuted}
-                                        fontFamily={theme.fontFamily}
-                                    >
-                                        {note.text}
-                                    </text>
+                                {/* Compact: the full node over it, below the + and tabs, on hover or selection. */}
+                                {overlaid && (
+                                    <g data-testid={`node-full-${n.key}`}>
+                                        <NodeShape node={n} theme={theme} selected={isSelected} stroke={detail ? detail.color : undefined} {...previewProps} />
+                                    </g>
                                 )}
                                 {hasHandle(n.kind) && (
                                     <PlusHandle
@@ -542,6 +563,7 @@ export default function FlowCanvas({
                                         theme={theme}
                                         tabs={tabsOf[n.key] || []}
                                         plus={!readOnly}
+                                        compact={compact}
                                         onPlusDown={readOnly ? undefined : (ev) => g.startLine(ev, n.key)}
                                         onTabDown={readOnly ? undefined : (ev, outcome) => g.startLine(ev, n.key, outcome)}
                                     />
@@ -574,8 +596,8 @@ export default function FlowCanvas({
                     <Legend />
                 </div>
             )}
-            {exceedsView(graph, shown, zoom, size.w, size.h) && (
-                <Minimap graph={graph} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={setPan} />
+            {exceedsView(graph, shown, zoom, size.w, size.h, compact) && (
+                <Minimap graph={graph} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={setPan} compact={compact} />
             )}
             {overlay}
             </div>

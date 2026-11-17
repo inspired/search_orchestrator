@@ -53,6 +53,8 @@ export interface GestureOptions {
     /** A node with no lines dropped on line `link`; only offered when `canSpliceNode` says yes. */
     onSplice?: (node: string, link: string, at: Pos) => void;
     canSpliceNode?: (node: string, link: string) => boolean;
+    /** Compact nodes: every box and offset below is the compact one. */
+    compact?: boolean;
 }
 
 const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
@@ -60,7 +62,7 @@ const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)
 const HANDLE_SLOP = 4;
 
 export default function useCanvasGestures(opts: GestureOptions) {
-    const { svgRef, graph, positions, canMove, canSelectMany, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode } =
+    const { svgRef, graph, positions, canMove, canSelectMany, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact = false } =
         opts;
     const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
@@ -154,7 +156,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (!n || !p) {
             return null;
         }
-        const o = handleOffset(n.kind);
+        const o = handleOffset(n.kind, compact);
         return toScreen({ x: p.x + o.x + HANDLE_R, y: p.y + o.y });
     };
 
@@ -213,12 +215,12 @@ export default function useCanvasGestures(opts: GestureOptions) {
      * Guides compare the dragged node alone with the nodes that are not moving. */
     const placed = (g: Extract<Gesture, { kind: 'node' }>, offset: Pos) => {
         const p = positions[g.key];
-        const mine = boxOf(graph, positions, g.key);
+        const mine = boxOf(graph, positions, g.key, compact);
         if (!p || !mine) {
             return { shown: offset, drop: offset, lines: [] as Guide[] };
         }
         const moving = new Set(g.group || [g.key]);
-        const others = graph.nodes.flatMap((n) => (moving.has(n.key) ? [] : [boxOf(graph, positions, n.key)])).filter((b): b is NonNullable<typeof b> => b !== null);
+        const others = graph.nodes.flatMap((n) => (moving.has(n.key) ? [] : [boxOf(graph, positions, n.key, compact)])).filter((b): b is NonNullable<typeof b> => b !== null);
         const r = guidesFor({ ...mine, x: p.x + offset.x, y: p.y + offset.y }, others);
         const onX = r.lines.some((l) => l.axis === 'x');
         const onY = r.lines.some((l) => l.axis === 'y');
@@ -243,8 +245,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (graph.links.some((l) => l.kind !== 'trigger' && (l.from === key || l.to === key))) {
             return null;
         }
-        const { w, h } = nodeSize(n.kind);
-        const link = linkAt(graph, positions, { x: p.x + offset.x + w / 2, y: p.y + offset.y + h / 2 });
+        const { w, h } = nodeSize(n.kind, compact);
+        const link = linkAt(graph, positions, { x: p.x + offset.x + w / 2, y: p.y + offset.y + h / 2 }, 8, compact);
         return link && canSpliceNode(key, link) ? link : null;
     };
 
@@ -331,20 +333,20 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (!n || !p) {
             return false;
         }
-        const h = handleOffset(n.kind);
+        const h = handleOffset(n.kind, compact);
         if (Math.hypot(pt.x - (p.x + h.x), pt.y - (p.y + h.y)) <= HANDLE_R + HANDLE_SLOP) {
             return true;
         }
         const tabs = n.kind === 'condition' ? [] : usedOutcomes(graph, key);
         return tabs.some((o, i) => {
-            const b = tabBox(n.kind, i, tabs.length, o);
+            const b = tabBox(n.kind, i, tabs.length, o, compact);
             return pt.x >= p.x + b.x && pt.x <= p.x + b.x + b.w && pt.y >= p.y + b.y && pt.y <= p.y + b.y + b.h;
         });
     };
 
     const dropLine = (g: Extract<Gesture, { kind: 'line' }>, clientX: number, clientY: number) => {
         const end = toCanvas(clientX, clientY);
-        const target = nodeAt(graph, shown, end);
+        const target = nodeAt(graph, shown, end, compact);
         if (target === g.from || onOwnHandle(g.from, end)) {
             return;
         }
@@ -388,7 +390,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
                 }
             } else if (g.kind === 'box') {
                 if (moved) {
-                    const hits = keysInBox(graph, shown, g.start, toCanvas(ev.clientX, ev.clientY));
+                    const hits = keysInBox(graph, shown, g.start, toCanvas(ev.clientX, ev.clientY), compact);
                     onSelect(normaliseSelection([...selectedKeys(selected), ...hits]));
                 }
             } else if (g.kind === 'line') {

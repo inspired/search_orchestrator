@@ -127,8 +127,8 @@ function newIds(job: JobDefinition, clip: Clip): Map<string, string> {
 }
 
 /** `job` with `clip` pasted so its top-left corner is at `at`; `keys` are the new nodes and
- * `message` says what happened. Nodes already shown keep their place. */
-export function pasteResult(job: JobDefinition, clip: Clip, at: Pos): { job: JobDefinition; keys: string[]; message: string } {
+ * `message` says what happened. Nodes already shown keep their place (laid out compact or not). */
+export function pasteResult(job: JobDefinition, clip: Clip, at: Pos, compact = false): { job: JobDefinition; keys: string[]; message: string } {
     const ids = newIds(job, clip);
     const idOf = (id: string) => ids.get(id) || id;
     // Renames go through a placeholder so one rename never meets the result of another.
@@ -195,7 +195,7 @@ export function pasteResult(job: JobDefinition, clip: Clip, at: Pos): { job: Job
             placed[keyMap[old]] = { x: Math.round(p.x - origin.x + at.x), y: Math.round(p.y - origin.y + at.y) };
         }
     });
-    const shown = layoutFlow(buildGraph(job), job.layout?.nodes);
+    const shown = layoutFlow(buildGraph(job), job.layout?.nodes, compact);
     const keys = Object.values(keyMap).filter((k) => {
         // Conditions exist only for expression lines (all of the clip's are copied with theirs).
         const c = /^cond:(.*)>(.*)$/.exec(k);

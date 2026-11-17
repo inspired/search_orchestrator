@@ -19,7 +19,8 @@ export default function useRevealNode(
     node: FlowNode | undefined,
     positions: Positions,
     view: React.MutableRefObject<{ pan: Pos; zoom: number }>,
-    setPan: (p: Pos) => void
+    setPan: (p: Pos) => void,
+    compact = false
 ) {
     useEffect(() => {
         const svg = svgRef.current;
@@ -27,7 +28,7 @@ export default function useRevealNode(
         if (!svg || !node || !p || !svg.clientWidth || !svg.clientHeight) {
             return;
         }
-        const { w, h } = nodeSize(node.kind);
+        const { w, h } = nodeSize(node.kind, compact);
         const { pan: at, zoom: z } = view.current;
         const dx = shift(p.x * z + at.x, (p.x + w) * z + at.x, svg.clientWidth);
         const dy = shift(p.y * z + at.y, (p.y + h + 20) * z + at.y, svg.clientHeight);

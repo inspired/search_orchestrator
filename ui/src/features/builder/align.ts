@@ -118,17 +118,17 @@ export function distribute(boxes: Record<string, Box>, axis: 'x' | 'y'): Record<
 }
 
 /** The box of node `key` at its position, from its kind's size. */
-export function boxOf(graph: FlowGraph, positions: Positions, key: string): Box | null {
+export function boxOf(graph: FlowGraph, positions: Positions, key: string, compact = false): Box | null {
     const n = graph.nodes.find((x) => x.key === key);
     const p = positions[key];
-    return n && p ? { x: p.x, y: p.y, ...nodeSize(n.kind) } : null;
+    return n && p ? { x: p.x, y: p.y, ...nodeSize(n.kind, compact) } : null;
 }
 
 /** Aligns or distributes the nodes `keys`; only the nodes that actually move are returned. */
-export function arrange(graph: FlowGraph, positions: Positions, keys: string[], how: Arrange): Record<string, Pos> {
+export function arrange(graph: FlowGraph, positions: Positions, keys: string[], how: Arrange, compact = false): Record<string, Pos> {
     const boxes: Record<string, Box> = {};
     keys.forEach((k) => {
-        const b = boxOf(graph, positions, k);
+        const b = boxOf(graph, positions, k, compact);
         if (b) {
             boxes[k] = b;
         }

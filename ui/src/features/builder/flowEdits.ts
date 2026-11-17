@@ -140,9 +140,9 @@ export function withPlacedNode(job: JobDefinition, key: string, at: Pos, shown?:
 }
 
 /** Where addNode puts `key` of `kind` when asked to go right of `rightOf` (null without `rightOf`). */
-export function spotRightOf(before: JobDefinition, next: JobDefinition, rightOf: string, kind: NodeKind, shown?: Record<string, Pos>) {
-    const pos = shown || layoutFlow(buildGraph(before), before.layout?.nodes);
-    return { at: freeSpotRightOf(buildGraph(next), pos, rightOf, kind), shown: pos };
+export function spotRightOf(before: JobDefinition, next: JobDefinition, rightOf: string, kind: NodeKind, shown?: Record<string, Pos>, compact = false) {
+    const pos = shown || layoutFlow(buildGraph(before), before.layout?.nodes, compact);
+    return { at: freeSpotRightOf(buildGraph(next), pos, rightOf, kind, compact), shown: pos };
 }
 
 /** The job with step `node` on `link`; null when it cannot be. */
@@ -248,7 +248,7 @@ export function removeNodesJob(job: JobDefinition, keys: string[]): JobDefinitio
  * `keys`, place only those nodes again, as automatic placement would lay them out among
  * themselves, with the top-left corner of the group where it was; every other node is saved
  * where it is shown. */
-export function tidyJob(job: JobDefinition, keys?: string[]): JobDefinition | null {
+export function tidyJob(job: JobDefinition, keys?: string[], compact = false): JobDefinition | null {
     if (!keys) {
         if (!job.layout) {
             return null;
@@ -262,7 +262,7 @@ export function tidyJob(job: JobDefinition, keys?: string[]): JobDefinition | nu
     if (!mine.size) {
         return null;
     }
-    const shown = layoutFlow(graph, job.layout?.nodes);
+    const shown = layoutFlow(graph, job.layout?.nodes, compact);
     // Lines among the chosen nodes, and a step-to-step line through a condition left out.
     const links = graph.links.filter((l) => mine.has(l.from) && mine.has(l.to));
     (job.edges || []).forEach((e) => {
@@ -272,7 +272,7 @@ export function tidyJob(job: JobDefinition, keys?: string[]): JobDefinition | nu
         }
     });
     const sub: FlowGraph = { nodes: graph.nodes.filter((n) => mine.has(n.key)), links };
-    const auto = layoutFlow(sub);
+    const auto = layoutFlow(sub, undefined, compact);
     const ks = Array.from(mine);
     const corner = (pos: Record<string, Pos>) => ({ x: Math.min(...ks.map((k) => pos[k].x)), y: Math.min(...ks.map((k) => pos[k].y)) });
     const from = corner(auto);

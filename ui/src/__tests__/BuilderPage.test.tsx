@@ -666,13 +666,13 @@ describe('BuilderPage previews', () => {
         const calls = (api.startPreview as jest.Mock).mock.calls.map((c) => c[0]);
         expect(calls.map((c) => c.step_id)).toEqual(['daily', 'weekly']);
         expect(calls[0].scheduled_time).toBe(1762390800);
-        expect(screen.getByTestId('note-daily')).toHaveTextContent('✓ 7 rows');
-        expect(screen.getByTestId('note-weekly')).toHaveTextContent('✓ 7 rows');
-        expect(screen.queryByTestId('note-monthly')).toBeNull();
+        expect(screen.getByTestId('node-step:daily')).toHaveTextContent(/7 rows · 0\.\d s/);
+        expect(screen.getByTestId('node-step:weekly')).toHaveTextContent(/7 rows · 0\.2 s/);
+        expect(screen.getByTestId('node-step:monthly')).not.toHaveTextContent('rows');
         fireEvent.keyDown(screen.getByRole('button', { name: /^Search Daily summary/ }), { key: 'Enter' });
         fireEvent.change(screen.getByRole('textbox', { name: 'Search' }), { target: { value: '| makeresults count=2' } });
-        expect(screen.getByTestId('note-daily')).toHaveTextContent('out of date');
-        expect(screen.getByTestId('note-weekly')).toHaveTextContent('out of date');
+        expect(screen.getByTestId('node-step:daily')).not.toHaveTextContent('7 rows');
+        expect(screen.getByTestId('node-step:weekly')).not.toHaveTextContent('7 rows');
         expect(screen.getByText('Out of date. Preview again to refresh.')).toBeInTheDocument();
     });
 

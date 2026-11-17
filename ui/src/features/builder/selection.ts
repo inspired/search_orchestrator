@@ -31,7 +31,7 @@ export function toggleInSelection(sel: FlowSelection, key: string): FlowSelectio
 }
 
 /** Keys of the nodes whose boxes touch the box with corners `a` and `b`, in graph order (never the Whole job node). */
-export function keysInBox(graph: FlowGraph, positions: Positions, a: Pos, b: Pos): string[] {
+export function keysInBox(graph: FlowGraph, positions: Positions, a: Pos, b: Pos, compact = false): string[] {
     const x0 = Math.min(a.x, b.x);
     const x1 = Math.max(a.x, b.x);
     const y0 = Math.min(a.y, b.y);
@@ -45,7 +45,7 @@ export function keysInBox(graph: FlowGraph, positions: Positions, a: Pos, b: Pos
             if (!p) {
                 return false;
             }
-            const { w, h } = nodeSize(n.kind);
+            const { w, h } = nodeSize(n.kind, compact);
             return p.x <= x1 && p.x + w >= x0 && p.y <= y1 && p.y + h >= y0;
         })
         .map((n) => n.key);

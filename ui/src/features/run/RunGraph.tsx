@@ -4,6 +4,7 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { ActionRun, JobDefinition, StepStatus } from '../../api/types';
 import { isStepDelayed, statusIcon, statusLabel } from '../../components/StatusText';
 import FlowCanvas, { FlowSelection } from '../builder/FlowCanvas';
+import useCompactPref from '../builder/useCompactPref';
 import { layoutFlow } from '../builder/flowLayout';
 import { buildGraph, stepKey } from '../builder/nodeModel';
 import type { Theme } from '../builder/GraphView';
@@ -22,7 +23,8 @@ type Status = { text: string; icon?: React.ReactNode; color?: string };
 export default function RunGraph({ definition, states, actions, onSelect, selected = null }: RunGraphProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const graph = useMemo(() => buildGraph(definition), [definition]);
-    const positions = useMemo(() => layoutFlow(graph, definition.layout?.nodes), [graph, definition]);
+    const [compact, toggleCompact] = useCompactPref();
+    const positions = useMemo(() => layoutFlow(graph, definition.layout?.nodes, compact), [graph, definition, compact]);
     const status = useMemo(() => {
         const out: Record<string, Status> = {};
         (definition.steps || []).forEach((s) => {
@@ -58,5 +60,5 @@ export default function RunGraph({ definition, states, actions, onSelect, select
             onSelect(sel.key.slice('step:'.length));
         }
     };
-    return <FlowCanvas graph={graph} positions={positions} selected={selection} issues={[]} readOnly status={status} onSelect={handle} />;
+    return <FlowCanvas graph={graph} positions={positions} selected={selection} issues={[]} readOnly compact={compact} onToggleCompact={toggleCompact} status={status} onSelect={handle} />;
 }

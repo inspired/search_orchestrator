@@ -119,4 +119,18 @@ describe('handle and tab geometry', () => {
             expect(t.some((p) => p.y > h.y)).toBe(true);
         });
     });
+    it('compact nodes are 140×32, except the diamond and the whole job', () => {
+        (['search', 'saved_search', 'previous', 'summary_index', 'trigger_cron', 'email', 'start_job'] as const).forEach((k) => {
+            expect(nodeSize(k, true)).toEqual({ w: 140, h: 32 });
+        });
+        expect(nodeSize('job', true)).toEqual({ w: 160, h: 32 });
+        expect(nodeSize('condition', true)).toEqual(nodeSize('condition'));
+        expect(nodeSize('search', false)).toEqual(nodeSize('search'));
+    });
+    it('handle, tabs and input follow the compact size', () => {
+        expect(handleOffset('search', true)).toEqual({ x: 140, y: 16 });
+        expect(tabOffset('search', 0, 1, true).x).toBe(140);
+        expect(tabOffset('search', 0, 1, true).y).toBe(16 - HANDLE_R - 11);
+        expect(inputOffset('search', true)).toEqual({ x: 0, y: 16 });
+    });
 });

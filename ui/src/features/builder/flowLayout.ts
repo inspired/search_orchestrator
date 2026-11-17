@@ -15,8 +15,8 @@ interface Box {
     h: number;
 }
 
-function boxOf(n: FlowNode): Box {
-    const { w, h } = nodeSize(n.kind);
+function boxOf(n: FlowNode, compact = false): Box {
+    const { w, h } = nodeSize(n.kind, compact);
     return { w, h: n.kind === 'condition' ? h + CONDITION_LABEL : h };
 }
 
@@ -28,13 +28,13 @@ function validPos(v: unknown): v is Pos {
     return typeof p.x === 'number' && Number.isFinite(p.x) && typeof p.y === 'number' && Number.isFinite(p.y);
 }
 
-function dagrePositions(graph: FlowGraph): Positions {
+function dagrePositions(graph: FlowGraph, compact: boolean): Positions {
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80, marginx: 20, marginy: 20 });
     g.setDefaultEdgeLabel(() => ({}));
     const keys = new Set(graph.nodes.map((n) => n.key));
     graph.nodes.forEach((n) => {
-        const { w, h } = nodeSize(n.kind);
+        const { w, h } = nodeSize(n.kind, compact);
         g.setNode(n.key, { width: w, height: h });
     });
     graph.links.forEach((l) => {
@@ -46,15 +46,15 @@ function dagrePositions(graph: FlowGraph): Positions {
     const out: Positions = {};
     graph.nodes.forEach((n) => {
         const d = g.node(n.key);
-        const { w, h } = nodeSize(n.kind);
+        const { w, h } = nodeSize(n.kind, compact);
         out[n.key] = { x: Math.round(d.x - w / 2), y: Math.round(d.y - h / 2) };
     });
     return out;
 }
 
 /** Top-left position of every node: saved ones as given, the rest placed automatically. */
-export function layoutFlow(graph: FlowGraph, saved?: Record<string, unknown>): Positions {
-    const auto = dagrePositions(graph);
+export function layoutFlow(graph: FlowGraph, saved?: Record<string, unknown>, compact = false): Positions {
+    const auto = dagrePositions(graph, compact);
     const out: Positions = {};
     const byKey = new Map(graph.nodes.map((n) => [n.key, n] as const));
     if (saved && typeof saved === 'object') {
@@ -70,13 +70,13 @@ export function layoutFlow(graph: FlowGraph, saved?: Record<string, unknown>): P
     }
     const firstSource = (key: string): string | undefined => graph.links.find((l) => l.to === key)?.from;
     const overlaps = (n: FlowNode, p: Pos): boolean => {
-        const a = boxOf(n);
+        const a = boxOf(n, compact);
         return Object.entries(out).some(([k, q]) => {
             const other = byKey.get(k);
             if (!other) {
                 return false;
             }
-            const b = boxOf(other);
+            const b = boxOf(other, compact);
             return (
                 p.x < q.x + b.w + GAP && q.x < p.x + a.w + GAP && p.y < q.y + b.h + GAP && q.y < p.y + a.h + GAP
             );
@@ -115,7 +115,7 @@ export function layoutFlow(graph: FlowGraph, saved?: Record<string, unknown>): P
 }
 
 /** Box enclosing every node, including the label under condition nodes. */
-export function graphBounds(graph: FlowGraph, pos: Positions): { x: number; y: number; width: number; height: number } {
+export function graphBounds(graph: FlowGraph, pos: Positions, compact = false): { x: number; y: number; width: number; height: number } {
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -125,7 +125,7 @@ export function graphBounds(graph: FlowGraph, pos: Positions): { x: number; y: n
         if (!p) {
             return;
         }
-        const b = boxOf(n);
+        const b = boxOf(n, compact);
         minX = Math.min(minX, p.x);
         minY = Math.min(minY, p.y);
         maxX = Math.max(maxX, p.x + b.w);
@@ -139,16 +139,16 @@ export function graphBounds(graph: FlowGraph, pos: Positions): { x: number; y: n
 
 /** Where a new node of `kind` goes when added from the node `key`: one column to its right,
  * moved down in steps until it overlaps no other node (with a gap). */
-export function freeSpotRightOf(graph: FlowGraph, pos: Positions, key: string, kind: NodeKind): Pos {
+export function freeSpotRightOf(graph: FlowGraph, pos: Positions, key: string, kind: NodeKind, compact = false): Pos {
     const src = pos[key] || { x: 0, y: 0 };
-    const mine = nodeSize(kind);
+    const mine = nodeSize(kind, compact);
     const others = graph.nodes.filter((n) => n.key !== key && pos[n.key]);
     const x = src.x + COL_STEP;
     let y = src.y;
     const hits = (): boolean =>
         others.some((n) => {
             const q = pos[n.key];
-            const b = boxOf(n);
+            const b = boxOf(n, compact);
             return x < q.x + b.w + GAP && q.x < x + mine.w + GAP && y < q.y + b.h + GAP && q.y < y + mine.h + GAP;
         });
     while (hits()) {

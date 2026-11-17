@@ -47,7 +47,11 @@ export const PORT_STYLE: Record<PortId, { glyph: string; label: string; colorTok
 
 const STEP_SIZE = { w: 200, h: 76 };
 
-export function nodeSize(kind: NodeKind): { w: number; h: number } {
+/** Compact nodes: icon and name only. The diamond keeps its size; the whole job is a little wider. */
+export function nodeSize(kind: NodeKind, compact = false): { w: number; h: number } {
+    if (compact && FAMILY_OF[kind] !== 'condition') {
+        return { w: kind === 'job' ? 160 : 140, h: 32 };
+    }
     switch (FAMILY_OF[kind]) {
         case 'trigger':
             return { w: 180, h: 44 };
@@ -100,8 +104,8 @@ export const HANDLE_R = 13;
 const TAB_GAP = 22;
 
 /** Centre of the single + handle: right edge, vertical centre. */
-export function handleOffset(kind: NodeKind): { x: number; y: number } {
-    const { w, h } = nodeSize(kind);
+export function handleOffset(kind: NodeKind, compact = false): { x: number; y: number } {
+    const { w, h } = nodeSize(kind, compact);
     return { x: w, y: h / 2 };
 }
 
@@ -110,8 +114,8 @@ const TABS_ABOVE = 4;
 
 /** Anchor of the `index`th outcome tab (0 nearest): the first four stacked above the handle,
  * 22 px apart, the rest below it. */
-export function tabOffset(kind: NodeKind, index: number, _count: number): { x: number; y: number } {
-    const o = handleOffset(kind);
+export function tabOffset(kind: NodeKind, index: number, _count: number, compact = false): { x: number; y: number } {
+    const o = handleOffset(kind, compact);
     if (index >= TABS_ABOVE) {
         return { x: o.x, y: o.y + HANDLE_R + TAB_GAP / 2 + (index - TABS_ABOVE) * TAB_GAP };
     }
@@ -119,9 +123,9 @@ export function tabOffset(kind: NodeKind, index: number, _count: number): { x: n
 }
 
 /** Input handle: left centre; null for kinds that cannot be wired into. */
-export function inputOffset(kind: NodeKind): { x: number; y: number } | null {
+export function inputOffset(kind: NodeKind, compact = false): { x: number; y: number } | null {
     if (FAMILY_OF[kind] === 'trigger' || kind === 'job') {
         return null;
     }
-    return { x: 0, y: nodeSize(kind).h / 2 };
+    return { x: 0, y: nodeSize(kind, compact).h / 2 };
 }

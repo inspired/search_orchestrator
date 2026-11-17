@@ -72,3 +72,19 @@ describe('freeSpotRightOf', () => {
         expect(freeSpotRightOf(g, { 'step:a': { x: 0, y: 0 } }, 'step:a', 'search')).toEqual({ x: 260, y: 0 });
     });
 });
+
+describe('compact layout', () => {
+    it('places columns by compact sizes and shrinks the bounds', () => {
+        const full = layoutFlow(g);
+        const compact = layoutFlow(g, undefined, true);
+        const gap = (p: Record<string, { x: number }>) => p['step:b'].x - p['step:a'].x;
+        expect(gap(compact)).toBeLessThan(gap(full));
+        expect(graphBounds(g, compact, true).width).toBeLessThan(graphBounds(g, full).width);
+        expect(graphBounds(g, full, true).width).toBeLessThan(graphBounds(g, full).width);
+    });
+    it('frees a spot using compact boxes', () => {
+        const pos = { 'step:a': { x: 0, y: 0 }, 'step:b': { x: 260, y: 60 } };
+        expect(freeSpotRightOf(g, pos, 'step:a', 'search').y).toBeGreaterThan(60);
+        expect(freeSpotRightOf(g, pos, 'step:a', 'search', true)).toEqual({ x: 260, y: 0 });
+    });
+});

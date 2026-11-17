@@ -122,3 +122,28 @@ describe('linkAt and bezierAt', () => {
         expect(linkAt(graph, pos, bezierAt(ends.a, ends.b, 0.5))).toBeNull();
     });
 });
+
+describe('compact geometry', () => {
+    const job2: JobDefinition = {
+        name: 'j', enabled: true, triggers: [],
+        steps: [{ id: 'a', type: 'inline', spl: 'x' }, { id: 'b', type: 'inline', spl: 'y' }],
+        edges: [{ from: 'a', to: 'b', condition: 'on_success' }],
+    };
+    const g2 = buildGraph(job2);
+    const pos2 = { 'step:a': { x: 0, y: 0 }, 'step:b': { x: 300, y: 0 } };
+    it('hit-tests the compact box', () => {
+        expect(nodeAt(g2, pos2, { x: 170, y: 10 })).toBe('step:a');
+        expect(nodeAt(g2, pos2, { x: 170, y: 10 }, true)).toBeNull();
+        expect(nodeAt(g2, pos2, { x: 100, y: 20 }, true)).toBe('step:a');
+        expect(nodeAt(g2, pos2, { x: 100, y: 40 }, true)).toBeNull();
+    });
+    it('draws lines from the compact edge', () => {
+        const l = g2.links.find((x) => x.from === 'step:a')!;
+        const by = new Map(g2.nodes.map((n) => [n.key, n] as const));
+        const full = linkEnds(l, by.get(l.from)!, by.get(l.to)!, pos2, ['success'])!;
+        const compact = linkEnds(l, by.get(l.from)!, by.get(l.to)!, pos2, ['success'], true)!;
+        expect(compact.a.x).toBe(140);
+        expect(full.a.x).toBe(200);
+        expect(compact.b).toEqual({ x: 300, y: 16 });
+    });
+});
