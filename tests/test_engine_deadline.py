@@ -171,3 +171,78 @@ def test_rerun_started_before_the_deadline_still_goes_late_once():
     assert len(_late_rows(w, run_id)) == 1
     w.tick(advance=60)
     assert len(w.audit.of("run_late", run_id=run_id)) == 1
+
+
+# --- chained runs (final review C1) --------------------------------------------
+
+def _chain(w, up_cron, start_job=False):
+    """``up`` (no deadline) chains to ``down`` (deadline WITHIN), by completion or start_job."""
+    actions = [{"hook": "on_success", "type": "start_job", "job": "down"}] if start_job else []
+    up = w.add_job(make_job("up", cron=up_cron, actions=actions))
+    triggers = [] if start_job else [{"type": "completion", "job": "up", "on": "success"}]
+    down = w.add_job(_late_job(job_id="down", cron=None, triggers=triggers),
+                     scripts={"a": {"states": ["running"]}})
+    return up, down
+
+
+def _down_runs(w):
+    return [r for r in w.gw.kv.get("so_runs", {}).values() if r["job_id"] == "down"]
+
+
+def _settle(w, ticks=6):
+    for _ in range(ticks):
+        w.tick(advance=5)
+
+
+def test_chained_run_of_a_backfill_has_no_deadline():
+    from test_engine_backfill import add_backfill
+    for start_job in (False, True):
+        w = World(T0)
+        _chain(w, None, start_job=start_job)
+        add_backfill(w, [T0 - 30 * DAY], job_id="up")
+        _settle(w)
+        downs = _down_runs(w)
+        assert len(downs) == 1 and downs[0]["deadline_at"] is None
+        assert downs[0]["deadline_eligible"] is False
+        w.tick(at=T0 + 3600)
+        assert not w.audit.of("run_late")
+        assert not _late_rows(w, downs[0]["_key"])
+
+
+def test_chained_run_of_a_catchup_or_manual_run_has_no_deadline():
+    w = World(T0)
+    up, _ = _chain(w, None)
+    w.manual(up, scheduled_time=T0 - 3 * DAY)
+    _settle(w)
+    downs = _down_runs(w)
+    assert len(downs) == 1 and downs[0]["deadline_at"] is None
+    w.tick(at=T0 + 3600)
+    assert not w.audit.of("run_late")
+
+
+def test_chained_run_of_an_on_time_cron_run_keeps_its_deadline():
+    for start_job in (False, True):
+        w = World()
+        up, _ = _chain(w, "0 1 * * *", start_job=start_job)
+        run_id = cron_run(w, up)
+        assert w.run(run_id)["deadline_eligible"] is True
+        _settle(w)
+        downs = _down_runs(w)
+        assert len(downs) == 1 and downs[0]["deadline_at"] == T0 + 600
+        assert downs[0]["deadline_eligible"] is True
+        w.tick(at=T0 + 600)
+        assert len(w.audit.of("run_late", run_id=downs[0]["_key"])) == 1
+
+
+def test_chain_of_a_chained_run_inherits_eligibility():
+    w = World()
+    up = w.add_job(make_job("up"))
+    w.add_job(_late_job(job_id="down", cron=None,
+                        triggers=[{"type": "completion", "job": "up", "on": "success"}]))
+    w.add_job(_late_job(job_id="third", cron=None,
+                        triggers=[{"type": "completion", "job": "down", "on": "success"}]),
+              scripts={"a": {"states": ["running"]}})
+    cron_run(w, up)
+    _settle(w, 12)
+    third = [r for r in w.gw.kv.get("so_runs", {}).values() if r["job_id"] == "third"]
+    assert len(third) == 1 and third[0]["deadline_at"] == T0 + 600

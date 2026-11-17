@@ -115,8 +115,12 @@ def test_cron_run_gets_a_deadline_manual_run_none():
     manual = store.get_run(scheduler.create_run(store, j, "manual", T0, {}, now=T0))
     assert manual["deadline_at"] is None and manual["late_at"] is None
     chained = store.get_run(scheduler.create_run(store, j, "completion", T0, {},
-                                                 upstream="up:1", now=T0))
-    assert chained["deadline_at"] == T0 + 3600
+                                                 upstream="up:1", now=T0, upstream_run=run))
+    assert chained["deadline_at"] == T0 + 3600 and chained["deadline_eligible"] is True
+    from_manual = store.get_run(scheduler.create_run(store, j, "completion", T0, {},
+                                                     upstream="up:2", now=T0,
+                                                     upstream_run=manual))
+    assert from_manual["deadline_at"] is None and from_manual["deadline_eligible"] is False
 
 
 def test_run_without_deadline_job_has_no_deadline():

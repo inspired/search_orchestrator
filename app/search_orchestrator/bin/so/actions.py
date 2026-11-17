@@ -58,8 +58,8 @@ retries sends it too. The key is ``run_id:fallback:hook:occurrence``, so one
 event sends at most one fallback.
 
 Rows snapshot everything they need (action definitions, owner, scheduled time,
-ctx, chain depth, ``chain_rerun``) at submit, so ``pump`` never re-reads the run (a queue-cap
-rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease()``
+ctx, chain depth, ``chain_rerun``, ``deadline_eligible``) at submit, so ``pump``
+never re-reads the run (a queue-cap rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease()``
 between rows and ``keep_lease(force=True)`` right before each send, and starts
 no new action after ``PUMP_BUDGET`` seconds.
 Fallback rows have ``kind="fallback"`` and ``scope="fallback"``. Content is only job,
@@ -76,6 +76,7 @@ import time
 from urllib.parse import quote, urlsplit
 
 from . import authz, hidden, presets, scheduler, tokens
+from . import deadline as deadlinemod
 from .gateway import DispatchError, GatewayError, check_webhook_url
 from .state import backoff
 
@@ -205,6 +206,7 @@ class ActionRunner:
                "ctx": ctx, "tokens": tokens.run_context(run, int(self.clock())) if matching else None,
                "chain_depth": int(run.get("chain_depth") or 0),
                "chain_rerun": chain_rerun(run),
+               "deadline_eligible": deadlinemod.run_eligible(run),
                "actions": [_entry(i, a) for i, a in matching],
                "state": "pending" if matching else "done", "attempts": 0, "error": None,
                "fallback": False, "created_at": int(self.clock())}
@@ -523,7 +525,7 @@ class ActionRunner:
         created = scheduler.create_run(self.store, target, "start_job", row.get("scheduled_time"),
                                        action.get("params") or {}, upstream=row["run_id"],
                                        now=now, audit=self.audit, chain_depth=depth, rerun=rerun,
-                                       action_index=entry["index"])
+                                       action_index=entry["index"], upstream_run=row)
         if created is None and self.store.get_run(key) is None:
             raise _Fail("run of job %r was not created (queue is full)" % target_id)
         self._done(row, entry, now, target_job=target_id, target_run_id=key)

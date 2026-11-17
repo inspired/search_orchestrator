@@ -51,9 +51,16 @@ def test_finish_by_in_the_dst_gap_is_the_first_minute_after_it():
         == calendar.timegm((2026, 3, 29, 1, 0, 0))
 
 
-def test_chained_runs_have_a_deadline():
+def test_chained_runs_have_a_deadline_only_when_the_upstream_was_eligible():
+    on_time = {"trigger": "cron", "catchup": False}
     for trigger in ("completion", "start_job"):
-        assert deadline.deadline_at(job({"within": 60}), T, trigger, False) == T + 60
+        assert deadline.deadline_at(job({"within": 60}), T, trigger, False, on_time) == T + 60
+        for upstream in (None, {"trigger": "cron", "catchup": True}, {"trigger": "backfill"},
+                         {"trigger": "manual"}, {"trigger": "completion"},
+                         {"trigger": "cron", "deadline_eligible": False}):
+            assert deadline.deadline_at(job({"within": 60}), T, trigger, False, upstream) is None
+        assert deadline.deadline_at(job({"within": 60}), T, trigger, False,
+                                    {"trigger": "completion", "deadline_eligible": True}) == T + 60
 
 
 def test_no_deadline_for_manual_backfill_catchup():

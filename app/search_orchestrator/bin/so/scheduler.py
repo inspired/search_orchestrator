@@ -165,10 +165,12 @@ def _report_rejected(store, job, run, queue_cap, now, audit, actions):
 
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
                catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0,
-               rerun=None, action_index=None, backfill=None, started_by=None):
+               rerun=None, action_index=None, backfill=None, started_by=None, upstream_run=None):
     """Insert a queued run and return its ID, or None if it already exists or the
     job's queue is full. Raises tokens.TokenError for invalid parameters. ``started_by``:
     the user who started a manual run (they may decide its approval steps).
+    ``upstream_run``: the run (or outbox row) that started a chained run; a chained run
+    gets a deadline only when it was eligible (``deadline.eligible``).
 
     KV Store has no transactions, so the cap is checked again after the insert: a run
     that finds the queue over the cap removes itself. Two exactly simultaneous starts can
@@ -187,7 +189,9 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "started_at": None, "ended_at": None, "delay_base": None, "giveup_base": None,
            "paused_seconds": 0, "paused_at": None, "hooks_fired": [], "delay_alerted": False,
            "held": False, "gave_up": False, "rerun_count": 0, "chain_depth": int(chain_depth),
-           "deadline_at": deadlinemod.deadline_at(definition, scheduled_time, trigger, catchup),
+           "deadline_eligible": deadlinemod.eligible(trigger, catchup, upstream_run),
+           "deadline_at": deadlinemod.deadline_at(definition, scheduled_time, trigger, catchup,
+                                                  upstream_run),
            "late_at": None, "backfill": backfill, "started_by": started_by,
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:

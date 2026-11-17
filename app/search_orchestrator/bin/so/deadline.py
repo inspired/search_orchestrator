@@ -1,10 +1,12 @@
 """Job deadlines (spec section 5).
 
 A job may have ``deadline = {"finish_by": "HH:MM", "within": seconds}`` (at least
-one). Only on-time scheduled runs (``cron``, not catch-up) and chained runs
-(``completion``, ``start_job``, which carry the upstream scheduled time) get one:
-manual, REST, alert-action, backfill and catch-up runs are often scheduled in the
-past and would be late at once.
+one). Only on-time scheduled runs (``cron``, not catch-up) get one, and chained runs
+(``completion``, ``start_job``, which carry the upstream scheduled time) when the run
+that started them was eligible: manual, REST, alert-action, backfill and catch-up runs
+(and runs chained from them) are often scheduled in the past and would be late at
+once. A run stores the answer as ``deadline_eligible`` and an outbox row copies it, so
+a chain of any length keeps it.
 
 ``deadline_at`` is computed once, when the run is created, and stored on the run;
 a re-run keeps it. A run that ended before its deadline met it; a re-run of it
@@ -66,10 +68,26 @@ def _finish_by_at(hhmm, scheduled_time, tz):
     return None  # unreachable: some day within three has the time
 
 
-def deadline_at(definition, scheduled_time, trigger, catchup):
+def run_eligible(run):
+    """Whether a run (or an outbox row copied from it) may pass a deadline on to the
+    runs it starts. A run from before 1.23.0 has no flag: only an on-time cron run is."""
+    if "deadline_eligible" in run:
+        return run["deadline_eligible"] is True
+    return run.get("trigger") == "cron" and not run.get("catchup")
+
+
+def eligible(trigger, catchup, upstream=None):
+    """Whether a new run may get a deadline; ``upstream`` is the run (or outbox row)
+    that started a chained run."""
+    if trigger == "cron":
+        return not catchup
+    return trigger in APPLIES_TO and upstream is not None and run_eligible(upstream)
+
+
+def deadline_at(definition, scheduled_time, trigger, catchup, upstream=None):
     """Epoch seconds a run must finish by, or None when it has no deadline."""
     deadline = (definition or {}).get("deadline")
-    if trigger not in APPLIES_TO or catchup or not isinstance(deadline, dict) \
+    if not eligible(trigger, catchup, upstream) or not isinstance(deadline, dict) \
             or shape_issues(deadline):
         return None
     scheduled_time = int(scheduled_time)

@@ -771,7 +771,8 @@ class Engine:
                 created = scheduler.create_run(
                     self.store, job, "completion", run["scheduled_time"], {}, upstream=upstream,
                     now=now, audit=self.audit, actions=self.actions,
-                    queue_cap=settings["queue_cap"], chain_depth=depth, rerun=rerun)
+                    queue_cap=settings["queue_cap"], chain_depth=depth, rerun=rerun,
+                    upstream_run=run)
             except tokens.TokenError as err:
                 pending.events.append(self._event(
                     run, "run_rejected", now, reason="invalid_params", target_job=job_id,
