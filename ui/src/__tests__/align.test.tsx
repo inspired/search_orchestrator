@@ -6,7 +6,7 @@ import FlowCanvas from '../features/builder/FlowCanvas';
 import { buildGraph } from '../features/builder/nodeModel';
 import type { Positions } from '../features/builder/graphLogic';
 import type { JobDefinition } from '../api/types';
-import { renderThemed } from './fixtures';
+import { renderThemed, toggleView, viewIsOn } from './fixtures';
 
 const box = (x: number, y: number, w = 100, h = 40): Box => ({ x, y, w, h });
 
@@ -111,13 +111,13 @@ describe('guides while dragging', () => {
         window.localStorage.removeItem('so.flow.grid');
         const { unmount } = renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
         expect(screen.queryByTestId('flow-grid')).toBeNull();
-        fireEvent.click(screen.getByRole('button', { name: 'Show grid' }));
+        toggleView('Grid');
         expect(screen.getByTestId('flow-grid')).toBeInTheDocument();
         expect(window.localStorage.getItem('so.flow.grid')).toBe('1');
         unmount();
         renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
         expect(screen.getByTestId('flow-grid')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Hide grid' })).toBeInTheDocument();
+        expect(viewIsOn('Grid')).toBe(true);
         window.localStorage.removeItem('so.flow.grid');
     });
 });

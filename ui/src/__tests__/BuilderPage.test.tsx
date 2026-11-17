@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi, rollupJob } from './builderFixtures';
-import { renderThemed, runSummary } from './fixtures';
+import { renderThemed, runSummary, arrangeMenu } from './fixtures';
 import * as versions from '../api/versions';
 
 jest.mock('../api/versions');
@@ -237,7 +237,7 @@ describe('BuilderPage flow', () => {
         await show(<BuilderPage jobId="rollups" api={api} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
         expect(screen.getByTestId('node-step:daily')).toHaveAttribute('transform', 'translate(900,900)');
-        fireEvent.click(screen.getByRole('button', { name: 'Tidy up' }));
+        arrangeMenu('Tidy up');
         expect(screen.getByTestId('node-step:daily')).not.toHaveAttribute('transform', 'translate(900,900)');
         fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
         expect(screen.getByTestId('node-step:daily')).toHaveAttribute('transform', 'translate(900,900)');

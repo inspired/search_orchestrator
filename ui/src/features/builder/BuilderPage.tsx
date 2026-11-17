@@ -15,6 +15,7 @@ import * as client from '../../api/client';
 import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
+import SidePanel, { usePanelLayout } from './SidePanel';
 import useCompactPref from './useCompactPref';
 import useFlowLayout from './useFlowLayout';
 import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
@@ -396,6 +397,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     }, [fullScreen, modalOpen]);
     const canvasHeight = useFillHeight(() => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'), MIN_CANVAS, fullScreen);
     const panelRef = useRef<HTMLDivElement | null>(null);
+    const panel = usePanelLayout();
     const panelHeight = useFillHeight(() => panelRef.current, MIN_CANVAS, fullScreen);
 
     const stepsTab = (
@@ -455,20 +457,12 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     height={canvasHeight}
                     fullScreen={fullScreen}
                     onToggleFullScreen={() => setFullScreen((f) => !f)}
+                    panelOpen={panel.open}
+                    onTogglePanel={panel.toggle}
                     {...grouping.canvas}
                 />
             </div>
-            <div
-                ref={panelRef}
-                style={{
-                    width: '360px',
-                    flex: 'none',
-                    borderLeft: `1px solid ${theme.borderColor}`,
-                    paddingLeft: '16px',
-                    maxHeight: `${panelHeight}px`,
-                    overflowY: 'auto',
-                }}
-            >
+            <SidePanel ref={panelRef} open={panel.open} width={panel.width} onOpen={panel.setOpen} onWidth={panel.setWidth} maxHeight={panelHeight}>
                 <NodePanel
                     job={job}
                     graph={graph}
@@ -499,7 +493,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     roles={me ? me.roles : []}
                     onSaveSnippet={snippets.canUse ? snippets.requestSave : undefined}
                 />
-            </div>
+            </SidePanel>
         </div>
         </div>
         </>

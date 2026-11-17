@@ -4,7 +4,7 @@ import type { JobDefinition } from '../api/types';
 import FlowCanvas, { FlowCanvasProps } from '../features/builder/FlowCanvas';
 import { buildGraph } from '../features/builder/nodeModel';
 import type { Positions } from '../features/builder/graphLogic';
-import { mockReducedMotion, renderThemed } from './fixtures';
+import { mockReducedMotion, renderThemed, toggleView } from './fixtures';
 
 const job: JobDefinition = {
     name: 'nightly',
@@ -87,7 +87,7 @@ describe('FlowCanvas live run', () => {
         window.localStorage.removeItem('so.flow.lineLabels');
         setup({ lineLabels: { [AB]: '1,204 rows →' }, lineStates: { [AB]: 'fired', [AC]: 'fired' } });
         expect(screen.queryAllByTestId(/^line-label-/)).toHaveLength(0);
-        fireEvent.click(screen.getByRole('button', { name: 'Show line labels' }));
+        toggleView('Line labels');
         expect(screen.getByTestId(`line-label-${AB}`)).toHaveTextContent('1,204 rows →');
         expect(screen.getByTestId(`line-label-${AC}`)).toHaveTextContent('Fails');
         window.localStorage.removeItem('so.flow.lineLabels');

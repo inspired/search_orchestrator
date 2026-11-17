@@ -5,7 +5,7 @@ import type { Issue, JobDefinition } from '../api/types';
 import FlowCanvas, { FlowCanvasProps, FlowSelection } from '../features/builder/FlowCanvas';
 import { buildGraph } from '../features/builder/nodeModel';
 import type { Positions } from '../features/builder/graphLogic';
-import { renderThemed } from './fixtures';
+import { renderThemed, toggleView, viewIsOn, arrangeMenu } from './fixtures';
 
 const job: JobDefinition = {
     name: 'nightly',
@@ -384,9 +384,9 @@ describe('FlowCanvas', () => {
         test('Show node types toggles the legend', () => {
             setup();
             expect(screen.queryByTestId('legend')).toBeNull();
-            fireEvent.click(screen.getByRole('button', { name: 'Show node types' }));
+            toggleView('Node types');
             expect(screen.getByTestId('legend')).toBeInTheDocument();
-            fireEvent.click(screen.getByRole('button', { name: 'Hide node types' }));
+            toggleView('Node types');
             expect(screen.queryByTestId('legend')).toBeNull();
         });
 
@@ -461,7 +461,7 @@ describe('FlowCanvas', () => {
         test('Tidy up shows only with onTidy and calls it', () => {
             const onTidy = jest.fn();
             setup({ onTidy });
-            fireEvent.click(screen.getByRole('button', { name: 'Tidy up' }));
+            arrangeMenu('Tidy up');
             expect(onTidy).toHaveBeenCalledTimes(1);
         });
 
@@ -702,13 +702,13 @@ describe('FlowCanvas', () => {
             const { unmount } = renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
             const stripeWidth = () => screen.getByTestId('node-step:a').querySelector('path')!.getAttribute('d');
             const fullPath = stripeWidth();
-            fireEvent.click(screen.getByRole('button', { name: 'Compact nodes' }));
+            toggleView('Compact nodes');
             expect(window.localStorage.getItem('so.flow.compact')).toBe('1');
             expect(stripeWidth()).not.toBe(fullPath);
-            expect(screen.getByRole('button', { name: 'Full nodes' })).toBeInTheDocument();
+            expect(viewIsOn('Compact nodes')).toBe(true);
             unmount();
             renderThemed(<FlowCanvas graph={graph} positions={positions} selected={null} issues={[]} onSelect={jest.fn()} />);
-            expect(screen.getByRole('button', { name: 'Full nodes' })).toBeInTheDocument();
+            expect(viewIsOn('Compact nodes')).toBe(true);
         });
 
         test('the + sits on the compact right edge', () => {

@@ -66,6 +66,9 @@ export interface FlowCanvasProps {
      * without it the canvas keeps the choice itself (`so.flow.compact`) and the toolbar toggles it. */
     compact?: boolean;
     onToggleCompact?: () => void;
+    /** The side panel beside the canvas: shown in the View menu when `onTogglePanel` is given. */
+    panelOpen?: boolean;
+    onTogglePanel?: () => void;
     /** No + handles, no moving: for the run page. */
     readOnly?: boolean;
     /** Replaces a node's detail line, by node key. `icon` is drawn in a 24×24 viewBox. */
@@ -147,6 +150,8 @@ export default function FlowCanvas({
     previews = {},
     compact: compactProp,
     onToggleCompact,
+    panelOpen,
+    onTogglePanel,
     readOnly = false,
     status,
     onSelect,
@@ -471,6 +476,9 @@ export default function FlowCanvas({
                 fullScreen={fullScreen}
                 onToggleFullScreen={onToggleFullScreen}
                 onFollow={!follow ? onFollow : undefined}
+                zoom={zoom}
+                panelOpen={panelOpen}
+                onTogglePanel={onTogglePanel}
             />
             <div style={{ position: 'relative' }}>
             <svg

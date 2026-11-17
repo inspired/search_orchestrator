@@ -7,7 +7,7 @@ import type { Positions } from '../features/builder/graphLogic';
 import { bezierAt, linkEnds } from '../features/builder/flowCanvasGeometry';
 import { nodeSize } from '../features/builder/nodeStyle';
 import { usedOutcomes } from '../features/builder/outcomes';
-import { renderThemed } from './fixtures';
+import { renderThemed, toggleView, viewIsOn } from './fixtures';
 
 const job: JobDefinition = {
     name: 'nightly',
@@ -90,16 +90,16 @@ describe('FlowCanvas line labels', () => {
 
     test('Show line labels draws every non-trigger label, and the choice is remembered', () => {
         setup();
-        fireEvent.click(screen.getByRole('button', { name: 'Show line labels' }));
+        toggleView('Line labels');
         expect(screen.getByTestId(`line-label-${AB}`)).toHaveTextContent('✓ Succeeds');
         expect(screen.getByTestId(`line-label-${AF}`)).toHaveTextContent('✗ Fails');
         expect(screen.queryByTestId('line-label-trigger:0->step:a')).toBeNull();
         expect(window.localStorage.getItem('so.flow.lineLabels')).toBe('1');
         cleanup();
         setup();
-        expect(screen.getByRole('button', { name: 'Hide line labels' })).toBeInTheDocument();
+        expect(viewIsOn('Line labels')).toBe(true);
         expect(screen.getByTestId(`line-label-${AB}`)).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Hide line labels' }));
+        toggleView('Line labels');
         expect(window.localStorage.getItem('so.flow.lineLabels')).toBe('0');
         expect(screen.queryAllByTestId(/^line-label-/)).toHaveLength(0);
     });
@@ -133,7 +133,7 @@ describe('FlowCanvas line labels', () => {
                 onSelect={jest.fn()}
             />
         );
-        fireEvent.click(screen.getByRole('button', { name: 'Show line labels' }));
+        toggleView('Line labels');
         expect(screen.getByTestId('line-label-cond:a>b-then->step:b')).toHaveTextContent('$a.resultCount$ > 0');
     });
 
