@@ -216,10 +216,12 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `backfills` | GET (`job_id`, `state`; newest first, without slots) |
 | `backfills/<id>` | GET (the backfill and its runs) |
 | `backfills/<id>/cancel` | POST (the creator, anyone who may edit the job, or an admin; cancels the group) |
+| `calendar` | GET (any app capability; `from` and `to` epoch seconds at most 8 days apart, optional `job_id`; returns `items` of kind `scheduled`, `run` or `backfill` for the jobs the caller may see, and `truncated` when there are more than 2000 items; at most 300 scheduled slots per job) |
 | `timerange/resolve` | POST (builders: `earliest`, `latest`, `scheduled_time`; returns the epoch window they cover) |
 
 ## Known limits
 
+- The **Dependencies** page is built in the browser from `jobs`, so it shows only jobs the user may see; a job it can't see appears as "Job you can't see". The **Calendar** page reads `calendar` and shows only future scheduled times of turned-on jobs, at most 300 per job and 2,000 items per request, over at most 8 days.
 - Not tested on a real search head cluster or a real Splunk Cloud stack.
 - Classic Experience Cloud stacks are not supported.
 - Custom page templates are deprecated from Splunk 10.4; migration is planned.

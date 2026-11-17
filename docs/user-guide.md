@@ -383,6 +383,7 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 ## Follow runs
 
 - **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run and last outcome, with Run now and an enable switch. **Find jobs** filters by name, id, owner or description. With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
+- **Dependencies** and **Calendar** show how jobs start each other and when they run; see [Dependencies](#dependencies) and [Calendar](#calendar).
 - **Runs** lists runs, filterable by job and state. The **Needs attention** state filter shows blocked and failed runs, and runs that hold later runs back.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
 
@@ -434,6 +435,31 @@ Actions say how they went in plain text, with the same icons as step states (a c
 | Sending… | An attempt is under way. |
 | Retrying in 30 s | An attempt failed; the next one starts in the time shown, counted down. |
 | Not sent yet | The step or job hasn't reached the action, or its first attempt hasn't started. |
+
+## Dependencies
+
+**Dependencies**, after Runs in the navigation, shows how jobs start each other. Each job you can see is a node with its owner, its last run's state and how long ago it ran ("Turned off" and "Never run" are shown too). A line goes from the job that starts another to the job that is started. Its label says why:
+
+- **after it succeeds** or **after it finishes**: a completion trigger on the started job.
+- **start-job action · <outcome>**: a start-job action on the starting job, such as "start-job action · Succeeds". An action on a step adds the step's name: "start-job action · <step> · Succeeds".
+
+A job you aren't allowed to see appears as **Job you can't see**, so a chain stays whole without showing its name; it has no links.
+
+- **Select a job** by clicking it, or Tab to it and press Enter. A panel under the graph lists **Started by** and **Starts**, with **Open job** (the builder) and **Open runs** (the Runs page for that job). Arrow keys pan the graph; **Zoom in**, **Zoom out** and **Reset view** change the view.
+- **Not connected** lists the jobs with no completion trigger or start-job action, as buttons that select the job and show its panel.
+- **List** (next to **Graph**) shows the same as a table of **Job**, **Started by** and **Starts**, for screen readers and keyboard users.
+- The page refreshes every 30 seconds.
+
+## Calendar
+
+**Calendar**, after Dependencies, shows when jobs run, by **Day** or **Week** (weeks start on Monday). Times are in your browser's time zone, named at the top. **Previous**, **Today** and **Next** move the range; **Job** limits it to one job. Click an item to open it: a run opens its run page, other items open the job in the builder.
+
+- **Scheduled** times have a dashed border and muted text. They are the future times of turned-on jobs' enabled schedules; past times show as runs.
+- **Runs** show the job and its state in text with an icon, with the state's colour on a thick left border. A run that passed its deadline also says **Late**. A run is placed at the time it was scheduled for.
+- **Backfill · <job>** marks a planned time of a backfill that is still running and has not started a run yet.
+- When more than three items fall in the same half hour, the rest collapse into **+N more**; click it to see a list of them. Arrow keys on a day's heading move to the next or previous day.
+
+A range shows at most 300 scheduled times per job and 2,000 items in all. If there are more, the page says "Showing the first 2,000 items; pick one job to see all." The calendar shows only jobs you may see, and refreshes every 60 seconds while it shows today.
 
 ## Backfill
 

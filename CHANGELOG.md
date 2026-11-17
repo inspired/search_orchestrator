@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.21.0 (2026-11-17)
+
+- **Dependencies page:** after Runs in the navigation. A graph of jobs joined by completion triggers and start-job actions, with lines labelled "after it succeeds", "after it finishes" or "start-job action · <outcome>". A job you can't see appears as "Job you can't see". It has a **List** view, a panel with **Open job** and **Open runs**, a **Not connected** row, and refreshes every 30 seconds.
+- **Calendar page:** after Dependencies, with **Day** and **Week** views (weeks start on Monday) in the browser's time zone. It shows scheduled times (dashed), runs with their state on a left border plus "Late", and backfill slots; overflow shows as "+N more". Filter by job; it refreshes every 60 seconds while showing today.
+- New route `GET calendar?from&to[&job_id]`: a range of at most 8 days, at most 300 scheduled slots per job and 2000 items in all, after which `truncated` is set.
+- AppInspect (precert, cloud): 0 errors and 0 failures on both packages; the same 9 warnings as 1.20.0, none new.
 ## 1.20.0 (2026-11-17)
 
 - **Deadlines:** a job's **Settings** tab has **Finish by** (a time of day in the job's time zone) and **Finish within** (1 minute to 7 days after the scheduled time); the earlier counts. Only on-time scheduled runs and runs started by another job have one; manual, REST, alert, backfill and catch-up runs have none, and a re-run of a run that finished in time, started after the deadline, is not late. A run that passes its deadline is marked late once: the **Whole job** node's **Is late** outcome and the `on_late` hook fire (the admin's fallback notification is used when the job has no late action), the run gets `deadline_at` and `late_at`, the run page shows "This run missed its deadline", the audit index gets `run_late`, and **Run health** has **Late runs** panels.
