@@ -3,7 +3,9 @@
 Each save that changes a job's definition stores one document in ``so_job_versions``
 (key ``<job id>:<n>``). ``diff`` compares two definitions into labelled changes;
 ``summarize`` turns them into the short lines shown in the version list. The
-newest ``MAX_VERSIONS`` of a job are kept.
+newest ``MAX_VERSIONS`` of a job are kept. The names the server derives from the
+definition (``_HIDDEN_FIELDS``, at any level) are stored but never diffed: an SPL edit
+is one change, not also a change of its hidden search.
 """
 VERSIONS = "so_job_versions"
 MAX_VERSIONS = 50
@@ -14,12 +16,21 @@ INSERT_TRIES = 5
 
 _SERVER_FIELDS = ("_key", "_user", "owner", "hidden_searches", "created_at", "created_by",
                   "updated_at", "updated_by")
+_HIDDEN_FIELDS = ("hidden_search", "hidden_search_empty", "mode")
 _LIST_FIELDS = ("steps", "edges", "triggers", "actions", "layout")
 _FIELD_LABELS = {"spl": "the search", "earliest": "the time range", "latest": "the time range"}
 
 
 def definition_of(job):
     return {k: v for k, v in job.items() if k not in _SERVER_FIELDS}
+
+
+def _without_hidden(value):
+    if isinstance(value, dict):
+        return {k: _without_hidden(v) for k, v in value.items() if k not in _HIDDEN_FIELDS}
+    if isinstance(value, list):
+        return [_without_hidden(v) for v in value]
+    return value
 
 
 def _change(path, kind, label, before=None, after=None):
@@ -123,8 +134,11 @@ def _diff_setting(name, before, after):
 
 
 def diff(a, b):
-    """The changes from definition ``a`` to ``b`` (server fields are ignored)."""
+    """The changes from definition ``a`` to ``b`` (server fields are ignored, and so are
+    hidden-search fields inside steps, lines and actions)."""
     a, b = definition_of(a), definition_of(b)
+    a.update({f: _without_hidden(a[f]) for f in _LIST_FIELDS if f in a})
+    b.update({f: _without_hidden(b[f]) for f in _LIST_FIELDS if f in b})
     names = {s.get("id"): _name(s, s.get("id"))
              for s in list(a.get("steps") or []) + list(b.get("steps") or []) if isinstance(s, dict)}
     out = _diff_steps(a.get("steps"), b.get("steps")) + _diff_edges(a.get("edges"), b.get("edges"), names)
@@ -149,9 +163,9 @@ def _newest(gw, job_id):
     return rows[0] if rows else None
 
 
-def _doc(job_id, n, definition, summary, saved_by, saved_at, restored_from=None):
+def _doc(job_id, n, definition, summary, saved_by, saved_at, owner, restored_from=None):
     doc = {"_key": "%s:%d" % (job_id, n), "job_id": job_id, "version": n, "saved_at": saved_at,
-           "saved_by": saved_by, "summary": summary, "definition": definition}
+           "saved_by": saved_by, "owner": owner, "summary": summary, "definition": definition}
     if restored_from is not None:
         doc["restored_from"] = restored_from
     return doc
@@ -166,25 +180,33 @@ def _prune(gw, job_id):
 
 
 def record(gw, job, user, now, previous, restored_from=None):
-    """Store a version when the job's definition changed. Returns ``(version, pruned)``;
-    ``version`` is None when nothing changed, or when every version number was taken."""
+    """Store a version when the job's definition changed. Returns ``(saved, pruned)``;
+    ``saved`` lists the documents written: for a job saved before version history
+    started, a baseline of ``previous`` first, then the new version. It is empty when
+    nothing changed (then nothing is written, not even a baseline), or when every
+    version number was taken."""
     job_id = job["id"]
+    definition = definition_of(job)
+    if previous is not None and definition_of(previous) == definition:
+        return [], 0
+    saved = []
     newest = _newest(gw, job_id)
     if newest is None and previous is not None:
         newest = _doc(job_id, 1, definition_of(previous), [BASELINE], previous.get("updated_by"),
-                      previous.get("updated_at") or now)
-        gw.kv_insert(VERSIONS, newest)
-    definition = definition_of(job)
+                      previous.get("updated_at") or now, previous.get("owner"))
+        if gw.kv_insert(VERSIONS, newest):
+            saved.append(newest)
     if newest is not None and newest["definition"] == definition:
-        return None, 0
+        return saved, 0
     summary = summarize(diff(newest["definition"], definition)) if newest else [CREATED]
     n = (newest["version"] if newest else 0) + 1
     for _ in range(INSERT_TRIES):
-        doc = _doc(job_id, n, definition, summary or ["Changed the job"], user, now, restored_from)
+        doc = _doc(job_id, n, definition, summary or ["Changed the job"], user, now,
+                   job.get("owner"), restored_from)
         if gw.kv_insert(VERSIONS, doc):
-            return doc, _prune(gw, job_id)
+            return saved + [doc], _prune(gw, job_id)
         n += 1
-    return None, 0
+    return saved, 0
 
 
 def list_versions(gw, job_id):

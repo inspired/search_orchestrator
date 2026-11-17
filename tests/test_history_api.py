@@ -106,3 +106,77 @@ def test_admin_restore_takes_ownership(w):
     assert status == 200, out
     assert w.store.get_job("daily")["owner"] == "root"
     assert w.audit.of("job_owner_changed")
+
+
+# --- final review I2, I5, M2, M6 ----------------------------------------------
+
+def test_an_spl_edit_is_one_change_not_a_hidden_search_change(w):
+    saved(w)
+    steps = job_body()["steps"]
+    steps[1] = dict(steps[1], spl="| makeresults count=3")
+    _put(w, job_body(steps=steps))
+    newest = history.list_versions(w.gw, "daily")[0]
+    assert newest["version"] == 2 and newest["summary"] == ["Changed the search of b"]
+    stored = history.get_version(w.gw, "daily", 2)["definition"]
+    assert stored["steps"][1]["hidden_search"] and stored["steps"][1]["mode"] == "inline"
+
+
+def test_diff_ignores_hidden_fields_at_any_level():
+    a = {"steps": [{"id": "a", "hidden_search": "x", "mode": "inline",
+                    "actions": [{"type": "email", "hidden_search": "y"}]}],
+         "edges": [{"from": "a", "to": "b", "hidden_search": "z"}],
+         "actions": [{"type": "lookup", "hidden_search": "q"}]}
+    b = {"steps": [{"id": "a", "hidden_search": "x2", "mode": "previous", "hidden_search_empty": "e",
+                    "actions": [{"type": "email", "hidden_search": "y2"}]}],
+         "edges": [{"from": "a", "to": "b", "hidden_search": "z2"}],
+         "actions": [{"type": "lookup", "hidden_search": "q2"}]}
+    assert history.diff(a, b) == []
+
+
+def _pre_history_job(w):
+    """A job saved before version history started: its doc, but no versions."""
+    saved(w)
+    history.delete_all(w.gw, "daily")
+    w.audit.events.clear()
+
+
+def test_saving_an_unchanged_pre_history_job_writes_no_version(w):
+    _pre_history_job(w)
+    _put(w, job_body())
+    assert history.list_versions(w.gw, "daily") == []
+    assert not w.audit.of("job_version_saved")
+
+
+def test_a_real_change_to_a_pre_history_job_writes_an_audited_baseline(w):
+    _pre_history_job(w)
+    _put(w, job_body(name="Renamed"))
+    versions = history.list_versions(w.gw, "daily")
+    assert [v["version"] for v in versions] == [2, 1]
+    assert versions[1]["summary"] == [history.BASELINE]
+    assert [e["version"] for e in w.audit.of("job_version_saved")] == [1, 2]
+
+
+def test_versions_store_the_owner_after_the_save(w):
+    _two_versions(w)
+    assert [v["owner"] for v in history.list_versions(w.gw, "daily")] == ["alice", "alice"]
+    w.call("root", "POST", BASE + "/restore", {"version": 1})
+    assert history.list_versions(w.gw, "daily")[0]["owner"] == "root"
+
+
+def test_a_failed_version_write_does_not_fail_the_saved_job(w):
+    from so.gateway import KvError
+    saved(w)
+    real = w.gw.kv_insert
+
+    def failing(collection, doc):
+        if collection == history.VERSIONS:
+            raise KvError("KV Store unavailable", status=503)
+        return real(collection, doc)
+
+    w.gw.kv_insert = failing
+    status, out = w.call("alice", "PUT", BASE, job_body(name="Renamed"))
+    assert status == 200, out
+    assert w.store.get_job("daily")["name"] == "Renamed"
+    failed = w.audit.of("job_version_failed")
+    assert len(failed) == 1 and failed[0]["job_id"] == "daily"
+    assert "KV Store unavailable" in failed[0]["error"]

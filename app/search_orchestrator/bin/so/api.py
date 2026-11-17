@@ -486,8 +486,12 @@ def validate_job(ctx, body):
 
 
 def _record_version(ctx, job, previous, restored_from=None):
-    version, pruned = history.record(ctx.sys_gw, job, ctx.user, ctx.now, previous, restored_from)
-    if version:
+    try:  # the job is saved already: a failed version write must not fail the save
+        saved, pruned = history.record(ctx.sys_gw, job, ctx.user, ctx.now, previous, restored_from)
+    except GatewayError as err:
+        ctx.emit({"type": "job_version_failed", "job_id": job["id"], "error": str(err)})
+        return
+    for version in saved:
         ctx.emit({"type": "job_version_saved", "job_id": job["id"], "version": version["version"],
                   "summary": version["summary"]})
     if pruned:
