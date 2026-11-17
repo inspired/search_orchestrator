@@ -1,6 +1,9 @@
 /* Settings tab: when a scheduled or chained run must be finished. Both fields empty means no
- * deadline, and then the `deadline` key is removed from the job, never written as {} or null. */
-import React, { useState } from 'react';
+ * deadline, and then the `deadline` key is removed from the job, never written as {} or null.
+ * Finish by shows the job's own value (so undo and redo show what will be saved) and writes
+ * what is typed, even an invalid time: the check then refuses the save instead of keeping
+ * the last valid time unseen. */
+import React from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Text from '@splunk/react-ui/Text';
 import type { JobDefinition } from '../../api/types';
@@ -16,7 +19,7 @@ export interface DeadlineFieldsProps {
 
 export default function DeadlineFields({ job, dispatch }: DeadlineFieldsProps) {
     const deadline = job.deadline || {};
-    const [text, setText] = useState(deadline.finish_by || '');
+    const text = deadline.finish_by || '';
     const invalid = text !== '' && !FINISH_BY.test(text);
 
     const write = (next: { finish_by?: string; within?: number }) => {
@@ -38,14 +41,9 @@ export default function DeadlineFields({ job, dispatch }: DeadlineFieldsProps) {
                     value={text}
                     placeholder="06:00"
                     error={invalid}
-                    onChange={(_e: unknown, { value }: { value: string }) => {
-                        setText(value);
-                        if (value === '') {
-                            write({ within: deadline.within });
-                        } else if (FINISH_BY.test(value)) {
-                            write({ finish_by: value, within: deadline.within });
-                        }
-                    }}
+                    onChange={(_e: unknown, { value }: { value: string }) =>
+                        write({ finish_by: value === '' ? undefined : value, within: deadline.within })
+                    }
                 />
             </ControlGroup>
             <DurationField

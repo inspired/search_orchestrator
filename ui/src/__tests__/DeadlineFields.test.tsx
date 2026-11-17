@@ -14,7 +14,17 @@ function Harness({ start, onJob }: { start: JobDefinition; onJob: (j: JobDefinit
     const [state, setState] = React.useState(() => initialState(start));
     const dispatch = (a: BuilderAction) => setState((s) => reducer(s, a));
     onJob(state.job);
-    return <DeadlineFields job={state.job} dispatch={dispatch} />;
+    return (
+        <>
+            <DeadlineFields job={state.job} dispatch={dispatch} />
+            <button type="button" onClick={() => dispatch({ type: 'undo' })}>
+                Undo
+            </button>
+            <button type="button" onClick={() => dispatch({ type: 'redo' })}>
+                Redo
+            </button>
+        </>
+    );
 }
 
 test('deadline fields left empty keep the job unchanged', () => {
@@ -28,12 +38,32 @@ test('deadline fields left empty keep the job unchanged', () => {
     expect('deadline' in job).toBe(false);
 });
 
-test('a time without two digits asks for HH:MM and is not written', () => {
+test('a time without two digits asks for HH:MM and is written as typed, so the save is refused', () => {
     let job = base;
     renderThemed(<Harness start={base} onJob={(j) => (job = j)} />);
     fireEvent.change(screen.getByLabelText('Finish by'), { target: { value: '6:00' } });
     expect(screen.getByText('Use HH:MM, for example 06:00')).toBeInTheDocument();
+    expect(job.deadline).toEqual({ finish_by: '6:00' });
+});
+
+test('invalid text never leaves the last valid time in the job', () => {
+    let job = base;
+    renderThemed(<Harness start={{ ...base, deadline: { finish_by: '06:00', within: 600 } }} onJob={(j) => (job = j)} />);
+    fireEvent.change(screen.getByLabelText('Finish by'), { target: { value: '07:0' } });
+    expect(job.deadline).toEqual({ finish_by: '07:0', within: 600 });
+});
+
+test('undo and redo show the deadline the job has', () => {
+    let job = base;
+    renderThemed(<Harness start={base} onJob={(j) => (job = j)} />);
+    const field = screen.getByLabelText('Finish by') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '06:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect('deadline' in job).toBe(false);
+    expect((screen.getByLabelText('Finish by') as HTMLInputElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(job.deadline).toEqual({ finish_by: '06:00' });
+    expect((screen.getByLabelText('Finish by') as HTMLInputElement).value).toBe('06:00');
 });
 
 test('a valid time is written as finish_by', () => {
