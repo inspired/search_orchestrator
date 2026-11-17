@@ -133,3 +133,22 @@ def test_rerun_keeps_the_runs_deadline_and_late_mark():
     run.update(state="failed", late_at=T0 + 3600)
     new = statemod.reset_for_rerun(run, "a", T0 + DAY, scheduler.snapshot(job()))
     assert new["deadline_at"] == T0 + 3600 and new["late_at"] == T0 + 3600
+
+
+def test_backfill_run_key():
+    key = scheduler.run_key("j", "backfill", 100, backfill="bf0123456789ab")
+    assert key == "j:backfill-bf0123456789ab:100"
+    assert scheduler.is_run_id(key)
+
+
+def test_create_run_stores_backfill():
+    store = Store(FakeGateway())
+    run_id = scheduler.create_run(store, job(), "backfill", T0, {}, now=T0,
+                                  backfill="bf0123456789ab")
+    assert run_id == "j:backfill-bf0123456789ab:%d" % T0
+    run = store.get_run(run_id)
+    assert run["backfill"] == "bf0123456789ab" and run["deadline_at"] is None
+    assert scheduler.create_run(store, job(), "backfill", T0, {}, now=T0,
+                                backfill="bf0123456789ab") is None  # same slot
+    plain = store.get_run(scheduler.create_run(store, job(), "manual", T0, {}, now=T0))
+    assert plain["backfill"] is None

@@ -22,7 +22,8 @@ queued); ``"probe"`` returns
 ``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
 ``write(event)``, which raises on failure, for the probe's audit check.
 
-Step previews: the ``preview`` routes are in ``preview_api.py``.
+Step previews: the ``preview`` routes are in ``preview_api.py``; backfills (``jobs/<id>/backfills``,
+``backfills``) in ``backfill_api.py``.
 
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
@@ -32,7 +33,8 @@ not leak.
 Engine commands (``so_commands``), applied by ``Engine._apply_command``:
 ``{"type": "pause"|"resume"|"cancel"|"dismiss", "run_id", "user"}`` and
 ``{"type": "rerun", "run_id", "step_id", "definition": "latest"|"original",
-"restart_downstream_jobs": bool, "user"}``. The engine decides whether the
+"restart_downstream_jobs": bool, "user"}``; ``{"type": "cancel_backfill", "backfill_id",
+"user"}``. The engine decides whether the
 run's state allows the command and audits the result.
 
 Hidden searches no longer needed are removed at each save of the job
@@ -47,7 +49,7 @@ import uuid
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
-from . import authz, hidden, history, model, preview, scheduler, selftest, tokens
+from . import authz, backfill, hidden, history, model, preview, scheduler, selftest, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -145,6 +147,7 @@ class _Ctx:
 
 def _routes():
     from . import condition_test as ct, history_api as hv, preview_api as pv  # these import this module: no cycle
+    from . import backfill_api as bf
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -153,6 +156,10 @@ def _routes():
         (r"jobs/(?P<job_id>[^/]+)/enabled", {"POST": set_enabled}),
         (r"jobs/(?P<job_id>[^/]+)/versions", {"GET": hv.versions}),
         (r"jobs/(?P<job_id>[^/]+)/restore", {"POST": hv.restore}),
+        (r"jobs/(?P<job_id>[^/]+)/backfills", {"POST": bf.create_backfill}),
+        (r"backfills", {"GET": bf.list_backfills}),
+        (r"backfills/(?P<backfill_id>[^/]+)", {"GET": bf.get_backfill}),
+        (r"backfills/(?P<backfill_id>[^/]+)/cancel", {"POST": bf.cancel_backfill}),
         (r"runs", {"GET": list_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
@@ -181,7 +188,8 @@ def _is_job_id(value):
 
 _ID_CHECKS = {"job_id": _is_job_id, "run_id": scheduler.is_run_id,
               "name": lambda v: bool(DEST_NAME_RE.fullmatch(v)),
-              "sid": lambda v: preview.parts(v) is not None}
+              "sid": lambda v: preview.parts(v) is not None,
+              "backfill_id": backfill.ID_RE.fullmatch}
 
 
 def _relative(path):

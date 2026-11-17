@@ -14,7 +14,8 @@
 ``create_run`` inserts a queued run with a deterministic key, so a restart can
 never create one slot or one chained trigger twice: ``job:scheduled_time`` for
 cron, ``job:upstream_run_id:trigger`` for chained runs (start_job actions add
-``:a<action index>``), and a random suffix
+``:a<action index>``), ``job:backfill-<backfill id>:scheduled_time`` for backfill runs
+(which also store ``backfill``, the backfill id), and a random suffix
 otherwise. A re-run with "start downstream jobs again" ticked deliberately
 starts them once more: its chained keys add ``:rerun<rerun_count>``, which is
 still deterministic, so a restart cannot create that run twice either. It snapshots the job definition (spec section 4) and enforces the
@@ -96,9 +97,13 @@ def is_catchup(slot, now):
     return int(now) - int(slot) > ONTIME_GRACE
 
 
-def run_key(job_id, trigger, scheduled_time, upstream=None, rerun=None, action_index=None):
+def run_key(job_id, trigger, scheduled_time, upstream=None, rerun=None, action_index=None,
+            backfill=None):
     """``rerun`` (a re-run count, chained runs only) restarts downstream jobs.
-    ``action_index`` (start_job actions) keeps two actions to one target apart."""
+    ``action_index`` (start_job actions) keeps two actions to one target apart.
+    ``backfill`` (a backfill id) gives one key per backfill slot."""
+    if backfill:
+        return "%s:backfill-%s:%d" % (job_id, backfill, int(scheduled_time))
     if upstream:
         key = "%s:%s:%s" % (job_id, upstream, trigger)
         if action_index is not None:
@@ -160,7 +165,7 @@ def _report_rejected(store, job, run, queue_cap, now, audit, actions):
 
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
                catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0,
-               rerun=None, action_index=None):
+               rerun=None, action_index=None, backfill=None):
     """Insert a queued run and return its ID, or None if it already exists or the
     job's queue is full. Raises tokens.TokenError for invalid parameters.
 
@@ -169,7 +174,7 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
     both do so; a false "queue full" is safe, a queue over its cap is not."""
     now = int(time.time() if now is None else now)
     job_id = job.get("id") or job.get("_key")
-    key = run_key(job_id, trigger, scheduled_time, upstream, rerun, action_index)
+    key = run_key(job_id, trigger, scheduled_time, upstream, rerun, action_index, backfill)
     if store.get_run(key) is not None:
         return None
     clean = validate_params(job, params)
@@ -182,7 +187,7 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "paused_seconds": 0, "paused_at": None, "hooks_fired": [], "delay_alerted": False,
            "held": False, "gave_up": False, "rerun_count": 0, "chain_depth": int(chain_depth),
            "deadline_at": deadlinemod.deadline_at(definition, scheduled_time, trigger, catchup),
-           "late_at": None,
+           "late_at": None, "backfill": backfill,
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:
         queue_cap = (store.get_settings() or {}).get("queue_cap") or QUEUE_CAP
