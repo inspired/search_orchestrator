@@ -22,45 +22,26 @@ DESCRIPTION_MAX = 500
 ID_RE = re.compile(r"^sn[0-9a-f]{12}$")  # api.py repeats this pattern: it cannot import this module
 LISTS = ("steps", "edges", "job_actions", "triggers")
 KEYS = ("so_clipboard",) + LISTS + ("positions",)
-# Action fields that would carry a secret or a raw endpoint instead of a destination name.
-SECRET_KEY = re.compile(r"(^|_)(url|urls|headers|secret|secrets|token|password|passwd|api_?key|"
-                        r"routing_key|authorization|credentials?)(_|$)", re.I)
 NOT_COPY = "The snippet isn't in the copy format; copy the nodes again"
-SECRETS = "Snippets can't hold secrets or URLs; reference a destination by name"
-
-
-def _actions(content):
-    for step in content["steps"]:
-        if isinstance(step, dict) and isinstance(step.get("actions"), list):
-            yield from step["actions"]
-    yield from content["job_actions"]
-
-
-def _has_secret(value):
-    if isinstance(value, dict):
-        return any(SECRET_KEY.search(str(k)) or _has_secret(v) for k, v in value.items())
-    if isinstance(value, list):
-        return any(_has_secret(v) for v in value)
-    return False
 
 
 def content_issues(content):
     """Why ``content`` can't be a snippet, as messages (empty when it can)."""
     if (not isinstance(content, dict) or content.get("so_clipboard") != 1
             or not all(isinstance(content.get(k), list) for k in LISTS)
-            or not isinstance(content.get("positions"), dict)):
+            or not isinstance(content.get("positions"), dict)
+            or not all(isinstance(x, dict) for k in LISTS for x in content[k])
+            or not all(isinstance(s.get("actions", []), list) for s in content["steps"])):
         return [NOT_COPY]
     out = []
     for step in content["steps"]:
-        sid = step.get("id") if isinstance(step, dict) else None
+        sid = step.get("id")
         if not isinstance(sid, str) or not model.STEP_ID_RE.fullmatch(sid) or "__" in sid:
             out.append("Step id %s isn't valid" % (sid,))
     if len(content["steps"]) > MAX_STEPS:
         out.append("A snippet can hold at most 100 steps")
     if len(json.dumps(content)) > MAX_BYTES:
         out.append("A snippet can be at most 200 KB")
-    if any(_has_secret(a) for a in _actions(content)):
-        out.append(SECRETS)
     return out
 
 
@@ -92,22 +73,30 @@ def _get(ctx, snippet_id):
     return doc
 
 
-def _fields(ctx, body, own_id=None):
+def _text(body):
     name, desc = body.get("name"), body.get("description") or ""
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > NAME_MAX:
         raise ApiError(400, "bad_request", "Give the snippet a name of 1 to 80 characters")
     if not isinstance(desc, str) or len(desc) > DESCRIPTION_MAX:
         raise ApiError(400, "bad_request", "Keep the description to 500 characters or fewer")
-    name = name.strip()
+    return name.strip(), desc
+
+
+def _unique(ctx, name, own_id=None):
+    for row in ctx.sys_gw.kv_query(SNIPPETS, fields="content:0"):
+        if row.get("id") != own_id and (row.get("name") or "").lower() == name.lower():
+            raise ApiError(409, "snippet_exists",
+                           "A snippet named %s already exists; pick another name" % row["name"])
+
+
+def _fields(ctx, body):
+    name, desc = _text(body)
     content = body.get("content")
     found = content_issues(content)
     if found:
         raise ApiError(400, "bad_snippet", found[0], issues=[
             {"level": "error", "code": "bad_snippet", "message": m, "step": None} for m in found])
-    for row in ctx.sys_gw.kv_query(SNIPPETS, fields="content:0"):
-        if row.get("id") != own_id and (row.get("name") or "").lower() == name.lower():
-            raise ApiError(409, "snippet_exists",
-                           "A snippet named %s already exists; pick another name" % row["name"])
+    _unique(ctx, name)
     content = {k: content[k] for k in KEYS}
     return {"name": name, "description": desc, "content": content, "node_count": node_count(content)}
 
@@ -143,7 +132,9 @@ def _own(ctx, snippet_id, action):
 
 def update_snippet(ctx, body, snippet_id):
     doc = dict(_own(ctx, snippet_id, "change_snippet"))
-    doc.update(_fields(ctx, body, snippet_id), updated_at=ctx.now)
+    name, desc = _text(body)  # rename only: any content in the body is ignored
+    _unique(ctx, name, snippet_id)
+    doc.update(name=name, description=desc, updated_at=ctx.now)
     ctx.sys_gw.kv_update(SNIPPETS, snippet_id, doc)
     ctx.emit({"type": "snippet_saved", "snippet_id": snippet_id, "name": doc["name"], "created": False})
     return 200, {"snippet": _public(doc)}

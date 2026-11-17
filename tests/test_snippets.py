@@ -115,14 +115,31 @@ def test_content_messages(w):
     assert len(json.dumps(clip())) < snippets.MAX_BYTES
 
 
-def test_secrets_cannot_get_in(w):
-    leaky = clip(job_actions=[{"hook": "on_failure", "type": "webhook", "destination": "slack",
-                               "url": "https://hooks.example.com/T0/secret"}])
-    assert issues(w, leaky) == ["Snippets can't hold secrets or URLs; reference a destination by name"]
-    deep = clip(steps=[{"id": "a", "actions": [{"type": "webhook", "headers": {"Authorization": "x"}}]}])
-    assert len(issues(w, deep)) == 1
-    s = make(w, content=clip(extra="ignored", positions={}))
-    assert "extra" not in s["content"]
+def test_actions_save_as_a_job_holds_them(w):
+    acts = [{"hook": "on_failure", "type": "alert_action", "action": "x",
+             "params": {"url": "u", "token": "t", "api_key": "k"}},
+            {"hook": "on_success", "type": "event", "payload": {"run_url": "$run.url$"}}]
+    s = make(w, content=clip(job_actions=acts, extra="dropped"))
+    assert s["content"]["job_actions"] == acts and "extra" not in s["content"]
+
+
+def test_put_renames_only_and_keeps_content(w):
+    s = make(w)
+    path = "%s/%s" % (URL, s["id"])
+    status, out = w.call("alice", "PUT", path, {"name": "New name", "description": "d"})
+    assert status == 200 and out["snippet"]["content"] == clip() and out["snippet"]["name"] == "New name"
+    status, out = w.call("alice", "PUT", path, {"name": "Again", "content": {"junk": 1}})
+    assert status == 200 and out["snippet"]["content"] == clip()
+    assert w.call("alice", "GET", path)[1]["snippet"]["content"] == clip()
+
+
+def test_malformed_items_are_copy_format_errors(w):
+    fmt = "The snippet isn't in the copy format; copy the nodes again"
+    assert issues(w, clip(edges=["a"])) == [fmt]
+    assert issues(w, clip(triggers=[1])) == [fmt]
+    assert issues(w, clip(job_actions=[None])) == [fmt]
+    assert issues(w, clip(steps=["a"])) == [fmt]
+    assert issues(w, clip(steps=[{"id": "a", "actions": "x"}])) == [fmt]
 
 
 def test_unknown_and_malformed_ids_404(w):
