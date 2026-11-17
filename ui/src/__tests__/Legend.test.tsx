@@ -34,6 +34,6 @@ describe('Legend', () => {
         expect(screen.getByTestId('legend-tab')).toHaveTextContent('✓');
         expect(screen.getByText(/drag it to add another line/)).toBeInTheDocument();
         expect(screen.getByText(/Lines are coloured by outcome/)).toBeInTheDocument();
-        expect(screen.getByText(/Show line labels/)).toBeInTheDocument();
+        expect(screen.getByText(/View → Line labels/)).toBeInTheDocument();
     });
 });

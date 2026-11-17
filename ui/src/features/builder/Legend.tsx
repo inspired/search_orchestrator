@@ -87,7 +87,7 @@ export default function Legend() {
                 <span>A small tab for each outcome in use, a glyph in a ring in the outcome's colour; point at it to see its name, and drag it to add another line with that outcome.</span>
             </div>
             <div style={{ padding: '4px 0 0', color: theme.contentColorMuted }}>
-                Lines are coloured by outcome. A line's label shows on the selected line; turn on Show line labels in the toolbar to see them all. Click a line to change it, insert a node or remove it.
+                Lines are coloured by outcome. A line's label shows on the selected line; choose View → Line labels in the toolbar to see them all. Click a line to change it, insert a node or remove it.
             </div>
         </div>
     );

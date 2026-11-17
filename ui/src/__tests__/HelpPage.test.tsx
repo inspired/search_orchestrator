@@ -2,6 +2,7 @@ import React from 'react';
 import { screen, within } from '@testing-library/react';
 import HelpPage, { docLink, guideSections, slugify } from '../features/help/HelpPage';
 import { FEATURES } from '../features/help/HelpOverview';
+import { ILLUSTRATIONS } from '../features/help/helpIllustrations';
 import LearnMore, { helpHref } from '../components/LearnMore';
 import { renderThemed } from './fixtures';
 import guide from '../../../docs/user-guide.md';
@@ -49,6 +50,25 @@ describe('HelpPage overview', () => {
         expect(sections).toContain('Calendar');
         sections.forEach((s) => expect(nav.querySelector(`a[href="#${slugify(s)}"]`)).not.toBeNull());
         expect(nav.querySelector('a[href="#help-overview"]')).not.toBeNull();
+    });
+});
+
+describe('HelpPage illustrations', () => {
+    const top = guide
+        .split('\n')
+        .filter((l: string) => /^#{2,3} /.test(l))
+        .map((l: string) => slugify(l.replace(/^#+ /, '')));
+
+    it('has an illustration for every ## and ### heading, and none for a heading that is gone', () => {
+        top.forEach((s: string) => expect(Object.keys(ILLUSTRATIONS)).toContain(s));
+        Object.keys(ILLUSTRATIONS).forEach((s) => expect(top).toContain(s));
+    });
+
+    it('draws them under their headings', () => {
+        renderThemed(<HelpPage />);
+        expect(screen.getAllByTestId('help-figure')).toHaveLength(top.length);
+        const calendar = document.getElementById('calendar')!;
+        expect(calendar.nextElementSibling!.getAttribute('data-testid')).toBe('help-figure');
     });
 });
 

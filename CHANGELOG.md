@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.0 (2026-11-17)
+
+- **Builder toolbar:** grouped into **Add node**, an **Arrange** menu (**Tidy up**, **Group selection**) and a **View** menu of toggles (**Node types**, **Grid**, **Line labels**, **Compact nodes**, **Side panel**), with the zoom buttons, the zoom level, **Frame all**, **Reset view** and **Full screen** on the right.
+- **Side panel:** hide it (**›**) and bring it back (**‹**), and resize it by dragging its left edge or with the arrow keys, `Home` and `End` on it (260–800 px; double-click for the default). Remembered in this browser (`so.flow.panel`).
+- **Help:** every section of the guide has an illustration under its heading: small flows drawn with the builder's shapes, panel and dialog mock-ups, SPL with syntax colours, timelines, a calendar and tables.
+
 ## 1.24.1 (2026-11-17)
 
 - **Fixed:** a **Results of earlier steps** step right after an approval step failed with `token $so_input$: bad search id` (an approval has no search). An approval now adds no input, like a skipped step, in runs and previews.

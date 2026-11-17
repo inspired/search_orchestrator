@@ -1,6 +1,7 @@
 /* The in-app help: a visual overview (HelpOverview), then the user guide, rendered, with an
  * anchor on every heading so "Learn more" links elsewhere in the app can jump to a section,
- * and a contents list of the guide's sections beside it on wide screens. */
+ * and a contents list of the guide's sections beside it on wide screens. Every ## and ###
+ * heading has an illustration under it (helpIllustrations). */
 import React, { useEffect } from 'react';
 import Heading from '@splunk/react-ui/Heading';
 import Link from '@splunk/react-ui/Link';
@@ -8,6 +9,7 @@ import Markdown from '@splunk/react-ui/Markdown';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import guide from '../../../../docs/user-guide.md';
 import HelpOverview from './HelpOverview';
+import { ILLUSTRATIONS } from './helpIllustrations';
 
 /** The anchor GitHub gives a heading, so the guide's own `#section` links work here too. */
 export function slugify(heading: string): string {
@@ -35,10 +37,15 @@ function textOf(node: React.ReactNode): string {
 }
 
 function heading({ children, level }: { children: React.ReactNode[]; level: number }) {
+    const id = slugify(textOf(children));
+    const Illustration = level <= 3 ? ILLUSTRATIONS[id] : undefined;
     return (
-        <Heading level={Math.min(Math.max(level, 1), 6) as 1 | 2 | 3 | 4 | 5 | 6} id={slugify(textOf(children))}>
-            {children}
-        </Heading>
+        <>
+            <Heading level={Math.min(Math.max(level, 1), 6) as 1 | 2 | 3 | 4 | 5 | 6} id={id}>
+                {children}
+            </Heading>
+            {Illustration && <Illustration />}
+        </>
     );
 }
 

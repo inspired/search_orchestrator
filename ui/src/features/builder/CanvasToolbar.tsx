@@ -6,7 +6,6 @@
  * as it does in the canvas. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
-import ButtonGroup from '@splunk/react-ui/ButtonGroup';
 import Dropdown from '@splunk/react-ui/Dropdown';
 import Menu from '@splunk/react-ui/Menu';
 import Minus from '@splunk/react-icons/Minus';
@@ -88,7 +87,7 @@ export default function CanvasToolbar(p: CanvasToolbarProps) {
             </Dropdown>
             <span style={{ flex: 1 }} />
             {p.onFollow && <Button appearance="secondary" label="Follow the run" onClick={p.onFollow} />}
-            <ButtonGroup>
+            <div role="group" aria-label="Zoom" style={{ display: 'flex', alignItems: 'center' }}>
                 <Button appearance="subtle" icon={<Minus />} aria-label="Zoom out" onClick={() => p.onZoom(1 / 1.2)} />
                 {p.zoom !== undefined && (
                     <span aria-label="Zoom level" style={{ minWidth: '44px', textAlign: 'center', fontSize: '12px', color: theme.contentColorMuted, alignSelf: 'center' }}>
@@ -96,7 +95,7 @@ export default function CanvasToolbar(p: CanvasToolbarProps) {
                     </span>
                 )}
                 <Button appearance="subtle" icon={<Plus />} aria-label="Zoom in" onClick={() => p.onZoom(1.2)} />
-            </ButtonGroup>
+            </div>
             <Button appearance="subtle" label="Frame all" onClick={p.onFrame} />
             <Button appearance="subtle" label="Reset view" onClick={p.onReset} />
             {p.onToggleFullScreen && (

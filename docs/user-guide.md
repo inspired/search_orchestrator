@@ -86,7 +86,7 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 
 **Outcome tabs.** Every outcome a node already uses shows as a small round tab on its right edge: just the symbol (✓ ✗ ∞ ▶ ⏱ ◇) in a ring in the outcome's colour. Point at a tab to see its name, such as "Succeeds" or "Fails"; screen readers read the name too. Its lines leave from that tab, and lines are coloured by outcome. Dragging from a tab draws another line with that outcome, without the When list. The tabs stack in a column centred on the node's middle, with the + to their right.
 
-**Line labels and the line menu.** Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome. The **selected** line shows its label in the middle ("✗ Fails"; a line out of an **If…** node shows its condition, shortened: the expression itself, "◇ where …" for an SPL expression or "◇ search …" for a search). **Show line labels** in the toolbar draws a label on every line, and **Hide line labels** turns them off again; the choice is remembered in this browser. With labels on, they hide when you zoom out below 70 %, except on the selected line. On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing. Click a line, or press `Enter` on a focused line, to select it and open its menu:
+**Line labels and the line menu.** Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome. The **selected** line shows its label in the middle ("✗ Fails"; a line out of an **If…** node shows its condition, shortened: the expression itself, "◇ where …" for an SPL expression or "◇ search …" for a search). **View** → **Line labels** in the toolbar draws a label on every line, and choosing it again turns them off; the choice is remembered in this browser. With labels on, they hide when you zoom out below 70 %, except on the selected line. On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing. Click a line, or press `Enter` on a focused line, to select it and open its menu:
 
 - **Change to …** gives the line another outcome. On a line to an action this changes when the action fires; it stays on the same node. "If a condition is true" turns a line between steps into an **If…** node. On the line into an **If…** node, choosing another outcome turns it back into a plain line and drops the expression. Each change is one undo step.
 - **Insert a node** (lines between two steps) opens the search box and puts the new step on the line.
@@ -96,6 +96,8 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 **Put a node on a line.** Drag a step that has no lines yet onto a line between two steps: the line lights up, and when you drop the step, A → B becomes A → new step → B. A → new step keeps the line's outcome; new step → B is Succeeds. A line out of an **If…** node can't be split. Because B now runs after the new step, and reads its results if the line carries data, a message says what changed, for example "Weekly rollup now runs after Filter hosts succeeds. Undo brings back the old line." The message has an **Undo** button and goes away after 10 seconds. **Insert a node** in the line menu does the same.
 
 **Auto-pan.** While you drag a node or a line near the edge of the canvas, the canvas scrolls toward that edge, faster the closer you are.
+
+**Toolbar and side panel.** The toolbar has **Add node**, **Arrange** (**Tidy up**, **Group selection**) and **View** (**Node types**, **Grid**, **Line labels**, **Compact nodes**, **Side panel**) on the left, and the zoom buttons with the zoom level, **Frame all**, **Reset view** and **Full screen** on the right. Hide the side panel with **›** at its top (or **View** → **Side panel**) and bring it back with **‹**; drag its left edge to make it wider or narrower (260–800 px), or focus the edge and use the arrow keys, `Home` and `End`; double-click the edge for the default width. Both are remembered in this browser.
 
 **Full screen.** The canvas fills the window below the page header (at least 480 px tall), and the side panel scrolls beside it. **Full screen** in the toolbar shows the canvas and the side panel over the whole page; **Leave full screen** or `Escape` goes back. `Escape` first closes an open list or menu, or clears the selection.
 
@@ -110,9 +112,9 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 
 **Data and signal lines.** A thick line carries data: it ends at a **Results of earlier steps**, **Summary index** or **Lookup** step, which read the results of the step it comes from. A thin line is a signal: it only says when something runs or fires, such as a line to an action or a dashed line from a trigger.
 
-**Node types and the minimap.** **Show node types** opens a legend with the shape and colour of each kind of node, the When outcomes with their symbols, and an example + and tab; **Hide node types** closes it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view.
+**Node types and the minimap.** **View** → **Node types** in the toolbar opens a legend with the shape and colour of each kind of node, the When outcomes with their symbols, and an example + and tab; choose it again to close it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view.
 
-**Tidy up** places every node again automatically, as one undo step. Moving a node is one undo step per move.
+**Arrange** → **Tidy up** in the toolbar places every node again automatically, as one undo step. Moving a node is one undo step per move.
 
 The time zone every schedule uses is on the **Settings** tab; a schedule's panel links to it.
 
@@ -149,11 +151,11 @@ A snippet is a named copy of some nodes that every builder can insert into any j
 
 #### Grid and alignment guides
 
-**Show grid** in the toolbar draws a grid behind the nodes, and moved nodes snap to it. **Hide grid** turns it off. While you drag a node, thin guides appear when its edge or centre lines up with another node, and it snaps to them.
+**View** → **Grid** in the toolbar draws a grid behind the nodes, and moved nodes snap to it; choose it again to turn it off. While you drag a node, thin guides appear when its edge or centre lines up with another node, and it snaps to them.
 
 #### Compact nodes
 
-**Compact nodes** in the toolbar shrinks every node to its name and icon, so a big graph fits on screen. **Full nodes** brings the detail back. It changes only how nodes are drawn, not the job.
+**View** → **Compact nodes** in the toolbar shrinks every node to its name and icon, so a big graph fits on screen; choose it again to bring the detail back. It changes only how nodes are drawn, not the job.
 
 #### Results on nodes
 
@@ -163,7 +165,7 @@ After you use **Preview step**, its node shows the result under the name: "1 204
 
 A group is a coloured backdrop that gathers nodes under a title. It never changes how the job runs.
 
-- Select nodes and press `Ctrl+G` (`Cmd+G`), choose **Group selection** in the toolbar, or right-click and choose **Group**.
+- Select nodes and press `Ctrl+G` (`Cmd+G`), choose **Arrange** → **Group selection** in the toolbar, or right-click and choose **Group**.
 - Click the group to edit its **Title**, **Colour**, **Width** and **Height** in the side panel. With the group selected, `Shift+arrows` resize it.
 - **Collapse** shrinks the group to its title bar and hides its nodes; **Expand** shows them again. A faint dashed outline shows the area the collapsed group covers: drop, add or paste a node there and the group expands, so the node stays in view. The run page always shows groups expanded.
 - **Remove group** asks "Remove group …?". The nodes in it stay.
