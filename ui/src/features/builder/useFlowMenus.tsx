@@ -14,6 +14,7 @@ import { canInsert, parseCond } from './flowEdits';
 import type { Pos, Positions } from './graphLogic';
 import { ALIGN_LABEL, DISTRIBUTE_LABEL, DISTRIBUTE_REASON } from './align';
 import type { AlignHow, Arrange } from './align';
+import { hasCopyable } from './clipboard';
 import CanvasMenu from './CanvasMenu';
 import type { MenuItem } from './CanvasMenu';
 import type { ContextTarget } from './useContextTrigger';
@@ -264,8 +265,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             return {
                 label: 'Selected nodes',
                 items: [
-                    { id: 'duplicate', label: 'Duplicate' },
-                    { id: 'copy', label: 'Copy' },
+                    ...(hasCopyable(target.keys) ? [{ id: 'duplicate', label: 'Duplicate' }, { id: 'copy', label: 'Copy' }] : []),
                     { id: 'align', label: 'Align…' },
                     { id: 'distribute', label: 'Distribute…', disabled: target.keys.length < 3, reason: target.keys.length < 3 ? DISTRIBUTE_REASON : undefined },
                     { id: 'tidy', label: 'Tidy up selection' },
@@ -280,7 +280,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         }
         const node = graph.nodes.find((n) => n.key === target.key);
         const kind = node ? node.kind : null;
-        const copyable = Boolean(node) && kind !== 'job' && kind !== 'condition';
+        const copyable = Boolean(node) && hasCopyable([target.key]);
         const refusal = node && node.stepId && context.previewRefusal ? context.previewRefusal(node.stepId) : null;
         const items: MenuItem[] = [
             ...(node && node.stepId ? [{ id: 'rename', label: 'Rename' }] : []),

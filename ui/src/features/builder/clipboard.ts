@@ -33,6 +33,10 @@ export function clipSize(clip: Clip): number {
     );
 }
 
+/** Whether the selected `keys` hold something Copy and Duplicate take: a step or a trigger
+ * (actions are copied with their step, never on their own). */
+export const hasCopyable = (keys: string[]) => keys.some((k) => k.startsWith('step:') || k.startsWith('trigger:'));
+
 /** Whether `clip` holds nothing to paste. */
 export const clipIsEmpty = (clip: Clip) => clip.steps.length + clip.job_actions.length + clip.triggers.length === 0;
 
@@ -249,14 +253,14 @@ export function clipboardShortcut(ev: React.KeyboardEvent): 'copy' | 'paste' | '
 }
 
 /** Handles a clipboard key press on the canvas; true when it was one (and the default is stopped).
- * Copy leaves the browser's own copy alone when nothing is selected. */
+ * Copy and Duplicate leave the browser's own shortcut alone when nothing copyable is selected. */
 export function runClipboardShortcut(
     ev: React.KeyboardEvent,
-    o: { enabled: boolean; hasSelection: boolean; onCopy?: () => void; onDuplicate?: () => void; onPaste?: (at: Pos) => void; at: () => Pos }
+    o: { enabled: boolean; canCopy: boolean; onCopy?: () => void; onDuplicate?: () => void; onPaste?: (at: Pos) => void; at: () => Pos }
 ): boolean {
     const what = o.enabled ? clipboardShortcut(ev) : null;
     const run = what === 'copy' ? o.onCopy : what === 'duplicate' ? o.onDuplicate : what === 'paste' ? o.onPaste && (() => o.onPaste?.(o.at())) : undefined;
-    if (!run || (what === 'copy' && !o.hasSelection)) {
+    if (!run || ((what === 'copy' || what === 'duplicate') && !o.canCopy)) {
         return false;
     }
     ev.preventDefault();

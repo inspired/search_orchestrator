@@ -49,7 +49,7 @@ import useRevealNode from './useRevealNode';
 import CanvasToolbar from './CanvasToolbar';
 import useContextTrigger from './useContextTrigger';
 import type { ContextTarget } from './useContextTrigger';
-import { runClipboardShortcut } from './clipboard';
+import { hasCopyable, runClipboardShortcut } from './clipboard';
 
 export type { ContextTarget, FlowSelection, ScreenPoint };
 
@@ -316,7 +316,7 @@ export default function FlowCanvas({
             }
             return;
         }
-        if (runClipboardShortcut(ev, { enabled: !readOnly, hasSelection: selectedKeys(selected).length > 0, onCopy, onDuplicate, onPaste, at: () => quickAddAt(false) })) {
+        if (runClipboardShortcut(ev, { enabled: !readOnly, canCopy: hasCopyable(selectedKeys(selected)), onCopy, onDuplicate, onPaste, at: () => quickAddAt(false) })) {
             return;
         }
         if (ev.ctrlKey || ev.metaKey || ev.altKey) {

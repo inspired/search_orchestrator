@@ -1,11 +1,11 @@
 import React from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import BuilderPage from '../features/builder/BuilderPage';
-import { fakeApi } from './builderFixtures';
+import { fakeApi, rollupJob } from './builderFixtures';
 import { renderThemed } from './fixtures';
 
-async function show() {
-    renderThemed(<BuilderPage jobId="rollups" api={fakeApi()} />);
+async function show(api = fakeApi()) {
+    renderThemed(<BuilderPage jobId="rollups" api={api} />);
     await act(async () => {
         await Promise.resolve();
     });
@@ -137,5 +137,48 @@ describe('BuilderPage right-click menu', () => {
         fireEvent.contextMenu(link, { clientX: 300, clientY: 200 });
         expect(screen.getByRole('listbox', { name: 'Line' })).toBeInTheDocument();
         expect(screen.getByText('Remove line')).toBeInTheDocument();
+    });
+
+    describe('actions only: nothing to copy', () => {
+        const withActions = () =>
+            fakeApi({
+                getJob: jest.fn().mockResolvedValue(
+                    rollupJob({
+                        steps: [
+                            { id: 'daily', name: 'Daily summary', type: 'inline', spl: '| makeresults', actions: [{ hook: 'on_failure', type: 'email', to: 'a@b' }, { hook: 'on_success', type: 'email', to: 'c@d' }] },
+                            { id: 'weekly', name: 'Weekly rollup', type: 'saved_search', saved_search_ref: 'Weekly rollup' },
+                            { id: 'monthly', name: 'Monthly rollup', type: 'inline', spl: '| loadjob $weekly.sid$' },
+                        ],
+                    })
+                ),
+            });
+
+        it('a single action has no Duplicate or Copy', async () => {
+            await show(withActions());
+            fireEvent.contextMenu(screen.getByTestId('node-action:daily:0'), { clientX: 300, clientY: 200 });
+            expect(names()).not.toContain('Duplicate');
+            expect(names()).not.toContain('Copy');
+        });
+
+        it('a selection of actions only has no Duplicate or Copy, and Ctrl+D and Ctrl+C are left alone', async () => {
+            await show(withActions());
+            shiftClick('action:daily:0');
+            shiftClick('action:daily:1');
+            fireEvent.contextMenu(screen.getByTestId('node-action:daily:1'), { clientX: 300, clientY: 200 });
+            expect(names()).toEqual(['Align…', 'Distribute…Select three or more nodes', 'Tidy up selection', 'Group', 'Remove nodes']);
+            fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+            const canvas = screen.getByRole('group', { name: /^Job flow/ });
+            expect(fireEvent.keyDown(canvas, { key: 'd', ctrlKey: true })).toBe(true);
+            expect(fireEvent.keyDown(canvas, { key: 'c', ctrlKey: true })).toBe(true);
+            expect(screen.queryByTestId('splice-message')).toBeNull();
+        });
+
+        it('an action with a step keeps Duplicate and Copy', async () => {
+            await show(withActions());
+            shiftClick('action:daily:0');
+            shiftClick('step:daily');
+            fireEvent.contextMenu(screen.getByTestId('node-step:daily'), { clientX: 300, clientY: 200 });
+            expect(names().slice(0, 2)).toEqual(['Duplicate', 'Copy']);
+        });
     });
 });
