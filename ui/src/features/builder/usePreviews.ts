@@ -470,7 +470,10 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         return out;
     }, [job, ctx, previews]);
 
-    return { previews: views, preview, cancel };
+    /** The input a preview of the step would send now (a condition test reads the same). */
+    const inputFor = (stepId: string): PreviewInput => input(latest.current.job, latest.current.ctx, stepId).request;
+
+    return { previews: views, preview, cancel, inputFor };
 }
 
 /** What a node shows of a step's preview (see nodePreview): rows and seconds of a current

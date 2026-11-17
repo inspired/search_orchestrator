@@ -50,6 +50,20 @@ beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
 describe('usePreviews', () => {
+    test("inputFor('b') equals the input a preview of b sends", async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        await act(async () => {
+            result.current.preview('b');
+            await flush();
+        });
+        const sent = api.startPreview.mock.calls.filter(([r]: [PreviewRequest]) => r.step_id === 'b')[0][0];
+        expect(result.current.inputFor('b')).toEqual(sent.input);
+        const runCtx: PreviewContext = { ...ctx, source: 'run-1' };
+        const { result: fromRun } = renderHook(() => usePreviews(job, runCtx, fakeApi()));
+        expect(fromRun.current.inputFor('b')).toEqual({ mode: 'run', run_id: 'run-1' });
+    });
+
     const written: JobDefinition = {
         ...job,
         steps: [

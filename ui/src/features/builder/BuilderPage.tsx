@@ -501,6 +501,9 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     scheduledTime={scheduledTime}
                     resolveTimeRange={api.resolveTimeRange}
                     previews={previews.previews}
+                    previewJob={previewJob}
+                    previewCtx={previewCtx}
+                    inputFor={previews.inputFor}
                     onPreview={meta.canEdit ? (id, opts) => void previews.preview(id, opts) : undefined}
                     onCancelPreview={previews.cancel}
                     previewLive={source === 'live'}

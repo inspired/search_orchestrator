@@ -6,11 +6,13 @@ import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
-import type { ConditionKind, Edge, Issue, JobDefinition } from '../../api/types';
+import type { ConditionKind, Edge, Issue, JobDefinition, PreviewInput } from '../../api/types';
 import type { BuilderApi } from './BuilderPage';
 import type { BuilderAction } from './reducer';
 import { CONDITION_KINDS, DEFAULT_CONDITION_RANGE, conditionKind } from './conditions';
 import { stepLabel } from './GraphView';
+import ConditionTest from './ConditionTest';
+import type { PreviewContext } from './previewLogic';
 import { TokenInput } from './InsertToken';
 import { IssueList } from './StepPanel';
 import TimeRangeField from './TimeRangeField';
@@ -29,6 +31,8 @@ export interface EdgePanelProps {
     /** For the time range of a "Search returns results" condition. */
     scheduledTime?: number;
     resolveTimeRange?: BuilderApi['resolveTimeRange'];
+    /** Enables Test condition: the job as previewed, the preview context and the input of a step. */
+    conditionTest?: { job: JobDefinition; ctx: PreviewContext; inputFor: (stepId: string) => PreviewInput; preview?: (stepId: string) => void };
 }
 
 const HELP: Record<ConditionKind, (from: string) => string> = {
@@ -41,7 +45,7 @@ const HELP: Record<ConditionKind, (from: string) => string> = {
 
 const FIELD_LABEL: Record<ConditionKind, string> = { simple: 'Expression', eval: 'SPL expression', search: 'Search' };
 
-export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, previewFields = {}, scheduledTime, resolveTimeRange }: EdgePanelProps) {
+export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, previewFields = {}, scheduledTime, resolveTimeRange, conditionTest }: EdgePanelProps) {
     const edge = (job.edges || []).find((e) => e.from === from && e.to === to);
     if (!edge) {
         return null;
@@ -115,6 +119,16 @@ export default function EdgePanel({ job, from, to, issues, dispatch, onRemoved, 
                             timezone={job.timezone}
                             resolve={resolveTimeRange}
                             onChange={(earliest, latest) => set({ earliest, latest })}
+                        />
+                    )}
+                    {conditionTest && (
+                        <ConditionTest
+                            job={conditionTest.job}
+                            from={from}
+                            to={to}
+                            ctx={conditionTest.ctx}
+                            inputFor={conditionTest.inputFor}
+                            preview={conditionTest.preview}
                         />
                     )}
                 </>

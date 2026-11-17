@@ -3,7 +3,7 @@
  * when nothing is. Each editor is keyed by the selection so its drafts never carry over to another node. */
 import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { AlertAction, Destination, Issue, Job, JobDefinition } from '../../api/types';
+import type { AlertAction, Destination, Issue, Job, JobDefinition, PreviewInput } from '../../api/types';
 import ActionPanel from './ActionPanel';
 import type { BuilderApi } from './BuilderPage';
 import EdgePanel from './EdgePanel';
@@ -19,6 +19,7 @@ import SelectionPanel from './SelectionPanel';
 import StepPanel from './StepPanel';
 import { availableTokens } from './tokens';
 import TriggerPanel from './TriggerPanel';
+import type { PreviewContext } from './previewLogic';
 import type { PreviewView } from './usePreviews';
 
 export const EMPTY_HINT =
@@ -57,6 +58,10 @@ export interface NodePanelProps {
     scheduledTime: number;
     resolveTimeRange: BuilderApi['resolveTimeRange'];
     previews: Record<string, PreviewView | undefined>;
+    /** For testing a condition: the job as previewed, its preview context and input. */
+    previewJob?: JobDefinition;
+    previewCtx?: PreviewContext;
+    inputFor?: (stepId: string) => PreviewInput;
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview?: (stepId: string) => void;
     /** "Input from" is live: steps upstream run first, so their writing commands count too. */
@@ -82,6 +87,7 @@ export default function NodePanel(props: NodePanelProps) {
             previewFields={previewFields}
             scheduledTime={props.scheduledTime}
             resolveTimeRange={props.resolveTimeRange}
+            conditionTest={props.previewCtx && props.inputFor ? { job: props.previewJob || job, ctx: props.previewCtx, inputFor: props.inputFor, preview: props.onPreview } : undefined}
         />
     );
 
