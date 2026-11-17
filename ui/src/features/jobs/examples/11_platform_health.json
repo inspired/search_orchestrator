@@ -101,7 +101,7 @@
       "id": "score",
       "name": "Health score",
       "type": "previous",
-      "spl": "| stats sum(eval(if(check=\"errors\", value, 0))) AS errors sum(eval(if(check=\"skipped\", value, 0))) AS skipped sum(eval(if(check=\"license_gb\", value, 0))) AS license_gb dc(eval(if(check=\"searches\", name, null()))) AS active_users\n| eval score=max(0, 100 - min(50, round(errors/$run.param.error_threshold$*10)) - min(30, skipped*2))\n| eval env=\"$run.param.environment$\", day=strftime(tonumber($run.scheduled_time$) - 86400, \"%Y-%m-%d\")"
+      "spl": "| stats sum(eval(if(check=\"errors\", value, 0))) AS errors sum(eval(if(check=\"skipped\", value, 0))) AS skipped sum(eval(if(check=\"license_gb\", value, 0))) AS license_gb dc(eval(if(check=\"searches\", name, null()))) AS active_users\n| eval score=max(0, 100 - min(50, round(errors/tonumber($run.param.error_threshold$)*10)) - min(30, skipped*2))\n| eval env=\"$run.param.environment$\", day=strftime(tonumber($run.scheduled_time$) - 86400, \"%Y-%m-%d\")"
     },
     {
       "id": "save_history",
