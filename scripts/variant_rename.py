@@ -8,7 +8,8 @@ Every name that is global on a Splunk instance, or that ties the app to its id,
 gets ``_<suffix>``: the app id, the /orchestrator REST endpoint and its web.conf
 exposure, the capabilities and roles, the index, sourcetype and macro, the
 modular input scheme, the alert action, the search command and its searchbnf
-stanzas. Script files are renamed to match their stanzas. KV Store collections,
+stanzas. The search command alone takes the bare suffix (``orchestrate<suffix>``):
+SPL command names are letters and digits only. Script files are renamed to match their stanzas. KV Store collections,
 the lookup, the fallback saved search and the private step searches live in the
 app's own namespace, so they keep their names.
 
@@ -25,6 +26,9 @@ def rules(s, label):
     """``(file, regex, replacement, expected count)``; ``s`` is ``_<suffix>``. A callable
     replacement is used as is (no backslash or group processing)."""
     caps = r"orchestrator_(admin|build|run)"
+    # Search command names are letters and digits only: SPL splits `orchestrate_x` into the
+    # command `orchestrate` and an argument `_x`. So the command takes the bare suffix.
+    cmd = command_name(s)
     return [
         # App id, label and manifest.
         ("default/app.conf", r"^name = search_orchestrator$", "name = search_orchestrator" + s, 1),
@@ -91,29 +95,37 @@ def rules(s, label):
         ("bin/start_orchestrator_job.py", r"\bstart_orchestrator_job\b", "start_orchestrator_job" + s, 10),
         ("metadata/default.meta", r"^\[alert_actions/start_orchestrator_job\]$", "[alert_actions/start_orchestrator_job%s]" % s, 1),
         # Search command: stanzas, searchbnf, and SPL that emits or matches it.
-        ("default/commands.conf", r"^\[orchestrate\]$", "[orchestrate%s]" % s, 1),
-        ("default/commands.conf", r"^filename = orchestrate\.py$", "filename = orchestrate%s.py" % s, 1),
-        ("default/searchbnf.conf", r"\borchestrate\b", "orchestrate" + s, 11),
-        ("metadata/default.meta", r"^\[commands/orchestrate\]$", "[commands/orchestrate%s]" % s, 1),
+        ("default/commands.conf", r"^\[orchestrate\]$", "[%s]" % cmd, 1),
+        ("default/commands.conf", r"^filename = orchestrate\.py$", "filename = %s.py" % cmd, 1),
+        ("default/searchbnf.conf", r"\borchestrate\b", cmd, 11),
+        ("metadata/default.meta", r"^\[commands/orchestrate\]$", "[commands/%s]" % cmd, 1),
         ("metadata/default.meta", r"^\[searchbnf/orchestrate-(command|action|option)\]$",
-         r"[searchbnf/orchestrate%s-\1]" % s, 3),
-        ("metadata/default.meta", r"^# \| orchestrate and", "# | orchestrate%s and" % s, 1),
+         r"[searchbnf/%s-\1]" % cmd, 3),
+        ("metadata/default.meta", r"^# \| orchestrate and", "# | %s and" % cmd, 1),
         ("bin/so/model.py", r'^_ORCHESTRATE_RE = re\.compile\(r"\\\|\\s\*orchestrate\\b", re\.IGNORECASE\)$',
          # Refuse both this copy's command and the normal app's.
-         lambda m: '_ORCHESTRATE_RE = re.compile(r"\\|\\s*orchestrate(%s)?\\b", re.IGNORECASE)' % s, 1),
-        ("bin/so/model.py", r"\| orchestrate\b", "| orchestrate" + s, 1),
-        ("bin/so/selftest.py", r"\| orchestrate\b", "| orchestrate" + s, 3),
-        ("bin/orchestrate.py", r"\| orchestrate\b", "| orchestrate" + s, 9),
+         lambda m: '_ORCHESTRATE_RE = re.compile(r"\\|\\s*orchestrate(%s)?\\b", re.IGNORECASE)' % cmd[len("orchestrate"):], 1),
+        ("bin/so/model.py", r"\| orchestrate\b", "| " + cmd, 1),
+        ("bin/so/selftest.py", r"\| orchestrate\b", "| " + cmd, 3),
+        ("bin/orchestrate.py", r"\| orchestrate\b", "| " + cmd, 9),
         ("default/data/ui/alerts/start_orchestrator_job.html", r'search="\| orchestrate jobs"',
-         'search="| orchestrate%s jobs"' % s, 1),
+         'search="| %s jobs"' % cmd, 1),
     ]
+
+
+def command_name(s):
+    """``orchestrate<suffix>`` for ``s`` = ``_<suffix>``; refuses anything but letters and digits."""
+    name = "orchestrate" + s.lstrip("_")
+    if not re.fullmatch(r"[a-z0-9]+", name):
+        sys.exit("variant_rename: search command %r must be lowercase letters and digits" % name)
+    return name
 
 
 PAGES = ("builder", "help", "jobs", "run", "runs", "settings")
 
 # Script files whose name is part of a stanza (modular input scheme, command
 # filename, alert action, REST handler module), applied after the text rules.
-RENAMES = ["bin/orchestrator_engine.py", "bin/orchestrator_rest.py", "bin/orchestrate.py",
+RENAMES = ["bin/orchestrator_engine.py", "bin/orchestrator_rest.py",
            "bin/start_orchestrator_job.py", "default/data/ui/alerts/start_orchestrator_job.html"]
 
 
@@ -138,6 +150,8 @@ def main(app_dir, suffix):
     for rel in RENAMES:
         stem, ext = os.path.splitext(rel)
         os.rename(os.path.join(app_dir, rel), os.path.join(app_dir, stem + s + ext))
+    os.rename(os.path.join(app_dir, "bin/orchestrate.py"),
+              os.path.join(app_dir, "bin/%s.py" % command_name(s)))
     readme = os.path.join(app_dir, "README.md")
     with open(readme, encoding="utf-8") as f:
         body = f.read()
@@ -145,8 +159,9 @@ def main(app_dir, suffix):
         f.write("> **Test copy `search_orchestrator%s`** (%s). It installs next to Search Orchestrator; "
                 "every Splunk-wide name below carries `%s`: the `/orchestrator%s` endpoint, the "
                 "`orchestrator_*%s` capabilities, the `orchestrator_*_role%s` roles, the `orchestrator%s` "
-                "index, sourcetype `orchestrator:audit%s`, `| orchestrate%s` and the "
-                "`start_orchestrator_job%s` alert action.\n\n" % (s, label, s, s, s, s, s, s, s, s) + body)
+                "index, sourcetype `orchestrator:audit%s` and the `start_orchestrator_job%s` alert "
+                "action. The search command is `| %s` (command names can't contain `_`).\n\n"
+                % (s, label, s, s, s, s, s, s, s, command_name(s)) + body)
 
 
 if __name__ == "__main__":

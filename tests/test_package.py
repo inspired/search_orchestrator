@@ -66,8 +66,12 @@ def test_no_pyc_or_dotfiles_in_package(tmp_path):
         assert not any(p.startswith(".") for p in parts), n
 
 
+def _stanzas_text(text):
+    return re.findall(r"^\[([^\]]+)\]", text, re.M)
+
+
 def _stanzas(path):
-    return re.findall(r"^\[([^\]]+)\]", path.read_text(), re.M)
+    return _stanzas_text(path.read_text())
 
 
 def test_all_collections_declared():
@@ -122,7 +126,7 @@ def test_variant_package_renames_every_global_name(tmp_path):
     tar = tarfile.open(path)
     names = set(tar.getnames())
     assert all(n.split("/")[0] == "search_orchestrator_t1" for n in names)
-    for rel in ["bin/orchestrator_engine_t1.py", "bin/orchestrator_rest_t1.py", "bin/orchestrate_t1.py",
+    for rel in ["bin/orchestrator_engine_t1.py", "bin/orchestrator_rest_t1.py", "bin/orchestratet1.py",
                 "bin/start_orchestrator_job_t1.py", "default/data/ui/alerts/start_orchestrator_job_t1.html"]:
         assert "search_orchestrator_t1/" + rel in names, rel
 
@@ -132,6 +136,15 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "match = /orchestrator_t1\n" in read("default/restmap.conf")
     assert "[role_orchestrator_user_role_t1]" in read("default/authorize.conf")
     assert "index = orchestrator_t1\n" in read("default/inputs.conf")
-    assert "[commands/orchestrate_t1]" in read("metadata/default.meta")
+    assert "[commands/orchestratet1]" in read("metadata/default.meta")
+    # SPL splits `orchestrate_t1` into `orchestrate` + `_t1`: command names are letters and digits.
+    commands = _stanzas_text(read("default/commands.conf"))
+    assert commands == ["orchestratet1"] and all(re.fullmatch(r"[a-z0-9]+", c) for c in commands)
+    assert read("bin/orchestratet1.py") and "filename = orchestratet1.py" in read("default/commands.conf")
+    bnf = _stanzas_text(read("default/searchbnf.conf"))
+    assert bnf == ["orchestratet1-command", "orchestratet1-action", "orchestratet1-option"]
+    assert "| orchestratet1 start" in read("default/searchbnf.conf")
+    assert "| orchestrate_t1" not in "".join(read(n.split("/", 1)[1]) for n in names
+                                             if n.endswith((".py", ".conf", ".html", ".meta", ".md")))
     assert "search_orchestrator_t1:/templates/run.html" in read("default/data/ui/views/run.xml")
     os.remove(path)

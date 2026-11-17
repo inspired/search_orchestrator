@@ -7,7 +7,8 @@ const SUFFIX: string = typeof __SO_SUFFIX__ === 'string' ? __SO_SUFFIX__ : '';
 
 /** The REST endpoint under /services (restmap.conf match). */
 export const REST_BASE = `orchestrator${SUFFIX}`;
-/** The custom search command (commands.conf). */
-export const COMMAND = `orchestrate${SUFFIX}`;
+/** The custom search command (commands.conf). SPL command names are letters and digits
+ * only, so the command takes the suffix without its underscore (orchestrate<suffix>). */
+export const COMMAND = `orchestrate${SUFFIX.replace(/^_/, '')}`;
 export const CAP_ADMIN = `orchestrator_admin${SUFFIX}`;
 export const CAP_RUN = `orchestrator_run${SUFFIX}`;
