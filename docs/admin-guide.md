@@ -39,14 +39,18 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 | `orchestrator_admin` | Manage every job, the settings and the webhook destinations. Run the self-test. |
 | `orchestrator_build` | Create and edit their own jobs. |
 | `orchestrator_run` | Start and control the jobs they may run, and view those runs. |
+| `orchestrator_approve` | Approve or reject approval steps on runs they may see. |
 
 | Role shipped by the app | Capabilities |
 |---|---|
-| `orchestrator_admin_role` | admin, build, run |
+| `orchestrator_admin_role` | admin, build, run, approve |
 | `orchestrator_builder_role` | build, run (imports `user`) |
 | `orchestrator_user_role` | run (imports `user`) |
+| `orchestrator_approver_role` | run, approve (imports `user`) |
 
-`admin` and `sc_admin` also get all three. The builder and user roles import Splunk's `user` role, so either one alone is enough to use Splunk Web. Give users a role by having their role inherit one of these, or add the capabilities to an existing role. The REST handler checks the capabilities on every request; hiding a screen is only a convenience.
+`admin` and `sc_admin` also get all four. The builder, user and approver roles import Splunk's `user` role, so any one of them alone is enough to use Splunk Web. Give users a role by having their role inherit one of these, or add the capabilities to an existing role. The REST handler checks the capabilities on every request; hiding a screen is only a convenience.
+
+**Approvals.** A user may decide an approval step when they hold `orchestrator_approve`, may see the job and, if the step lists roles, are in one of them; admins always may. The user who started a run may also decide a step that lists no roles, without the capability (audited `as_starter`). A custom role that holds `orchestrator_approve` without `orchestrator_run` sees no runs, so it can't find anything to approve: give it `orchestrator_run` too, or use `orchestrator_approver_role`.
 
 **Who sees what.** Admins see everything. Anyone else sees the jobs they own or may run, including those jobs' SPL and run history.
 
@@ -103,11 +107,17 @@ Only users with `orchestrator_admin` see it.
 
 ### Webhook destinations
 
-Admins define each destination once: a name, an `https://` URL, a body format (generic JSON or Slack) and optional headers such as `Authorization`. Job builders pick from the list by name and never see the URL. This keeps secrets out of jobs and stops builders pointing the search head at internal addresses.
+Admins define each destination once: a name, an `https://` URL, a body format (Generic JSON, Slack, Microsoft Teams, PagerDuty or ServiceNow) and optional headers such as `Authorization`. Job builders pick from the list by name and never see the URL. This keeps secrets out of jobs and stops builders pointing the search head at internal addresses.
 
 The URL and headers are write-only. The page shows only whether each is set. To change a destination, use **Replace** and enter the URL again; leave the headers empty to keep them, or remove them. A destination used as the fallback can't be deleted until the fallback changes.
 
-**Splunk Cloud may block outbound webhooks.** If deliveries fail with connection errors, ask Splunk support to allow the destination host.
+Body formats:
+
+- **Microsoft Teams:** an Adaptive Card 1.4 message; use the URL of a Teams Workflows webhook.
+- **PagerDuty:** an Events API v2 event. **New URL** may stay empty; it then uses `https://events.pagerduty.com/v2/enqueue`. **Routing key** is required and write-only, like the URL: the page shows only whether one is stored, and an empty value keeps it. Take it from the service's Events API v2 integration.
+- **ServiceNow:** a Table API incident. The URL must end in `/api/now/table/incident`; put the credentials in the headers (for example `Authorization`). Job builders set urgency, impact and assignment group (up to 100 characters) on each action.
+
+**Splunk Cloud may block outbound webhooks.** If deliveries fail with connection errors, ask Splunk support to allow the destination host, such as `events.pagerduty.com` for PagerDuty and your ServiceNow instance's host.
 
 ### Fallback notification
 
@@ -204,9 +214,10 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
 | `runs`, `runs/<id>` | GET |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
+| `runs/<id>/approve` | POST (`step_id`, `decision` `approve` or `reject`, `comment` up to 1000 characters and required to reject; needs `orchestrator_approve`, or the run's starter on a step with no roles; 409 `not_awaiting_approval` when the step isn't waiting or is already decided) |
 | `settings` | GET, PUT (admin) |
 | `destinations`, `destinations/<name>` | GET, POST, DELETE (admin; builders may list) |
-| `health`, `me` | GET |
+| `health`, `me` | GET (`me` includes `can_approve`) |
 | `selftest` | POST (admin) |
 | `schedule/next` | POST (builders: `cron`, optional `timezone` and `count`; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`) |
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |
@@ -221,6 +232,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 
 ## Known limits
 
+- An approval waits 5 minutes to 7 days, and its message is at most 500 characters. A decision is applied on the engine's next tick, not at once.
 - The **Dependencies** page is built in the browser from `jobs`, so it shows only jobs the user may see; a job it can't see appears as "Job you can't see". The **Calendar** page reads `calendar` and shows only future scheduled times of turned-on jobs, at most 300 per job and 2,000 items per request, over at most 8 days.
 - Not tested on a real search head cluster or a real Splunk Cloud stack.
 - Classic Experience Cloud stacks are not supported.

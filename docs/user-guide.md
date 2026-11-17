@@ -60,7 +60,8 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Search**, **Saved search** | rounded corners; a saved search has a second stripe | blue |
 | **Results of earlier steps** | cut corners | teal |
 | **If…** (a condition) | diamond | amber |
-| Notify: **Email**, **Webhook**, **Slack**, **Alert action** | notched right edge | pink |
+| Notify: **Email**, **Webhook**, **Slack**, **Microsoft Teams**, **PagerDuty**, **ServiceNow**, **Alert action** | notched right edge | pink |
+| **Approval** | octagon | amber |
 | Write: **Summary index**, **Lookup**, **Event to an index** | cylinder | orange |
 | **Start another job** | slanted sides | slate |
 | **Whole job** | double outline | grey |
@@ -77,6 +78,7 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | Finishes either way | ∞ | runs it whenever this step finishes | fires on complete |
 | Starts | ▶ | not allowed (actions only) | fires on start |
 | Is delayed | ⏱ | not allowed (actions only) | fires when the step is delayed |
+| Asks for approval | ⚑ | not allowed (actions only) | fires when an **Approval** step starts waiting |
 | If a condition is true | ◇ | adds an **If…** node; the next step runs when its condition is true (see [Conditions](#conditions)) | not allowed |
 
 The **Whole job** list has no "If a condition is true"; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no +: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't made.
@@ -190,6 +192,43 @@ With the canvas focused:
 ### Slack
 
 **Slack** is an action node. It posts a message to Slack when the step or job reaches the outcome its line comes from, like any other action. It needs a webhook destination that your admin has set up with the Slack body format (see the admin guide); pick it by name in the side panel. A Slack node is a webhook with the Slack preset, so a job saved with one shows it as **Slack** and a plain webhook as **Webhook**.
+
+### Microsoft Teams, PagerDuty and ServiceNow
+
+**Microsoft Teams**, **PagerDuty** and **ServiceNow** are action nodes like **Slack**: each is a webhook with its own body format, and fires when the step or job reaches the outcome its line comes from. The destination list in the side panel shows only destinations with the matching body format. Your admin sets them up (see the admin guide); you pick one by name.
+
+- **Microsoft Teams** posts an Adaptive Card 1.4 with the job, run, step and status and an **Open run** button.
+- **PagerDuty** triggers an incident through the Events API v2. **Severity** is Critical, Error, Warning or Info; the default is Error, and Warning when the action fires on Is delayed or Is late. A run that succeeds resolves its incident when the action fires on Succeeds or Finishes either way, so a retry that works closes the page. The incident is keyed to the run (and the step, for a step action).
+- **ServiceNow** opens an incident. **Urgency** and **Impact** each take 1 High, 2 Medium or 3 Low (default 2 Medium); **Assignment group** is optional, at most 100 characters.
+
+### Approval steps
+
+An **Approval** node (an octagon) makes a run wait for a person before going on. It runs no search. Add it from **Add node** and connect it like a step: lines into it say when it is asked, and lines out of it use its own words:
+
+| Outcome | Meaning |
+|---|---|
+| Approved | someone approved (or the timeout approved); the steps after it run |
+| Rejected | someone rejected (or the timeout rejected); the step fails, and is never retried |
+| Decided either way | fires after either decision |
+| Starts | fires when the step starts waiting |
+| Is delayed | fires when the step is delayed |
+| Asks for approval | actions only: fires when the step starts waiting, for example an email or a Teams message to the approvers |
+
+Its fields:
+
+- **Message:** shown to approvers on the run page, up to 500 characters; it takes tokens such as `$run.now$`.
+- **Who may approve:** roles. Members of those roles who also hold `orchestrator_approve` can decide; admins always can. Empty means anyone who may approve runs of the job.
+- **Wait at most:** 5 minutes to 7 days. Empty waits until the step gives up; the builder warns when it is longer than the step's **Give up after**.
+- **If nobody decides:** **Reject** (the default) or **Approve**, when **Wait at most** runs out.
+
+While it waits, the step shows "Waiting for approval · since <time>". In the step's details on the run page, people who may approve see **Approve** and **Reject**. Each asks for a comment; the comment is required to reject and optional to approve, and up to 1000 characters. The run page then shows "Approved by <user>" or "Rejected by <user>" with the comment.
+
+Good to know:
+
+- The user who started the run may decide too, but only on a step with no **Who may approve** roles; the audit log records that as `as_starter`.
+- While a run is paused, a timeout never fires, but the time paused counts toward it. A decision made while the run is paused takes effect when it resumes.
+- A re-run from an approval step, or from a step before it, asks again.
+- Previews treat an approval step as approved. The step itself can't be previewed.
 
 ### Steps
 
@@ -305,7 +344,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 Each action is a node. Drag a line to it from a step's **+** handle, or from the **Whole job** node's for a job-wide action; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way, Is delayed or, from the **Whole job** node, Is late). An action's **When** field moves its line from the keyboard.
 
-- **Webhook** or **Slack** to a destination your admin set up (Slack is a body format).
+- **Webhook**, **Slack**, **Microsoft Teams**, **PagerDuty** or **ServiceNow** to a destination your admin set up (each is a body format; see [Microsoft Teams, PagerDuty and ServiceNow](#microsoft-teams-pagerduty-and-servicenow)).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
 
 Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
@@ -498,6 +537,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 | orchestrate status [run=<run id>] [job=<id>] [limit=<n>]
 | orchestrate cancel run=<run id>
 | orchestrate rerun run=<run id> step=<step> [definition=latest|original] [restart_downstream_jobs=true|false]
+| orchestrate approve run=<run id> step=<step> decision=approve|reject [comment=<text>]
 | orchestrate backfill job=<id> from=<time> to=<time> [step=<n>m|<n>h|<n>d|<seconds>] [concurrency=<1-5>] [param.<name>=<value>]...
 | orchestrate status backfill=<backfill id>
 | orchestrate jobs
@@ -505,11 +545,13 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 `status` without `run=` shows up to 20 recent runs (5 by default), and stops with a warning if fetching them takes over two minutes. `scheduled_time` lets you re-create one day: steps then summarise that day's window. For a whole range, use `backfill`: without `step` it follows the job's schedule, with `step` it runs every so often. `from` and `to` are epoch seconds or Splunk times such as `-30d@d`. It returns the backfill id and how many runs it planned; `status backfill=<id>` shows one row per run.
 
+`approve` approves or rejects an approval step that is waiting; it needs `orchestrator_approve` (or being the run's starter, on a step with no roles), and `comment` is required for `reject`. The engine applies the decision on its next tick.
+
 `start` refuses a `param.<name>` the job doesn't declare. An option given twice or with an empty value is an error, so an unset dashboard token can't select other runs. `cancel` refuses a run that has already finished.
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 

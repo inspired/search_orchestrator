@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.22.0 (2026-11-17)
+
+- **Channels:** new webhook body formats **Microsoft Teams** (Adaptive Card 1.4), **PagerDuty** (Events API v2) and **ServiceNow** (Table API incident), each a notify node in the builder whose destination picker shows only that format. PagerDuty **Severity** is Critical, Error, Warning or Info (default Error, Warning for Is delayed and Is late), and a succeeded run's Succeeds or Finishes either way action resolves the incident. ServiceNow **Urgency** and **Impact** take 1 to 3 (default 2), and **Assignment group** up to 100 characters. An admin sets the PagerDuty routing key as a write-only destination field; the PagerDuty URL defaults to `events.pagerduty.com`, and a ServiceNow URL must end in `/api/now/table/incident`.
+- **Approval steps:** an **Approval** node (octagon) with **Message** (tokens), **Who may approve** (roles), **Wait at most** (5 minutes to 7 days) and **If nobody decides** (Reject or Approve). Outcomes: Approved, Rejected, Decided either way, Starts, Is delayed and Asks for approval. The step state is `awaiting_approval`, shown as "Waiting for approval · since …"; the run page has **Approve** and **Reject** with a comment, required to reject. A timeout never fires while the run is paused, but paused time counts toward it; a decision made while paused takes effect on resume; a re-run asks again; previews treat an approval step as approved.
+- **Permissions:** new capability `orchestrator_approve` (admin, sc_admin and `orchestrator_admin_role`) and role `orchestrator_approver_role` (imports `user`; run and approve). The run's starter may decide only steps with no role list, audited `as_starter`. `GET me` returns `can_approve`.
+- New route `POST runs/<id>/approve`; command `| orchestrate approve run= step= decision=approve|reject [comment=]`; audit events `approval_requested`, `approval_decided` and `approval_ignored`.
+- AppInspect (precert, cloud): 0 errors and 0 failures on both packages; the same 9 warnings as 1.21.0, none new.
+
 ## 1.21.0 (2026-11-17)
 
 - **Dependencies page:** after Runs in the navigation. A graph of jobs joined by completion triggers and start-job actions, with lines labelled "after it succeeds", "after it finishes" or "start-job action · <outcome>". A job you can't see appears as "Job you can't see". It has a **List** view, a panel with **Open job** and **Open runs**, a **Not connected** row, and refreshes every 30 seconds.
