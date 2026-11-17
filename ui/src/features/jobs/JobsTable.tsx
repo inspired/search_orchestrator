@@ -26,6 +26,8 @@ export interface JobsTableProps {
     onDelete?: (job: Job, opener: HTMLElement) => void;
     /** Job ids with a save in flight: their switch is disabled. */
     busy?: Record<string, boolean>;
+    /** Opens the example jobs (offered on the empty page to builders). */
+    onBrowseExamples?: () => void;
 }
 
 function nextRunText(job: Job): string {
@@ -39,11 +41,11 @@ function nextRunText(job: Job): string {
     return job.next_run_beyond ? '\u2014' : 'Not scheduled';
 }
 
-export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onToggleEnabled, onDelete, busy = {} }: JobsTableProps) {
+export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onToggleEnabled, onDelete, busy = {}, onBrowseExamples }: JobsTableProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
     if (!jobs.length) {
-        return loadFailed ? null : <JobsEmpty me={me} />;
+        return loadFailed ? null : <JobsEmpty me={me} onBrowseExamples={onBrowseExamples} />;
     }
     const names: Record<string, string> = {};
     jobs.forEach((j) => {

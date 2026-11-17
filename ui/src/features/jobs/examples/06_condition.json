@@ -1,0 +1,62 @@
+{
+  "id": "example_condition",
+  "name": "Example: investigate only when errors were found",
+  "description": "Every 30 minutes counts splunkd errors by component. An If… node checks $count_errors.resultCount$ > 0: only then does the investigate step list the latest errors of the busiest component; otherwise it is skipped and the run still succeeds.",
+  "enabled": false,
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "5,35 * * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "count_errors",
+      "name": "Count errors by component",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR\n| stats count BY component\n| sort - count",
+      "earliest": "-30m@m",
+      "latest": "@m"
+    },
+    {
+      "id": "investigate",
+      "name": "Investigate the busiest component",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR component=$count_errors.first.component$\n| head 50\n| table _time host component _raw",
+      "earliest": "-30m@m",
+      "latest": "@m"
+    }
+  ],
+  "edges": [
+    {
+      "from": "count_errors",
+      "to": "investigate",
+      "condition": "expression",
+      "expression": "$count_errors.resultCount$ > 0"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 120
+      },
+      "step:count_errors": {
+        "x": 320,
+        "y": 20
+      },
+      "step:investigate": {
+        "x": 744,
+        "y": 20
+      },
+      "cond:count_errors>investigate": {
+        "x": 600,
+        "y": 26
+      }
+    }
+  }
+}

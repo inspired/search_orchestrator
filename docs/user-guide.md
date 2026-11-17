@@ -10,6 +10,21 @@ Version 1.16.1. Search Orchestrator makes dependent searches run as one unit, so
 
 You need `orchestrator_build` to create jobs and `orchestrator_run` to start them. Ask your Splunk admin.
 
+## Example jobs
+
+**Browse examples** on the Jobs page (also offered when there are no jobs) lists ten ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`). **Open in builder** opens one as a new, unsaved job to look at and save. **Add all examples** saves every example that isn't a job yet, with ids starting `example_`; existing ones are skipped and errors are listed. Every example is scheduled but turned off: turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
+
+1. **Hourly splunkd errors** (simple): one search step counting splunkd errors each hour.
+2. **Top sourcetypes to a lookup** (simple): yesterday's top 20 sourcetypes written to `so_example_top_sourcetypes.csv` by a Lookup node.
+3. **Daily search activity** (simple): searches per user from `_audit`, with an email when the step fails.
+4. **Daily, weekly and monthly rollup** (intermediate): a daily count appended to a lookup, rolled up on Mondays and on the 1st with Run when and `$run.scheduled_time$`.
+5. **Two branches, one report** (intermediate): errors by component and warnings by host run side by side and merge in a Results of earlier steps step.
+6. **Investigate only when errors were found** (intermediate): an If… node with `$count_errors.resultCount$ > 0` gates the investigate step.
+7. **Parameters for component and threshold** (intermediate): a list and a number parameter used in the SPL and in a condition.
+8. **Retries, recovery and clean-up** (advanced): retries, a Fails line to a recovery step, a Finishes either way summary and a job failure email (swap it for a webhook once your admin adds a destination).
+9. **A slow step and a delay alert** (advanced): a deliberately slow step that is delayed after 30 seconds, emails once and has a 10-minute max runtime; run it to watch the run graph live.
+10. **Chained jobs** (advanced): starts after the rollup example succeeds, starts the hourly errors example when it succeeds, and uses groups to organise the canvas.
+
 ## Build a job
 
 Open **Jobs**, then **Create job**.
