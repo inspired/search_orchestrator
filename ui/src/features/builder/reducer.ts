@@ -86,7 +86,7 @@ export type BuilderAction =
     | { type: 'removeTrigger'; index: number }
     | { type: 'connectPort'; from: string; port: PortId; to: string }
     | { type: 'setJobField'; field: keyof JobDefinition; value: unknown }
-    /** Groups (backdrops) in job.layout.groups; each is one undo step, typing a title is one. */
+    /** Groups (backdrops) in job.layout.groups; each is one undo step; typing a title, width or height in the panel is one. */
     | GroupAction
     | { type: 'undo' }
     | { type: 'redo' };
@@ -518,9 +518,10 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         case 'moveGroup':
         case 'removeGroup': {
             const next = groupEdit(job, action);
-            // Only typing a title merges into one step; a resize, colour or collapse is its own.
-            const titleOnly = action.type === 'updateGroup' && Object.keys(action.changes).join() === 'title';
-            const key = titleOnly ? fieldKey('group', action.id, 'title') : undefined;
+            // Typing one field of the panel (title, width or height) merges into one step; a canvas
+            // resize ({w, h}), colour or collapse is its own.
+            const field = action.type === 'updateGroup' ? Object.keys(action.changes).join() : '';
+            const key = action.type === 'updateGroup' && ['title', 'w', 'h'].includes(field) ? fieldKey('group', action.id, field) : undefined;
             return next ? edits(state, next, key) : state;
         }
         case 'setJobField':

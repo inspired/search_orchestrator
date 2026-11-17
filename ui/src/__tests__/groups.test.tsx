@@ -252,3 +252,21 @@ describe('groups: a node placed inside a collapsed frame expands the group', () 
         expect(s.past.length).toBe(1);
     });
 });
+
+describe('groups: typing a width or height in the panel', () => {
+    test('consecutive edits of one field are one undo step; a canvas resize is its own', () => {
+        let s = reducer(initialState(withLayout(undefined)), { type: 'addGroup', group: group() });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { w: 650 } });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { w: 700 } });
+        expect(s.job.layout!.groups![0].w).toBe(700);
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { h: 250 } });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { h: 300 } });
+        s = reducer(s, { type: 'updateGroup', id: 'g1', changes: { w: 800, h: 400 } });
+        s = reducer(s, { type: 'undo' });
+        expect(s.job.layout!.groups![0]).toMatchObject({ w: 700, h: 300 });
+        s = reducer(s, { type: 'undo' });
+        expect(s.job.layout!.groups![0]).toMatchObject({ w: 700, h: 200 });
+        s = reducer(s, { type: 'undo' });
+        expect(s.job.layout!.groups![0]).toMatchObject({ w: 600, h: 200 });
+    });
+});
