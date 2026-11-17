@@ -5,7 +5,8 @@ Splunk and KV Store. It is the only component that advances runs.
 
 1. Take or renew the leader lease; a non-leader does nothing.
 2. Fire due cron slots (``scheduler``), then apply pending commands
-   (pause, resume, cancel, rerun, dismiss) from ``so_commands``.
+   (pause, resume, cancel, rerun, dismiss, cancel_backfill) from ``so_commands``,
+   then create the next runs of running backfills (``backfill.feed``).
 3. Send the daily hold alert, then promote queued runs: one active run per
    job, re-runs first, then oldest ``scheduled_time``. A held run (failed by
    give-up with ``after_give_up = hold``) blocks promotion until a re-run or
@@ -82,7 +83,7 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import authz, hidden, model, scheduler, tokens
+from . import authz, backfill, hidden, model, scheduler, tokens
 from . import deadline as deadlinemod
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
@@ -298,6 +299,8 @@ class Engine:
         self._keep_lease()
         self._commands(jobs, settings, now)
         self._keep_lease()
+        backfill.feed(self, jobs, settings, now)
+        self._keep_lease()
         runs = self.store.list_active_runs()
         held = [r for r in self.store.list_runs({"held": True}) if r.get("state") == "failed"]
         self._hold_alerts(held, jobs, now)
@@ -417,6 +420,8 @@ class Engine:
 
     def _apply_command(self, command, jobs, settings, now):
         kind = command.get("type")
+        if kind == "cancel_backfill":
+            return backfill.apply_cancel(self, command, jobs, settings, now)
         run = self.store.get_run(command.get("run_id")) if command.get("run_id") else None
         if run is None:
             return "rejected", "unknown run", None
