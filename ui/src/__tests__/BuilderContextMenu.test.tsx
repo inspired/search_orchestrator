@@ -181,4 +181,23 @@ describe('BuilderPage right-click menu', () => {
             expect(names().slice(0, 2)).toEqual(['Duplicate', 'Copy']);
         });
     });
+
+    it('Preview is offered for every step: results of earlier steps too, dimmed with the reason for summary index and lookup', async () => {
+        const job = rollupJob({
+            steps: [
+                ...rollupJob().steps,
+                { id: 'prev', name: 'Combine', type: 'previous', spl: '| stats count' },
+                { id: 'summary', name: 'Write summary', type: 'previous', spl: '| collect index=x', output: { kind: 'summary_index', index: 'x', add_run_id: true } },
+            ],
+            edges: [...(rollupJob().edges || []), { from: 'monthly', to: 'prev', condition: 'on_success' }, { from: 'prev', to: 'summary', condition: 'on_success' }],
+        });
+        await show(fakeApi({ getJob: jest.fn().mockResolvedValue(job) }));
+        fireEvent.contextMenu(screen.getByTestId('node-step:prev'), { clientX: 300, clientY: 200 });
+        expect(screen.getByRole('menuitem', { name: 'Preview' })).not.toHaveAttribute('aria-disabled', 'true');
+        fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+        fireEvent.contextMenu(screen.getByTestId('node-step:summary'), { clientX: 300, clientY: 200 });
+        const item = screen.getByRole('menuitem', { name: /^Preview/ });
+        expect(item).toHaveAttribute('aria-disabled', 'true');
+        expect(item).toHaveTextContent("Previews don't write to indexes or lookups; preview the step before it.");
+    });
 });

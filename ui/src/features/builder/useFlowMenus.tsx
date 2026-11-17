@@ -285,7 +285,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         const items: MenuItem[] = [
             ...(node && node.stepId ? [{ id: 'rename', label: 'Rename' }] : []),
             ...(copyable ? [{ id: 'duplicate', label: 'Duplicate' }, { id: 'copy', label: 'Copy' }] : []),
-            ...((kind === 'search' || kind === 'saved_search') && context.preview ? [{ id: 'preview', label: 'Preview', disabled: Boolean(refusal), reason: refusal || undefined }] : []),
+            ...(node && node.stepId && context.preview ? [{ id: 'preview', label: 'Preview', disabled: Boolean(refusal), reason: refusal || undefined }] : []),
             ...(kind && kind !== 'condition' && hasHandle(kind) ? [{ id: 'line', label: 'Add a line' }] : []),
             ...(target.key !== JOB_KEY ? [{ id: 'remove', label: 'Remove' }] : []),
         ];
