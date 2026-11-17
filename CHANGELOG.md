@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.23.0 (2026-11-17)
+
+- **Snippets:** **Save as snippet** in the right-click menu of a node or selection (`Menu` key or `Shift+F10`) and in the selection panel saves nodes under a name (up to 80 characters, unique ignoring case) and a description (up to 500). Everyone who can build jobs can see and insert a snippet, including its searches; secrets stay in destinations. Snippets appear in a **Snippets** section of the quick-add box (not from a + handle), and inserting one is a single undo step. **Snippets…** in the builder toolbar offers **Rename** and **Delete** for the owner or an admin. A snippet holds at most 100 steps and 200 KB. New KV Store collection `so_snippets`; routes `GET/POST snippets` and `GET/PUT/DELETE snippets/<id>` (PUT renames only); audit events `snippet_saved` and `snippet_deleted`.
+- **Performance:** the engine stores `perf` (run duration, events scanned, results, disk usage) on each step, its attempt row and `step_attempt` events; runs from before 1.23.0 have none. The run page has a **Performance** tab (Step, Runtime, Events scanned, Results, Disk, Peak CPU, Peak memory and a Total row) with **Load CPU and memory**. New route `GET runs/<id>/performance`: runs as the caller against `_introspection` and `_audit` (a fallback for older steps), with a 30 second limit and at most 50 searches, and returns notes.
+- **Run health:** a **Performance** section with Runtime per job, Events scanned per job, Slowest steps by runtime and Peak CPU and memory per job. New macro `orchestrator_search_process`.
+- AppInspect (precert, cloud): 0 errors and 0 failures on both packages; the same 9 warnings as 1.22.0, none new.
+
 ## 1.22.0 (2026-11-17)
 
 - **Channels:** new webhook body formats **Microsoft Teams** (Adaptive Card 1.4), **PagerDuty** (Events API v2) and **ServiceNow** (Table API incident), each a notify node in the builder whose destination picker shows only that format. PagerDuty **Severity** is Critical, Error, Warning or Info (default Error, Warning for Is delayed and Is late), and a succeeded run's Succeeds or Finishes either way action resolves the incident. ServiceNow **Urgency** and **Impact** take 1 to 3 (default 2), and **Assignment group** up to 100 characters. An admin sets the PagerDuty routing key as a write-only destination field; the PagerDuty URL defaults to `events.pagerduty.com`, and a ServiceNow URL must end in `/api/now/table/incident`.
@@ -14,6 +21,7 @@
 - **Calendar page:** after Dependencies, with **Day** and **Week** views (weeks start on Monday) in the browser's time zone. It shows scheduled times (dashed), runs with their state on a left border plus "Late", and backfill slots; overflow shows as "+N more". Filter by job; it refreshes every 60 seconds while showing today.
 - New route `GET calendar?from&to[&job_id]`: a range of at most 8 days, at most 300 scheduled slots per job and 2000 items in all, after which `truncated` is set.
 - AppInspect (precert, cloud): 0 errors and 0 failures on both packages; the same 9 warnings as 1.20.0, none new.
+
 ## 1.20.0 (2026-11-17)
 
 - **Deadlines:** a job's **Settings** tab has **Finish by** (a time of day in the job's time zone) and **Finish within** (1 minute to 7 days after the scheduled time); the earlier counts. Only on-time scheduled runs and runs started by another job have one; manual, REST, alert, backfill and catch-up runs have none, and a re-run of a run that finished in time, started after the deadline, is not late. A run that passes its deadline is marked late once: the **Whole job** node's **Is late** outcome and the `on_late` hook fire (the admin's fallback notification is used when the job has no late action), the run gets `deadline_at` and `late_at`, the run page shows "This run missed its deadline", the audit index gets `run_late`, and **Run health** has **Late runs** panels.

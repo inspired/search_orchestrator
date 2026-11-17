@@ -133,10 +133,18 @@ The time zone every schedule uses is on the **Settings** tab; a schedule's panel
 Right-click a node, a selection or the empty canvas, or press the `Menu` key or `Shift+F10` on a focused node. The menu offers, depending on what you clicked:
 
 - Empty canvas: **Add node here**, **Paste**, **Tidy up**.
-- A node: **Rename**, **Duplicate**, **Copy**, **Preview**, **Add a line**, **Remove**. An item that can't be used is dimmed and says why.
-- Several nodes: **Duplicate**, **Copy**, **Align…**, **Distribute…**, **Tidy up selection**, **Group**, **Remove nodes**.
+- A node: **Rename**, **Duplicate**, **Copy**, **Save as snippet**, **Preview**, **Add a line**, **Remove**. An item that can't be used is dimmed and says why.
+- Several nodes: **Duplicate**, **Copy**, **Save as snippet**, **Align…**, **Distribute…**, **Tidy up selection**, **Group**, **Remove nodes**.
 
 `Escape` closes the menu.
+
+#### Snippets
+
+A snippet is a named copy of some nodes that every builder can insert into any job. It holds exactly what a copy holds: the nodes, their lines and their searches. Secrets stay in destinations, so a snippet only names the destination an action uses.
+
+- **Save as snippet** is in the right-click menu of a node or a selection (also the `Menu` key or `Shift+F10`), and in the side panel when you select several nodes. Give it a name of up to 80 characters (names are unique, ignoring case) and an optional description of up to 500. The dialog says: "Everyone who can build jobs can see and insert this snippet, including its searches." A snippet holds up to 100 steps and 200 KB.
+- **Insert** a snippet from the **Snippets** section of the quick-add box (**Add node**, `/`, or **Add node here**); type to find one by name or description. Snippets don't appear when the box is opened from a **+** handle, because they carry their own lines. Pasted nodes get new ids when an id is taken, and inserting is a single undo step.
+- **Snippets…** in the builder toolbar lists them with **Rename** and **Delete**. Only the snippet's owner or an admin sees both; **Delete** asks "Delete snippet X?". Jobs that already hold a snippet's nodes keep them.
 
 #### Grid and alignment guides
 
@@ -424,7 +432,7 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 - **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run and last outcome, with Run now and an enable switch. **Find jobs** filters by name, id, owner or description. With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
 - **Dependencies** and **Calendar** show how jobs start each other and when they run; see [Dependencies](#dependencies) and [Calendar](#calendar).
 - **Runs** lists runs, filterable by job and state. The **Needs attention** state filter shows blocked and failed runs, and runs that hold later runs back.
-- **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector.
+- **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector. The **Performance** tab shows what each step cost; see [Performance](#performance).
 
 Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish. A step that a branch didn't reach shows as *Skipped (branch not taken)*.
 
@@ -436,6 +444,12 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 | Paused | No new steps start; running searches carry on. |
 | Succeeded, Failed, Cancelled | Finished. |
 
+### Performance
+
+The **Performance** tab on the run page has one row per step with **Step**, **Runtime**, **Events scanned**, **Results** and **Disk**, and a **Total** row. The engine stores these numbers on each step and attempt when the search finishes, so runs from before 1.23.0 have none until you load them.
+
+**Peak CPU** and **Peak memory** aren't loaded with the page. **Load CPU and memory** reads them from `_introspection` as you, within 30 seconds and for at most 50 searches. It also fills the other columns for steps from before 1.23.0 from `_audit`, when you may search it. If you can't read `_introspection`, the tab says so and the other columns still show. See also the Performance section of Run health, below.
+
 ### Run health dashboard
 
 **Run health** in the navigation bar is a dashboard over the audit index for the chosen time range (last 24 hours by default) and job (**All** by default):
@@ -445,6 +459,7 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 - **Late runs:** the number of runs that passed their deadline and a list with the deadline, how late each was and its state. Click a row to open the run.
 - **Runs that need attention:** failed, held and blocked runs with the last step error. Click a row to open the run.
 - **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile duration, and how many runs found the step delayed). Durations are measured to within one engine tick.
+- **Performance:** **Runtime per job**, **Events scanned per job**, **Slowest steps by runtime**, and **Peak CPU and memory per job**. They come from the numbers stored on step attempts (none for runs from before 1.23.0); the CPU and memory panel needs read access to `_introspection`.
 - **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
 - **Engine health:** errors, warnings and Python tracebacks from the app's scripts in `_internal`, and how long ago the engine was last seen; that number turns red after 5 minutes. It needs read access to `_internal` and `_introspection`, which admins have.
 
@@ -551,7 +566,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. Snippets add `snippet_saved` (with `created` true for a new snippet, false for a rename) and `snippet_deleted`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 
