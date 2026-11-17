@@ -1,7 +1,8 @@
 /* Drawing a group on the flow canvas: the frame (its colour token at low opacity with a 1 px
  * border in the same token), a title bar to drag it by (double-click asks to edit the title), a
  * corner handle to resize it, a focus-colour outline when selected, and, collapsed, a 200 × 56
- * block with the title and how many nodes it holds. `GroupFocus` is the keyboard stop for a
+ * block with the title and how many nodes it holds, with the whole frame area drawn as a faint
+ * dashed outline (a node dropped there joins the group, which then expands). `GroupFocus` is the keyboard stop for a
  * group, drawn after the nodes so Tab reaches every node first. Frames are drawn behind lines
  * and nodes. */
 import React from 'react';
@@ -12,6 +13,7 @@ import { BLOCK, GROUP_TITLE_H, Group } from './groups';
 const FILL_OPACITY = 0.12;
 const TITLE_OPACITY = 0.2;
 const HANDLE = 12;
+const AREA_OPACITY = 0.45;
 
 export const countText = (n: number) => `${n} node${n === 1 ? '' : 's'}`;
 
@@ -50,6 +52,22 @@ export function GroupFrame({ group: g, collapsed, members, selected, theme, onTi
     );
     return (
         <g data-testid={`group-${g.id}`} aria-hidden>
+            {collapsed && (
+                <rect
+                    data-testid={`group-area-${g.id}`}
+                    x={g.x}
+                    y={g.y}
+                    width={g.w}
+                    height={g.h}
+                    rx={6}
+                    fill="none"
+                    stroke={color}
+                    strokeOpacity={AREA_OPACITY}
+                    strokeWidth={1}
+                    strokeDasharray="4 4"
+                    pointerEvents="none"
+                />
+            )}
             <rect data-testid={`group-body-${g.id}`} x={b.x} y={b.y} width={b.w} height={b.h} rx={6} fill={color} fillOpacity={FILL_OPACITY} stroke={color} strokeWidth={1} pointerEvents="none" />
             {selected && (
                 <rect data-testid={`group-outline-${g.id}`} x={b.x - 3} y={b.y - 3} width={b.w + 6} height={b.h + 6} rx={8} fill="none" stroke={theme.focusColor} strokeWidth={2} pointerEvents="none" />

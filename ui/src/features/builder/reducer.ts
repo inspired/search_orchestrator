@@ -8,7 +8,7 @@ import type { Clip } from './clipboard';
 import { nextStepId, renameActions, renameStepTokens, renameTokens } from './stepRename';
 import { insertJob, remapLayout, removeStepJob, removeTriggerJob, renameStepKeys, setActions, spliceJob, spotRightOf } from './flowEdits';
 import { tidyJob, withNodes, withPlacedNode } from './flowEdits';
-import { groupEdit } from './groups';
+import { expandForPlaced, groupEdit } from './groups';
 import type { GroupAction } from './groups';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
@@ -133,6 +133,10 @@ function edits(state: BuilderState, job: JobDefinition, key?: string): BuilderSt
 }
 
 const fieldKey = (...parts: string[]) => parts.join('\u0000');
+
+/** An edit that places the nodes `keys`: a collapsed group they land inside is expanded in the
+ * same undo step, so the node placed never disappears into it. */
+const places = (state: BuilderState, next: JobDefinition, keys: string[]) => edits(state, expandForPlaced(state.job, next, keys));
 
 /** Switching a "Results of earlier steps" step to Search writes its generated input into the
  * SPL as `$step.sid$` tokens, so it keeps working. Switching to Results of earlier steps drops
@@ -283,8 +287,10 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const step: StepDef = { id, name: '', type: 'inline', spl: '', ...action.step };
             return edits(state, { ...job, steps: [...steps, step] });
         }
-        case 'paste':
-            return edits(state, pasteResult(job, action.clip, action.at, action.compact).job);
+        case 'paste': {
+            const pasted = pasteResult(job, action.clip, action.at, action.compact);
+            return places(state, pasted.job, pasted.keys);
+        }
         case 'removeStep':
             return edits(state, removeStepJob(job, action.id));
         case 'removeNodes': {
@@ -371,7 +377,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (Object.keys(action.positions).length === 0) {
                 return state;
             }
-            return edits(state, withNodes(job, { ...job.layout?.nodes, ...action.positions }));
+            return places(state, withNodes(job, { ...job.layout?.nodes, ...action.positions }), Object.keys(action.positions));
         }
         case 'tidyLayout': {
             const next = tidyJob(job, action.keys, action.compact);
@@ -387,16 +393,17 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (!at && action.rightOf) {
                 ({ at, shown } = spotRightOf(job, next, action.rightOf, action.kind, shown, action.compact));
             }
-            return edits(state, at ? withPlacedNode(next, key, at, shown) : next);
+            return at ? places(state, withPlacedNode(next, key, at, shown), [key]) : edits(state, next);
         }
         case 'splice': {
             const next = spliceJob(job, action.node, action.link, action.at, action.shown);
-            return next ? edits(state, next) : state;
+            return next ? places(state, next, action.at ? [action.node] : []) : state;
         }
         case 'insertNode': {
             const added = STEP_NODE_KINDS.includes(action.kind) ? addNodeJob(job, action.kind) : null;
-            const next = added && insertJob(job, added, action.kind, addNodeKey(job, action.kind), action.link, action.at, action.shown);
-            return next ? edits(state, next) : state;
+            const key = addNodeKey(job, action.kind);
+            const next = added && insertJob(job, added, action.kind, key, action.link, action.at, action.shown);
+            return next ? places(state, next, action.at ? [key] : []) : state;
         }
         case 'changeOutcome': {
             const link = buildGraph(job).links.find((l) => l.key === action.link);

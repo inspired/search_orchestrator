@@ -6,6 +6,7 @@ import { tidyJob, withNodes } from '../features/builder/flowEdits';
 import { layoutFlow } from '../features/builder/flowLayout';
 import { GROUP_COLORS, Group, collapsedEnd, groupAround, hiddenMembers, membersOf, nextGroupId, readGroups } from '../features/builder/groups';
 import { initialState, reducer } from '../features/builder/reducer';
+import { copySelection } from '../features/builder/clipboard';
 
 const job: JobDefinition = {
     name: 'g',
@@ -217,5 +218,37 @@ describe('groups: final review fixes', () => {
         const only = reducer(initialState(withLayout([bad])), { type: 'moveNodes', positions: { 'step:a': { x: 1, y: 2 } } });
         expect(only.job.layout).toEqual({ nodes: { ...pos, 'step:a': { x: 1, y: 2 } } });
         expect(withNodes(withLayout([bad]), {}).layout).toBeUndefined();
+    });
+});
+
+describe('groups: a node placed inside a collapsed frame expands the group', () => {
+    const collapsed = () => initialState(withLayout([group({ collapsed: true })]));
+    const isCollapsed = (s: ReturnType<typeof collapsed>) => Boolean(s.job.layout!.groups![0].collapsed);
+
+    test('dropping a node inside expands it in the same undo step', () => {
+        const s = reducer(collapsed(), { type: 'moveNodes', positions: { ...pos, 'step:c': { x: 420, y: 160 } } });
+        expect(isCollapsed(s)).toBe(false);
+        expect(s.job.layout!.nodes!['step:c']).toEqual({ x: 420, y: 160 });
+        const back = reducer(s, { type: 'undo' });
+        expect(isCollapsed(back)).toBe(true);
+        expect(back.job.layout!.nodes!['step:c']).toEqual({ x: 700, y: 100 });
+    });
+
+    test('saving where hidden members already are, or a drop outside, leaves it collapsed', () => {
+        expect(isCollapsed(reducer(collapsed(), { type: 'moveNodes', positions: { ...pos, 'step:c': { x: 900, y: 100 } } }))).toBe(true);
+    });
+
+    test('adding a node at a point inside expands it', () => {
+        const s = reducer(collapsed(), { type: 'addNode', kind: 'search', at: { x: 300, y: 150 }, shown: pos });
+        expect(isCollapsed(s)).toBe(false);
+        expect(s.past.length).toBe(1);
+        expect(isCollapsed(reducer(collapsed(), { type: 'addNode', kind: 'search', at: { x: 1300, y: 150 }, shown: pos }))).toBe(true);
+    });
+
+    test('pasting (and so duplicating) inside expands it', () => {
+        const clip = copySelection(job, ['step:c'], pos);
+        const s = reducer(collapsed(), { type: 'paste', clip, at: { x: 300, y: 150 } });
+        expect(isCollapsed(s)).toBe(false);
+        expect(s.past.length).toBe(1);
     });
 });

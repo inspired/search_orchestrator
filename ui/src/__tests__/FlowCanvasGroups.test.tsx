@@ -163,6 +163,19 @@ describe('FlowCanvas groups', () => {
         expect(groupButton()).toHaveAttribute('aria-label', 'Group Daily, collapsed, 2 nodes');
     });
 
+    test('collapsed: the whole frame area is drawn as a faint dashed outline that takes no pointer', () => {
+        const { unmount } = setup({ groups: [group({ collapsed: true })] });
+        const area = screen.getByTestId('group-area-g1');
+        expect(area).toHaveAttribute('width', '600');
+        expect(area).toHaveAttribute('height', '200');
+        expect(area).toHaveAttribute('stroke-dasharray');
+        expect(area).toHaveAttribute('fill', 'none');
+        expect(area).toHaveAttribute('pointer-events', 'none');
+        unmount();
+        setup({ groups: [group({ id: 'open' })] });
+        expect(screen.queryByTestId('group-area-open')).toBeNull();
+    });
+
     test('the run page draws groups expanded whatever was saved, and cannot move them', () => {
         const { props, canvas } = setup({ groups: [group({ collapsed: true })], readOnly: true, onMove: undefined });
         expect(screen.getByTestId('node-step:a')).toBeInTheDocument();

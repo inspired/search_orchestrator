@@ -228,3 +228,31 @@ export function groupHiding(job: JobDefinition, graph: FlowGraph, pos: Positions
     const id = hiddenMembers(readGroups(job), graph, pos)[key];
     return id ? readGroups(job).find((g) => g.id === id) : undefined;
 }
+
+/** `next` with every collapsed group expanded that one of the nodes `keys` has just been placed
+ * inside (a member now, not before), so an edit never hides the node it placed. Nodes already
+ * hidden by the group stay hidden. */
+export function expandForPlaced(before: JobDefinition, next: JobDefinition, keys: string[]): JobDefinition {
+    const groups = readGroups(next);
+    if (!keys.length || !groups.some((g) => g.collapsed)) {
+        return next;
+    }
+    const graphBefore = buildGraph(before);
+    const graphNext = buildGraph(next);
+    const was = layoutFlow(graphBefore, before.layout?.nodes);
+    const now = layoutFlow(graphNext, next.layout?.nodes);
+    let changed = false;
+    const out = groups.map((g) => {
+        if (!g.collapsed) {
+            return g;
+        }
+        const inNow = new Set(membersOf(g, graphNext, now));
+        const inBefore = new Set(membersOf(g, graphBefore, was));
+        if (!keys.some((k) => inNow.has(k) && !inBefore.has(k))) {
+            return g;
+        }
+        changed = true;
+        return applyChanges(g, { collapsed: false });
+    });
+    return changed ? withGroups(next, out) : next;
+}
