@@ -160,7 +160,8 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "/static/app/search_orchestrator_t1/pages/calendar.js" in read("appserver/templates/calendar.html")
     # The Run health dashboard reads this copy's index and splunkd.log lines, and links here.
     macros = read("default/macros.conf")
-    for stanza in ("orchestrator_index_t1", "orchestrator_internal_t1", "orchestrator_engine_process_t1"):
+    for stanza in ("orchestrator_index_t1", "orchestrator_internal_t1", "orchestrator_engine_process_t1",
+                   "orchestrator_search_process_t1"):
         assert "[%s]" % stanza in macros, stanza
     assert '"orchestrator_engine_t1.py"' in macros and '"orchestrator_rest_t1"' in macros
     assert '"start_orchestrator_job_t1"' in macros and '"orchestratet1"' in macros

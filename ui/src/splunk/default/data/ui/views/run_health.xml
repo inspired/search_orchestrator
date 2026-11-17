@@ -141,25 +141,53 @@
       }
     },
     "ds_late": {
-          "type": "ds.search",
-          "name": "Late runs",
-          "options": {
-                "query": "`orchestrator_index` job_id=$job|s$ (type=run_late OR type=run_created OR type=run_state)\n| eval scheduled=if(type=\"run_created\", scheduled_time, null()), deadline=if(type=\"run_late\", deadline_at, null()), late_time=if(type=\"run_late\", _time, null()), state_to=if(type=\"run_state\", 'to', null()), ended=if(type=\"run_state\" AND in('to', \"succeeded\", \"failed\", \"cancelled\"), _time, null())\n| stats max(scheduled) as scheduled, max(deadline) as deadline, min(late_time) as late_time, max(ended) as ended, latest(state_to) as state by run_id, job_id\n| where isnotnull(deadline)\n| eval state=if(in(state, \"succeeded\", \"failed\", \"blocked\", \"cancelled\"), state, \"in progress\"), late_by=tostring(round(coalesce(ended, late_time) - deadline), \"duration\"), _time=scheduled\n| convert ctime(deadline) timeformat=\"%Y-%m-%d %H:%M\"\n| sort - _time\n| fields _time, job_id, run_id, deadline, late_by, state"
-          }
+      "type": "ds.search",
+      "name": "Late runs",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ (type=run_late OR type=run_created OR type=run_state)\n| eval scheduled=if(type=\"run_created\", scheduled_time, null()), deadline=if(type=\"run_late\", deadline_at, null()), late_time=if(type=\"run_late\", _time, null()), state_to=if(type=\"run_state\", 'to', null()), ended=if(type=\"run_state\" AND in('to', \"succeeded\", \"failed\", \"cancelled\"), _time, null())\n| stats max(scheduled) as scheduled, max(deadline) as deadline, min(late_time) as late_time, max(ended) as ended, latest(state_to) as state by run_id, job_id\n| where isnotnull(deadline)\n| eval state=if(in(state, \"succeeded\", \"failed\", \"blocked\", \"cancelled\"), state, \"in progress\"), late_by=tostring(round(coalesce(ended, late_time) - deadline), \"duration\"), _time=scheduled\n| convert ctime(deadline) timeformat=\"%Y-%m-%d %H:%M\"\n| sort - _time\n| fields _time, job_id, run_id, deadline, late_by, state"
+      }
     },
     "ds_late_kpi": {
-          "type": "ds.chain",
-          "name": "Late run count",
-          "options": {
-                "extend": "ds_late",
-                "query": "| stats count as late_runs\n| fields late_runs"
-          }
+      "type": "ds.chain",
+      "name": "Late run count",
+      "options": {
+        "extend": "ds_late",
+        "query": "| stats count as late_runs\n| fields late_runs"
+      }
     },
     "ds_engine_last": {
       "type": "ds.search",
       "name": "Last engine activity",
       "options": {
         "query": "search (`orchestrator_engine_process`) OR (`orchestrator_internal` component=ExecProcessor) OR (`orchestrator_index` source=\"orchestrator_engine*\")\n| stats max(_time) as last\n| eval minutes=if(isnull(last), 99999, round((now()-last)/60, 1)), last_seen=if(isnull(last), \"none in this time range\", strftime(last, \"%Y-%m-%d %H:%M:%S\"))\n| fields minutes, last_seen"
+      }
+    },
+    "ds_perf_runtime": {
+      "type": "ds.search",
+      "name": "Runtime per job",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type=\"step_attempt\" isnotnull(run_duration)\n| timechart span=1d median(run_duration) as median_s by job_id"
+      }
+    },
+    "ds_perf_scanned": {
+      "type": "ds.search",
+      "name": "Events scanned per job",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type=\"step_attempt\" isnotnull(scan_count)\n| timechart span=1d sum(scan_count) as events by job_id"
+      }
+    },
+    "ds_perf_slowest": {
+      "type": "ds.search",
+      "name": "Slowest steps by runtime",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type=\"step_attempt\" isnotnull(run_duration)\n| stats median(run_duration) as median_s, count as attempts, dc(run_id) as runs by job_id, step_id\n| sort - median_s\n| head 10\n| eval median_s=round(median_s, 1)\n| rename job_id as job, step_id as step\n| table job, step, median_s, attempts, runs"
+      }
+    },
+    "ds_perf_cpu": {
+      "type": "ds.search",
+      "name": "Peak CPU and memory per job",
+      "options": {
+        "query": "`orchestrator_index` job_id=$job|s$ type=\"step_attempt\" isnotnull(sid)\n| fields job_id, sid\n| append [search `orchestrator_search_process`\n| stats max(data.pct_cpu) as cpu_peak, max(data.mem_used) as mem_peak_mb by data.search_props.sid\n| rename data.search_props.sid as sid]\n| stats values(job_id) as job_id, max(cpu_peak) as cpu_peak, max(mem_peak_mb) as mem_peak_mb by sid\n| where isnotnull(job_id) AND isnotnull(cpu_peak)\n| stats dc(sid) as searches, max(cpu_peak) as peak_cpu_pct, max(mem_peak_mb) as peak_mem_mb by job_id\n| eval peak_cpu_pct=round(peak_cpu_pct, 1), peak_mem_mb=round(peak_mem_mb, 0)\n| sort - peak_cpu_pct\n| rename job_id as job\n| table job, searches, peak_cpu_pct, peak_mem_mb"
       }
     }
   },
@@ -618,6 +646,61 @@
         "showInternalFields": false
       },
       "description": "Tracebacks and the latest exception per script"
+    },
+    "viz_md_performance": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "## Performance\nWhat the steps cost, from the numbers the engine stores on each step attempt. Runs from before 1.23.0 have none. Peak CPU and memory come from `_introspection`, so viewers need read access to it.",
+        "fontSize": "default"
+      }
+    },
+    "viz_perf_runtime": {
+      "type": "splunk.line",
+      "title": "Runtime per job",
+      "dataSources": {
+        "primary": "ds_perf_runtime"
+      },
+      "options": {
+        "xAxisTitleVisibility": "hide",
+        "yAxisTitleText": "Median runtime (seconds)",
+        "legendDisplay": "right"
+      }
+    },
+    "viz_perf_scanned": {
+      "type": "splunk.line",
+      "title": "Events scanned per job",
+      "dataSources": {
+        "primary": "ds_perf_scanned"
+      },
+      "options": {
+        "xAxisTitleVisibility": "hide",
+        "yAxisTitleText": "Events scanned",
+        "legendDisplay": "right"
+      }
+    },
+    "viz_perf_slowest": {
+      "type": "splunk.table",
+      "title": "Slowest steps by runtime",
+      "dataSources": {
+        "primary": "ds_perf_slowest"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false
+      },
+      "description": "The 10 steps with the longest median runtime (seconds), with attempts and runs"
+    },
+    "viz_perf_cpu": {
+      "type": "splunk.table",
+      "title": "Peak CPU and memory per job",
+      "dataSources": {
+        "primary": "ds_perf_cpu"
+      },
+      "options": {
+        "count": 10,
+        "showInternalFields": false
+      },
+      "description": "Highest CPU (percent) and memory (MB) of any search of the job"
     }
   },
   "layout": {
@@ -642,7 +725,7 @@
         "type": "absolute",
         "options": {
           "width": 1440,
-          "height": 2795
+          "height": 3900
         },
         "structure": [
           {
@@ -873,6 +956,56 @@
               "y": 2785,
               "w": 1050,
               "h": 320
+            }
+          },
+          {
+            "item": "viz_md_performance",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 3125,
+              "w": 1400,
+              "h": 70
+            }
+          },
+          {
+            "item": "viz_perf_runtime",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 3200,
+              "w": 690,
+              "h": 300
+            }
+          },
+          {
+            "item": "viz_perf_scanned",
+            "type": "block",
+            "position": {
+              "x": 730,
+              "y": 3200,
+              "w": 690,
+              "h": 300
+            }
+          },
+          {
+            "item": "viz_perf_slowest",
+            "type": "block",
+            "position": {
+              "x": 20,
+              "y": 3520,
+              "w": 690,
+              "h": 360
+            }
+          },
+          {
+            "item": "viz_perf_cpu",
+            "type": "block",
+            "position": {
+              "x": 730,
+              "y": 3520,
+              "w": 690,
+              "h": 360
             }
           }
         ]

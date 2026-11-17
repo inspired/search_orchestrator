@@ -67,7 +67,7 @@ def test_searches_use_the_macros_and_the_time_picker():
         assert not re.search(r"\bindex\s*=", query), (sid, "search through the macros")
         if ds["type"] == "ds.search":
             assert "queryParameters" not in ds["options"], (sid, "the time picker bounds it")
-            assert re.search(r"`orchestrator_(index|internal|engine_process)`", query), sid
+            assert re.search(r"`orchestrator_(index|internal|engine_process|search_process)`", query), sid
             if "`orchestrator_index`" in query and sid not in ("ds_jobs", "ds_engine_last"):
                 assert "job_id=$job|s$" in query, (sid, "the job filter applies")
 
@@ -89,6 +89,9 @@ def test_macros_and_nav():
     internal = conf["orchestrator_internal"]["definition"]
     assert internal.startswith("index=_internal ") and '"orchestrator_engine.py"' in internal
     assert conf["orchestrator_engine_process"]["definition"].startswith("index=_introspection ")
+    assert conf["orchestrator_search_process"]["definition"] == (
+        "index=_introspection sourcetype=splunk_resource_usage component=PerProcess "
+        "data.search_props.sid=*")
     views = [v.get("name") for v in ET.parse(NAV).getroot().iter("view")]
     assert "run_health" in views
 
@@ -105,3 +108,29 @@ def test_late_runs_panels():
             root = ds if ds["type"] == "ds.search" else d["dataSources"][ds["options"]["extend"]]
             assert "`orchestrator_index`" in root["options"]["query"]
             assert "type=run_late" in root["options"]["query"]
+
+
+def test_performance_panels():
+    d = _definition()
+    placed = [i["item"] for lay in d["layout"]["layoutDefinitions"].values() for i in lay["structure"]]
+    panels = (("viz_perf_runtime", "splunk.line", "Runtime per job"),
+              ("viz_perf_scanned", "splunk.line", "Events scanned per job"),
+              ("viz_perf_slowest", "splunk.table", "Slowest steps by runtime"),
+              ("viz_perf_cpu", "splunk.table", "Peak CPU and memory per job"))
+    assert "viz_md_performance" in placed
+    for viz_id, kind, title in panels:
+        viz = d["visualizations"][viz_id]
+        assert viz["type"] == kind and viz["title"] == title and viz_id in placed
+        ds = d["dataSources"][viz["dataSources"]["primary"]]
+        assert ds["type"] == "ds.search" and "queryParameters" not in ds["options"]
+        query = ds["options"]["query"]
+        assert "`orchestrator_index`" in query and "job_id=$job|s$" in query, viz_id
+        assert 'type="step_attempt"' in query, viz_id
+        for evalstr in re.findall(r'eval [^"]*"([^"]*)"', query):
+            assert "|" not in evalstr, viz_id
+    q = lambda v: d["dataSources"][d["visualizations"][v]["dataSources"]["primary"]]["options"]["query"]
+    assert "median(run_duration)" in q("viz_perf_runtime") and "span=1d" in q("viz_perf_runtime")
+    assert "scan_count" in q("viz_perf_scanned")
+    assert "median(run_duration)" in q("viz_perf_slowest") and "head 10" in q("viz_perf_slowest")
+    assert "`orchestrator_search_process`" in q("viz_perf_cpu")
+    assert "data.search_props.sid" in q("viz_perf_cpu")
