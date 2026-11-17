@@ -46,3 +46,15 @@ describe('actionStatusIcon', () => {
         expect(actionStatusIcon({ state: 'pending' })).toBe(statusIcon('waiting'));
     });
 });
+
+import { actionLiveText } from '../features/run/actionStates';
+
+describe('actionLiveText', () => {
+    test('done, failed, retry countdown, sending and not sent', () => {
+        expect(actionLiveText({ state: 'done' }, 100)).toBe('Sent');
+        expect(actionLiveText({ state: 'failed' }, 100)).toBe('Failed');
+        expect(actionLiveText({ state: 'pending', attempts: 1, next_at: 129.2 }, 100)).toBe('Retrying in 30 s');
+        expect(actionLiveText({ state: 'pending', attempts: 1, next_at: 90 }, 100)).toBe('Sending…');
+        expect(actionLiveText({ state: 'pending', attempts: 0, next_at: 0 }, 100)).toBe('Not sent yet');
+    });
+});
