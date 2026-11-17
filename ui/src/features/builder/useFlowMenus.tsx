@@ -75,6 +75,8 @@ export interface ContextActions {
     arrange: (keys: string[], how: Arrange) => void;
     requestRemove: (key: string) => void;
     requestRemoveNodes: (keys: string[]) => void;
+    /** Puts a group around the nodes (absent: no Group item). */
+    group?: (keys: string[]) => void;
     /** Absent when previews are off (no edit rights). */
     preview?: (stepId: string) => void;
     /** Why the step can't be previewed, or null. */
@@ -267,12 +269,13 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
                     { id: 'align', label: 'Align…' },
                     { id: 'distribute', label: 'Distribute…', disabled: target.keys.length < 3, reason: target.keys.length < 3 ? DISTRIBUTE_REASON : undefined },
                     { id: 'tidy', label: 'Tidy up selection' },
+                    ...(context.group ? [{ id: 'group', label: 'Group' }] : []),
                     { id: 'remove', label: 'Remove nodes' },
                 ],
                 run: (id, screen) =>
                     id === 'align' || id === 'distribute'
                         ? setMenu({ kind: 'arrange', mode: id, keys: target.keys, screen })
-                        : leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
+                        : leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), group: () => context.group?.(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
             };
         }
         const node = graph.nodes.find((n) => n.key === target.key);

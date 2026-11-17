@@ -1,4 +1,4 @@
-/* The buttons above the Flow canvas: Add node and Tidy up (when the caller handles them and the
+/* The buttons above the Flow canvas: Add node, Tidy up and Group selection (when the caller handles them and the
  * job can be edited), zoom, reset and frame, the node-type legend, the grid, Compact nodes and Full screen. "/" in the
  * toolbar opens the node search at the view centre, as it does in the canvas. */
 import React from 'react';
@@ -8,6 +8,9 @@ export interface CanvasToolbarProps {
     canEdit: boolean;
     onAddNode?: () => void;
     onTidy?: () => void;
+    /** Puts a frame around the selected nodes; dimmed (`canGroup` false) with nothing selected. */
+    onGroup?: () => void;
+    canGroup?: boolean;
     /** Multiply the zoom by this factor. */
     onZoom: (factor: number) => void;
     onReset: () => void;
@@ -35,6 +38,7 @@ export default function CanvasToolbar(p: CanvasToolbarProps) {
         >
             {p.canEdit && p.onAddNode && <Button appearance="secondary" label="Add node" onClick={p.onAddNode} />}
             {p.canEdit && p.onTidy && <Button appearance="subtle" label="Tidy up" onClick={p.onTidy} />}
+            {p.canEdit && p.onGroup && <Button appearance="subtle" label="Group selection" disabled={!p.canGroup} onClick={p.onGroup} />}
             <Button appearance="subtle" label="Zoom in" onClick={() => p.onZoom(1.2)} />
             <Button appearance="subtle" label="Zoom out" onClick={() => p.onZoom(1 / 1.2)} />
             <Button appearance="subtle" label="Reset view" onClick={p.onReset} />

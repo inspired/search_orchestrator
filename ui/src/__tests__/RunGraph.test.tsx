@@ -29,4 +29,15 @@ describe('RunGraph', () => {
         fireEvent.keyDown(screen.getByTestId('node-step:a'), { key: 'Enter' });
         expect(onSelect).toHaveBeenCalledWith('a');
     });
+
+    test('groups are drawn expanded on the run page, whatever was saved', () => {
+        const layout = {
+            nodes: { 'step:a': { x: 100, y: 100 }, 'step:b': { x: 400, y: 100 } },
+            groups: [{ id: 'g1', title: 'Both', color: 'categoricalA4' as const, x: 50, y: 50, w: 600, h: 200, collapsed: true }],
+        };
+        renderThemed(<RunGraph definition={{ ...def, layout }} states={{ a: { state: 'running' } }} actions={[]} />);
+        expect(screen.getByTestId('group-g1')).toHaveTextContent('Both');
+        expect(screen.getByTestId('node-step:a')).toBeInTheDocument();
+        expect(screen.queryByTestId('group-block-g1')).toBeNull();
+    });
 });

@@ -10,12 +10,7 @@ const ROW_STEP = 80;
 const GAP = 20;
 const CONDITION_LABEL = 36;
 
-interface Box {
-    w: number;
-    h: number;
-}
-
-function boxOf(n: FlowNode, compact = false): Box {
+function boxOf(n: FlowNode, compact = false): { w: number; h: number } {
     const { w, h } = nodeSize(n.kind, compact);
     return { w, h: n.kind === 'condition' ? h + CONDITION_LABEL : h };
 }
@@ -114,12 +109,26 @@ export function layoutFlow(graph: FlowGraph, saved?: Record<string, unknown>, co
     return out;
 }
 
-/** Box enclosing every node, including the label under condition nodes. */
-export function graphBounds(graph: FlowGraph, pos: Positions, compact = false): { x: number; y: number; width: number; height: number } {
+/** A box on the canvas (a group frame). */
+export interface Box {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+/** Box enclosing every node, including the label under condition nodes, and the `extra` boxes. */
+export function graphBounds(graph: FlowGraph, pos: Positions, compact = false, extra: Box[] = []): { x: number; y: number; width: number; height: number } {
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
+    extra.forEach((e) => {
+        minX = Math.min(minX, e.x);
+        minY = Math.min(minY, e.y);
+        maxX = Math.max(maxX, e.x + e.w);
+        maxY = Math.max(maxY, e.y + e.h);
+    });
     graph.nodes.forEach((n) => {
         const p = pos[n.key];
         if (!p) {

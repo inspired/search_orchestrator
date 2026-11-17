@@ -4,6 +4,7 @@
  * that no longer names the same node is dropped). */
 import React, { useMemo, useState } from 'react';
 import type { JobDefinition } from '../../api/types';
+import { readGroups } from './groups';
 import { JOB_KEY, stepKey } from './nodeModel';
 import type { FlowGraph } from './nodeModel';
 import type { BuilderAction } from './reducer';
@@ -30,13 +31,16 @@ export default function useSelection({ job, graph, dispatch, rememberFocus, retu
         if (!selected) {
             return null;
         }
+        if (selected.kind === 'group') {
+            return readGroups(job).some((g) => g.id === selected.id) ? selected : null;
+        }
         const has = (key: string) => graph.nodes.some((n) => n.key === key);
         if (selected.kind === 'nodes') {
             const keys = selected.keys.filter(has);
             return keys.length === selected.keys.length ? selected : normaliseSelection(keys);
         }
         return (selected.kind === 'node' ? has(selected.key) : graph.links.some((l) => l.key === selected.key)) ? selected : null;
-    }, [selected, graph]);
+    }, [selected, graph, job]);
 
     const setRemoving = (key: string | string[] | null) => {
         if (key) {

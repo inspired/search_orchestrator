@@ -1,5 +1,5 @@
 /* The Flow tab's side panel: the editor for whatever is selected on the canvas (a step, an
- * action, a trigger, a condition, a step-to-step line, the whole job or several nodes), or a hint
+ * action, a trigger, a condition, a step-to-step line, the whole job, several nodes or a group), or a hint
  * when nothing is. Each editor is keyed by the selection so its drafts never carry over to another node. */
 import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -55,6 +55,8 @@ export interface NodePanelProps {
     onCancelPreview?: (stepId: string) => void;
     /** "Input from" is live: steps upstream run first, so their writing commands count too. */
     previewLive?: boolean;
+    /** The panel for a selected group (see useGroups). */
+    groupPanel?: React.ReactNode;
 }
 
 export default function NodePanel(props: NodePanelProps) {
@@ -75,6 +77,9 @@ export default function NodePanel(props: NodePanelProps) {
         />
     );
 
+    if (selection && selection.kind === 'group' && props.groupPanel) {
+        return <>{props.groupPanel}</>;
+    }
     if (selection && selection.kind === 'nodes') {
         return (
             <SelectionPanel

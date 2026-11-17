@@ -124,8 +124,21 @@ export interface JobDefinition {
     actions?: Action[];
     defaults?: Defaults;
     run_roles?: string[];
-    /** Node positions on the canvas, by node key. Omit when unset; the server rejects null. */
-    layout?: { nodes: Record<string, { x: number; y: number }> };
+    /** Node positions on the canvas, by node key, and the groups (backdrops) drawn behind them.
+     * Omit when unset; the server rejects null. A layout that holds groups may have no `nodes`. */
+    layout?: { nodes?: Record<string, { x: number; y: number }>; groups?: LayoutGroup[] };
+}
+
+/** A titled, tinted frame behind nodes in the editor; a node belongs to it while its box is inside. */
+export interface LayoutGroup {
+    id: string;
+    title: string;
+    color: 'categoricalA1' | 'categoricalA2' | 'categoricalA3' | 'categoricalA4' | 'categoricalA5' | 'categoricalA6' | 'categoricalA7';
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    collapsed?: boolean;
 }
 
 export interface JobPermissions {

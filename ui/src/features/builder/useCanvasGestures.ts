@@ -11,7 +11,9 @@
  * cancels a drag. A dragged node snaps to alignment guides (`guidesFor`) within 6 px, else to
  * the 10 px grid, per axis. While a node, line or box is dragged near the canvas edge, a
  * requestAnimationFrame loop scrolls the view (`autoPanStep`) and keeps the dragged item (or the
- * box's corner) under the pointer. */
+ * box's corner) under the pointer. Dragging a group's title bar moves the frame and the nodes
+ * inside it when the drag started (`membersOf`), reported once with `onGroupMove`; dragging its
+ * corner resizes it (`onGroupResize`); a click on the title bar selects the group. */
 import React, { useEffect, useRef, useState } from 'react';
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, PortId } from './nodeModel';
@@ -21,6 +23,7 @@ import { autoPanStep } from './autoPan';
 import { Guide, boxOf, guidesFor } from './align';
 import { usedOutcomes } from './outcomes';
 import { tabBox } from './PlusHandle';
+import { Group, MIN_GROUP, membersOf } from './groups';
 import { FlowSelection, keysInBox, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 
 export type ScreenPoint = { left: number; top: number };
@@ -34,7 +37,9 @@ export type Gesture =
     | { kind: 'node'; key: string; startX: number; startY: number; moved: boolean; shift: boolean; group?: string[] }
     /** A selection box from canvas point `start` to the pointer. */
     | { kind: 'box'; start: Pos; startX: number; startY: number; moved: boolean }
-    | { kind: 'line'; from: string; outcome?: PortId; startX: number; startY: number; moved: boolean };
+    | { kind: 'line'; from: string; outcome?: PortId; startX: number; startY: number; moved: boolean }
+    /** `members`: the nodes inside the frame when the drag started, which move with it. */
+    | { kind: 'group'; id: string; mode: 'move' | 'resize'; members: string[]; startX: number; startY: number; moved: boolean };
 
 export interface GestureOptions {
     svgRef: React.RefObject<SVGSVGElement | null>;
@@ -55,6 +60,11 @@ export interface GestureOptions {
     canSpliceNode?: (node: string, link: string) => boolean;
     /** Compact nodes: every box and offset below is the compact one. */
     compact?: boolean;
+    groups?: Group[];
+    /** Every node, hidden ones included, for group membership (`graph` may leave hidden ones out). */
+    memberGraph?: FlowGraph;
+    onGroupMove?: (id: string, dx: number, dy: number, members: string[]) => void;
+    onGroupResize?: (id: string, size: { w: number; h: number }) => void;
 }
 
 const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
@@ -64,6 +74,7 @@ const HANDLE_SLOP = 4;
 export default function useCanvasGestures(opts: GestureOptions) {
     const { svgRef, graph, positions, canMove, canSelectMany, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact = false } =
         opts;
+    const groups = opts.groups || [];
     const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [gesture, setGesture] = useState<Gesture | null>(null);
@@ -126,11 +137,12 @@ export default function useCanvasGestures(opts: GestureOptions) {
     }, [dragging]);
 
     const shown: Positions = (() => {
-        if (!gesture || gesture.kind !== 'node' || !drag) {
+        const moving = gesture && gesture.kind === 'node' ? gesture.group || [gesture.key] : gesture && gesture.kind === 'group' && gesture.mode === 'move' ? gesture.members : null;
+        if (!moving || !drag) {
             return positions;
         }
         const out = { ...positions };
-        (gesture.group || [gesture.key]).forEach((k) => {
+        moving.forEach((k) => {
             if (positions[k]) {
                 out[k] = { x: positions[k].x + drag.x, y: positions[k].y + drag.y };
             }
@@ -194,6 +206,33 @@ export default function useCanvasGestures(opts: GestureOptions) {
         setGesture({ kind: 'node', key, startX: ev.clientX, startY: ev.clientY, moved: false, shift: ev.shiftKey && canSelectMany, group });
     };
 
+    const startGroup = (ev: React.PointerEvent, id: string, mode: 'move' | 'resize') => {
+        const g = groups.find((x) => x.id === id);
+        if (ev.button !== 0 || !g) {
+            return;
+        }
+        capture(ev);
+        panned.current = { x: 0, y: 0 };
+        const members = membersOf(g, opts.memberGraph || graph, positions, compact);
+        setGesture({ kind: 'group', id, mode, members, startX: ev.clientX, startY: ev.clientY, moved: false });
+    };
+
+    /** Where the group of gesture `g` is for a raw `offset`: moved (snapped to the grid on drop) or resized. */
+    const groupAt = (g: Extract<Gesture, { kind: 'group' }>, offset: Pos, drop: boolean): Group | null => {
+        const grp = groups.find((x) => x.id === g.id);
+        if (!grp) {
+            return null;
+        }
+        if (g.mode === 'resize') {
+            return { ...grp, w: Math.max(MIN_GROUP.w, Math.round(grp.w + offset.x)), h: Math.max(MIN_GROUP.h, Math.round(grp.h + offset.y)) };
+        }
+        return drop ? { ...grp, x: snap(grp.x + offset.x), y: snap(grp.y + offset.y) } : { ...grp, x: grp.x + offset.x, y: grp.y + offset.y };
+    };
+
+    /** A group as drawn now: following the drag, if it is the one dragged. */
+    const groupShown = (grp: Group): Group =>
+        gesture && gesture.kind === 'group' && gesture.id === grp.id && drag ? groupAt(gesture, drag, false) || grp : grp;
+
     const startLine = (ev: React.PointerEvent, from: string, outcome?: PortId) => {
         if (ev.button !== 0) {
             return;
@@ -252,7 +291,11 @@ export default function useCanvasGestures(opts: GestureOptions) {
 
     /** Follow the pointer with the dragged node or line end. */
     const follow = (g: Gesture, clientX: number, clientY: number) => {
-        if (g.kind === 'node') {
+        if (g.kind === 'group') {
+            if (canMove) {
+                setDrag(nodeOffset(g, clientX, clientY));
+            }
+        } else if (g.kind === 'node') {
             if (canMove) {
                 const offset = nodeOffset(g, clientX, clientY);
                 const at = placed(g, offset);
@@ -388,6 +431,16 @@ export default function useCanvasGestures(opts: GestureOptions) {
                 } else if (!moved || !canMove) {
                     onSelect({ kind: 'node', key: g.key });
                 }
+            } else if (g.kind === 'group') {
+                const at = moved && canMove ? groupAt(g, nodeOffset(g, ev.clientX, ev.clientY), true) : null;
+                const was = groups.find((x) => x.id === g.id);
+                if (!moved) {
+                    onSelect({ kind: 'group', id: g.id });
+                } else if (at && was && g.mode === 'resize') {
+                    opts.onGroupResize?.(g.id, { w: at.w, h: at.h });
+                } else if (at && was && (at.x !== was.x || at.y !== was.y)) {
+                    opts.onGroupMove?.(g.id, at.x - was.x, at.y - was.y, g.members);
+                }
             } else if (g.kind === 'box') {
                 if (moved) {
                     const hits = keysInBox(graph, shown, g.start, toCanvas(ev.clientX, ev.clientY), compact);
@@ -411,6 +464,6 @@ export default function useCanvasGestures(opts: GestureOptions) {
 
     return {
         pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, guides, over, pointer,
-        toCanvas, toScreen, plusScreen, startPan, startNode, startLine, endGesture, onPointerMove, onPointerUp,
+        toCanvas, toScreen, plusScreen, startPan, startNode, startLine, startGroup, groupShown, endGesture, onPointerMove, onPointerUp,
     };
 }

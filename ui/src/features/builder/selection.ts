@@ -1,15 +1,21 @@
-/* What is selected on the flow canvas: one node, one line, or several nodes. A selection of
+/* What is selected on the flow canvas: one node, one line, several nodes or a group (which is
+ * never one of the nodes). A selection of
  * several nodes always holds two or more keys; one key is a node selection. Pure helpers. */
 import type { Pos, Positions } from './graphLogic';
 import { JOB_KEY } from './nodeModel';
 import type { FlowGraph } from './nodeModel';
 import { nodeSize } from './nodeStyle';
 
-export type FlowSelection = { kind: 'node'; key: string } | { kind: 'link'; key: string } | { kind: 'nodes'; keys: string[] } | null;
+export type FlowSelection =
+    | { kind: 'node'; key: string }
+    | { kind: 'link'; key: string }
+    | { kind: 'nodes'; keys: string[] }
+    | { kind: 'group'; id: string }
+    | null;
 
-/** The node keys a selection holds (none for a line). */
+/** The node keys a selection holds (none for a line or a group). */
 export function selectedKeys(sel: FlowSelection): string[] {
-    if (!sel || sel.kind === 'link') {
+    if (!sel || sel.kind === 'link' || sel.kind === 'group') {
         return [];
     }
     return sel.kind === 'node' ? [sel.key] : sel.keys;

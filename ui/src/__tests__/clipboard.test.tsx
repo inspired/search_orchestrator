@@ -74,12 +74,12 @@ describe('trigger positions', () => {
         const clip = copySelection(many, ['trigger:1'], at3);
         expect(clip.positions).toEqual({ 'trigger:0': { x: 100, y: 200 } });
         const r = pasteResult(into, clip, { x: 5, y: 6 });
-        expect(r.job.layout!.nodes['trigger:1']).toEqual({ x: 5, y: 6 });
+        expect(r.job.layout!.nodes!['trigger:1']).toEqual({ x: 5, y: 6 });
     });
     it('two later triggers keep their relative layout', () => {
         const r = pasteResult(into, copySelection(many, ['trigger:1', 'trigger:2'], at3), { x: 0, y: 0 });
-        expect(r.job.layout!.nodes['trigger:1']).toEqual({ x: 0, y: 0 });
-        expect(r.job.layout!.nodes['trigger:2']).toEqual({ x: 60, y: 60 });
+        expect(r.job.layout!.nodes!['trigger:1']).toEqual({ x: 0, y: 0 });
+        expect(r.job.layout!.nodes!['trigger:2']).toEqual({ x: 60, y: 60 });
     });
 });
 
@@ -156,7 +156,7 @@ describe('pasteResult', () => {
     it('lands the clip top-left at `at`, keeps relative layout and seeds shown positions', () => {
         const clip = copySelection(source, ['step:load', 'step:fold', 'trigger:0'], shown);
         const r = pasteResult(target, clip, { x: 100, y: 50 });
-        const nodes = r.job.layout!.nodes;
+        const nodes = r.job.layout!.nodes!;
         const [a, b] = r.job.steps.slice(2).map((s) => s.id);
         expect(nodes[`step:${a}`]).toEqual({ x: 400, y: 50 });
         expect(nodes[`step:${b}`]).toEqual({ x: 700, y: 50 });
@@ -178,8 +178,8 @@ describe('pasteResult', () => {
         expect(r.job.actions).toHaveLength(3);
         expect(r.job.triggers).toHaveLength(2);
         expect(r.keys.sort()).toEqual(['action:job:2', 'trigger:1']);
-        expect(r.job.layout!.nodes['action:job:2']).toBeDefined();
-        expect(r.job.layout!.nodes['trigger:1']).toBeDefined();
+        expect(r.job.layout!.nodes!['action:job:2']).toBeDefined();
+        expect(r.job.layout!.nodes!['trigger:1']).toBeDefined();
     });
 
     it('counts previous steps with no incoming pasted line', () => {

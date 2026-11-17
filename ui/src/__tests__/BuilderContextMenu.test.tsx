@@ -93,7 +93,7 @@ describe('BuilderPage right-click menu', () => {
         shiftClick('step:daily');
         shiftClick('step:weekly');
         fireEvent.contextMenu(screen.getByTestId('node-step:weekly'), { clientX: 300, clientY: 200 });
-        expect(names()).toEqual(['Duplicate', 'Copy', 'Align…', 'Distribute…Select three or more nodes', 'Tidy up selection', 'Remove nodes']);
+        expect(names()).toEqual(['Duplicate', 'Copy', 'Align…', 'Distribute…Select three or more nodes', 'Tidy up selection', 'Group', 'Remove nodes']);
         expect(screen.getByRole('heading', { name: '2 nodes selected' })).toBeInTheDocument();
     });
 

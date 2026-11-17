@@ -106,7 +106,7 @@ describe('tidyLayout with keys', () => {
         // Others keep their positions.
         Object.keys(shown)
             .filter((k) => !keys.includes(k))
-            .forEach((k) => expect(after[k]).toEqual(s0.job.layout?.nodes[k]));
+            .forEach((k) => expect(after[k]).toEqual(s0.job.layout?.nodes?.[k]));
         // Left to right in flow order, starting at the old top-left (100, 100).
         expect(Math.min(...keys.map((k) => after[k].x))).toBe(100);
         expect(Math.min(...keys.map((k) => after[k].y))).toBe(100);
@@ -119,8 +119,8 @@ describe('tidyLayout with keys', () => {
         const before = plain();
         const shown = layoutFlow(buildGraph(before));
         const s1 = reducer(initialState(before), { type: 'tidyLayout', keys: ['step:a', 'step:b'] });
-        expect(s1.job.layout?.nodes['step:c']).toEqual(shown['step:c']);
-        expect(s1.job.layout?.nodes['trigger:0']).toEqual(shown['trigger:0']);
+        expect(s1.job.layout?.nodes?.['step:c']).toEqual(shown['step:c']);
+        expect(s1.job.layout?.nodes?.['trigger:0']).toEqual(shown['trigger:0']);
     });
 });
 

@@ -4,6 +4,7 @@ import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, FlowLink, FlowNode, PortId } from './nodeModel';
 import { handleOffset, inputOffset, nodeSize, tabOffset } from './nodeStyle';
 import { graphBounds } from './flowLayout';
+import type { Box } from './flowLayout';
 import { usedOutcomes } from './outcomes';
 
 export const MIN_ZOOM = 0.4;
@@ -107,16 +108,18 @@ export function linkAt(graph: FlowGraph, pos: Positions, pt: Pos, tolerance = 8,
     return best ? (best as { key: string }).key : null;
 }
 
-/** Pan and zoom that fit every node in a view of `width` × `height`, never zooming past 1. */
+/** Pan and zoom that fit every node (and the `extra` boxes, such as group frames) in a view of
+ * `width` × `height`, never zooming past 1. */
 export function frameView(
     graph: FlowGraph,
     pos: Positions,
     width: number,
     height: number,
     margin = 40,
-    compact = false
+    compact = false,
+    extra: Box[] = []
 ): { pan: Pos; zoom: number } | null {
-    const b = graphBounds(graph, pos, compact);
+    const b = graphBounds(graph, pos, compact, extra);
     if (!width || !height || (b.width === 0 && b.height === 0)) {
         return null;
     }

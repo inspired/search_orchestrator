@@ -223,10 +223,10 @@ describe('builder reducer: layout and node edits', () => {
     test('moveNodes undoes exactly; tidyLayout removes layout', () => {
         const s0 = initialState(laid());
         const s1 = reducer(s0, { type: 'moveNodes', positions: { 'step:a': { x: 9, y: 9 } } });
-        expect(s1.job.layout?.nodes['step:a']).toEqual({ x: 9, y: 9 });
+        expect(s1.job.layout?.nodes?.['step:a']).toEqual({ x: 9, y: 9 });
         expect(reducer(s1, { type: 'undo' }).job).toEqual(s0.job);
         const s2 = reducer(s1, { type: 'moveNodes', positions: { 'step:c': { x: 0, y: 0 } } });
-        expect(reducer(s2, { type: 'undo' }).job.layout?.nodes['step:c']).toEqual({ x: 2, y: 2 });
+        expect(reducer(s2, { type: 'undo' }).job.layout?.nodes?.['step:c']).toEqual({ x: 2, y: 2 });
         const t = reducer(s0, { type: 'tidyLayout' });
         expect('layout' in t.job).toBe(false);
         expect(reducer(t, { type: 'undo' }).job).toEqual(s0.job);
@@ -253,14 +253,14 @@ describe('builder reducer: layout and node edits', () => {
         const s = reducer(initialState(laid()), { type: 'moveAction', scope: 'a', index: 0, toScope: 'job', hook: 'on_complete' });
         expect(s.job.actions?.[2]).toEqual({ hook: 'on_complete', type: 'email', to: 'x', subject: 's' });
         expect(s.job.steps[0].actions).toEqual([]);
-        expect(s.job.layout?.nodes['action:a:0']).toBeUndefined();
-        expect(s.job.layout?.nodes['action:job:2']).toEqual({ x: 3, y: 3 });
+        expect(s.job.layout?.nodes?.['action:a:0']).toBeUndefined();
+        expect(s.job.layout?.nodes?.['action:job:2']).toEqual({ x: 3, y: 3 });
     });
 
     test('moveAction in the same scope only changes the hook', () => {
         const s = reducer(initialState(laid()), { type: 'moveAction', scope: 'job', index: 0, toScope: 'job', hook: 'on_failure' });
         expect(s.job.actions?.[0].hook).toBe('on_failure');
-        expect(s.job.layout?.nodes['action:job:0']).toEqual({ x: 5, y: 5 });
+        expect(s.job.layout?.nodes?.['action:job:0']).toEqual({ x: 5, y: 5 });
     });
 
     test('updateAction with a field set to undefined deletes that field', () => {
@@ -272,11 +272,11 @@ describe('builder reducer: layout and node edits', () => {
 
     test('removeAction and removeTrigger shift later keys', () => {
         const s = reducer(initialState(laid()), { type: 'removeAction', scope: 'job', index: 0 });
-        expect(s.job.layout?.nodes['action:job:0']).toEqual({ x: 6, y: 6 });
-        expect(s.job.layout?.nodes['action:job:1']).toBeUndefined();
+        expect(s.job.layout?.nodes?.['action:job:0']).toEqual({ x: 6, y: 6 });
+        expect(s.job.layout?.nodes?.['action:job:1']).toBeUndefined();
         const t = reducer(initialState(laid()), { type: 'removeTrigger', index: 0 });
-        expect(t.job.layout?.nodes['trigger:0']).toEqual({ x: 8, y: 8 });
-        expect(t.job.layout?.nodes['trigger:1']).toBeUndefined();
+        expect(t.job.layout?.nodes?.['trigger:0']).toEqual({ x: 8, y: 8 });
+        expect(t.job.layout?.nodes?.['trigger:1']).toBeUndefined();
     });
 
     test('disconnecting an expression edge drops its cond key; empty layout is deleted', () => {
@@ -292,7 +292,7 @@ describe('builder reducer: layout and node edits', () => {
         const s = reducer(s0, { type: 'addNode', kind: 'email', at: { x: 5, y: 6 }, from });
         expect(s.job.steps[0].actions?.[1]).toEqual({ hook: 'on_failure', type: 'email', to: '' });
         expect(key).toBe('action:a:1');
-        expect(s.job.layout?.nodes[key]).toEqual({ x: 5, y: 6 });
+        expect(s.job.layout?.nodes?.[key]).toEqual({ x: 5, y: 6 });
         expect(reducer(s, { type: 'undo' }).job).toEqual(s0.job);
     });
 
@@ -351,7 +351,7 @@ describe('builder reducer: layout and node edits', () => {
         expect(addNodeKey(s1.job, 'summary_index')).toBe('step:summary_2');
         const s2 = reducer(s1, { type: 'addNode', kind: 'lookup', at: { x: 1, y: 2 } });
         expect(s2.job.steps.find((x) => x.id === 'lookup')).toMatchObject({ type: 'previous', spl: '| outputlookup', output: { kind: 'lookup', name: '' } });
-        expect(s2.job.layout?.nodes['step:lookup']).toEqual({ x: 1, y: 2 });
+        expect(s2.job.layout?.nodes?.['step:lookup']).toEqual({ x: 1, y: 2 });
         expect(addNodeKey(s2.job, 'lookup')).toBe('step:lookup_2');
     });
 
@@ -378,7 +378,7 @@ describe('builder reducer: layout and node edits', () => {
         expect(s.job.edges).toEqual([{ from: 'a', to: 'c', condition: 'on_success' }]);
         const r = reducer(initialState(j), { type: 'connectPort', from: 'step:c', port: 'always', to: 'action:job:0' });
         expect(r.job.steps[1].actions?.[0]).toMatchObject({ hook: 'on_complete', to: 'p' });
-        expect(r.job.layout?.nodes['action:c:0']).toEqual({ x: 5, y: 5 });
+        expect(r.job.layout?.nodes?.['action:c:0']).toEqual({ x: 5, y: 5 });
     });
 });
 
@@ -410,7 +410,7 @@ describe('changeOutcome', () => {
     it('turns a condition leg into a plain edge', () => {
         const s = reducer(initialState(j), { type: 'changeOutcome', link: link('step:a', 'cond:a>c'), outcome: 'success' });
         expect(s.job.edges![1]).toEqual({ from: 'a', to: 'c', condition: 'on_success' });
-        expect(s.job.layout?.nodes['cond:a>c']).toBeUndefined();
+        expect(s.job.layout?.nodes?.['cond:a>c']).toBeUndefined();
     });
     it('is a no-op for if on a condition leg and for the same outcome', () => {
         const st = initialState(j);
@@ -430,15 +430,15 @@ describe('addNode rightOf', () => {
             type: 'addNode', kind: 'search', rightOf: 'step:a', from: { key: 'step:a', port: 'success' },
             shown: { 'step:a': { x: 100, y: 50 } },
         });
-        expect(s.job.layout?.nodes['step:step_2']).toEqual({ x: 360, y: 50 });
-        expect(s.job.layout?.nodes['step:a']).toEqual({ x: 100, y: 50 });
+        expect(s.job.layout?.nodes?.['step:step_2']).toEqual({ x: 360, y: 50 });
+        expect(s.job.layout?.nodes?.['step:a']).toEqual({ x: 100, y: 50 });
     });
 
     test('addNode right of a node uses compact sizes when asked', () => {
         const s0 = initialState(job);
         const shown = { 'step:daily': { x: 0, y: 0 }, 'step:weekly': { x: 260, y: 60 }, 'step:monthly': { x: 520, y: 0 } };
         const spot = (compact: boolean) =>
-            reducer(s0, { type: 'addNode', kind: 'search', rightOf: 'step:daily', shown, compact }).job.layout?.nodes['step:s1'] ||
+            reducer(s0, { type: 'addNode', kind: 'search', rightOf: 'step:daily', shown, compact }).job.layout?.nodes?.['step:s1'] ||
             Object.entries(reducer(s0, { type: 'addNode', kind: 'search', rightOf: 'step:daily', shown, compact }).job.layout?.nodes || {}).find(([k]) => !shown[k as keyof typeof shown])?.[1];
         expect(spot(true)).toEqual({ x: 260, y: 0 });
         expect(spot(false)?.y).toBeGreaterThan(60);

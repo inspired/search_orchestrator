@@ -673,6 +673,7 @@ describe('BuilderPage previews', () => {
         fireEvent.change(screen.getByRole('textbox', { name: 'Search' }), { target: { value: '| makeresults count=2' } });
         expect(screen.getByTestId('node-step:daily')).not.toHaveTextContent('7 rows');
         expect(screen.getByTestId('node-step:weekly')).not.toHaveTextContent('7 rows');
+        expect(screen.getByTestId('node-step:weekly')).toHaveTextContent('Out of date');
         expect(screen.getByText('Out of date. Preview again to refresh.')).toBeInTheDocument();
     });
 

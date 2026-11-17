@@ -281,3 +281,40 @@ def test_bad_layout_or_output_is_bad_shape():
         assert len(bad) == 1, (field, value, bad)
         if field == "layout":
             assert "Tidy up" in bad[0]["message"]
+
+
+def _group(**kw):
+    g = {"id": "g1", "title": "Group", "color": "categoricalA2", "x": 0, "y": -10.5, "w": 300, "h": 200}
+    g.update(kw)
+    return g
+
+
+def test_layout_groups_are_accepted():
+    j = job(edges=[("a", "b")])
+    j["layout"] = {"nodes": {"step:a": {"x": 1, "y": 2}},
+                   "groups": [_group(), _group(id="g2", color="categoricalA7", collapsed=True)]}
+    assert "bad_shape" not in codes(validate_job(j))
+    # Groups and no node positions: the layout is kept, so it must be valid.
+    j["layout"] = {"groups": [_group()]}
+    assert "bad_shape" not in codes(validate_job(j))
+    j["layout"] = {"nodes": {}, "groups": []}
+    assert "bad_shape" not in codes(validate_job(j))
+
+
+def test_bad_layout_groups_are_bad_shape():
+    import copy
+    good = job(edges=[("a", "b")])
+    cases = [
+        "x", {}, [5], [_group(id=5)], [_group(id="g" * 41)], [_group(title=None)],
+        [_group(title="t" * 81)], [_group(color="red")], [_group(color="categoricalA8")],
+        [_group(x="1")], [_group(y=True)], [_group(w=0)], [_group(h=-5)],
+        [_group(x=float("inf"))], [_group(w=float("nan"))], [_group(x=2_000_000)],
+        [_group(collapsed="yes")], [{"id": "g1", "title": "Group", "color": "categoricalA2"}],
+        [_group() for _ in range(201)],
+    ]
+    for value in cases:
+        j = copy.deepcopy(good)
+        j["layout"] = {"nodes": {}, "groups": value}
+        bad = [i for i in validate_job(j) if i["code"] == "bad_shape"]
+        assert len(bad) == 1, (value, bad)
+        assert bad[0]["message"] == "a group in layout is broken; remove it and save again"

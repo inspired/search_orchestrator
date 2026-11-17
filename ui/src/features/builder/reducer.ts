@@ -8,6 +8,8 @@ import type { Clip } from './clipboard';
 import { nextStepId, renameActions, renameStepTokens, renameTokens } from './stepRename';
 import { insertJob, remapLayout, removeStepJob, removeTriggerJob, renameStepKeys, setActions, spliceJob, spotRightOf } from './flowEdits';
 import { tidyJob, withNodes, withPlacedNode } from './flowEdits';
+import { groupEdit } from './groups';
+import type { GroupAction } from './groups';
 import { wouldCycle } from './graphLogic';
 import type { Pos } from './graphLogic';
 import {
@@ -84,6 +86,8 @@ export type BuilderAction =
     | { type: 'removeTrigger'; index: number }
     | { type: 'connectPort'; from: string; port: PortId; to: string }
     | { type: 'setJobField'; field: keyof JobDefinition; value: unknown }
+    /** Groups (backdrops) in job.layout.groups; each is one undo step, typing a title is one. */
+    | GroupAction
     | { type: 'undo' }
     | { type: 'redo' };
 
@@ -439,7 +443,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             if (action.toScope !== 'job' && !steps.some((s) => s.id === action.toScope)) {
                 return state;
             }
-            const oldPos = job.layout?.nodes[actionKey(action.scope, action.index)];
+            const oldPos = job.layout?.nodes?.[actionKey(action.scope, action.index)];
             let next = setActions(job, action.scope, list.filter((_, i) => i !== action.index));
             next = dropActionKey(next, action.scope, action.index);
             const target = actionsOf(next, action.toScope);
@@ -501,6 +505,14 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                 edge.expression = '';
             }
             return edits(state, { ...job, edges: [...edgeList, edge] });
+        }
+        case 'addGroup':
+        case 'updateGroup':
+        case 'moveGroup':
+        case 'removeGroup': {
+            const next = groupEdit(job, action);
+            const key = action.type === 'updateGroup' ? fieldKey('group', action.id, ...Object.keys(action.changes).sort()) : undefined;
+            return next ? edits(state, next, key) : state;
         }
         case 'setJobField':
             return edits(state, { ...job, [action.field]: action.value } as JobDefinition, fieldKey('job', action.field));

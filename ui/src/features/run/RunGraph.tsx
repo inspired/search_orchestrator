@@ -1,4 +1,5 @@
-/* The run's flow: the builder's node editor, read-only, each node marked with its state. */
+/* The run's flow: the builder's node editor, read-only, each node marked with its state. Groups
+ * are drawn too, always expanded, so running steps are never hidden. */
 import React, { useMemo } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { ActionRun, JobDefinition, StepStatus } from '../../api/types';
@@ -6,6 +7,7 @@ import { isStepDelayed, statusIcon, statusLabel } from '../../components/StatusT
 import FlowCanvas, { FlowSelection } from '../builder/FlowCanvas';
 import useCompactPref from '../builder/useCompactPref';
 import { layoutFlow } from '../builder/flowLayout';
+import { readGroups } from '../builder/groups';
 import { buildGraph, stepKey } from '../builder/nodeModel';
 import type { Theme } from '../builder/GraphView';
 import { actionStates, actionStatusIcon, actionStatusText } from './actionStates';
@@ -25,6 +27,7 @@ export default function RunGraph({ definition, states, actions, onSelect, select
     const graph = useMemo(() => buildGraph(definition), [definition]);
     const [compact, toggleCompact] = useCompactPref();
     const positions = useMemo(() => layoutFlow(graph, definition.layout?.nodes, compact), [graph, definition, compact]);
+    const groups = useMemo(() => readGroups(definition), [definition]);
     const status = useMemo(() => {
         const out: Record<string, Status> = {};
         (definition.steps || []).forEach((s) => {
@@ -60,5 +63,5 @@ export default function RunGraph({ definition, states, actions, onSelect, select
             onSelect(sel.key.slice('step:'.length));
         }
     };
-    return <FlowCanvas graph={graph} positions={positions} selected={selection} issues={[]} readOnly compact={compact} onToggleCompact={toggleCompact} status={status} onSelect={handle} />;
+    return <FlowCanvas graph={graph} positions={positions} selected={selection} issues={[]} readOnly compact={compact} onToggleCompact={toggleCompact} status={status} onSelect={handle} groups={groups} />;
 }

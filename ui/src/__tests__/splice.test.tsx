@@ -63,8 +63,8 @@ describe('splice', () => {
             { from: 'n', to: 'b', condition: 'on_success' },
             { from: 'b', to: 'c', condition: 'expression', expression: 'x' },
         ]);
-        expect(s.job.layout?.nodes['step:n']).toEqual({ x: 300, y: 40 });
-        expect(s.job.layout?.nodes['step:b']).toEqual({ x: 600, y: 0 });
+        expect(s.job.layout?.nodes?.['step:n']).toEqual({ x: 300, y: 40 });
+        expect(s.job.layout?.nodes?.['step:b']).toEqual({ x: 600, y: 0 });
         const u = reducer(s, { type: 'undo' });
         expect(u.job).toEqual(start.job);
     });
@@ -91,7 +91,7 @@ describe('reducer insertNode', () => {
             { from: added.id, to: 'b', condition: 'on_success' },
             { from: 'b', to: 'c', condition: 'expression', expression: 'x' },
         ]);
-        expect(s.job.layout?.nodes[`step:${added.id}`]).toEqual({ x: 300, y: 40 });
+        expect(s.job.layout?.nodes?.[`step:${added.id}`]).toEqual({ x: 300, y: 40 });
         expect(reducer(s, { type: 'undo' }).job).toEqual(job);
     });
     it('does nothing for an action or a condition line', () => {

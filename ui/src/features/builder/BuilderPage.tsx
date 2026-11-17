@@ -37,6 +37,7 @@ import useFillHeight from './useFillHeight';
 import useClipboard from './useClipboard';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
+import useGroups from './useGroups';
 import usePreviews, { PreviewApi, previewSummary } from './usePreviews';
 import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
@@ -121,7 +122,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         setSelectedState(sel);
     };
     const setSelectedState = (sel: FlowSelection) => picked.setSelected(sel);
-    const selectNode = (key: string) => setSelected({ kind: 'node', key });
+    // A node hidden in a collapsed group (the issue list, the checklist) shows its group first.
+    const selectNode = (key: string) => (grouping.reveal({ kind: 'node', key }), setSelected({ kind: 'node', key }));
 
     const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
     const { job } = state;
@@ -205,6 +207,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const { positions, move, tidy, arrange } = useFlowLayout(job, graph, compact, dispatch);
     const picked = useSelection({ job, graph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
     const { selection, removing, requestRemove, confirmRemove } = picked;
+    const grouping = useGroups({ job, graph, positions, compact, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
     const goToIssue = (issue: Issue) => {
         setActiveTab(tabForIssue(issue));
         const key = nodeForIssue(job, issue);
@@ -383,6 +386,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             arrange,
             requestRemove,
             requestRemoveNodes: picked.requestRemoveNodes,
+            group: grouping.group,
             preview: meta.canEdit ? (id) => previews.preview(id) : undefined,
             previewRefusal: (id) => previewRefusal(job, id, source === 'live'),
         },
@@ -391,7 +395,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
 
     // Full screen: the canvas and panel over the whole page. Escape leaves, unless something
     // (a popup, the canvas clearing its selection, a modal) used it first.
-    const modalOpen = Boolean(removing || ownerConfirm);
+    const modalOpen = Boolean(removing || ownerConfirm || grouping.modalOpen);
     useEffect(() => {
         if (!fullScreen) {
             return undefined;
@@ -465,6 +469,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     height={canvasHeight}
                     fullScreen={fullScreen}
                     onToggleFullScreen={() => setFullScreen((f) => !f)}
+                    {...grouping.canvas}
                 />
             </div>
             <div
@@ -498,15 +503,10 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     scheduledTime={scheduledTime}
                     resolveTimeRange={api.resolveTimeRange}
                     previews={previews.previews}
-                    onPreview={
-                        meta.canEdit
-                            ? (id, opts) => {
-                                  previews.preview(id, opts);
-                              }
-                            : undefined
-                    }
+                    onPreview={meta.canEdit ? (id, opts) => void previews.preview(id, opts) : undefined}
                     onCancelPreview={previews.cancel}
                     previewLive={source === 'live'}
+                    groupPanel={grouping.panel}
                 />
             </div>
         </div>
@@ -591,6 +591,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     </Modal.Footer>
                 </Modal>
             )}
+            {grouping.modal}
             {removing && (
                 <RemoveNodeModal job={job} nodeKey={removing} returnFocus={returnFocus} onCancel={picked.cancelRemove} onConfirm={confirmRemove} />
             )}

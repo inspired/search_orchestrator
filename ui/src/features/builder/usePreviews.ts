@@ -474,7 +474,8 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
 }
 
 /** What a node shows of a step's preview (see nodePreview): rows and seconds of a current
- * finished one, "running", or the error. Out of date, skipped and missing previews show nothing. */
+ * finished one, "running", the error, or that it is out of date. Skipped and missing previews
+ * show nothing. */
 export function previewSummary(p: PreviewView | undefined): PreviewSummary | undefined {
     if (!p) {
         return undefined;
@@ -482,8 +483,11 @@ export function previewSummary(p: PreviewView | undefined): PreviewSummary | und
     if (p.state === 'running') {
         return { running: true };
     }
-    if (p.stale || p.state === 'missing' || p.state === 'skipped') {
+    if (p.state === 'missing' || p.state === 'skipped') {
         return undefined;
+    }
+    if (p.stale) {
+        return { stale: true };
     }
     if (p.state === 'failed') {
         return { error: p.error || (p.status && p.status.error) || 'The preview failed.' };

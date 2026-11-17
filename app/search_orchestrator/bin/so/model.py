@@ -190,9 +190,32 @@ def _coord_ok(v):
             and math.isfinite(v) and abs(v) <= 1_000_000)
 
 
+GROUP_COLORS = tuple("categoricalA%d" % i for i in range(1, 8))
+
+
+def _group_ok(g):
+    return (isinstance(g, dict)
+            and isinstance(g.get("id"), str) and len(g["id"]) <= 40
+            and isinstance(g.get("title"), str) and len(g["title"]) <= 80
+            and g.get("color") in GROUP_COLORS
+            and all(_coord_ok(g.get(k)) for k in ("x", "y", "w", "h"))
+            and g["w"] > 0 and g["h"] > 0
+            and isinstance(g.get("collapsed", False), bool))
+
+
+def _groups_ok(layout):
+    if "groups" not in layout:
+        return True
+    groups = layout["groups"]
+    return isinstance(groups, list) and len(groups) <= 200 and all(_group_ok(g) for g in groups)
+
+
 def _layout_ok(layout):
     if not isinstance(layout, dict):
         return False
+    # A layout that holds groups may have no node positions.
+    if "nodes" not in layout and "groups" in layout:
+        return True
     nodes = layout.get("nodes")
     if not isinstance(nodes, dict) or len(nodes) > 1000:
         return False
@@ -224,6 +247,8 @@ def _shape_issues(job):
 
     if "layout" in job and not _layout_ok(job["layout"]):
         bad("layout is broken; use Tidy up and save again")
+    elif isinstance(job.get("layout"), dict) and not _groups_ok(job["layout"]):
+        bad("a group in layout is broken; remove it and save again")
 
     def check_durations(d, where, step=None):
         for k in BUILTIN_DEFAULTS:

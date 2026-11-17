@@ -11,13 +11,20 @@ import { canSplice, splicedEdges } from './splice';
 
 // Saved positions (job.layout.nodes). Keys follow nodeModel; every edit keeps them consistent.
 
-/** The job with `nodes` as its layout; an empty map removes `layout` (the server rejects null). */
+/** The job with `nodes` as its layout; an empty map removes `nodes`, and `layout` with it unless
+ * the layout holds groups (the server rejects null). */
 export function withNodes(job: JobDefinition, nodes: Record<string, Pos>): JobDefinition {
     const out = { ...job };
-    if (Object.keys(nodes).length === 0) {
-        delete out.layout;
-    } else {
+    if (Object.keys(nodes).length) {
         out.layout = { ...out.layout, nodes };
+        return out;
+    }
+    const rest = { ...out.layout };
+    delete rest.nodes;
+    if (rest.groups !== undefined) {
+        out.layout = rest;
+    } else {
+        delete out.layout;
     }
     return out;
 }
@@ -250,12 +257,7 @@ export function removeNodesJob(job: JobDefinition, keys: string[]): JobDefinitio
  * where it is shown. */
 export function tidyJob(job: JobDefinition, keys?: string[], compact = false): JobDefinition | null {
     if (!keys) {
-        if (!job.layout) {
-            return null;
-        }
-        const next = { ...job };
-        delete next.layout;
-        return next;
+        return job.layout && job.layout.nodes ? withNodes(job, {}) : null;
     }
     const graph = buildGraph(job);
     const mine = new Set(keys.filter((k) => graph.nodes.some((n) => n.key === k)));

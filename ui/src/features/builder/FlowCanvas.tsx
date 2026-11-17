@@ -15,20 +15,23 @@
  * Keyboard: Tab through nodes, then lines; Enter selects, + or Shift+Enter opens the When list, arrows
  * nudge, Delete asks to remove, F frames everything, / (with focus in the canvas or its
  * toolbar, or Tab while the pointer is over the canvas) opens quick-add. The toolbar adds Add
- * node, Tidy up and Full screen when the caller handles them. Colours come from theme tokens only. */
+ * node, Tidy up and Full screen when the caller handles them. Colours come from theme tokens only.
+ * Groups (groups.ts, GroupFrame) are frames behind lines and nodes: drag the title bar to move one
+ * with its nodes, the corner to resize, double-click to edit the title; Ctrl/Cmd+G or the toolbar
+ * groups the selection. Groups are keyboard stops after the nodes (Enter selects, Delete asks to
+ * remove, arrows move). Collapsed ones hide their nodes; `readOnly` draws every group expanded. */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import CrossCircle from '@splunk/react-icons/CrossCircle';
-import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
 import type { Issue } from '../../api/types';
-import { issuesByStep, Pos, Positions } from './graphLogic';
+import { Pos, Positions } from './graphLogic';
 import { NodeGroup, Theme } from './GraphView';
 import { FlowGraph, FlowLink, FlowNode, JOB_KEY, PortId } from './nodeModel';
-import { previewLine, barFraction, maxRows, PreviewSummary } from './nodePreview';
+import { maxRows, PreviewSummary } from './nodePreview';
 import useCompactPref from './useCompactPref';
-import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, hasHandle } from './nodeStyle';
-import { NodeShape } from './NodeShape';
-import PlusHandle from './PlusHandle';
+import { PORT_STYLE, hasHandle } from './nodeStyle';
+import { FlowNodes, NodeOverlays, NodeStatus, nodeLook } from './FlowNodeView';
+import { GroupFocus, GroupFrame, drawnBox } from './GroupFrame';
+import { Group, collapsedEnd, hiddenMembers, membersOf, validGroups } from './groups';
 import Legend from './Legend';
 import Minimap, { exceedsView } from './Minimap';
 import { flowLinkLabel, usedOutcomes } from './outcomes';
@@ -61,7 +64,7 @@ export interface FlowCanvasProps {
     /** No + handles, no moving: for the run page. */
     readOnly?: boolean;
     /** Replaces a node's detail line, by node key. `icon` is drawn in a 24×24 viewBox. */
-    status?: Record<string, { text: string; icon?: React.ReactNode; color?: string } | undefined>;
+    status?: NodeStatus;
     onSelect: (sel: FlowSelection) => void;
     /** New top-left positions, called once when a drag ends or a node is nudged. */
     onMove?: (positions: Record<string, Pos>) => void;
@@ -101,6 +104,16 @@ export interface FlowCanvasProps {
     /** Adds a "Full screen" / "Leave full screen" toolbar button. */
     fullScreen?: boolean;
     onToggleFullScreen?: () => void;
+    /** Frames behind the nodes (job.layout.groups); broken entries are skipped. */
+    groups?: Group[];
+    /** Frame and nodes moved by dx, dy (one undo step); `members` were inside when it started. */
+    onGroupMove?: (id: string, dx: number, dy: number, members: string[]) => void;
+    onGroupResize?: (id: string, size: { w: number; h: number }) => void;
+    /** A double-click on a group's title: the caller focuses the title field. */
+    onGroupTitle?: (id: string) => void;
+    onRequestRemoveGroup?: (id: string) => void;
+    /** Ctrl/Cmd+G or the toolbar's Group selection, with the selected nodes. */
+    onGroup?: (keys: string[]) => void;
 }
 
 const NUDGE = 10;
@@ -114,7 +127,6 @@ const ARROWS: Record<string, Pos> = {
 };
 const TRIGGER_TOKEN = 'categoricalA1Strong';
 const MARKER_TOKENS = Array.from(new Set([...Object.values(PORT_STYLE).map((p) => p.colorToken), TRIGGER_TOKEN, 'focusColor']));
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 interface LinkGeometry {
     l: FlowLink;
@@ -122,12 +134,6 @@ interface LinkGeometry {
     to: FlowNode;
     d: string;
     mid: Pos;
-}
-
-interface Detail {
-    text: string;
-    icon?: React.ReactNode;
-    color?: string;
 }
 
 export default function FlowCanvas({
@@ -161,6 +167,12 @@ export default function FlowCanvas({
     height = 480,
     fullScreen = false,
     onToggleFullScreen,
+    groups: groupsProp,
+    onGroupMove,
+    onGroupResize,
+    onGroupTitle,
+    onRequestRemoveGroup,
+    onGroup,
 }: FlowCanvasProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
@@ -174,8 +186,16 @@ export default function FlowCanvas({
     const [size, setSize] = useState({ w: 0, h: 0 });
 
     const canMove = !readOnly && !!onMove;
+    const groups = useMemo(() => validGroups(groupsProp), [groupsProp]);
+    // Nodes in a collapsed group are hidden: not drawn, not focusable, not hit by drops.
+    const hidden = useMemo(() => hiddenMembers(groups, graph, positions, compact, readOnly), [groups, graph, positions, compact, readOnly]);
+    const visible = useMemo<FlowGraph>(
+        () => (Object.keys(hidden).length ? { nodes: graph.nodes.filter((n) => !hidden[n.key]), links: graph.links.filter((l) => !hidden[l.from] && !hidden[l.to]) } : graph),
+        [graph, hidden]
+    );
     const g = useCanvasGestures({
-        svgRef, graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact,
+        svgRef, graph: visible, memberGraph: graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact,
+        groups, onGroupMove, onGroupResize,
     });
     const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, guides, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
@@ -188,11 +208,14 @@ export default function FlowCanvas({
         return out;
     }, [graph]);
     const selectedNode = selected && selected.kind === 'node' ? selected.key : null;
+    const selectedGroup = selected && selected.kind === 'group' ? selected.id : null;
     const many = selected && selected.kind === 'nodes' ? selected.keys : null;
     const chosen = new Set(selectedKeys(selected));
 
     useRevealNode(svgRef, selectedNode ? byKey.get(selectedNode) : undefined, positions, view, setPan, compact);
     const mostRows = useMemo(() => maxRows(previews, graph.nodes.flatMap((n) => (n.stepId ? [n.stepId] : []))), [previews, graph]);
+    const look = nodeLook({ issues, status, previews, mostRows, theme });
+    const groupView = groups.map((grp) => ({ grp, live: g.groupShown(grp), collapsed: !readOnly && !!grp.collapsed, members: membersOf(grp, graph, positions, compact).length }));
 
     // Track the visible canvas size for the minimap: after every render, and when the window resizes.
     const measure = () => {
@@ -225,7 +248,7 @@ export default function FlowCanvas({
 
     const frameAll = () => {
         const svg = svgRef.current;
-        const next = svg ? frameView(graph, positions, svg.clientWidth, svg.clientHeight, undefined, compact) : null;
+        const next = svg ? frameView(visible, positions, svg.clientWidth, svg.clientHeight, undefined, compact, groupView.map((v) => drawnBox(v.grp, v.collapsed))) : null;
         if (next) {
             setZoom(next.zoom);
             setPan(next.pan);
@@ -258,6 +281,7 @@ export default function FlowCanvas({
         const el = ev.target as Element;
         const focusedNode = el.closest ? el.closest('[data-node-key]')?.getAttribute('data-node-key') || null : null;
         const focusedLink = el.closest ? el.closest('[data-link-key]')?.getAttribute('data-link-key') || null : null;
+        const focusedGroup = el.closest ? el.closest('[data-group-id]')?.getAttribute('data-group-id') || null : null;
         if (ev.key === 'Tab') {
             if (!ev.shiftKey && over.current && onQuickAdd) {
                 ev.preventDefault();
@@ -267,7 +291,14 @@ export default function FlowCanvas({
         }
         if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'a' || ev.key === 'A') && !readOnly) {
             ev.preventDefault();
-            onSelect(normaliseSelection(graph.nodes.map((n) => n.key).filter((k) => k !== JOB_KEY)));
+            onSelect(normaliseSelection(visible.nodes.map((n) => n.key).filter((k) => k !== JOB_KEY)));
+            return;
+        }
+        if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'g' || ev.key === 'G') && !readOnly && onGroup) {
+            ev.preventDefault();
+            if (selectedKeys(selected).length) {
+                onGroup(selectedKeys(selected));
+            }
             return;
         }
         if (runClipboardShortcut(ev, { enabled: !readOnly, hasSelection: selectedKeys(selected).length > 0, onCopy, onDuplicate, onPaste, at: () => quickAddAt(false) })) {
@@ -302,6 +333,9 @@ export default function FlowCanvas({
             if (focusedNode) {
                 ev.preventDefault();
                 onSelect({ kind: 'node', key: focusedNode });
+            } else if (focusedGroup) {
+                ev.preventDefault();
+                onSelect({ kind: 'group', id: focusedGroup });
             } else if (link) {
                 ev.preventDefault();
                 if (ev.key === 'Enter') {
@@ -325,6 +359,20 @@ export default function FlowCanvas({
             frameAll();
             return;
         }
+        // A focused group, or the selected one with no node focused, takes Delete and the arrows.
+        const groupId = focusedGroup || (!focusedNode && !focusedLink ? selectedGroup : null);
+        const theGroup = groupId ? groups.find((x) => x.id === groupId) : undefined;
+        if (theGroup && !readOnly) {
+            const step = ARROWS[ev.key];
+            if ((ev.key === 'Delete' || ev.key === 'Backspace') && onRequestRemoveGroup) {
+                ev.preventDefault();
+                onRequestRemoveGroup(theGroup.id);
+            } else if (step && onGroupMove) {
+                ev.preventDefault();
+                onGroupMove(theGroup.id, step.x, step.y, membersOf(theGroup, graph, positions, compact));
+            }
+            return;
+        }
         // A multi-selection acts as one, unless the focused node is outside it.
         const group = many && (!focusedNode || many.includes(focusedNode)) ? many : null;
         const target = focusedNode || selectedNode;
@@ -346,11 +394,20 @@ export default function FlowCanvas({
         }
     };
 
+    // A line to or from a hidden node attaches to its group's block; one inside a block is not drawn.
+    const blockOf = (key: string) => (hidden[key] ? groupView.find((v) => v.grp.id === hidden[key]) : undefined);
     const linkGeometry = graph.links
         .map((l) => {
             const from = byKey.get(l.from);
             const to = byKey.get(l.to);
-            const ends = from && to ? linkEnds(l, from, to, shown, tabsOf[l.from], compact) : null;
+            const [fromBlock, toBlock] = [blockOf(l.from), blockOf(l.to)];
+            const ends = from && to && !(fromBlock && fromBlock === toBlock) ? linkEnds(l, from, to, shown, tabsOf[l.from], compact) : null;
+            if (ends && fromBlock) {
+                ends.a = collapsedEnd(fromBlock.live, 'from');
+            }
+            if (ends && toBlock) {
+                ends.b = collapsedEnd(toBlock.live, 'to');
+            }
             return from && to && ends ? { l, from, to, d: linkPath(ends.a, ends.b), mid: bezierAt(ends.a, ends.b, 0.5) } : null;
         })
         .filter((x): x is LinkGeometry => x !== null);
@@ -364,38 +421,9 @@ export default function FlowCanvas({
         }
     };
 
-    const byStep = issuesByStep(issues);
     const isSelectedLink = (l: FlowLink) =>
         selected !== null && (l.kind === 'action' ? selected.kind === 'node' && selected.key === l.to : selected.kind === 'link' && selected.key === l.key);
     const markerUrl = (token: string) => `url(#${uid}-arrow-${token})`;
-
-    const detailOf = (n: FlowNode): { detail: Detail | null; counts: string[] } => {
-        const mine = n.stepId ? byStep[n.stepId] || [] : [];
-        const errors = mine.filter((i) => i.level === 'error').length;
-        const warnings = mine.length - errors;
-        const counts = [errors ? plural(errors, 'error') : '', warnings ? plural(warnings, 'warning') : ''].filter(Boolean);
-        const st = status ? status[n.key] : undefined;
-        if (st) {
-            return { detail: st, counts };
-        }
-        if (errors) {
-            return { detail: { text: counts[0], icon: <CrossCircle aria-hidden width={24} height={24} />, color: theme.statusColorHigh }, counts };
-        }
-        if (warnings) {
-            return {
-                detail: { text: counts[0], icon: <ExclamationTriangle aria-hidden width={24} height={24} />, color: theme.statusColorMedium },
-                counts,
-            };
-        }
-        return { detail: null, counts };
-    };
-
-    const ariaLabelOf = (n: FlowNode, detail: Detail | null, counts: string[]) => {
-        const family = FAMILY_STYLE[FAMILY_OF[n.kind]].label;
-        const head = family === n.label ? n.label : `${family} ${n.label}`;
-        const line = previewLine(n.stepId ? previews[n.stepId] : undefined);
-        return [head, detail && status && status[n.key] ? detail.text : n.detail, ...counts, line ? line.text : ''].filter(Boolean).join(', ');
-    };
 
     const help = readOnly
         ? 'Job flow. Tab to a node, Enter to select it, F to frame all.'
@@ -407,6 +435,8 @@ export default function FlowCanvas({
                 canEdit={!readOnly}
                 onAddNode={onQuickAdd ? () => openQuickAdd(true) : undefined}
                 onTidy={onTidy}
+                onGroup={onGroup ? () => onGroup(selectedKeys(selected)) : undefined}
+                canGroup={selectedKeys(selected).length > 0}
                 onZoom={(f) => setZoom((z) => clampZoom(z * f))}
                 onReset={() => (setZoom(1), setPan({ x: 0, y: 0 }))}
                 onFrame={frameAll}
@@ -453,6 +483,19 @@ export default function FlowCanvas({
                 <ArrowMarkers uid={uid} tokens={MARKER_TOKENS} theme={theme} />
                 <g data-view="true" transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
                     {gridOn && <GridDots uid={uid} pan={pan} zoom={zoom} width={size.w} height={size.h} theme={theme} />}
+                    {groupView.map((v) => (
+                        <GroupFrame
+                            key={v.grp.id}
+                            group={v.live}
+                            collapsed={v.collapsed}
+                            members={v.members}
+                            selected={selectedGroup === v.grp.id}
+                            theme={theme}
+                            onTitleDown={readOnly ? undefined : (ev) => g.startGroup(ev, v.grp.id, 'move')}
+                            onResizeDown={readOnly || !onGroupResize ? undefined : (ev) => g.startGroup(ev, v.grp.id, 'resize')}
+                            onTitleDouble={readOnly || !onGroupTitle ? undefined : () => onGroupTitle(v.grp.id)}
+                        />
+                    ))}
                     {linkGeometry.map(({ l, d }) => {
                         const trigger = l.kind === 'trigger' || !l.port;
                         const isSel = !trigger && isSelectedLink(l);
@@ -504,73 +547,22 @@ export default function FlowCanvas({
                     {gesture && gesture.kind === 'line' && cursor && (
                         <DraftLine node={byKey.get(gesture.from)} at={shown[gesture.from]} tabs={tabsOf[gesture.from] || []} outcome={gesture.outcome} to={cursor} theme={theme} compact={compact} />
                     )}
-                    {graph.nodes.map((n) => {
-                        const p = shown[n.key];
-                        if (!p) {
-                            return null;
-                        }
-                        const isSelected = chosen.has(n.key);
-                        const { detail, counts } = detailOf(n);
-                        const line = previewLine(n.stepId ? previews[n.stepId] : undefined);
-                        // Issues and run status keep the detail line; a preview takes it otherwise.
-                        const text = detail ? detail.text : line ? line.text : undefined;
-                        const icon = detail ? detail.icon : line && line.failed ? <CrossCircle aria-hidden width={24} height={24} /> : undefined;
-                        const color = detail ? detail.color : line && line.failed ? theme.statusColorHigh : undefined;
-                        const previewProps = {
-                            status: text,
-                            statusIcon: icon,
-                            statusColor: color,
-                            previewId: n.stepId,
-                            bar: n.stepId ? barFraction(previews[n.stepId], mostRows) : 0,
-                        };
-                        const overlaid = compact && n.kind !== 'condition' && (hovered === n.key || isSelected);
-                        return (
-                            <NodeGroup
-                                key={n.key}
-                                data-testid={`node-${n.key}`}
-                                data-node-key={n.key}
-                                transform={`translate(${p.x},${p.y})`}
-                                role="button"
-                                tabIndex={0}
-                                aria-label={ariaLabelOf(n, detail, counts)}
-                                aria-pressed={isSelected}
-                                onPointerEnter={() => setHovered(n.key)}
-                                onPointerLeave={() => setHovered((k) => (k === n.key ? null : k))}
-                                onPointerDown={(ev) => {
-                                    ev.stopPropagation();
-                                    g.startNode(ev, n.key);
-                                }}
-                                style={{ cursor: canMove ? 'move' : 'pointer' }}
-                            >
-                                <NodeShape
-                                    node={n}
-                                    theme={theme}
-                                    selected={isSelected}
-                                    stroke={detail ? detail.color : undefined}
-                                    compact={compact}
-                                    {...(compact ? {} : previewProps)}
-                                />
-                                {/* Compact: the full node over it, below the + and tabs, on hover or selection. */}
-                                {overlaid && (
-                                    <g data-testid={`node-full-${n.key}`}>
-                                        <NodeShape node={n} theme={theme} selected={isSelected} stroke={detail ? detail.color : undefined} {...previewProps} />
-                                    </g>
-                                )}
-                                {hasHandle(n.kind) && (
-                                    <PlusHandle
-                                        nodeKey={n.key}
-                                        kind={n.kind}
-                                        theme={theme}
-                                        tabs={tabsOf[n.key] || []}
-                                        plus={!readOnly}
-                                        compact={compact}
-                                        onPlusDown={readOnly ? undefined : (ev) => g.startLine(ev, n.key)}
-                                        onTabDown={readOnly ? undefined : (ev, outcome) => g.startLine(ev, n.key, outcome)}
-                                    />
-                                )}
-                            </NodeGroup>
-                        );
-                    })}
+                    <FlowNodes
+                        nodes={visible.nodes}
+                        shown={shown}
+                        look={look}
+                        chosen={chosen}
+                        tabsOf={tabsOf}
+                        theme={theme}
+                        compact={compact}
+                        readOnly={readOnly}
+                        canMove={canMove}
+                        onHover={(key, on) => setHovered((k) => (on ? key : k === key ? null : k))}
+                        onNodeDown={g.startNode}
+                        onLineDown={g.startLine}
+                    />
+                    {/* Focus targets for groups, after the nodes and before the lines. */}
+                    {!readOnly && groupView.map((v) => <GroupFocus key={v.grp.id} group={v.live} collapsed={v.collapsed} members={v.members} selected={selectedGroup === v.grp.id} />)}
                     {/* Focus targets for lines, after the nodes so Tab reaches every node first. */}
                     {linkGeometry
                         .filter(({ l }) => l.kind !== 'trigger' && l.port)
@@ -587,6 +579,7 @@ export default function FlowCanvas({
                                 <path d={d} fill="none" stroke="none" />
                             </NodeGroup>
                         ))}
+                    {compact && <NodeOverlays nodes={visible.nodes} shown={shown} look={look} chosen={chosen} hovered={hovered} theme={theme} />}
                     {guides.length > 0 && <GuideLines guides={guides} theme={theme} />}
                     {gesture && gesture.kind === 'box' && gesture.moved && cursor && <SelectionBox from={gesture.start} to={cursor} theme={theme} />}
                 </g>
@@ -596,8 +589,8 @@ export default function FlowCanvas({
                     <Legend />
                 </div>
             )}
-            {exceedsView(graph, shown, zoom, size.w, size.h, compact) && (
-                <Minimap graph={graph} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={setPan} compact={compact} />
+            {exceedsView(visible, shown, zoom, size.w, size.h, compact) && (
+                <Minimap graph={visible} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={setPan} compact={compact} />
             )}
             {overlay}
             </div>

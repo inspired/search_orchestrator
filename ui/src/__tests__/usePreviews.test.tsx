@@ -746,9 +746,9 @@ describe('previewSummary', () => {
         expect(previewSummary({ ...base, state: 'failed', error: 'Bad SPL\nsecond line' } as PreviewView)).toEqual({ error: 'Bad SPL\nsecond line' });
         expect(previewSummary({ ...base, state: 'failed' } as PreviewView)).toEqual({ error: 'The preview failed.' });
     });
-    test('nothing for out of date, skipped or missing previews', () => {
+    test('out of date previews say so; nothing for skipped or missing previews', () => {
         expect(previewSummary(undefined)).toBeUndefined();
-        expect(previewSummary({ ...base, stale: true, state: 'done' } as PreviewView)).toBeUndefined();
+        expect(previewSummary({ ...base, stale: true, state: 'done' } as PreviewView)).toEqual({ stale: true });
         expect(previewSummary({ ...base, state: 'skipped' } as PreviewView)).toBeUndefined();
         expect(previewSummary({ ...base, state: 'missing' } as PreviewView)).toBeUndefined();
     });
