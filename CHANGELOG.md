@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.0 (2026-11-17)
+
+- **Example jobs:** Jobs → **Browse examples** shows ten example jobs from simple to advanced (built on `_internal`, `_audit` and `makeresults`). Open one in the builder, or **Add all examples** to save them as turned-off jobs with a schedule, owned by you.
+
 ## 1.17.0 (2026-11-17)
 
 Full SPL in conditions on lines, and a `$run.now$` token.
