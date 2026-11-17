@@ -45,6 +45,7 @@ import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 import { ArrowMarkers, DraftLine, GridDots, GuideLines, SelectionBox } from './DragFeedback';
 import useGridPref from './useGridPref';
+import useLineLabelsPref from './useLineLabelsPref';
 import useRevealNode from './useRevealNode';
 import CanvasToolbar from './CanvasToolbar';
 import useContextTrigger from './useContextTrigger';
@@ -187,6 +188,7 @@ export default function FlowCanvas({
     const svgRef = useRef<SVGSVGElement | null>(null);
     const [legendOpen, setLegendOpen] = useState(false);
     const [gridOn, toggleGrid] = useGridPref();
+    const [lineLabelsOn, toggleLineLabels] = useLineLabelsPref();
     const [ownCompact, toggleOwnCompact] = useCompactPref();
     const compact = compactProp ?? ownCompact;
     const toggleCompact = onToggleCompact ?? toggleOwnCompact;
@@ -461,6 +463,8 @@ export default function FlowCanvas({
                 legendOpen={legendOpen}
                 onToggleLegend={() => setLegendOpen((o) => !o)}
                 gridOn={gridOn}
+                lineLabelsOn={lineLabelsOn}
+                onToggleLineLabels={toggleLineLabels}
                 onToggleGrid={toggleGrid}
                 compact={compact}
                 onToggleCompact={toggleCompact}
@@ -524,10 +528,10 @@ export default function FlowCanvas({
                         spliceLink={spliceLink}
                         isSelected={isSelectedLink}
                         markerUrl={markerUrl}
-                        onSelect={selectLink}
                         onPick={pickLine}
                         lineStates={lineStates}
                         lineLabels={lineLabels}
+                        showLabels={lineLabelsOn}
                         motion={motion}
                     />
                     {gesture && gesture.kind === 'line' && cursor && (

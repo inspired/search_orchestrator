@@ -361,7 +361,7 @@ describe('BuilderPage flow', () => {
         const api = fakeApi();
         await show(<BuilderPage jobId="rollups" api={api} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
-        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByTestId('link-step:daily-success->step:weekly'));
         const menu = screen.getByRole('listbox', { name: 'Line' });
         expect(menu).toHaveFocus();
         expect(screen.queryByRole('option', { name: 'Change to Succeeds' })).toBeNull();
@@ -380,7 +380,7 @@ describe('BuilderPage flow', () => {
         const job = rollupJob({ steps: [...rollupJob().steps.slice(0, 2), { ...rollupJob().steps[2], actions: [{ hook: 'on_success', type: 'email', to: 'a@example.com' }] }] });
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
-        fireEvent.click(screen.getByTestId('line-label-step:monthly-success->action:monthly:0'));
+        fireEvent.click(screen.getByTestId('link-step:monthly-success->action:monthly:0'));
         expect(screen.queryByRole('option', { name: 'Remove line' })).toBeNull();
         expect(screen.queryByRole('option', { name: 'Insert a node' })).toBeNull();
         fireEvent.click(screen.getByRole('option', { name: 'Change to Is delayed' }));
@@ -390,7 +390,7 @@ describe('BuilderPage flow', () => {
     it('Remove line in the menu removes the line', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
-        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByTestId('link-step:daily-success->step:weekly'));
         fireEvent.click(screen.getByRole('option', { name: 'Remove line' }));
         expect(screen.queryByRole('button', { name: /^Line from Daily summary/ })).toBeNull();
     });
@@ -398,7 +398,7 @@ describe('BuilderPage flow', () => {
     it('Insert a node puts a new search on the line, says what changed, and Undo brings the line back', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
-        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByTestId('link-step:daily-success->step:weekly'));
         fireEvent.click(screen.getByRole('option', { name: 'Insert a node' }));
         const box = screen.getByRole('combobox', { name: 'Add a node' });
         // Actions can't go on a line between two steps.
@@ -424,7 +424,7 @@ describe('BuilderPage flow', () => {
         try {
             await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
             await screen.findByRole('button', { name: /^Search Daily summary/ });
-            fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+            fireEvent.click(screen.getByTestId('link-step:daily-success->step:weekly'));
             fireEvent.click(screen.getByRole('option', { name: 'Insert a node' }));
             const box = screen.getByRole('combobox', { name: 'Add a node' });
             fireEvent.change(box, { target: { value: 'search' } });
@@ -505,10 +505,10 @@ describe('BuilderPage flow', () => {
         const job = rollupJob({ steps: [...rollupJob().steps.slice(0, 2), { ...rollupJob().steps[2], actions: [{ hook: 'on_success', type: 'email', to: 'a@example.com' }] }] });
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
-        fireEvent.click(screen.getByTestId('line-label-step:monthly-success->action:monthly:0'));
+        fireEvent.click(screen.getByTestId('link-step:monthly-success->action:monthly:0'));
         fireEvent.click(screen.getByRole('option', { name: 'Change to Fails' }));
         expect(screen.getByTestId('node-action:monthly:0')).toHaveAttribute('aria-pressed', 'true');
-        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByTestId('link-step:daily-success->step:weekly'));
         fireEvent.click(screen.getByRole('option', { name: 'Change to If a condition is true' }));
         expect(screen.getByTestId('node-cond:daily>weekly')).toHaveAttribute('aria-pressed', 'true');
     });
@@ -546,7 +546,7 @@ describe('BuilderPage flow', () => {
         await screen.findByRole('button', { name: /^Search Daily summary/ });
         clickPlus('step:daily');
         fireEvent.keyDown(screen.getByRole('listbox', { name: 'When' }), { key: 'Escape' });
-        fireEvent.click(screen.getByTestId('line-label-step:daily-success->step:weekly'));
+        fireEvent.click(screen.getByTestId('link-step:daily-success->step:weekly'));
         fireEvent.keyDown(screen.getByRole('listbox', { name: 'Line' }), { key: 'Escape' });
         fireEvent.click(screen.getByRole('button', { name: 'Full screen' }));
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });

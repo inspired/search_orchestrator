@@ -1,5 +1,5 @@
 import type { JobDefinition } from '../api/types';
-import { handleOffset, tabOffset } from '../features/builder/nodeStyle';
+import { handleOffset, tabExit } from '../features/builder/nodeStyle';
 import { buildGraph } from '../features/builder/nodeModel';
 import { usedOutcomes } from '../features/builder/outcomes';
 import {
@@ -64,10 +64,10 @@ describe('linkEnds from tabs', () => {
         const to = g.nodes.find((n) => n.key === l.to)!;
         const pos = { [from.key]: { x: 10, y: 20 }, [to.key]: { x: 300, y: 40 } };
         const e = linkEnds(l, from, to, pos, ['start', 'success'])!;
-        const t = tabOffset(from.kind, 1, 2);
+        const t = tabExit(from.kind, 1, 2);
         expect(e.a).toEqual({ x: 10 + t.x, y: 20 + t.y });
         expect(e.b).toEqual({ x: 300, y: 40 + 38 });
-        expect(handleOffset(from.kind).x).toBe(t.x);
+        expect(t.x).toBe(handleOffset(from.kind).x + 2 + 18);
         expect(linkEnds(l, from, to, {}, ['success'])).toBeNull();
     });
     it('falls back to the + when the outcome has no tab', () => {
@@ -142,8 +142,8 @@ describe('compact geometry', () => {
         const by = new Map(g2.nodes.map((n) => [n.key, n] as const));
         const full = linkEnds(l, by.get(l.from)!, by.get(l.to)!, pos2, ['success'])!;
         const compact = linkEnds(l, by.get(l.from)!, by.get(l.to)!, pos2, ['success'], true)!;
-        expect(compact.a.x).toBe(140);
-        expect(full.a.x).toBe(200);
+        expect(compact.a.x).toBe(140 + 20);
+        expect(full.a.x).toBe(200 + 20);
         expect(compact.b).toEqual({ x: 300, y: 16 });
     });
 });

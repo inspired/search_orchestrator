@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.13.0. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Version 1.13.1. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -66,9 +66,9 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 
 The **Whole job** list has no "If a condition is true"; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no +: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't made.
 
-**Outcome tabs.** Every outcome a node already uses shows as a tab on its right edge, such as "✓ Succeeds" or "✗ Fails", with a ring in the outcome's colour. Its lines leave from that tab. Dragging from a tab draws another line with that outcome, without the When list. The first four tabs sit above the +, any more below it.
+**Outcome tabs.** Every outcome a node already uses shows as a small round tab on its right edge: just the symbol (✓ ✗ ∞ ▶ ⏱ ◇) in a ring in the outcome's colour. Point at a tab to see its name, such as "Succeeds" or "Fails"; screen readers read the name too. Its lines leave from that tab, and lines are coloured by outcome. Dragging from a tab draws another line with that outcome, without the When list. The first four tabs sit above the +, any more below it.
 
-**Line labels and the line menu.** Each line has a label in the middle with its outcome ("✗ Fails"); a line out of an **If…** node shows its expression, shortened. Labels hide when you zoom out below 70 %, except on the selected line. Click a label, or press `Enter` on a focused line, to select the line and open its menu:
+**Line labels and the line menu.** Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome. The **selected** line shows its label in the middle ("✗ Fails"; a line out of an **If…** node shows its expression, shortened). **Show line labels** in the toolbar draws a label on every line, and **Hide line labels** turns them off again; the choice is remembered in this browser. With labels on, they hide when you zoom out below 70 %, except on the selected line. On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing. Click a line, or press `Enter` on a focused line, to select it and open its menu:
 
 - **Change to …** gives the line another outcome. On a line to an action this changes when the action fires; it stays on the same node. "If a condition is true" turns a line between steps into an **If…** node. On the line into an **If…** node, choosing another outcome turns it back into a plain line and drops the expression. Each change is one undo step.
 - **Insert a node** (lines between two steps) opens the search box and puts the new step on the line.

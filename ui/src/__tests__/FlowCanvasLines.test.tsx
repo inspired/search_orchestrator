@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, within } from '@testing-library/react';
 import type { JobDefinition } from '../api/types';
 import FlowCanvas, { FlowCanvasProps } from '../features/builder/FlowCanvas';
 import { buildGraph } from '../features/builder/nodeModel';
@@ -75,21 +75,44 @@ function dragCentreTo(canvas: Element, key: string, to: { x: number; y: number }
 }
 
 describe('FlowCanvas line labels', () => {
-    test('each line but trigger lines carries its outcome label at zoom 1', () => {
+    beforeEach(() => window.localStorage.removeItem('so.flow.lineLabels'));
+
+    test('no line carries a label by default', () => {
         setup();
+        expect(screen.queryAllByTestId(/^line-label-/)).toHaveLength(0);
+    });
+
+    test('the selected line shows its label, and only that one', () => {
+        setup({ selected: { kind: 'link', key: AB } });
+        expect(screen.getByTestId(`line-label-${AB}`)).toHaveTextContent('✓ Succeeds');
+        expect(screen.queryByTestId(`line-label-${AF}`)).toBeNull();
+    });
+
+    test('Show line labels draws every non-trigger label, and the choice is remembered', () => {
+        setup();
+        fireEvent.click(screen.getByRole('button', { name: 'Show line labels' }));
         expect(screen.getByTestId(`line-label-${AB}`)).toHaveTextContent('✓ Succeeds');
         expect(screen.getByTestId(`line-label-${AF}`)).toHaveTextContent('✗ Fails');
         expect(screen.queryByTestId('line-label-trigger:0->step:a')).toBeNull();
+        expect(window.localStorage.getItem('so.flow.lineLabels')).toBe('1');
+        cleanup();
+        setup();
+        expect(screen.getByRole('button', { name: 'Hide line labels' })).toBeInTheDocument();
+        expect(screen.getByTestId(`line-label-${AB}`)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Hide line labels' }));
+        expect(window.localStorage.getItem('so.flow.lineLabels')).toBe('0');
+        expect(screen.queryAllByTestId(/^line-label-/)).toHaveLength(0);
     });
 
     test('the label sits at the line midpoint', () => {
-        setup();
+        setup({ selected: { kind: 'link', key: AB } });
         const m = midOf(AB);
         const text = within(screen.getByTestId(`line-label-${AB}`)).getByText('✓ Succeeds');
         expect(Number(text.getAttribute('x'))).toBeCloseTo(m.x, 0);
     });
 
-    test('labels hide below 70 % zoom except on the selected line', () => {
+    test('with labels on, they hide below 70 % zoom except on the selected line', () => {
+        window.localStorage.setItem('so.flow.lineLabels', '1');
         setup({ selected: { kind: 'link', key: AB } });
         fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
         expect(screen.getByTestId(`line-label-${AF}`)).toBeInTheDocument();
@@ -110,14 +133,28 @@ describe('FlowCanvas line labels', () => {
                 onSelect={jest.fn()}
             />
         );
+        fireEvent.click(screen.getByRole('button', { name: 'Show line labels' }));
         expect(screen.getByTestId('line-label-cond:a>b-then->step:b')).toHaveTextContent('$a.resultCount$ > 0');
     });
 
     test('clicking a label selects the line and asks for its menu', () => {
-        const { props } = setup();
+        const { props } = setup({ selected: { kind: 'link', key: AB } });
         const label = screen.getByTestId(`line-label-${AB}`);
         fireEvent.pointerDown(label);
         fireEvent.click(label);
+        expect(props.onSelect).toHaveBeenCalledWith({ kind: 'link', key: AB });
+        expect(props.onLineMenu).toHaveBeenCalledWith(AB, expect.objectContaining({ left: expect.any(Number), top: expect.any(Number) }));
+    });
+
+    test('clicking the line itself selects it and asks for its menu', () => {
+        const { props } = setup();
+        const g = screen.getByTestId(`link-${AB}`);
+        const paths = g.querySelectorAll('path');
+        const hit = paths[paths.length - 1];
+        expect(hit.getAttribute('stroke-width')).toBe('12');
+        expect(hit.getAttribute('pointer-events')).toBe('stroke');
+        fireEvent.pointerDown(hit);
+        fireEvent.click(hit);
         expect(props.onSelect).toHaveBeenCalledWith({ kind: 'link', key: AB });
         expect(props.onLineMenu).toHaveBeenCalledWith(AB, expect.objectContaining({ left: expect.any(Number), top: expect.any(Number) }));
     });

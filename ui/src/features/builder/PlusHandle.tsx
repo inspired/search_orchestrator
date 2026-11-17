@@ -1,29 +1,21 @@
-/* The + handle on the right edge of a node with outcomes, and the outcome tabs stacked above it.
+/* The + handle on the right edge of a node with outcomes, and the compact outcome tabs (a glyph in a coloured ring) stacked above it.
  * Click the + to choose "when" from a list; drag it, or a tab, to draw a line. Neither is a Tab
  * stop: the keyboard reaches the + through its node (+ or Shift+Enter). Theme tokens only. */
 import React, { useState } from 'react';
 import type { Theme } from './GraphView';
 import type { NodeKind, PortId } from './nodeModel';
 import { OUTCOME_LABEL, Outcome } from './outcomes';
-import { HANDLE_R, PORT_STYLE, handleOffset, tabOffset } from './nodeStyle';
+import { HANDLE_R, PORT_STYLE, TAB_D, handleOffset, tabOffset } from './nodeStyle';
 
-const TAB_H = 18;
-const TAB_PAD = 7;
-const CHAR_W = 6.2;
-
-/** "✓ Succeeds", "✗ Fails"; an If line's tab reads "◇ If". */
-export function tabLabel(outcome: PortId): string {
-    const { glyph } = PORT_STYLE[outcome];
-    if (outcome === 'if') {
-        return `${glyph} If`;
-    }
-    return outcome === 'then' ? `${glyph} ${PORT_STYLE.then.label}` : `${glyph} ${OUTCOME_LABEL[outcome as Outcome]}`;
+/** "Succeeds", "Fails"; an If line's tab reads "If". The tab itself shows only the glyph. */
+export function tabWord(outcome: PortId): string {
+    return outcome === 'if' ? 'If' : outcome === 'then' ? PORT_STYLE.then.label : OUTCOME_LABEL[outcome as Outcome];
 }
 
-/** A tab's box relative to the node's top-left: just outside the right edge, at `tabOffset`. */
-export function tabBox(kind: NodeKind, index: number, count: number, outcome: PortId, compact = false): { x: number; y: number; w: number; h: number } {
+/** A tab's box relative to the node's top-left: an 18 px circle just outside the right edge, at `tabOffset`. */
+export function tabBox(kind: NodeKind, index: number, count: number, _outcome?: PortId, compact = false): { x: number; y: number; w: number; h: number } {
     const o = tabOffset(kind, index, count, compact);
-    return { x: o.x + 2, y: o.y - TAB_H / 2, w: Math.round(tabLabel(outcome).length * CHAR_W + 2 * TAB_PAD), h: TAB_H };
+    return { x: o.x + 2, y: o.y - TAB_D / 2, w: TAB_D, h: TAB_D };
 }
 
 export interface PlusHandleProps {
@@ -48,14 +40,15 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
     return (
         <>
             {tabs.map((outcome, i) => {
-                const label = tabLabel(outcome);
+                const word = tabWord(outcome);
                 const box = tabBox(kind, i, tabs.length, outcome, compact);
                 const color = theme[PORT_STYLE[outcome].colorToken];
                 return (
                     <g
                         key={outcome}
                         data-testid={`${testIdPrefix}tab-${nodeKey}-${outcome}`}
-                        aria-hidden
+                        role="img"
+                        aria-label={word}
                         style={{ cursor: onTabDown ? 'crosshair' : undefined }}
                         onPointerDown={
                             onTabDown
@@ -66,18 +59,18 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, onPlusDow
                                 : undefined
                         }
                     >
-                        <rect
-                            x={box.x}
-                            y={box.y}
-                            width={box.w}
-                            height={box.h}
-                            rx={4}
-                            fill={theme.backgroundColorSection}
-                            stroke={color}
-                            strokeWidth={1.5}
-                        />
-                        <text x={box.x + TAB_PAD} y={box.y + TAB_H / 2 + 4} fontSize={11} fill={theme.contentColorDefault} fontFamily={theme.fontFamily}>
-                            {label}
+                        <title>{word}</title>
+                        <circle cx={box.x + TAB_D / 2} cy={box.y + TAB_D / 2} r={TAB_D / 2} fill={theme.backgroundColorSection} stroke={color} strokeWidth={1.5} />
+                        <text
+                            x={box.x + TAB_D / 2}
+                            y={box.y + TAB_D / 2 + 4}
+                            textAnchor="middle"
+                            fontSize={11}
+                            fill={theme.contentColorDefault}
+                            fontFamily={theme.fontFamily}
+                            pointerEvents="none"
+                        >
+                            {PORT_STYLE[outcome].glyph}
                         </text>
                     </g>
                 );

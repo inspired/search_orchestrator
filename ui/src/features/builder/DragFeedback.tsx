@@ -4,7 +4,7 @@ import React from 'react';
 import type { Pos } from './graphLogic';
 import type { Theme } from './GraphView';
 import type { FlowNode, PortId } from './nodeModel';
-import { handleOffset, tabOffset } from './nodeStyle';
+import { handleOffset, tabExit } from './nodeStyle';
 import { linkPath } from './flowCanvasGeometry';
 import type { Guide } from './align';
 
@@ -25,7 +25,7 @@ export function DraftLine({ node, at, tabs, outcome, to, theme, compact = false 
         return null;
     }
     const i = outcome ? tabs.indexOf(outcome) : -1;
-    const o = i >= 0 ? tabOffset(node.kind, i, tabs.length, compact) : handleOffset(node.kind, compact);
+    const o = i >= 0 ? tabExit(node.kind, i, tabs.length, compact) : handleOffset(node.kind, compact);
     return (
         <path
             data-testid="link-draft"

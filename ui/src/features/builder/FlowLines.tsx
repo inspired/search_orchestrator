@@ -59,15 +59,16 @@ export interface FlowLinesProps {
     spliceLink: string | null;
     isSelected: (l: FlowLink) => boolean;
     markerUrl: (token: string) => string;
-    onSelect: (l: FlowLink) => void;
     onPick: (geo: LinkGeometry) => void;
     lineStates?: Record<string, LineState>;
     lineLabels?: Record<string, string>;
+    /** Draw every line's label (the toolbar toggle); otherwise only the selected line's, and on the run page row counts on flowing lines. */
+    showLabels?: boolean;
     /** Animate flowing lines (false with reduced motion). */
     motion: boolean;
 }
 
-export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, markerUrl, onSelect, onPick, lineStates, lineLabels, motion }: FlowLinesProps) {
+export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, markerUrl, onPick, lineStates, lineLabels, showLabels = false, motion }: FlowLinesProps) {
     const lookOf = (l: FlowLink): Look => {
         const trigger = l.kind === 'trigger' || !l.port;
         const isSel = !trigger && isSelected(l);
@@ -88,7 +89,8 @@ export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, m
     };
     return (
         <>
-            {lines.map(({ l, d }) => {
+            {lines.map((geo) => {
+                const { l, d } = geo;
                 const trigger = l.kind === 'trigger' || !l.port;
                 const look = lookOf(l);
                 return (
@@ -99,7 +101,7 @@ export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, m
                         data-line-state={lineStates ? lineStates[l.key] || 'pending' : undefined}
                         pointerEvents={trigger ? 'none' : undefined}
                         onPointerDown={trigger ? undefined : (ev) => ev.stopPropagation()}
-                        onClick={trigger ? undefined : () => onSelect(l)}
+                        onClick={trigger ? undefined : () => onPick(geo)}
                         style={{ cursor: trigger ? undefined : 'pointer' }}
                     >
                         <path
@@ -120,7 +122,8 @@ export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, m
                 const { l, mid } = geo;
                 const text = (lineLabels && lineLabels[l.key]) || flowLinkLabel(graph, l);
                 const isSel = isSelected(l);
-                if (!text || (zoom < LABEL_ZOOM && !isSel)) {
+                const wanted = isSel || showLabels || (!!(lineLabels && lineLabels[l.key]) && !!lineStates && lineStates[l.key] === 'flowing');
+                if (!text || !wanted || (zoom < LABEL_ZOOM && !isSel)) {
                     return null;
                 }
                 const look = lookOf(l);

@@ -222,10 +222,16 @@ describe('FlowCanvas', () => {
         expect(props.onConnect).toHaveBeenCalledWith('step:a', 'failure', 'step:b');
     });
 
-    test('tabs show only the outcomes in use, labelled with glyph and word', () => {
+    test('tabs show only the outcomes in use, as a glyph in a ring with the word as title and aria-label', () => {
         setup();
-        expect(screen.getByTestId('tab-step:a-success')).toHaveTextContent('✓ Succeeds');
-        expect(screen.getByTestId('tab-step:a-failure')).toHaveTextContent('✗ Fails');
+        const ok = screen.getByTestId('tab-step:a-success');
+        expect(ok.querySelector('text')).toHaveTextContent('✓');
+        expect(ok.querySelector('text')).not.toHaveTextContent('Succeeds');
+        expect(ok).toHaveAttribute('aria-label', 'Succeeds');
+        expect(ok.querySelector('title')).toHaveTextContent('Succeeds');
+        expect(ok.querySelector('circle')).toHaveAttribute('r', '9');
+        expect(screen.getByTestId('tab-step:a-failure')).toHaveTextContent('✗');
+        expect(screen.getByTestId('tab-step:a-failure')).toHaveAttribute('aria-label', 'Fails');
         expect(screen.queryByTestId('tab-step:a-always')).toBeNull();
         expect(screen.queryByTestId('tab-step:a-start')).toBeNull();
         expect(screen.queryAllByTestId(/^tab-step:b-/)).toHaveLength(0);
@@ -265,7 +271,7 @@ describe('FlowCanvas', () => {
         expect(screen.getByTestId('plus-cond:a>b')).toBeInTheDocument();
         expect(screen.queryByTestId('plus-trigger:0')).toBeNull();
         expect(screen.queryByTestId('plus-action:a:0')).toBeNull();
-        expect(screen.getByTestId('tab-step:a-if')).toHaveTextContent('◇ If');
+        expect(screen.getByTestId('tab-step:a-if')).toHaveTextContent('◇');
     });
 
     test('readOnly renders no + and does not move nodes', () => {
@@ -287,7 +293,7 @@ describe('FlowCanvas', () => {
             const key = 'step:a-success->step:b';
             const link = screen.getByTestId(`link-${key}`);
             const stroke = link.querySelector('path')!.getAttribute('stroke');
-            const tabRing = screen.getByTestId('tab-step:a-success').querySelector('rect')!.getAttribute('stroke');
+            const tabRing = screen.getByTestId('tab-step:a-success').querySelector('circle')!.getAttribute('stroke');
             expect(stroke).toBe(tabRing);
             const failure = screen.getByTestId('link-step:a-failure->action:a:0').querySelector('path')!.getAttribute('stroke');
             expect(failure).not.toBe(stroke);
@@ -320,10 +326,10 @@ describe('FlowCanvas', () => {
             setup();
             const d = screen.getByTestId('link-step:a-success->step:b').querySelector('path')!.getAttribute('d') || '';
             // step 200×76: + at y 38; tab 0 sits 13 + 11 px above it, tab 1 another 22 px up.
-            expect(d.startsWith('M450,114 ')).toBe(true);
+            expect(d.startsWith('M470,114 ')).toBe(true);
             expect(d.endsWith('550,138')).toBe(true);
             const f = screen.getByTestId('link-step:a-failure->action:a:0').querySelector('path')!.getAttribute('d') || '';
-            expect(f.startsWith('M450,92 ')).toBe(true);
+            expect(f.startsWith('M470,92 ')).toBe(true);
         });
 
         test('a data link is drawn thicker than a signal link', () => {

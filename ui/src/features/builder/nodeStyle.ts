@@ -102,6 +102,8 @@ export function hasHandle(kind: NodeKind): boolean {
 
 export const HANDLE_R = 13;
 const TAB_GAP = 22;
+/** Outcome tabs are 18 px circles, 2 px outside the node's right edge. */
+export const TAB_D = 18;
 
 /** Centre of the single + handle: right edge, vertical centre. */
 export function handleOffset(kind: NodeKind, compact = false): { x: number; y: number } {
@@ -120,6 +122,12 @@ export function tabOffset(kind: NodeKind, index: number, _count: number, compact
         return { x: o.x, y: o.y + HANDLE_R + TAB_GAP / 2 + (index - TABS_ABOVE) * TAB_GAP };
     }
     return { x: o.x, y: o.y - HANDLE_R - TAB_GAP / 2 - index * TAB_GAP };
+}
+
+/** Where a line leaves a tab: the right edge of its circle. */
+export function tabExit(kind: NodeKind, index: number, count: number, compact = false): { x: number; y: number } {
+    const o = tabOffset(kind, index, count, compact);
+    return { x: o.x + 2 + TAB_D, y: o.y };
 }
 
 /** Input handle: left centre; null for kinds that cannot be wired into. */

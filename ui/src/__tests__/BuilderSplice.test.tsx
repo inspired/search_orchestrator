@@ -59,7 +59,7 @@ describe('BuilderPage splicing an existing node', () => {
 
     it('from the keyboard: the line menu offers "Move <name> onto this line" for nodes with no lines', async () => {
         await show();
-        fireEvent.click(screen.getByTestId(`line-label-${DW}`));
+        fireEvent.click(screen.getByTestId(`link-${DW}`));
         const menu = screen.getByRole('listbox', { name: 'Line' });
         // Monthly rollup has lines, so it is not offered.
         expect(within(menu).queryByRole('option', { name: /Move Monthly rollup/ })).toBeNull();

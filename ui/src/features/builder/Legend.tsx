@@ -7,7 +7,6 @@ import { Theme } from './GraphView';
 import { CATALOG } from './nodeCatalog';
 import { FAMILY_OF, FAMILY_STYLE, Family, HANDLE_R, PORT_STYLE, shapePath } from './nodeStyle';
 import { OUTCOME_LABEL, Outcome } from './outcomes';
-import { tabLabel } from './PlusHandle';
 
 const FAMILIES = Object.keys(FAMILY_STYLE) as Family[];
 const OUTCOMES = Object.keys(OUTCOME_LABEL) as Outcome[];
@@ -78,23 +77,16 @@ export default function Legend() {
                 <span>Click + to choose what happens next, or drag it onto another node.</span>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
-                <span
-                    data-testid="legend-tab"
-                    style={{
-                        flex: 'none',
-                        border: `1.5px solid ${theme[PORT_STYLE.success.colorToken]}`,
-                        borderRadius: 4,
-                        padding: '0 6px',
-                        background: theme.backgroundColorSection,
-                        fontSize: 11,
-                    }}
-                >
-                    {tabLabel('success')}
-                </span>
-                <span>An outcome in use; drag a tab to add another line with it.</span>
+                <svg width={22} height={22} aria-hidden style={{ flex: 'none' }} data-testid="legend-tab">
+                    <circle cx={11} cy={11} r={9} fill={theme.backgroundColorSection} stroke={theme[PORT_STYLE.success.colorToken]} strokeWidth={1.5} />
+                    <text x={11} y={15} textAnchor="middle" fontSize={11} fill={theme.contentColorDefault} fontFamily={theme.fontFamily}>
+                        {PORT_STYLE.success.glyph}
+                    </text>
+                </svg>
+                <span>A small tab for each outcome in use, a glyph in a ring in the outcome's colour; point at it to see its name, and drag it to add another line with that outcome.</span>
             </div>
             <div style={{ padding: '4px 0 0', color: theme.contentColorMuted }}>
-                Each line is labelled with its outcome; click a line's label to change it, insert a node or remove the line.
+                Lines are coloured by outcome. A line's label shows on the selected line; turn on Show line labels in the toolbar to see them all. Click a line to change it, insert a node or remove it.
             </div>
         </div>
     );

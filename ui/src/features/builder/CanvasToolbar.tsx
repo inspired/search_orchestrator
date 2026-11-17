@@ -1,5 +1,5 @@
 /* The buttons above the Flow canvas: Add node, Tidy up and Group selection (when the caller handles them and the
- * job can be edited), "Follow the run" (run page, while follow is off), zoom, reset and frame, the node-type legend, the grid, Compact nodes and Full screen. "/" in the
+ * job can be edited), "Follow the run" (run page, while follow is off), zoom, reset and frame, the node-type legend, the grid, line labels, Compact nodes and Full screen. "/" in the
  * toolbar opens the node search at the view centre, as it does in the canvas. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -19,6 +19,8 @@ export interface CanvasToolbarProps {
     onToggleLegend: () => void;
     gridOn: boolean;
     onToggleGrid: () => void;
+    lineLabelsOn: boolean;
+    onToggleLineLabels: () => void;
     compact: boolean;
     onToggleCompact: () => void;
     fullScreen: boolean;
@@ -48,6 +50,7 @@ export default function CanvasToolbar(p: CanvasToolbarProps) {
             <Button appearance="subtle" label="Frame all" onClick={p.onFrame} />
             <Button appearance="subtle" label={p.legendOpen ? 'Hide node types' : 'Show node types'} onClick={p.onToggleLegend} />
             <Button appearance="subtle" label={p.gridOn ? 'Hide grid' : 'Show grid'} onClick={p.onToggleGrid} />
+            <Button appearance="subtle" label={p.lineLabelsOn ? 'Hide line labels' : 'Show line labels'} onClick={p.onToggleLineLabels} />
             <Button appearance="subtle" label={p.compact ? 'Full nodes' : 'Compact nodes'} onClick={p.onToggleCompact} />
             {p.onToggleFullScreen && <Button appearance="subtle" label={p.fullScreen ? 'Leave full screen' : 'Full screen'} onClick={p.onToggleFullScreen} />}
         </div>

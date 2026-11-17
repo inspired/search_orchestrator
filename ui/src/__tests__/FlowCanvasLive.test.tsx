@@ -83,10 +83,21 @@ describe('FlowCanvas live run', () => {
         expect(line(AC)).not.toHaveAttribute('opacity');
     });
 
-    test('row labels replace the outcome label on data lines', () => {
-        setup({ lineLabels: { [AB]: '1,204 rows →' } });
+    test('row labels show only while flowing, or with Show line labels on', () => {
+        window.localStorage.removeItem('so.flow.lineLabels');
+        setup({ lineLabels: { [AB]: '1,204 rows →' }, lineStates: { [AB]: 'fired', [AC]: 'fired' } });
+        expect(screen.queryAllByTestId(/^line-label-/)).toHaveLength(0);
+        fireEvent.click(screen.getByRole('button', { name: 'Show line labels' }));
         expect(screen.getByTestId(`line-label-${AB}`)).toHaveTextContent('1,204 rows →');
         expect(screen.getByTestId(`line-label-${AC}`)).toHaveTextContent('Fails');
+        window.localStorage.removeItem('so.flow.lineLabels');
+    });
+
+    test('a flowing data line keeps its row label with the toggle off', () => {
+        window.localStorage.removeItem('so.flow.lineLabels');
+        setup({ lineLabels: { [AB]: '1,204 rows →' }, lineStates: { [AB]: 'flowing', [AC]: 'fired' } });
+        expect(screen.getByTestId(`line-label-${AB}`)).toHaveTextContent('1,204 rows →');
+        expect(screen.queryByTestId(`line-label-${AC}`)).toBeNull();
     });
 
     test('a running node has a pulsing outline, a spinner and its timer', () => {

@@ -2,7 +2,7 @@
  * point, snapping, and the view that frames the whole graph. */
 import type { Pos, Positions } from './graphLogic';
 import type { FlowGraph, FlowLink, FlowNode, PortId } from './nodeModel';
-import { handleOffset, inputOffset, nodeSize, tabOffset } from './nodeStyle';
+import { handleOffset, inputOffset, nodeSize, tabExit } from './nodeStyle';
 import { graphBounds } from './flowLayout';
 import type { Box } from './flowLayout';
 import { usedOutcomes } from './outcomes';
@@ -52,7 +52,7 @@ export function linkEnds(
     let o = { x: s.w, y: s.h / 2 };
     if (link.port && from.kind !== 'condition') {
         const i = tabs.indexOf(link.port);
-        o = i >= 0 ? tabOffset(from.kind, i, tabs.length, compact) : handleOffset(from.kind, compact);
+        o = i >= 0 ? tabExit(from.kind, i, tabs.length, compact) : handleOffset(from.kind, compact);
     }
     const i = inputOffset(to.kind, compact) || { x: 0, y: nodeSize(to.kind, compact).h / 2 };
     return { a: { x: pa.x + o.x, y: pa.y + o.y }, b: { x: pb.x + i.x, y: pb.y + i.y } };
