@@ -128,6 +128,7 @@ function RunPage() {
                             selected={selected}
                             active={active}
                             now={now}
+                            conditions={run.conditions}
                         />
                     )}
                     {tab === 'logs' && <LogsTab attempts={detail.attempts || []} />}

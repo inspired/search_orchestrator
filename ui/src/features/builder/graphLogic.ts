@@ -3,6 +3,7 @@
 import * as dagre from '@dagrejs/dagre';
 import { outputIssue } from './outputs';
 import type { Edge, Issue, JobDefinition, RunWhen, StepDef } from '../../api/types';
+import { conditionKind, splConditionIssues } from './conditions';
 
 export interface Pos {
     x: number;
@@ -111,6 +112,7 @@ const CLIENT_CODES = [
     'cycle',
     'bad_expression',
     'bad_output',
+    'condition_writes',
 ] as const;
 type ClientCode = (typeof CLIENT_CODES)[number];
 export const CLIENT_ISSUE_CODES: ReadonlySet<string> = new Set<string>(CLIENT_CODES);
@@ -170,8 +172,10 @@ export function findIssues(job: JobDefinition): Issue[] {
         if (!missing.length && wouldCycle(edges.slice(0, i), e.from, e.to)) {
             out.push(issue('error', 'cycle', 'steps depend on each other in a loop; remove a dependency to break it'));
         }
-        if (e.condition === 'expression' && !(e.expression || '').trim()) {
+        if (e.condition === 'expression' && conditionKind(e) === 'simple' && !(e.expression || '').trim()) {
             out.push(issue('error', 'bad_expression', `dependency ${e.from}->${e.to}: empty expression`, e.to));
+        } else if (e.condition === 'expression') {
+            splConditionIssues(e).forEach((found) => out.push(issue('error', found.code, found.message, e.to)));
         }
     });
     return out;

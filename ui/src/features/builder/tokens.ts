@@ -58,6 +58,7 @@ export function availableTokens(job: JobDefinition, stepId: string | null, previ
     const run: TokenOption[] = [
         { token: '$run.id$', label: 'Run id', description: 'The id of this run.' },
         { token: '$run.scheduled_time$', label: 'Scheduled time', description: 'When this run was scheduled to start.' },
+        { token: '$run.now$', label: 'Now', description: 'The time the value is filled in (when the search starts or the action is sent), in epoch seconds.' },
         ...(job.params || []).map((p) => ({
             token: `$run.param.${p.name}$`,
             label: `Parameter ${p.name}`,

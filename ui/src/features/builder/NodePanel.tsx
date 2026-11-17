@@ -24,7 +24,11 @@ import type { PreviewView } from './usePreviews';
 export const EMPTY_HINT =
     'Select a node to edit it. Click + on a node to add what happens next, or drag from + onto another node. Press / to add a node.';
 
-const EXPRESSION_CODES = ['bad_expression', 'unknown_token'];
+const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes'];
+/** Codes that are about a line only when their message names one ("dependency a->b: ..."). */
+const LINE_CODES = ['unsafe_token_position', 'bad_edge'];
+const aboutEdge = (i: Issue, edge: { from: string; to: string }): boolean =>
+    EXPRESSION_CODES.includes(i.code) || (LINE_CODES.includes(i.code) && i.message.startsWith(`dependency ${edge.from}->${edge.to}:`));
 
 export interface NodePanelProps {
     job: JobDefinition;
@@ -70,10 +74,12 @@ export default function NodePanel(props: NodePanelProps) {
             job={job}
             from={edge.from}
             to={edge.to}
-            issues={(byStep[edge.to] || []).filter((i) => EXPRESSION_CODES.includes(i.code))}
+            issues={(byStep[edge.to] || []).filter((i) => aboutEdge(i, edge))}
             dispatch={dispatch}
             onRemoved={() => onSelect(null)}
             previewFields={previewFields}
+            scheduledTime={props.scheduledTime}
+            resolveTimeRange={props.resolveTimeRange}
         />
     );
 

@@ -9,7 +9,7 @@
  * back on. A finished run shows the final picture with no animation. */
 import React, { useEffect, useMemo, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { ActionRun, JobDefinition, StepStatus } from '../../api/types';
+import type { ActionRun, ConditionStatus, JobDefinition, StepStatus } from '../../api/types';
 import { isStepDelayed, statusIcon, statusLabel } from '../../components/StatusText';
 import { formatClock, formatElapsed } from '../../format';
 import FlowCanvas, { FlowSelection } from '../builder/FlowCanvas';
@@ -32,12 +32,16 @@ export interface RunGraphProps {
     active?: boolean;
     /** Epoch seconds (useNow), for timers and countdowns. */
     now?: number;
+    /** The run's SPL condition results, by `<from>><to>`. */
+    conditions?: Record<string, ConditionStatus | undefined>;
 }
+
+const NO_CONDITIONS: Record<string, ConditionStatus | undefined> = {};
 
 const RUNNING = ['running', 'starting'];
 const FINISHED = ['succeeded', 'failed', 'skipped'];
 
-export default function RunGraph({ definition, states, actions, onSelect, selected = null, active = false, now = Math.floor(Date.now() / 1000) }: RunGraphProps) {
+export default function RunGraph({ definition, states, actions, onSelect, selected = null, active = false, now = Math.floor(Date.now() / 1000), conditions = NO_CONDITIONS }: RunGraphProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const graph = useMemo(() => buildGraph(definition), [definition]);
     const [compact, toggleCompact] = useCompactPref();
@@ -57,7 +61,7 @@ export default function RunGraph({ definition, states, actions, onSelect, select
         [definition, states, active]
     );
     const lines = useMemo(() => {
-        const out: Record<string, LineState> = lineStates(definition, states, graph, acts);
+        const out: Record<string, LineState> = lineStates(definition, states, graph, acts, conditions);
         if (!active) {
             // The final picture: nothing flows any more.
             Object.keys(out).forEach((k) => {
@@ -65,7 +69,7 @@ export default function RunGraph({ definition, states, actions, onSelect, select
             });
         }
         return out;
-    }, [definition, states, graph, acts, active]);
+    }, [definition, states, graph, acts, active, conditions]);
     const labels = useMemo(() => rowLabels(definition, states, graph), [definition, states, graph]);
     const status = useMemo(() => {
         const out: Record<string, Detail> = {};

@@ -5,11 +5,12 @@ import styled from 'styled-components';
 import { variables } from '@splunk/themes';
 import type { Edge, StepDef } from '../../api/types';
 import { NODE_H, NODE_W, Pos, Positions } from './graphLogic';
+import { conditionKind, conditionShort } from './conditions';
 
 export type Theme = Record<string, string>;
 
 export type GraphStep = Pick<StepDef, 'id'> & Partial<Pick<StepDef, 'name' | 'type' | 'saved_search_ref' | 'output'>>;
-export type GraphEdge = Pick<Edge, 'from' | 'to'> & Partial<Pick<Edge, 'condition' | 'expression'>>;
+export type GraphEdge = Pick<Edge, 'from' | 'to'> & Partial<Pick<Edge, 'condition' | 'expression' | 'expression_kind'>>;
 
 /** A focusable node or edge: the keyboard focus ring is drawn on its box or line. */
 export const NodeGroup = styled.g`
@@ -46,6 +47,10 @@ export function conditionLabel(e: GraphEdge): string {
         case 'always':
             return 'always';
         case 'expression': {
+            if (conditionKind(e) !== 'simple') {
+                const short = conditionShort(e);
+                return short.length > 24 ? `◇ ${short.slice(0, 23)}…` : `◇ ${short}`;
+            }
             const text = (e.expression || '').trim();
             return text.length > 24 ? `if ${text.slice(0, 23)}…` : `if ${text}`;
         }

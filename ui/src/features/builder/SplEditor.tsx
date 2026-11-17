@@ -17,14 +17,17 @@ export interface SplEditorProps {
     readOnly?: boolean;
     placeholder?: string;
     rowsMin?: number;
+    /** Offer "Put each | on a new line" (default true). Off for a single expression. */
+    pipeNewline?: boolean;
 }
 
 const SplEditor = forwardRef<HTMLTextAreaElement | null, SplEditorProps>(function SplEditor(
-    { value, onChange, inputId, error, disabled, readOnly, placeholder, rowsMin = 4 },
+    { value, onChange, inputId, error, disabled, readOnly, placeholder, rowsMin = 4, pipeNewline: offerPipeNewline = true },
     ref
 ) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
-    const [pipeNewline, togglePipeNewline] = usePipeNewlinePref();
+    const [pipePref, togglePipeNewline] = usePipeNewlinePref();
+    const pipeNewline = offerPipeNewline && pipePref;
     const area = useRef<HTMLTextAreaElement | null>(null);
     const caret = useRef<number | null>(null);
     const [focused, setFocused] = useState(false);
@@ -142,9 +145,11 @@ const SplEditor = forwardRef<HTMLTextAreaElement | null, SplEditorProps>(functio
                     }}
                 />
             </div>
-            <Checkbox checked={pipeNewline} onChange={togglePipeNewline} value="pipe-newline">
-                Put each | on a new line
-            </Checkbox>
+            {offerPipeNewline && (
+                <Checkbox checked={pipePref} onChange={togglePipeNewline} value="pipe-newline">
+                    Put each | on a new line
+                </Checkbox>
+            )}
         </div>
     );
 });

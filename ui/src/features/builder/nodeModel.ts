@@ -1,6 +1,7 @@
 /* Pure node model: derives the node-editor graph from a job definition. The job definition
  * stays the only source of truth; keys below are also the keys of `layout.nodes`. */
-import type { Action, Edge, JobDefinition, StepDef } from '../../api/types';
+import type { Action, ConditionKind, Edge, JobDefinition, StepDef } from '../../api/types';
+import { conditionKind, conditionShort } from './conditions';
 import { wouldCycle } from './graphLogic';
 import { stepLabel, stepTypeLabel } from './GraphView';
 import { describeSchedule } from './schedule';
@@ -39,6 +40,8 @@ export interface FlowNode {
     trigger?: number;
     action?: { scope: ActionScope; index: number };
     edge?: { from: string; to: string };
+    /** A condition node's check (absent: simple comparison). */
+    check?: ConditionKind;
 }
 
 export interface FlowLink {
@@ -214,8 +217,12 @@ export function buildGraph(job: JobDefinition): FlowGraph {
         const to = stepKey(e.to);
         if (e.condition === 'expression') {
             const ck = condKey(e.from, e.to);
-            const expr = (e.expression || '').trim();
-            nodes.push({ key: ck, kind: 'condition', label: 'If…', detail: expr || 'Write a condition', edge: { from: e.from, to: e.to } });
+            const short = conditionShort(e);
+            const node: FlowNode = { key: ck, kind: 'condition', label: 'If…', detail: short || 'Write a condition', edge: { from: e.from, to: e.to } };
+            if (conditionKind(e) !== 'simple') {
+                node.check = conditionKind(e);
+            }
+            nodes.push(node);
             links.push({ key: `${from}-if->${ck}`, from, port: 'if', to: ck, kind: 'condition', data: false });
             links.push({ key: `${ck}-then->${to}`, from: ck, port: 'then', to, kind: 'condition', data: false });
         } else {

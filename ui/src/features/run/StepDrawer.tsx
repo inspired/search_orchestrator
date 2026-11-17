@@ -2,7 +2,8 @@
 import React from 'react';
 import Link from '@splunk/react-ui/Link';
 import { createURL } from '@splunk/splunk-utils/url';
-import type { RunDetail } from '../../api/types';
+import type { ConditionStatus, RunDetail } from '../../api/types';
+import { conditionKind } from '../builder/conditions';
 import StatusText, { isStepDelayed } from '../../components/StatusText';
 import { formatDuration, formatTime } from '../../format';
 
@@ -13,6 +14,25 @@ export function searchJobUrl(sid: string): string {
 
 export function jobInspectorUrl(sid: string): string {
     return createURL('/manager/search/job_inspector', { sid });
+}
+
+/** A line condition's result in words. */
+export function conditionText(c: ConditionStatus | undefined): string {
+    if (!c) {
+        return 'Not checked yet';
+    }
+    switch (c.state) {
+        case 'met':
+            return 'Met';
+        case 'not_met':
+            return 'Not met';
+        case 'failed':
+            return `Failed (counts as not met): ${c.error || 'unknown error'}`;
+        case 'cancelled':
+            return 'Stopped when the run ended';
+        default:
+            return 'Checking…';
+    }
 }
 
 export interface StepDrawerProps {
@@ -29,6 +49,11 @@ export default function StepDrawer({ run, stepId, now, onClose }: StepDrawerProp
         return null;
     }
     const duration = st.started_at ? formatDuration((st.ended_at ?? now) - st.started_at) : null;
+    const stepName = (id: string) => {
+        const s = (run.definition.steps || []).find((x) => x.id === id);
+        return s ? s.name || s.id : id;
+    };
+    const conditions = (run.definition.edges || []).filter((e) => e.to === stepId && e.condition === 'expression' && conditionKind(e) !== 'simple');
     return (
         <aside aria-label={`Step ${def.name || def.id}`} style={{ padding: '8px 14px 14px' }}>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -64,6 +89,25 @@ export default function StepDrawer({ run, stepId, now, onClose }: StepDrawerProp
                         <dd>{st.error}</dd>
                     </>
                 )}
+                {conditions.map((e) => {
+                    const c = (run.conditions || {})[`${e.from}>${e.to}`];
+                    return (
+                        <React.Fragment key={e.from}>
+                            <dt>{`Condition after ${stepName(e.from)}`}</dt>
+                            <dd>
+                                {conditionText(c)}
+                                {c && c.sid && (
+                                    <>
+                                        {' · '}
+                                        <Link to={searchJobUrl(c.sid)} openInNewContext>
+                                            Open in Search
+                                        </Link>
+                                    </>
+                                )}
+                            </dd>
+                        </React.Fragment>
+                    );
+                })}
                 {st.sid && (
                     <>
                         <dt>Search job</dt>

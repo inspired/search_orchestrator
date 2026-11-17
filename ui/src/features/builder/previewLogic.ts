@@ -227,7 +227,7 @@ export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewConte
             // The server names preview sids after the job id, or "new" before the first save.
             job: job.id || 'new',
             step: resolved,
-            edges: incoming.map((e) => ({ from: e.from, condition: e.condition || 'on_success', expression: e.expression })),
+            edges: incoming.map((e) => ({ from: e.from, condition: e.condition || 'on_success', expression: e.expression, expression_kind: e.expression_kind })),
             timezone: job.timezone || null,
             scheduledTime: ctx.scheduledTime,
             params,

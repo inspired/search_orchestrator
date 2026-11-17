@@ -86,11 +86,31 @@ export interface StepDef {
     output?: StepOutput;
 }
 
+/** How an expression line is checked: the small comparison language (the default when
+ * absent), an SPL `where` expression, or a search that must return a row. */
+export type ConditionKind = 'simple' | 'eval' | 'search';
+
 export interface Edge {
     from: string;
     to: string;
     condition?: 'on_success' | 'on_failure' | 'always' | 'expression';
     expression?: string;
+    expression_kind?: ConditionKind;
+    /** `search` conditions only, relative to the run's scheduled time. */
+    earliest?: string;
+    latest?: string;
+    /** Written by the server at save. */
+    hidden_search?: string;
+}
+
+/** An SPL condition's result on a run, by edge key `<from>><to>`. */
+export interface ConditionStatus {
+    state: 'starting' | 'running' | 'met' | 'not_met' | 'failed' | 'cancelled';
+    sid?: string | null;
+    error?: string | null;
+    result_count?: number | null;
+    started_at?: number | null;
+    ended_at?: number | null;
 }
 
 export interface Trigger {
@@ -215,6 +235,8 @@ export interface RunSummary {
     rerun_count: number;
     chain_depth: number;
     steps: Record<string, StepStatus>;
+    /** SPL condition results (absent before any ran). */
+    conditions?: Record<string, ConditionStatus>;
 }
 
 export interface RerunLatest {

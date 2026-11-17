@@ -50,9 +50,11 @@ export interface TokenInputProps {
     multiline?: boolean;
     rowsMin?: number;
     placeholder?: string;
+    /** Multiline only: offer "Put each | on a new line" (default true). */
+    pipeNewline?: boolean;
 }
 
-export function TokenInput({ inputId, fieldLabel, value, groups, onValue, multiline, rowsMin, placeholder }: TokenInputProps) {
+export function TokenInput({ inputId, fieldLabel, value, groups, onValue, multiline, rowsMin, placeholder, pipeNewline }: TokenInputProps) {
     const el = useRef<El | null>(null);
     const selection = useRef<Selection | null>(null);
     const pending = useRef<number | null>(null);
@@ -94,7 +96,7 @@ export function TokenInput({ inputId, fieldLabel, value, groups, onValue, multil
     return (
         <div>
             {multiline ? (
-                <SplEditor inputId={inputId} ref={setRef} value={value} rowsMin={rowsMin} placeholder={placeholder} onChange={onValue} />
+                <SplEditor inputId={inputId} ref={setRef} value={value} rowsMin={rowsMin} placeholder={placeholder} onChange={onValue} pipeNewline={pipeNewline} />
             ) : (
                 <Text inputId={inputId} inputRef={setRef} value={value} placeholder={placeholder} onChange={onChange} />
             )}

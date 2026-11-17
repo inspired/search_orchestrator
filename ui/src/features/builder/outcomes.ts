@@ -4,6 +4,7 @@ import type { JobDefinition } from '../../api/types';
 import type { FlowGraph, FlowLink, PortId } from './nodeModel';
 import { JOB_KEY, buildGraph, canConnect, nodeKindOfStep, outputPorts } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
+import { conditionKind, conditionShort } from './conditions';
 
 export type Outcome = Exclude<PortId, 'then'>;
 
@@ -75,11 +76,11 @@ export function usedOutcomes(graph: FlowGraph, key: string): PortId[] {
 function conditionText(job: JobDefinition, key: string): string {
     const m = /^cond:(.*)>(.*)$/.exec(key);
     const edge = m && (job.edges || []).find((e) => e.from === m[1] && e.to === m[2] && e.condition === 'expression');
-    const expr = ((edge && edge.expression) || '').trim();
+    const expr = edge ? conditionShort(edge) : '';
     if (!expr) {
         return OUTCOME_LABEL.if;
     }
-    return shorten(expr);
+    return edge && conditionKind(edge) !== 'simple' ? `${PORT_STYLE.if.glyph} ${shorten(expr)}` : shorten(expr);
 }
 
 const shorten = (text: string) => (text.length > MAX_EXPR ? `${text.slice(0, MAX_EXPR)}…` : text);
@@ -93,7 +94,8 @@ export function flowLinkLabel(graph: FlowGraph, link: FlowLink): string {
     }
     if (link.port === 'then') {
         const cond = graph.nodes.find((n) => n.key === link.from);
-        return shorten(((cond && cond.detail) || OUTCOME_LABEL.if).trim());
+        const text = shorten(((cond && cond.detail) || OUTCOME_LABEL.if).trim());
+        return cond && cond.check ? `${PORT_STYLE.if.glyph} ${text}` : text;
     }
     if (link.port === 'if') {
         return `${PORT_STYLE.if.glyph} If`;

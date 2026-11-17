@@ -368,6 +368,14 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                     if (next.condition !== 'expression') {
                         delete next.expression;
                     }
+                    if (next.condition !== 'expression' || !next.expression_kind || next.expression_kind === 'simple') {
+                        delete next.expression_kind; // absent means a simple comparison
+                    }
+                    if (next.condition !== 'expression' || (next.expression_kind || 'simple') !== 'search') {
+                        delete next.earliest;
+                        delete next.latest;
+                    }
+                    delete next.hidden_search;
                     return next;
                 }),
                 },

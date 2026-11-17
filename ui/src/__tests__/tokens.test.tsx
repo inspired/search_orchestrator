@@ -9,11 +9,11 @@ describe('availableTokens', () => {
         expect(titles(groups)).toEqual(['This run', 'Daily summary', 'Weekly rollup']);
     });
 
-    test('this run lists id, scheduled time and each parameter', () => {
+    test('this run lists id, scheduled time, now and each parameter', () => {
         const job = rollupJob({ params: [{ name: 'region' }] });
         const run = availableTokens(job, 'monthly', {})[0];
-        expect(run.options.map((o) => o.token)).toEqual(['$run.id$', '$run.scheduled_time$', '$run.param.region$']);
-        expect(run.options.map((o) => o.label)).toEqual(['Run id', 'Scheduled time', 'Parameter region']);
+        expect(run.options.map((o) => o.token)).toEqual(['$run.id$', '$run.scheduled_time$', '$run.now$', '$run.param.region$']);
+        expect(run.options.map((o) => o.label)).toEqual(['Run id', 'Scheduled time', 'Now', 'Parameter region']);
     });
 
     test('a step offers sid, result count and status, then first-row fields from its preview', () => {

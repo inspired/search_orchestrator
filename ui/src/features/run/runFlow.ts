@@ -1,5 +1,6 @@
 /* Pure run-flow state for the live graph: what each line, count and label shows for a run's step statuses. */
-import type { Edge, JobDefinition, StepStatus } from '../../api/types';
+import type { ConditionStatus, Edge, JobDefinition, StepStatus } from '../../api/types';
+import { conditionKind } from '../builder/conditions';
 import { stepLabel } from '../builder/GraphView';
 import { JOB_KEY, type FlowGraph, type FlowLink } from '../builder/nodeModel';
 import type { ActionState } from './actionStates';
@@ -40,12 +41,15 @@ function withTarget(base: LineState, target?: StepStatus): LineState {
     return base === 'fired' && isActive(target) ? 'flowing' : base;
 }
 
-/** The state of every line, by link key. `actions` (from actionStates) tells which action lines have fired. */
+/** The state of every line, by link key. `actions` (from actionStates) tells which action lines have fired.
+ * `conditions` (the run's SPL condition results, by `<from>><to>`): a condition being checked is
+ * pending, met fires, not met or failed won't fire. */
 export function lineStates(
-    _def: JobDefinition,
+    def: JobDefinition,
     steps: Steps,
     graph: FlowGraph,
-    actions: Record<string, ActionState> = {}
+    actions: Record<string, ActionState> = {},
+    conditions: Record<string, ConditionStatus | undefined> = {}
 ): Record<string, LineState> {
     const out: Record<string, LineState> = {};
     const started = Object.keys(steps).some((k) => steps[k]);
@@ -75,7 +79,16 @@ export function lineStates(
             const cond = l.port === 'if' ? l.to : l.from;
             const leg = { src: steps[idOf(condSource[cond] || '')], tgt: steps[idOf(condTarget[cond] || '')] };
             const finished = leg.src && (leg.src.state === 'succeeded' || leg.src.state === 'failed');
+            const edgeKey = cond.slice('cond:'.length);
+            const edge = (def.edges || []).find((e) => `${e.from}>${e.to}` === edgeKey);
+            const spl = !!edge && conditionKind(edge) !== 'simple';
+            const result = conditions[edgeKey];
             if (notTaken(leg.tgt)) {
+                out[l.key] = 'wont';
+            } else if (spl && finished && (!result || !['met', 'not_met', 'failed'].includes(result.state))) {
+                // Being checked (or about to be); a cancelled check ends with the run.
+                out[l.key] = result && result.state === 'cancelled' ? 'wont' : 'pending';
+            } else if (spl && finished && result && result.state !== 'met') {
                 out[l.key] = 'wont';
             } else if (!finished) {
                 out[l.key] = isFinished(leg.src) ? 'wont' : 'pending';

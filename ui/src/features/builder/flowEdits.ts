@@ -134,6 +134,10 @@ export function changeLineOutcome(job: JobDefinition, linkKey: string, outcome: 
             changed.expression = '';
         } else {
             delete changed.expression;
+            delete changed.expression_kind;
+            delete changed.earliest;
+            delete changed.latest;
+            delete changed.hidden_search;
         }
         return { ...job, edges: edgeList.map((e) => (e === edge ? changed : e)) };
     }

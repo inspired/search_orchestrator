@@ -81,6 +81,10 @@ def test_search_condition_default_time_range_and_content_hash():
     two = hidden.sync(gw, cjob(expression_kind="search", expression="index=main error",
                                earliest="-1h", latest="now"), one)
     assert two["edges"][0]["hidden_search"] != one["edges"][0]["hidden_search"]
+    hidden.sync(gw, cjob(expression_kind="search", expression="index=main error",
+                         earliest="", latest=""), two)
+    assert ("index=main error", "", "") in {(v["search"], v["earliest"], v["latest"])
+                                             for v in gw.saved_searches.values()}
 
 
 def test_simple_condition_has_no_hidden_search_and_request_value_is_dropped():

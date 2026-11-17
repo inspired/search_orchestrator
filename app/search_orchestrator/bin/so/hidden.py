@@ -123,13 +123,12 @@ def condition_hash(job_id, edge, compiled_spl, earliest, latest):
 
 def condition_time_range(edge):
     """``(earliest, latest)`` a condition search is dispatched with: a ``search``
-    condition's own range (default the 24 hours before the scheduled time); an ``eval``
-    condition reads no events."""
+    condition's own range (neither set: the 24 hours before the scheduled time; both
+    empty strings: all time); an ``eval`` condition reads no events."""
     if tokens.condition_kind(edge) == "search":
-        earliest, latest = edge.get("earliest") or "", edge.get("latest") or ""
-        if not earliest and not latest:
+        if edge.get("earliest") is None and edge.get("latest") is None:
             return CONDITION_EARLIEST, CONDITION_LATEST
-        return earliest, latest
+        return edge.get("earliest") or "", edge.get("latest") or ""
     return ACTION_EARLIEST, ACTION_LATEST
 
 
