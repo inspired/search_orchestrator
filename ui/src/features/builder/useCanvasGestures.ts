@@ -8,7 +8,8 @@
  * released on the source's own + or tabs, nothing. A node with no lines dragged with its centre
  * over a line the caller allows (`canSpliceNode`) marks that line (`spliceLink`) and, dropped
  * there, is reported with `onSplice` (and where it was dropped) instead of `onMove`. Escape
- * cancels a drag. While a node, line or box is dragged near the canvas edge, a
+ * cancels a drag. A dragged node snaps to alignment guides (`guidesFor`) within 6 px, else to
+ * the 10 px grid, per axis. While a node, line or box is dragged near the canvas edge, a
  * requestAnimationFrame loop scrolls the view (`autoPanStep`) and keeps the dragged item (or the
  * box's corner) under the pointer. */
 import React, { useEffect, useRef, useState } from 'react';
@@ -17,6 +18,7 @@ import type { FlowGraph, PortId } from './nodeModel';
 import { HANDLE_R, handleOffset, nodeSize } from './nodeStyle';
 import { clampZoom, linkAt, nodeAt, snap } from './flowCanvasGeometry';
 import { autoPanStep } from './autoPan';
+import { Guide, boxOf, guidesFor } from './align';
 import { usedOutcomes } from './outcomes';
 import { tabBox } from './PlusHandle';
 import { FlowSelection, keysInBox, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
@@ -66,6 +68,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
     const [drag, setDrag] = useState<Pos | null>(null);
     const [cursor, setCursor] = useState<Pos | null>(null);
     const [spliceLink, setSpliceLink] = useState<string | null>(null);
+    /** The alignment guides to draw while a node is dragged. */
+    const [guides, setGuides] = useState<Guide[]>([]);
     const over = useRef(false);
     const pointer = useRef<{ clientX: number; clientY: number } | null>(null);
     /** The last pointer position of the current drag, kept even if the pointer leaves the canvas. */
@@ -97,6 +101,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         setDrag(null);
         setCursor(null);
         setSpliceLink(null);
+        setGuides([]);
         dragPointer.current = null;
         panned.current = { x: 0, y: 0 };
     }
@@ -203,6 +208,29 @@ export default function useCanvasGestures(opts: GestureOptions) {
         return { x: (clientX - g.startX - panned.current.x) / z, y: (clientY - g.startY - panned.current.y) / z };
     };
 
+    /** Where the dragged node goes for a raw `offset`: `shown` while dragging (snapped to a guide
+     * only), `drop` on release (snapped to a guide, else to the grid, per axis), and the guides.
+     * Guides compare the dragged node alone with the nodes that are not moving. */
+    const placed = (g: Extract<Gesture, { kind: 'node' }>, offset: Pos) => {
+        const p = positions[g.key];
+        const mine = boxOf(graph, positions, g.key);
+        if (!p || !mine) {
+            return { shown: offset, drop: offset, lines: [] as Guide[] };
+        }
+        const moving = new Set(g.group || [g.key]);
+        const others = graph.nodes.flatMap((n) => (moving.has(n.key) ? [] : [boxOf(graph, positions, n.key)])).filter((b): b is NonNullable<typeof b> => b !== null);
+        const r = guidesFor({ ...mine, x: p.x + offset.x, y: p.y + offset.y }, others);
+        const onX = r.lines.some((l) => l.axis === 'x');
+        const onY = r.lines.some((l) => l.axis === 'y');
+        const axis = (guided: boolean, d: number, from: number, off: number) => ({
+            shown: guided ? off + d : off,
+            drop: guided ? Math.round(from + off + d) - from : snap(from + off) - from,
+        });
+        const x = axis(onX, r.dx, p.x, offset.x);
+        const y = axis(onY, r.dy, p.y, offset.y);
+        return { shown: { x: x.shown, y: y.shown }, drop: { x: x.drop, y: y.drop }, lines: r.lines };
+    };
+
     /** The line a lineless node dragged by `offset` would be spliced into, if the caller allows;
      * never for a multi-selection. */
     const spliceTarget = (g: Extract<Gesture, { kind: 'node' }>, offset: Pos): string | null => {
@@ -225,7 +253,9 @@ export default function useCanvasGestures(opts: GestureOptions) {
         if (g.kind === 'node') {
             if (canMove) {
                 const offset = nodeOffset(g, clientX, clientY);
-                setDrag(offset);
+                const at = placed(g, offset);
+                setDrag(at.shown);
+                setGuides(at.lines);
                 const target = spliceTarget(g, offset);
                 setSpliceLink((cur) => (cur === target ? cur : target));
             }
@@ -342,9 +372,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
                 if (into && onSplice && p) {
                     onSplice(g.key, into, { x: snap(p.x + offset.x), y: snap(p.y + offset.y) });
                 } else if (moved && canMove && p && onMove) {
-                    // The dragged node snaps to the grid; the others move as far as it did.
-                    const dx = snap(p.x + offset.x) - p.x;
-                    const dy = snap(p.y + offset.y) - p.y;
+                    // The dragged node snaps to a guide or the grid; the others move as far as it did.
+                    const { x: dx, y: dy } = placed(g, offset).drop;
                     const out: Record<string, Pos> = {};
                     (g.group || [g.key]).forEach((k) => {
                         if (positions[k]) {
@@ -379,7 +408,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
     };
 
     return {
-        pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, over, pointer,
+        pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, guides, over, pointer,
         toCanvas, toScreen, plusScreen, startPan, startNode, startLine, endGesture, onPointerMove, onPointerUp,
     };
 }

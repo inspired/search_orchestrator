@@ -12,6 +12,8 @@ import type { JobDefinition } from '../../api/types';
 import type { FlowSelection, ScreenPoint } from './FlowCanvas';
 import { canInsert, parseCond } from './flowEdits';
 import type { Pos, Positions } from './graphLogic';
+import { ALIGN_LABEL, DISTRIBUTE_LABEL, DISTRIBUTE_REASON } from './align';
+import type { AlignHow, Arrange } from './align';
 import CanvasMenu from './CanvasMenu';
 import type { MenuItem } from './CanvasMenu';
 import type { ContextTarget } from './useContextTrigger';
@@ -56,7 +58,9 @@ type Menu =
     /** With `to`, choosing connects to it; otherwise the node search follows. */
     | { kind: 'when'; from: string; to?: string; at?: Pos; screen: ScreenPoint }
     | { kind: 'line'; link: string; screen: ScreenPoint }
-    | { kind: 'context'; target: Exclude<ContextTarget, { kind: 'link' }>; screen: ScreenPoint };
+    | { kind: 'context'; target: Exclude<ContextTarget, { kind: 'link' }>; screen: ScreenPoint }
+    /** The second list behind "Align…" or "Distribute…" on a multi-selection. */
+    | { kind: 'arrange'; mode: 'align' | 'distribute'; keys: string[]; screen: ScreenPoint };
 
 /** What the right-click menu's items do; the page supplies these. */
 export interface ContextActions {
@@ -67,6 +71,8 @@ export interface ContextActions {
     paste: (at: Pos) => void;
     /** With keys, tidies only those nodes. */
     tidy: (keys?: string[]) => void;
+    /** Align or distribute nodes (one undo step). */
+    arrange: (keys: string[], how: Arrange) => void;
     requestRemove: (key: string) => void;
     requestRemoveNodes: (keys: string[]) => void;
     /** Absent when previews are off (no edit rights). */
@@ -256,11 +262,15 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
                 items: [
                     { id: 'duplicate', label: 'Duplicate' },
                     { id: 'copy', label: 'Copy' },
+                    { id: 'align', label: 'Align…' },
+                    { id: 'distribute', label: 'Distribute…', disabled: target.keys.length < 3, reason: target.keys.length < 3 ? DISTRIBUTE_REASON : undefined },
                     { id: 'tidy', label: 'Tidy up selection' },
                     { id: 'remove', label: 'Remove nodes' },
                 ],
-                run: (id) =>
-                    leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
+                run: (id, screen) =>
+                    id === 'align' || id === 'distribute'
+                        ? setMenu({ kind: 'arrange', mode: id, keys: target.keys, screen })
+                        : leave({ duplicate: context.duplicate, copy: context.copy, tidy: () => context.tidy(target.keys), remove: () => context.requestRemoveNodes(target.keys) }[id] || (() => undefined))(),
             };
         }
         const node = graph.nodes.find((n) => n.key === target.key);
@@ -391,6 +401,27 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         const { label, items, run } = contextItems(menu.target);
         overlay = (
             <CanvasMenu open at={clampInto(menu.screen, LINE_MENU_W, items.length * ROW_H + 8, canvas())} label={label} items={items} onChoose={(id) => run(id, menu.screen)} onClose={finish} />
+        );
+    }
+
+    if (menu && menu.kind === 'arrange') {
+        const { mode, keys } = menu;
+        const ids: Arrange[] = mode === 'align' ? (Object.keys(ALIGN_LABEL) as AlignHow[]) : ['spread-x', 'spread-y'];
+        const label = (id: Arrange) => (id === 'spread-x' || id === 'spread-y' ? DISTRIBUTE_LABEL[id] : ALIGN_LABEL[id]);
+        const tooFew = mode === 'distribute' && keys.length < 3;
+        const items: MenuItem[] = ids.map((id) => ({ id, label: label(id), disabled: tooFew, reason: tooFew ? DISTRIBUTE_REASON : undefined }));
+        overlay = (
+            <CanvasMenu
+                open
+                at={clampInto(menu.screen, LINE_MENU_W, items.length * ROW_H + 8, canvas())}
+                label={mode === 'align' ? 'Align' : 'Distribute'}
+                items={items}
+                onChoose={(id) => {
+                    finish();
+                    context.arrange(keys, id as Arrange);
+                }}
+                onClose={finish}
+            />
         );
     }
 

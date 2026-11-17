@@ -37,6 +37,7 @@ import useClipboard from './useClipboard';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
 import usePreviews, { PreviewApi, previewNote } from './usePreviews';
+import { arrange as arrangeNodes, Arrange } from './align';
 import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
@@ -356,6 +357,13 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
         return () => window.clearTimeout(timer);
     }, [renaming]);
 
+    /** Align or distribute nodes: one `moveNodes`, so one undo step. */
+    const arrange = (keys: string[], how: Arrange) => {
+        const moved = arrangeNodes(graph, positions, keys, how);
+        if (Object.keys(moved).length) {
+            dispatch({ type: 'moveNodes', positions: { ...positions, ...moved } });
+        }
+    };
     const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: (text) => menus.notify(text) });
     const menus = useFlowMenus({
         job,
@@ -377,6 +385,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             copy: clipboard.onCopy,
             paste: clipboard.onPaste,
             tidy: (keys) => dispatch({ type: 'tidyLayout', keys }),
+            arrange,
             requestRemove,
             requestRemoveNodes: picked.requestRemoveNodes,
             preview: meta.canEdit ? (id) => previews.preview(id) : undefined,
@@ -483,6 +492,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onSelect={setSelected}
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
+                    onArrange={arrange}
                     onOpenSettings={() => setActiveTab('settings')}
                     destinations={destinations}
                     alertActions={alertActions}

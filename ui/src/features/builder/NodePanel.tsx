@@ -14,6 +14,7 @@ import JobNodePanel from './JobNodePanel';
 import { FlowGraph, JOB_KEY, stepKey } from './nodeModel';
 import type { BuilderAction } from './reducer';
 import type { NextSlots } from './ScheduleEditor';
+import type { Arrange } from './align';
 import SelectionPanel from './SelectionPanel';
 import StepPanel from './StepPanel';
 import { availableTokens } from './tokens';
@@ -37,6 +38,8 @@ export interface NodePanelProps {
     onRequestRemove: (key: string) => void;
     /** The same for several nodes at once. */
     onRequestRemoveNodes?: (keys: string[]) => void;
+    /** Align or distribute several nodes (one undo step). */
+    onArrange?: (keys: string[], how: Arrange) => void;
     onOpenSettings: () => void;
     destinations: Destination[];
     alertActions: AlertAction[] | null;
@@ -75,6 +78,7 @@ export default function NodePanel(props: NodePanelProps) {
             <SelectionPanel
                 keys={selection.keys}
                 onTidy={(keys) => dispatch({ type: 'tidyLayout', keys })}
+                onArrange={props.onArrange}
                 onRequestRemove={(keys) => props.onRequestRemoveNodes && props.onRequestRemoveNodes(keys)}
             />
         );

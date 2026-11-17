@@ -93,8 +93,32 @@ describe('BuilderPage right-click menu', () => {
         shiftClick('step:daily');
         shiftClick('step:weekly');
         fireEvent.contextMenu(screen.getByTestId('node-step:weekly'), { clientX: 300, clientY: 200 });
-        expect(names()).toEqual(['Duplicate', 'Copy', 'Tidy up selection', 'Remove nodes']);
+        expect(names()).toEqual(['Duplicate', 'Copy', 'Align…', 'Distribute…Select three or more nodes', 'Tidy up selection', 'Remove nodes']);
         expect(screen.getByRole('heading', { name: '2 nodes selected' })).toBeInTheDocument();
+    });
+
+    it('Align… opens a second list; Distribute… is dimmed for two nodes', async () => {
+        await show();
+        shiftClick('step:daily');
+        shiftClick('step:weekly');
+        fireEvent.contextMenu(screen.getByTestId('node-step:weekly'), { clientX: 300, clientY: 200 });
+        expect(screen.getByRole('menuitem', { name: /Distribute…/ })).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Align…' }));
+        expect(names()).toEqual(['Align left', 'Align centres', 'Align right', 'Align top', 'Align middles', 'Align bottom']);
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Align top' }));
+        const top = (k: string) => /translate\([-\d.]+,([-\d.]+)\)/.exec(screen.getByTestId(`node-${k}`).getAttribute('transform') || '')![1];
+        expect(top('step:daily')).toBe(top('step:weekly'));
+    });
+
+    it('the selection panel aligns too, and dims Distribute for two nodes', async () => {
+        await show();
+        shiftClick('step:daily');
+        shiftClick('step:weekly');
+        expect(screen.getByRole('button', { name: 'Distribute horizontally' })).toHaveAttribute('aria-disabled', 'true');
+        expect(screen.getByText('Select three or more nodes')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Align left' }));
+        const left = (k: string) => /translate\(([-\d.]+),/.exec(screen.getByTestId(`node-${k}`).getAttribute('transform') || '')![1];
+        expect(left('step:daily')).toBe(left('step:weekly'));
     });
 
     it('right-click on a node outside the multi-selection selects only that node', async () => {

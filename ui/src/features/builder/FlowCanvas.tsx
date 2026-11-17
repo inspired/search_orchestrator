@@ -34,7 +34,9 @@ import { bezierAt, clampZoom, frameView, linkEnds, linkPath } from './flowCanvas
 import LineLabel, { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
-import { ArrowMarkers, DraftLine, SelectionBox } from './DragFeedback';
+import { ArrowMarkers, DraftLine, GridDots, GuideLines, SelectionBox } from './DragFeedback';
+import useGridPref from './useGridPref';
+import useRevealNode from './useRevealNode';
 import CanvasToolbar from './CanvasToolbar';
 import useContextTrigger from './useContextTrigger';
 import type { ContextTarget } from './useContextTrigger';
@@ -156,13 +158,14 @@ export default function FlowCanvas({
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
     const svgRef = useRef<SVGSVGElement | null>(null);
     const [legendOpen, setLegendOpen] = useState(false);
+    const [gridOn, toggleGrid] = useGridPref();
     const [size, setSize] = useState({ w: 0, h: 0 });
 
     const canMove = !readOnly && !!onMove;
     const g = useCanvasGestures({
         svgRef, graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode,
     });
-    const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, over, pointer, toCanvas, toScreen } = g;
+    const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, guides, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
     // Outcome tabs per node, nearest the + first; conditions have only their "Then" and no tabs.
     const tabsOf = useMemo(() => {
@@ -176,29 +179,7 @@ export default function FlowCanvas({
     const many = selected && selected.kind === 'nodes' ? selected.keys : null;
     const chosen = new Set(selectedKeys(selected));
 
-    // Keep the selected node in view, for example a node just added outside the visible area.
-    useEffect(() => {
-        const svg = svgRef.current;
-        const n = selectedNode ? byKey.get(selectedNode) : undefined;
-        const p = n ? positions[n.key] : undefined;
-        if (!svg || !n || !p || !svg.clientWidth || !svg.clientHeight) {
-            return;
-        }
-        const { w, h } = nodeSize(n.kind);
-        const { pan: at, zoom: z } = view.current;
-        const margin = 20;
-        const shift = (start: number, end: number, size: number) => {
-            if (start < margin) {
-                return margin - start;
-            }
-            return end > size - margin ? Math.max(margin - start, size - margin - end) : 0;
-        };
-        const dx = shift(p.x * z + at.x, (p.x + w) * z + at.x, svg.clientWidth);
-        const dy = shift(p.y * z + at.y, (p.y + h + 20) * z + at.y, svg.clientHeight);
-        if (dx || dy) {
-            setPan({ x: at.x + dx, y: at.y + dy });
-        }
-    }, [selectedNode, positions, byKey]);
+    useRevealNode(svgRef, selectedNode ? byKey.get(selectedNode) : undefined, positions, view, setPan);
 
     // Track the visible canvas size for the minimap: after every render, and when the window resizes.
     const measure = () => {
@@ -418,6 +399,8 @@ export default function FlowCanvas({
                 onFrame={frameAll}
                 legendOpen={legendOpen}
                 onToggleLegend={() => setLegendOpen((o) => !o)}
+                gridOn={gridOn}
+                onToggleGrid={toggleGrid}
                 fullScreen={fullScreen}
                 onToggleFullScreen={onToggleFullScreen}
             />
@@ -454,6 +437,7 @@ export default function FlowCanvas({
             >
                 <ArrowMarkers uid={uid} tokens={MARKER_TOKENS} theme={theme} />
                 <g data-view="true" transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+                    {gridOn && <GridDots uid={uid} pan={pan} zoom={zoom} width={size.w} height={size.h} theme={theme} />}
                     {linkGeometry.map(({ l, d }) => {
                         const trigger = l.kind === 'trigger' || !l.port;
                         const isSel = !trigger && isSelectedLink(l);
@@ -581,6 +565,7 @@ export default function FlowCanvas({
                                 <path d={d} fill="none" stroke="none" />
                             </NodeGroup>
                         ))}
+                    {guides.length > 0 && <GuideLines guides={guides} theme={theme} />}
                     {gesture && gesture.kind === 'box' && gesture.moved && cursor && <SelectionBox from={gesture.start} to={cursor} theme={theme} />}
                 </g>
             </svg>

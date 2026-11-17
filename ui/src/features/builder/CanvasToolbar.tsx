@@ -1,5 +1,5 @@
 /* The buttons above the Flow canvas: Add node and Tidy up (when the caller handles them and the
- * job can be edited), zoom, reset and frame, the node-type legend and Full screen. "/" in the
+ * job can be edited), zoom, reset and frame, the node-type legend, the grid and Full screen. "/" in the
  * toolbar opens the node search at the view centre, as it does in the canvas. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -14,6 +14,8 @@ export interface CanvasToolbarProps {
     onFrame: () => void;
     legendOpen: boolean;
     onToggleLegend: () => void;
+    gridOn: boolean;
+    onToggleGrid: () => void;
     fullScreen: boolean;
     onToggleFullScreen?: () => void;
 }
@@ -36,6 +38,7 @@ export default function CanvasToolbar(p: CanvasToolbarProps) {
             <Button appearance="subtle" label="Reset view" onClick={p.onReset} />
             <Button appearance="subtle" label="Frame all" onClick={p.onFrame} />
             <Button appearance="subtle" label={p.legendOpen ? 'Hide node types' : 'Show node types'} onClick={p.onToggleLegend} />
+            <Button appearance="subtle" label={p.gridOn ? 'Hide grid' : 'Show grid'} onClick={p.onToggleGrid} />
             {p.onToggleFullScreen && <Button appearance="subtle" label={p.fullScreen ? 'Leave full screen' : 'Full screen'} onClick={p.onToggleFullScreen} />}
         </div>
     );
