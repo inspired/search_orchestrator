@@ -2,7 +2,6 @@
  * node) that fixes each item. Not a step bar: items can be done in any order. */
 import React from 'react';
 import Button from '@splunk/react-ui/Button';
-import List from '@splunk/react-ui/List';
 import ScreenReaderContent from '@splunk/react-ui/ScreenReaderContent';
 import Typography from '@splunk/react-ui/Typography';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
@@ -28,11 +27,11 @@ export default function SetupChecklist({ items, onGo, onHide }: SetupChecklistPr
                 Set up this job
             </Typography>
             <Typography as="p" variant="body" style={{ color: theme.contentColorMuted }}>{`${count} of ${items.length} done`}</Typography>
-            <List>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                 {items.map((item) => {
                     const Icon = item.done ? CheckCircle : Circle;
                     return (
-                        <List.Item key={item.key}>
+                        <li key={item.key} style={{ listStyle: 'none' }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Icon aria-hidden style={{ color: item.done ? theme.statusColorSuccess : theme.contentColorMuted }} />
                                 <ScreenReaderContent>{item.done ? 'Done' : 'Not done'}</ScreenReaderContent>
@@ -42,10 +41,10 @@ export default function SetupChecklist({ items, onGo, onHide }: SetupChecklistPr
                                         aria-label={`Go to ${TAB_LABELS[item.tab]}: ${item.label}`} onClick={() => onGo(item)} />
                                 )}
                             </span>
-                        </List.Item>
+                        </li>
                     );
                 })}
-            </List>
+            </ul>
             {onHide && requiredDone && <Button appearance="subtle" label="Hide checklist" onClick={onHide} />}
         </section>
     );

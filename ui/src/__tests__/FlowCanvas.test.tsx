@@ -1,3 +1,4 @@
+import { wheelZoomFactor } from '../features/builder/useCanvasGestures';
 import React from 'react';
 import { fireEvent, screen } from '@testing-library/react';
 import type { Issue, JobDefinition } from '../api/types';
@@ -556,6 +557,25 @@ describe('FlowCanvas', () => {
             const { canvas, view } = setup();
             fireEvent.wheel(canvas, { deltaY: -100 });
             expect(view().getAttribute('transform')).toBe('translate(0,0) scale(1.1)');
+        });
+
+        test('a small wheel step zooms a little; a huge one is capped at 10 %', () => {
+            const { canvas, view } = setup();
+            fireEvent.wheel(canvas, { deltaY: -10 });
+            const scale = () => Number(/scale\(([\d.]+)\)/.exec(view().getAttribute('transform') || '')![1]);
+            expect(scale()).toBeCloseTo(1.0151, 4);
+            fireEvent.wheel(canvas, { deltaY: 5000 });
+            expect(scale()).toBeCloseTo(1.0151 / 1.1, 3);
+        });
+
+        test('wheelZoomFactor is proportional, normalises lines and pages, and is clamped', () => {
+            expect(wheelZoomFactor(0)).toBe(1);
+            expect(wheelZoomFactor(-20)).toBeCloseTo(Math.exp(0.03), 6);
+            expect(wheelZoomFactor(20)).toBeCloseTo(Math.exp(-0.03), 6);
+            expect(wheelZoomFactor(-2, 1)).toBeCloseTo(wheelZoomFactor(-32), 6);
+            expect(wheelZoomFactor(-1, 2, 500)).toBeCloseTo(1.1, 6);
+            expect(wheelZoomFactor(-1000)).toBeCloseTo(1.1, 6);
+            expect(wheelZoomFactor(1000)).toBeCloseTo(1 / 1.1, 6);
         });
 
         test('canvas points account for pan and zoom', () => {

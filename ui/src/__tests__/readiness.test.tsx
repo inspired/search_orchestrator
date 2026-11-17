@@ -166,4 +166,52 @@ describe('BuilderPage checklist', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Hide checklist' }));
         expect(screen.queryByText(/of 5 done/)).toBeNull();
     });
+
+    it('Hide checklist is remembered per job, and Show checklist brings it back', async () => {
+        window.localStorage.clear();
+        const { unmount } = renderThemed(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Hide checklist' }));
+        expect(screen.queryByText(/of 5 done/)).toBeNull();
+        expect(window.localStorage.getItem('so.checklist.hidden.rollups')).toBe('1');
+        unmount();
+        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        expect(screen.queryByText(/of 5 done/)).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Show checklist' }));
+        expect(screen.getByText('4 of 5 done')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Show checklist' })).toBeNull();
+        expect(window.localStorage.getItem('so.checklist.hidden.rollups')).toBeNull();
+    });
+
+    it('another job is not hidden', async () => {
+        window.localStorage.setItem('so.checklist.hidden.other', '1');
+        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        expect(screen.getByText('4 of 5 done')).toBeInTheDocument();
+        window.localStorage.clear();
+    });
+
+    it('works when localStorage throws', async () => {
+        const spy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new Error('blocked');
+        });
+        const set = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('blocked');
+        });
+        await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Hide checklist' }));
+        expect(screen.getByRole('button', { name: 'Show checklist' })).toBeInTheDocument();
+        spy.mockRestore();
+        set.mockRestore();
+    });
+});
+
+describe('SetupChecklist list', () => {
+    it('has no list markers', () => {
+        renderThemed(<SetupChecklist items={readiness(blankJob())} onGo={jest.fn()} />);
+        const list = screen.getByRole('list');
+        expect(list.style.listStyle).toBe('none');
+        screen.getAllByRole('listitem').forEach((li) => expect((li as HTMLElement).style.listStyle).toBe('none'));
+    });
 });

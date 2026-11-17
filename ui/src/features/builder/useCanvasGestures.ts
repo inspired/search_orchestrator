@@ -26,6 +26,15 @@ import { tabBox } from './PlusHandle';
 import { Group, MIN_GROUP, membersOf } from './groups';
 import { FlowSelection, keysInBox, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 
+const WHEEL_K = 0.0015;
+const LINE_PX = 16;
+
+/** The zoom factor for one wheel event: proportional to the scroll, at most 10 % either way. */
+export function wheelZoomFactor(deltaY: number, deltaMode = 0, pageHeight = 800): number {
+    const px = deltaMode === 1 ? deltaY * LINE_PX : deltaMode === 2 ? deltaY * pageHeight : deltaY;
+    return Math.min(1.1, Math.max(1 / 1.1, Math.exp(-px * WHEEL_K)));
+}
+
 export type ScreenPoint = { left: number; top: number };
 
 /** Below this many pixels of movement a press is a click. */
@@ -107,7 +116,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
         const onWheel = (ev: WheelEvent) => {
             ev.preventDefault();
             userView.current?.();
-            setZoom((z) => clampZoom(z * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)));
+            const factor = wheelZoomFactor(ev.deltaY, ev.deltaMode, svg.clientHeight || 800);
+            setZoom((z) => clampZoom(z * factor));
         };
         svg.addEventListener('wheel', onWheel, { passive: false });
         return () => svg.removeEventListener('wheel', onWheel);

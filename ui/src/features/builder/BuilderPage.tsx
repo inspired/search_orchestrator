@@ -28,6 +28,7 @@ import type { PortId } from './nodeModel';
 import NodePanel from './NodePanel';
 import RemoveNodeModal from './RemoveNodeModal';
 import SetupChecklist from './SetupChecklist';
+import useChecklistHidden from './useChecklistHidden';
 import PreviewBar from './PreviewBar';
 import { previewRefusal } from './previewLogic';
 import type { PreviewContext } from './previewLogic';
@@ -104,7 +105,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const [state, dispatch] = useReducer(reducer, startJob, (j: JobDefinition | null) => initialState(j || blankJob(), blankJob()));
     const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startJob);
     const [activeTab, setActiveTab] = useState<TabId>('steps');
-    const [checklistDismissed, setChecklistDismissed] = useState(false);
+    const checklistPref = useChecklistHidden(initialId);
+    const checklistDismissed = checklistPref.hidden;
     const [fullScreen, setFullScreen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
     const [showSummary, setShowSummary] = useState(false);
@@ -198,9 +200,9 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     // Once everything is done the checklist stays away until the page reloads.
     useEffect(() => {
         if (allReady && !loading && !choosingTemplate) {
-            setChecklistDismissed(true);
+            checklistPref.hideQuietly();
         }
-    }, [allReady, loading, choosingTemplate]);
+    }, [allReady, loading, choosingTemplate]); // eslint-disable-line react-hooks/exhaustive-deps
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
     const errorIssues = errorsIn(issues);
@@ -556,7 +558,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                             onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'name', value })}
                         />
                     </ControlGroup>
-                    {!checklistDismissed && !allReady && <SetupChecklist items={checklist} onGo={goToItem} onHide={() => setChecklistDismissed(true)} />}
+                    {!allReady && (checklistDismissed ? <Button appearance="subtle" label="Show checklist" onClick={checklistPref.show} /> : <SetupChecklist items={checklist} onGo={goToItem} onHide={checklistPref.hide} />)}
                     <JobTabs
                         activeTab={activeTab}
                         onTabChange={setActiveTab}

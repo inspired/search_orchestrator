@@ -217,7 +217,7 @@ function addNodeJob(job: JobDefinition, kind: NodeKind, from?: { key: string; po
     const steps = job.steps || [];
     if (STEP_NODE_KINDS.includes(kind)) {
         const id = newStepId(steps, kind);
-        let step: StepDef = { id, name: '', type: 'inline', spl: '' };
+        let step: StepDef = { id, name: '', type: 'inline', spl: '', earliest: '-24h', latest: 'now' };
         if (kind === 'saved_search') {
             step = { id, name: '', type: 'saved_search', saved_search_ref: '' };
         } else if (kind === 'previous') {

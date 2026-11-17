@@ -444,3 +444,28 @@ describe('addNode rightOf', () => {
         expect(spot(false)?.y).toBeGreaterThan(60);
     });
 });
+
+describe('new step time range', () => {
+    const blank = () => initialState({ name: 'N', enabled: true, steps: [], edges: [] });
+    it('a new search step searches the last 24 hours', () => {
+        const s = reducer(blank(), { type: 'addNode', kind: 'search' });
+        expect(s.job.steps[0]).toMatchObject({ type: 'inline', earliest: '-24h', latest: 'now' });
+    });
+    it('an inserted search step does too', () => {
+        const withTwo = initialState({
+            name: 'N', enabled: true,
+            steps: [{ id: 'a', type: 'inline', spl: 'x' }, { id: 'b', type: 'inline', spl: 'y' }],
+            edges: [{ from: 'a', to: 'b', condition: 'on_success' }],
+        } as JobDefinition);
+        const link = buildGraph(withTwo.job).links.find((l) => l.kind === 'edge');
+        const s = reducer(withTwo, { type: 'insertNode', kind: 'search', link: link!.key });
+        const added = s.job.steps.find((x) => x.id !== 'a' && x.id !== 'b');
+        expect(added).toMatchObject({ earliest: '-24h', latest: 'now' });
+        expect(s.job.steps.find((x) => x.id === 'a')).not.toHaveProperty('earliest');
+    });
+    it.each(['saved_search', 'previous', 'summary_index', 'lookup'] as const)('a new %s step has no range', (kind) => {
+        const s = reducer(blank(), { type: 'addNode', kind });
+        expect(s.job.steps[0]).not.toHaveProperty('earliest');
+        expect(s.job.steps[0]).not.toHaveProperty('latest');
+    });
+});
