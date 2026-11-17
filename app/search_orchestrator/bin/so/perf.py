@@ -21,7 +21,7 @@ AUDIT_FIELDS = ("run_duration", "scan_count", "event_count", "result_count")
 
 
 def _checked(sids):
-    return [s for s in sids if isinstance(s, str) and SID_RE.match(s)]
+    return [s for s in sids if isinstance(s, str) and SID_RE.fullmatch(s)]
 
 
 def introspection_query(sids):
@@ -73,7 +73,7 @@ def performance(ctx, body, run_id):
     run = _visible_run(ctx, run_id)
     steps = {}
     for step_id, st in (run.get("steps") or {}).items():
-        sid = st.get("sid") if SID_RE.match(st.get("sid") or "") else None
+        sid = st.get("sid") if SID_RE.fullmatch(st.get("sid") or "") else None
         if sid or st.get("perf"):
             steps[step_id] = (sid, st.get("perf"))
     notes = []

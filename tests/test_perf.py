@@ -75,6 +75,17 @@ def test_sid_with_space_is_left_out_of_the_queries(w):
     assert len(queries) == 2 and all("s1" in q and "bad" not in q for q in queries)
 
 
+def test_sid_with_a_trailing_newline_is_left_out(w):
+    assert perf._checked(["s1", "s2\n", "s3\n| delete"]) == ["s1"]
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1"},
+                          "b": {"state": "succeeded", "sid": "s2\n"}})
+    handler(w)
+    status, out = get(w, run_id)
+    assert status == 200 and "b" not in out["steps"]
+    queries = [q for _, q, _, _ in w.gw.search_log]
+    assert queries and all("s2" not in q for q in queries)
+
+
 def test_more_than_50_sids_are_cut_with_a_note(w):
     run_id = run_with(w, {"s%02d" % i: {"state": "succeeded", "sid": "sid%02d" % i, "perf": PERF}
                           for i in range(51)})
