@@ -147,4 +147,13 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "| orchestrate_t1" not in "".join(read(n.split("/", 1)[1]) for n in names
                                              if n.endswith((".py", ".conf", ".html", ".meta", ".md")))
     assert "search_orchestrator_t1:/templates/run.html" in read("default/data/ui/views/run.xml")
+    # The Run health dashboard reads this copy's index and splunkd.log lines, and links here.
+    macros = read("default/macros.conf")
+    for stanza in ("orchestrator_index_t1", "orchestrator_internal_t1", "orchestrator_engine_process_t1"):
+        assert "[%s]" % stanza in macros, stanza
+    assert '"orchestrator_engine_t1.py"' in macros and '"orchestrator_rest_t1"' in macros
+    assert '"start_orchestrator_job_t1"' in macros and '"orchestratet1"' in macros
+    dash = read("default/data/ui/views/run_health.xml")
+    assert "/app/search_orchestrator_t1/run?run_id=" in dash and "/app/search_orchestrator/" not in dash
+    assert not re.search(r"`orchestrator_(index|internal|engine_process)`", dash)
     os.remove(path)

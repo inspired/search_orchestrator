@@ -331,6 +331,7 @@ class ActionRunner:
                          "scope": row["scope"], "step_id": row["step_id"],
                          "action_type": entry["type"], "action_index": entry["index"],
                          "attempts": entry["attempts"], "error": entry["error"],
+                         "preset": (entry.get("action") or {}).get("preset"),
                          "is_fallback": row["kind"] == "fallback"}, **extra), now)
 
     # -- executors ------------------------------------------------------------
@@ -392,7 +393,8 @@ class ActionRunner:
             else:
                 body = presets.render(preset or dest.get("preset") or "generic", ctx)
             parts = urlsplit(url)
-            where = {"destination": dest_name, "scheme": parts.scheme, "host": parts.hostname}
+            where = {"destination": dest_name, "scheme": parts.scheme, "host": parts.hostname,
+                     "preset": None if body_template else (preset or dest.get("preset") or "generic")}
             try:
                 status = self.gw.post_webhook(url, headers, json.dumps(body))
             except GatewayError as err:

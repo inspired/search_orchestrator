@@ -222,6 +222,22 @@ def test_only_referenced_first_row_fields_are_stored():
 
 # --- delays, failure, re-run ----------------------------------------------------
 
+def test_a_delayed_step_is_audited_once_even_without_a_delay_action():
+    # The Run health dashboard counts delays from step_delayed events.
+    w = World()
+    j = w.add_job(make_job(steps=["daily", "weekly"], edges=[("daily", "weekly")]),
+                  scripts={"daily": {"states": ["running"]}})
+    run_id = cron_run(w, j)
+    w.tick(at=T0 + 3599)
+    assert not w.audit.of("step_delayed")
+    w.tick(at=T0 + 3600)
+    for _ in range(3):
+        w.tick(advance=60)
+    events = w.audit.of("step_delayed")
+    assert [(e["run_id"], e["step_id"], e["state"]) for e in events] == [
+        (run_id, "daily", "running"), (run_id, "weekly", "waiting")]
+
+
 def test_late_daily_weekly_waits_delay_hook_once_then_starts():
     w = World()
     j = w.add_job(make_job(steps=["daily", "weekly"], edges=[("daily", "weekly")]),

@@ -2,6 +2,7 @@
 <nav search_view="search">
     <view name="jobs" default="true" />
     <view name="runs" />
+    <view name="run_health" />
     <view name="settings" />
     <view name="help" />
 </nav>

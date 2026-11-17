@@ -313,6 +313,17 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 | Paused | No new steps start; running searches carry on. |
 | Succeeded, Failed, Cancelled | Finished. |
 
+### Run health dashboard
+
+**Run health** in the navigation bar is a dashboard over the audit index for the chosen time range (last 24 hours by default) and job (**All** by default):
+
+- **Overview:** runs, succeeded, failed, held or blocked, the success rate of finished runs and the median run duration. A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
+- **Runs over time**, stacked by state: succeeded green, failed red, held and blocked amber.
+- **Runs that need attention:** failed, held and blocked runs with the last step error. Click a row to open the run.
+- **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile duration, and how many runs found the step delayed). Durations are measured to within one engine tick.
+- **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
+- **Engine health:** errors, warnings and Python tracebacks from the app's scripts in `_internal`, and how long ago the engine was last seen; that number turns red after 5 minutes. It needs read access to `_internal` and `_introspection`, which admins have.
+
 ### The run graph
 
 The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Groups are always drawn expanded here, so no step is hidden. Click a step to open its details.

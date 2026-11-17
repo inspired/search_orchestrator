@@ -123,6 +123,16 @@ The engine writes every state change as JSON to the `orchestrator` index (source
 
 Run records are pruned from KV Store after the retention period; audit events stay for the index's own retention.
 
+## Run health dashboard
+
+The **Run health** dashboard (Dashboard Studio, view `run_health`) reads only through the app's macros, so it follows a changed index name:
+
+- `orchestrator_index`: the audit index. Runs come from `run_created`, `run_state`, `run_held`, `run_dismissed` and `step_attempt`; steps from `step_dispatched`, `step_attempt` and `step_delayed`; actions from `action_done` and `action_failed` (`action_type`, and `preset` or `host` for Slack). `step_delayed` and the action `preset` field are new with this dashboard; in events written before them a delay counts only where the step had an *on delayed* action.
+- `orchestrator_internal`: the app's lines in splunkd.log (`index=_internal sourcetype=splunkd`): the engine modular input (component `ExecProcessor`), the REST handler (`PersistentScript`; its lines start with `orchestrator_rest:`), the alert action (`sendmodalert`) and the search command (`ChunkedExternProcessor`). The search command writes most of its messages to the search's own `search.log`, which isn't in `_internal`.
+- `orchestrator_engine_process`: the engine process in splunkd's resource-usage samples (`index=_introspection component=PerProcess`, every 10 seconds). With the engine's splunkd.log lines and audit events it gives **Last engine activity**, which turns red when the engine hasn't been seen for 5 minutes. An idle engine writes no log lines or audit events, so without `_introspection` access the tile can turn red while the engine is fine.
+
+Viewers need read access to the audit index, `_internal` and `_introspection` (admin and sc_admin have it). The side-by-side test copy (`scripts/package_variant.sh`) suffixes all three macros and the script names they match, so each copy's dashboard shows only its own engine.
+
 ## Step previews
 
 The job editor can run a step and show its rows. See [Previewing steps](user-guide.md#previewing-steps).

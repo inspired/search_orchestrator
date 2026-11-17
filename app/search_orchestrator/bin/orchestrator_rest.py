@@ -117,9 +117,24 @@ def respond(request, build=SplunkGateway.from_session, audit_factory=RestAudit):
     return _reply(status, payload)
 
 
+def _log_to_stderr():
+    """splunkd copies a persistent handler's stderr to splunkd.log (component
+    PersistentScript) without naming the script; the prefix names this handler there,
+    for the ``orchestrator_internal`` macro and the Run health dashboard."""
+    logger = logging.getLogger("so")
+    if not any(getattr(h, "_so_rest", False) for h in logger.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler._so_rest = True
+        handler.setLevel(logging.WARNING)
+        handler.setFormatter(logging.Formatter(
+            AUDIT_SOURCE + ": %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+
+
 class Handler(PersistentServerConnectionApplication):
     def __init__(self, command_line=None, command_arg=None):
         PersistentServerConnectionApplication.__init__(self)
+        _log_to_stderr()
 
     def handle(self, in_string):
         if isinstance(in_string, bytes):
