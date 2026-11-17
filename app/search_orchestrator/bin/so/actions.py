@@ -16,9 +16,10 @@ with its own ``state`` (``pending``, ``running``, ``done``, ``failed``),
 
 Action definitions (``job["actions"]`` and ``step["actions"]``, read from the
 run's definition snapshot): ``{"hook", "type", ...}`` with
-* ``webhook``: ``destination`` (a name), optional ``preset`` (``slack`` or
-  ``generic``) and ``body`` (a JSON template; ``{{job}}``, ``{{run_id}}``,
-  ``{{message}}`` and the other ctx names are filled in)
+* ``webhook``: ``destination`` (a name), optional ``preset`` (``slack``,
+  ``generic``, ``teams``, ``pagerduty`` or ``servicenow``), ``options`` (per preset,
+  ``presets.PRESET_OPTIONS``) and ``body`` (a JSON template; ``{{job}}``, ``{{run_id}}``,
+  ``{{message}}`` and the other ctx names are filled in; a body ignores ``options``)
 
 Templates (webhook body, email subject and message, event payload, alert
 action parameters) also take the SPL tokens ``$run.*$`` and ``$<step>.*$``
@@ -35,9 +36,11 @@ named by the action's ``hidden_search`` in the run's definition snapshot
 (content-addressed, written at job save; see ``hidden.py`` for the args contract).
 
 Webhook destinations live in ``so_settings`` document ``destinations``:
-``{"destinations": [{"name", "url_secret_ref", "headers_secret_ref", "preset"}]}``.
-The URL (and optional headers JSON) are read from the credential store and are
-never logged or audited: only scheme and host are reported.
+``{"destinations": [{"name", "url_secret_ref", "headers_secret_ref", "body_secret_ref",
+"preset"}]}``. The URL (and optional headers JSON) are read from the credential store and
+are never logged or audited: only scheme and host are reported. A PagerDuty destination's
+``body_secret_ref`` (a JSON object holding its routing key) is merged into the body at
+send time; its values are scrubbed from every error text like the URL.
 
 Retries: a failing action is retried 3 times (4 attempts) after ``state.backoff``
 seconds. A non-transient error (https rule, 4xx, unknown destination, no
@@ -128,9 +131,12 @@ def _entry(index, action):
             "error": None, "next_at": 0, "sid": None, "started_at": None}
 
 
-def _scrub(text, url):
-    """Remove a webhook URL (and its path, query and credentials) from an error text."""
+def _scrub(text, url, secrets=()):
+    """Remove a webhook URL (and its path, query and credentials) and the body secret's
+    values from an error text."""
     text = str(text)
+    for value in sorted(set(v for v in secrets if v), key=len, reverse=True):
+        text = text.replace(value, "[secret]")
     parts = urlsplit(url)
     bits = [url, parts.path if len(parts.path) > 1 else "", parts.query,
             parts.netloc.rpartition("@")[0]]
@@ -375,12 +381,24 @@ class ActionRunner:
                 return dest
         raise _Fail("unknown webhook destination %r" % (name,))
 
-    def _post(self, row, entry, dest_name, preset, body_template, ctx, now):
+    def _body_secret(self, dest):
+        """The destination's body secret (PagerDuty only) as a dict of strings, or {}."""
+        if dest.get("preset") != "pagerduty" or not dest.get("body_secret_ref"):
+            return {}
+        raw = self.gw.read_secret(dest["body_secret_ref"])
+        try:
+            extra = json.loads(raw) if raw else {}
+            return {str(k): str(v) for k, v in extra.items()}
+        except (ValueError, AttributeError):
+            raise _Fail("destination %r body secret is not a JSON object" % dest.get("name"))
+
+    def _post(self, row, entry, dest_name, preset, body_template, ctx, now, options=None):
         dest = self._destination(dest_name)
         url = self.gw.read_secret(dest.get("url_secret_ref") or "")
         if not url:
             raise _Fail("destination %r has no URL secret" % dest_name)
         headers = {"Content-Type": "application/json"}
+        secret = {}
         try:
             check_webhook_url(url)
             if dest.get("headers_secret_ref"):
@@ -397,25 +415,30 @@ class ActionRunner:
                     else body_template
                 body = presets.fill(template, ctx)
             else:
-                body = presets.render(preset or dest.get("preset") or "generic", ctx)
+                body = presets.render(preset or dest.get("preset") or "generic", ctx, options)
+            secret = self._body_secret(dest)
+            if secret and isinstance(body, dict):
+                body = dict(body, **secret)
             parts = urlsplit(url)
             where = {"destination": dest_name, "scheme": parts.scheme, "host": parts.hostname,
                      "preset": None if body_template else (preset or dest.get("preset") or "generic")}
             try:
                 status = self.gw.post_webhook(url, headers, json.dumps(body))
             except GatewayError as err:
-                raise GatewayError(_scrub(err, url), status=err.status, transient=err.transient)
+                raise GatewayError(_scrub(err, url, secret.values()), status=err.status,
+                                   transient=err.transient)
         except _Fail:
             raise
         except GatewayError as err:
-            raise _Fail(_scrub(err, url), err.transient)
+            raise _Fail(_scrub(err, url, secret.values()), err.transient)
         except Exception as err:  # e.g. http.client.InvalidURL, whose text has the URL
-            raise _Fail("bad webhook request (%s): %s" % (type(err).__name__, _scrub(err, url)))
+            raise _Fail("bad webhook request (%s): %s" % (type(err).__name__,
+                                                          _scrub(err, url, secret.values())))
         self._done(row, entry, now, http_status=status, **where)
 
     def _webhook(self, row, entry, action, ctx, now):
         self._post(row, entry, action.get("destination"), action.get("preset"),
-                   action.get("body"), ctx, now)
+                   action.get("body"), ctx, now, action.get("options"))
 
     def _fallback(self, row, entry, ctx, settings, now):
         fb = settings.get("fallback") or {}

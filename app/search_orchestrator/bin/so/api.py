@@ -49,7 +49,8 @@ import uuid
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
-from . import authz, backfill, hidden, history, model, preview, scheduler, selftest, tokens
+from . import authz, backfill, hidden, history, model, presets, preview, scheduler, selftest
+from . import tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -68,7 +69,7 @@ RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
 HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late")
-PRESETS = ("slack", "generic")
+PRESETS = tuple(presets.PRESETS)  # slack, generic, teams, pagerduty, servicenow
 # Integer settings and their upper bounds (the lower bound is 1).
 INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 1000,
                 "result_retention": 7 * 86400, "run_retention_days": 3650}
@@ -321,8 +322,9 @@ def _prepare(body, job_id, owner):
 
 
 def _destination_names(ctx):
+    """``{name: preset}`` of the webhook destinations."""
     doc = ctx.sys_gw.kv_get(SETTINGS, DESTINATIONS_KEY) or {}
-    return {d.get("name") for d in doc.get("destinations") or []}
+    return {d.get("name"): d.get("preset") for d in doc.get("destinations") or []}
 
 
 def _job_issues(ctx, job):
@@ -374,6 +376,13 @@ def _job_issues(ctx, job):
                 issues.append(_issue("error", "unknown_destination", "webhook destination %r doesn't exist; "
                                      "pick another, or ask an admin to add it in Settings"
                                      % action["destination"], step_id))
+            preset = action.get("preset") or dests.get(action["destination"]) or "generic"
+            if preset not in PRESETS:
+                issues.append(_issue("error", "bad_action", "unknown webhook format %r; choose "
+                                     "Slack, Generic, Teams, PagerDuty or ServiceNow" % preset, step_id))
+            elif not action.get("body"):  # a body template ignores options
+                issues.extend(_issue("error", "bad_action", m, step_id)
+                              for m in presets.option_issues(preset, action.get("options")))
     cycle = _chain_cycle(ctx, job)
     if cycle:
         cycle = _redact_cycle(ctx, cycle, job["id"])
@@ -907,7 +916,8 @@ def _save_destinations(ctx, dests):
 
 def _public_destination(dest):
     return {"name": dest.get("name"), "preset": dest.get("preset"), "host": dest.get("host"),
-            "has_headers": bool(dest.get("headers_secret_ref"))}
+            "has_headers": bool(dest.get("headers_secret_ref")),
+            "body_secret_set": bool(dest.get("body_secret_ref"))}
 
 
 def list_alert_actions(ctx, body):
@@ -928,22 +938,26 @@ def save_destination(ctx, body):
     if not isinstance(name, str) or not DEST_NAME_RE.fullmatch(name):
         raise ApiError(400, "bad_destination", "destination name must be 1-64 letters, digits, "
                        "_, . or -")
-    url = body.get("url")
-    if not isinstance(url, str):
-        raise ApiError(400, "bad_destination", "destination needs an https url")
-    try:
-        check_webhook_url(url)
-    except GatewayError as err:
-        raise ApiError(400, "bad_destination", str(err))
-    headers = body.get("headers", ...)
-    if headers not in (..., None) and not (isinstance(headers, dict) and all(
-            isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
-        raise ApiError(400, "bad_destination", "headers must be an object of strings")
     preset = body.get("preset") or "generic"
     if preset not in PRESETS:
         raise ApiError(400, "bad_destination", "unknown preset %r" % (preset,))
     dests = _destinations(ctx)
     old = next((d for d in dests if d.get("name") == name), {})
+    body_ref = old.get("body_secret_ref") if preset == "pagerduty" else None
+    try:
+        url = presets.destination_url(preset, body.get("url"))
+        if not isinstance(url, str):
+            raise ValueError("destination needs an https url")
+        check_webhook_url(url)
+        key = body.get("routing_key")
+        body_secret = presets.routing_key_secret(key) if preset == "pagerduty" and (
+            key is not None or not body_ref) else None
+    except (ValueError, GatewayError) as err:
+        raise ApiError(400, "bad_destination", str(err))
+    headers = body.get("headers", ...)
+    if headers not in (..., None) and not (isinstance(headers, dict) and all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
+        raise ApiError(400, "bad_destination", "headers must be an object of strings")
     url_ref = "destination_%s_url" % name
     ctx.sys_gw.write_secret(url_ref, url)
     headers_ref = old.get("headers_secret_ref")
@@ -954,8 +968,13 @@ def save_destination(ctx, body):
         if headers:
             headers_ref = "destination_%s_headers" % name
             ctx.sys_gw.write_secret(headers_ref, json.dumps(headers, sort_keys=True))
+    if old.get("body_secret_ref") and not body_ref:  # no longer PagerDuty
+        ctx.sys_gw.delete_secret(old["body_secret_ref"])
+    if body_secret:
+        body_ref = "destination_%s_body" % name
+        ctx.sys_gw.write_secret(body_ref, body_secret)
     dest = {"name": name, "url_secret_ref": url_ref, "headers_secret_ref": headers_ref,
-            "preset": preset, "host": urlsplit(url).hostname}
+            "body_secret_ref": body_ref, "preset": preset, "host": urlsplit(url).hostname}
     dests = [d for d in dests if d.get("name") != name] + [dest]
     _save_destinations(ctx, dests)
     ctx.emit({"type": "destination_saved", "destination": name, "host": dest["host"],
@@ -973,7 +992,8 @@ def delete_destination(ctx, body, name):
         raise ApiError(409, "destination_in_use", "destination %r is the fallback notification "
                        "destination; change the fallback first" % name)
     dest = next(d for d in dests if d.get("name") == name)
-    for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref")):
+    for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref"),
+                dest.get("body_secret_ref")):
         if not ref:
             continue
         try:

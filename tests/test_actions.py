@@ -657,3 +657,101 @@ def test_on_late_message_verb():
     text = presets.default_message({"job": "Daily summary", "run_id": "r1", "hook": "on_late",
                                     "scope": "job", "status": "running"})
     assert text.startswith('Job "Daily summary" is late (run r1, status running).')
+
+
+# Teams, PagerDuty and ServiceNow presets.
+
+PD_KEY = "R0UTINGKEYSECRET0123456789abcdef"
+
+
+def _pd_world(post=None):
+    """A world whose admin saved a PagerDuty destination through the API."""
+    from so import api
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "pd",
+                    "options": {"severity": "critical"}}])
+    w.gw.users = {"root": {"roles": ["admin"], "capabilities": [
+        "orchestrator_admin", "orchestrator_build", "orchestrator_run"]}}
+    w.deps = {"user_gateway": w.gw, "system_gateway": w.gw, "audit": w.audit,
+              "clock": lambda: w.t}
+    status, out = api.handle("root", "POST", "/orchestrator/destinations",
+                             {"name": "pd", "preset": "pagerduty", "routing_key": PD_KEY}, w.deps)
+    assert status == 201, out
+    if post is not None:
+        w.gw.post_webhook = post
+    return w
+
+
+def _leak_blob(w):
+    from so import api
+    status, listed = api.handle("root", "GET", "/orchestrator/destinations", None, w.deps)
+    assert status == 200
+    return json.dumps(w.rows()) + json.dumps(w.audit.events) + json.dumps(listed) \
+        + json.dumps(w.gw.kv.get("so_settings", {}))
+
+
+def test_routing_key_never_leaks():
+    w = _pd_world()
+    w.submit()
+    w.pump()
+    assert len(w.gw.webhook_log) == 1
+    sent = w.gw.webhook_log[0]
+    assert sent["url"] == "https://events.pagerduty.com/v2/enqueue"
+    body = json.loads(sent["body"])
+    assert body["routing_key"] == PD_KEY
+    assert body["event_action"] == "trigger" and body["payload"]["severity"] == "critical"
+    assert w.rows(kind="action")[0]["state"] == "done"
+    assert w.audit.of("action_done")[0]["preset"] == "pagerduty"
+    assert PD_KEY not in _leak_blob(w)
+
+
+def test_routing_key_not_echoed_by_a_failed_send():
+    from so.gateway import GatewayError
+
+    def echo(url, headers, body):
+        raise GatewayError("HTTP 400 for body %s" % body, status=400, transient=False)
+
+    w = _pd_world(echo)
+    w.submit()
+    w.pump()
+    row = w.rows(kind="action")[0]
+    assert row["state"] == "failed" and row["error"]
+    assert PD_KEY not in _leak_blob(w)
+
+
+def test_routing_key_not_echoed_by_an_unexpected_error():
+    def boom(url, headers, body):
+        raise ValueError("cannot send " + body)
+
+    w = _pd_world(boom)
+    w.submit()
+    w.pump()
+    assert w.rows(kind="action")[0]["state"] == "failed"
+    assert PD_KEY not in _leak_blob(w)
+
+
+def test_servicenow_and_teams_actions_post_their_bodies():
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "sn",
+                    "preset": "servicenow", "options": {"urgency": "1"}},
+                   {"hook": "on_failure", "type": "webhook", "destination": "ops",
+                    "preset": "teams"}])
+    doc = w.gw.kv_get("so_settings", "destinations")
+    doc["destinations"].append({"name": "sn", "url_secret_ref": "sn_url",
+                                "headers_secret_ref": None, "preset": "servicenow"})
+    w.gw.kv_update("so_settings", "destinations", doc)
+    w.gw.secrets["sn_url"] = "https://acme.service-now.com/api/now/table/incident"
+    w.submit()
+    w.pump()
+    bodies = [json.loads(h["body"]) for h in w.gw.webhook_log]
+    assert bodies[0]["urgency"] == "1" and bodies[0]["impact"] == "2"
+    assert bodies[0]["short_description"] == "Search Orchestrator: Nightly failed"
+    assert "routing_key" not in bodies[0]
+    assert bodies[1]["attachments"][0]["content"]["version"] == "1.4"
+
+
+def test_body_template_ignores_options():
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "ops",
+                    "preset": "pagerduty", "options": {"severity": "info"},
+                    "body": {"text": "{{job}}"}}])
+    w.submit()
+    w.pump()
+    assert json.loads(w.gw.webhook_log[0]["body"]) == {"text": "Nightly"}

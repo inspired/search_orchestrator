@@ -1,5 +1,6 @@
 """REST API route tests: api.handle(user, method, path, body, deps) with FakeGateway."""
 import calendar
+import json
 
 import pytest
 
@@ -493,7 +494,9 @@ def test_destination_secret_not_returned(w):
         status, out = w.call(user, "GET", "/orchestrator/destinations")
         assert status == 200
         text = repr(out)
-        assert "secret" not in text.replace("_secret_ref", "") and "tok" not in text
+        # body_secret_set is a flag (features-2 Task 19), not a secret.
+        assert "secret" not in text.replace("_secret_ref", "").replace("body_secret_set", "") \
+            and "tok" not in text
         assert [d["name"] for d in out["destinations"]] == ["ops"]
     doc = w.gw.kv_get("so_settings", "destinations")
     dest = doc["destinations"][0]
@@ -1806,3 +1809,127 @@ def test_job_level_on_late_action_and_deadline_save(w):
 def test_job_without_deadline_is_saved_without_one(w):
     assert "deadline" not in saved(w)
     assert "deadline" not in w.store.get_job("daily")
+
+
+# Teams, PagerDuty and ServiceNow presets.
+
+def _dest(w, body):
+    return w.call("root", "POST", "/orchestrator/destinations", body)
+
+
+def _webhook_issues(w, preset, options, destination="ops", job_id="daily"):
+    _dest(w, {"name": "ops", "url": "https://hooks.example.com/x"})
+    action = {"hook": "on_failure", "type": "webhook", "destination": destination,
+              "options": options}
+    if preset is not None:
+        action["preset"] = preset
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(job_id, actions=[action]))
+    return status, [i["message"] for i in (out.get("error") or {}).get("issues") or []]
+
+
+@pytest.mark.parametrize("preset,options,message", [
+    ("pagerduty", {"severity": "loud"}, "severity must be critical, error, warning or info"),
+    ("servicenow", {"urgency": "9"}, "urgency must be 1, 2 or 3"),
+    ("servicenow", {"impact": "9"}, "impact must be 1, 2 or 3"),
+    ("servicenow", {"assignment_group": "g" * 101},
+     "assignment group can be at most 100 characters"),
+    ("slack", {"severity": "info"},
+     "options only apply to Teams, PagerDuty and ServiceNow actions"),
+])
+def test_webhook_option_messages(w, preset, options, message):
+    status, messages = _webhook_issues(w, preset, options)
+    assert status == 400 and message in messages
+
+
+def test_webhook_options_use_the_destination_format(w):
+    # No preset on the action: the destination's (generic) format applies.
+    status, messages = _webhook_issues(w, None, {"severity": "info"})
+    assert status == 400
+    assert "options only apply to Teams, PagerDuty and ServiceNow actions" in messages
+
+
+def test_webhook_good_options_save(w):
+    status, _ = _webhook_issues(w, "pagerduty", {"severity": "warning"})
+    assert status == 201
+    status, _ = _webhook_issues(w, "servicenow", {"urgency": "1", "impact": "3",
+                                                  "assignment_group": "Data"}, job_id="other")
+    assert status == 201
+
+
+def test_webhook_unknown_preset_blocks_save(w):
+    status, messages = _webhook_issues(w, "fax", None)
+    assert status == 400 and messages
+
+
+@pytest.mark.parametrize("preset", ["teams", "pagerduty", "servicenow"])
+def test_destination_accepts_new_presets(w, preset):
+    body = {"name": "d", "preset": preset, "url": "https://acme.service-now.com/api/now/table/incident"}
+    if preset == "pagerduty":
+        body["routing_key"] = "k" * 32
+    status, out = _dest(w, body)
+    assert status == 201, out
+    assert out["destination"]["preset"] == preset
+    assert out["destination"]["body_secret_set"] is (preset == "pagerduty")
+
+
+def test_pagerduty_destination_defaults_url_and_stores_routing_key(w):
+    status, out = _dest(w, {"name": "pd", "preset": "pagerduty", "routing_key": "RKEY-123"})
+    assert status == 201, out
+    dest = w.gw.kv_get("so_settings", "destinations")["destinations"][0]
+    assert w.gw.read_secret(dest["url_secret_ref"]) == "https://events.pagerduty.com/v2/enqueue"
+    assert json.loads(w.gw.read_secret(dest["body_secret_ref"])) == {"routing_key": "RKEY-123"}
+    assert "routing_key" not in dest
+    assert {label for label, name in w.calls if name == "write_secret"} == {"system"}
+    listed = w.call("root", "GET", "/orchestrator/destinations")[1]
+    assert listed["destinations"][0]["body_secret_set"] is True
+    assert "RKEY-123" not in json.dumps(listed) + json.dumps(w.audit.events) + json.dumps(out)
+    # Saving again without a routing key keeps the stored one.
+    status, out = _dest(w, {"name": "pd", "preset": "pagerduty"})
+    assert status == 201 and out["destination"]["body_secret_set"] is True
+    assert json.loads(w.gw.read_secret("destination_pd_body")) == {"routing_key": "RKEY-123"}
+    # Switching to another format removes it; deleting removes every secret.
+    status, out = _dest(w, {"name": "pd", "preset": "generic", "url": "https://hooks.example.com/x"})
+    assert status == 201 and out["destination"]["body_secret_set"] is False
+    assert "destination_pd_body" not in w.gw.secrets
+    _dest(w, {"name": "pd", "preset": "pagerduty", "routing_key": "RKEY-123"})
+    assert w.call("root", "DELETE", "/orchestrator/destinations/pd")[0] == 200
+    assert w.gw.secrets == {}
+
+
+@pytest.mark.parametrize("key", [None, "", "  ", 42])
+def test_pagerduty_destination_needs_routing_key(w, key):
+    body = {"name": "pd", "preset": "pagerduty"}
+    if key is not None:
+        body["routing_key"] = key
+    status, out = _dest(w, body)
+    assert status == 400 and error(out) == "bad_destination"
+    assert out["error"]["message"] == ("Enter the routing key from the PagerDuty service's "
+                                       "Events API v2 integration")
+    assert w.gw.secrets == {}
+
+
+def test_servicenow_destination_url_rule(w):
+    status, out = _dest(w, {"name": "sn", "preset": "servicenow",
+                            "url": "https://acme.service-now.com/api/now/table/problem"})
+    assert status == 400 and out["error"]["message"] == "A ServiceNow URL ends in /api/now/table/incident"
+    assert w.gw.secrets == {}
+    status, out = _dest(w, {"name": "sn", "preset": "servicenow",
+                            "url": "https://acme.service-now.com/api/now/table/incident"})
+    assert status == 201
+
+
+def test_slack_and_generic_destinations_still_need_a_url(w):
+    for preset in ("slack", "generic", "teams"):
+        status, out = _dest(w, {"name": "x", "preset": preset})
+        assert status == 400 and error(out) == "bad_destination"
+    status, out = _dest(w, {"name": "x", "url": "https://hooks.example.com/x"})
+    assert status == 201 and out["destination"] == {
+        "name": "x", "preset": "generic", "host": "hooks.example.com", "has_headers": False,
+        "body_secret_set": False}
+
+
+def test_routing_key_ignored_for_other_formats(w):
+    status, out = _dest(w, {"name": "x", "url": "https://hooks.example.com/x",
+                            "routing_key": "NOPE"})
+    assert status == 201 and out["destination"]["body_secret_set"] is False
+    assert "NOPE" not in json.dumps(w.gw.secrets)
