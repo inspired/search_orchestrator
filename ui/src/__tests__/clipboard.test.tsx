@@ -63,7 +63,35 @@ describe('copySelection', () => {
     });
 });
 
+describe('trigger positions', () => {
+    const many: JobDefinition = {
+        ...blankJob(),
+        triggers: [{ type: 'cron', cron: '1 * * * *' }, { type: 'cron', cron: '2 * * * *' }, { type: 'cron', cron: '3 * * * *' }],
+    };
+    const at3 = { 'trigger:0': { x: 10, y: 10 }, 'trigger:1': { x: 100, y: 200 }, 'trigger:2': { x: 160, y: 260 } };
+    const into: JobDefinition = { ...blankJob(), triggers: [{ type: 'cron', cron: '9 * * * *' }] };
+    it('a lone later trigger lands at `at`', () => {
+        const clip = copySelection(many, ['trigger:1'], at3);
+        expect(clip.positions).toEqual({ 'trigger:0': { x: 100, y: 200 } });
+        const r = pasteResult(into, clip, { x: 5, y: 6 });
+        expect(r.job.layout!.nodes['trigger:1']).toEqual({ x: 5, y: 6 });
+    });
+    it('two later triggers keep their relative layout', () => {
+        const r = pasteResult(into, copySelection(many, ['trigger:1', 'trigger:2'], at3), { x: 0, y: 0 });
+        expect(r.job.layout!.nodes['trigger:1']).toEqual({ x: 0, y: 0 });
+        expect(r.job.layout!.nodes['trigger:2']).toEqual({ x: 60, y: 60 });
+    });
+});
+
 describe('parseClip', () => {
+    it('rejects steps with malformed actions or edges with bad ends', () => {
+        const base = { so_clipboard: 1, steps: [], edges: [], job_actions: [], triggers: [], positions: {} };
+        expect(parseClip(JSON.stringify({ ...base, steps: [{ id: 'a', type: 'inline', actions: 'x' }] }))).toBeNull();
+        expect(parseClip(JSON.stringify({ ...base, steps: [{ id: 'a', type: 'inline', actions: [1] }] }))).toBeNull();
+        expect(parseClip(JSON.stringify({ ...base, steps: [{ id: 'a', actions: 'x' }] }))).toBeNull();
+        expect(parseClip(JSON.stringify({ ...base, edges: [{ from: 'a', to: 1 }] }))).toBeNull();
+        expect(parseClip(JSON.stringify({ ...base, triggers: ['x'] }))).toBeNull();
+    });
     it('returns null for anything that is not a clip', () => {
         expect(parseClip('hello')).toBeNull();
         expect(parseClip('{"a":1}')).toBeNull();

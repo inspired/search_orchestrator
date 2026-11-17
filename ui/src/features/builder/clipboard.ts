@@ -62,7 +62,12 @@ export function copySelection(job: JobDefinition, keys: string[], pos: Positions
         (s.actions || []).forEach((_, i) => keep(actionKey(s.id, i)));
     });
     edges.forEach((e) => keep(condKey(e.from, e.to)));
-    triggers.forEach(({ i }) => keep(triggerKey(i)));
+    // Saved under the clip's own indexes (the nth copied trigger), as pasting maps them.
+    triggers.forEach(({ i }, n) => {
+        if (pos[triggerKey(i)]) {
+            positions[triggerKey(n)] = { x: pos[triggerKey(i)].x, y: pos[triggerKey(i)].y };
+        }
+    });
     jobActions.forEach((_, i) => keep(actionKey('job', i)));
     return { so_clipboard: 1, steps: clone(steps), edges: clone(edges), job_actions: clone(jobActions), triggers: clone(triggers.map(({ t }) => t)), positions };
 }
@@ -82,7 +87,10 @@ export function parseClip(text: string | null | undefined): Clip | null {
         return null;
     }
     const valid =
-        listOf(data.steps, (s) => isObject(s) && typeof s.id === 'string' && typeof s.type === 'string') &&
+        listOf(
+            data.steps,
+            (s) => isObject(s) && typeof s.id === 'string' && typeof s.type === 'string' && (s.actions === undefined || listOf(s.actions, isObject))
+        ) &&
         listOf(data.edges, (e) => isObject(e) && typeof e.from === 'string' && typeof e.to === 'string') &&
         listOf(data.job_actions, isObject) &&
         listOf(data.triggers, isObject);
@@ -238,4 +246,20 @@ export function clipboardShortcut(ev: React.KeyboardEvent): 'copy' | 'paste' | '
     }
     const key = ev.key.toLowerCase();
     return key === 'c' ? 'copy' : key === 'v' ? 'paste' : key === 'd' ? 'duplicate' : null;
+}
+
+/** Handles a clipboard key press on the canvas; true when it was one (and the default is stopped).
+ * Copy leaves the browser's own copy alone when nothing is selected. */
+export function runClipboardShortcut(
+    ev: React.KeyboardEvent,
+    o: { enabled: boolean; hasSelection: boolean; onCopy?: () => void; onDuplicate?: () => void; onPaste?: (at: Pos) => void; at: () => Pos }
+): boolean {
+    const what = o.enabled ? clipboardShortcut(ev) : null;
+    const run = what === 'copy' ? o.onCopy : what === 'duplicate' ? o.onDuplicate : what === 'paste' ? o.onPaste && (() => o.onPaste?.(o.at())) : undefined;
+    if (!run || (what === 'copy' && !o.hasSelection)) {
+        return false;
+    }
+    ev.preventDefault();
+    run();
+    return true;
 }

@@ -90,6 +90,13 @@ describe('BuilderPage multi-select', () => {
         await waitFor(() => expect(count()).toBe(before + 2));
     });
 
+    it('Ctrl+C with nothing selected leaves the browser copy alone', async () => {
+        await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
+        await screen.findByRole('button', { name: /^Search Weekly rollup/ });
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        expect(fireEvent.keyDown(canvas, { key: 'c', ctrlKey: true })).toBe(true);
+    });
+
     it('the clipboard shortcuts do nothing while typing in a field', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Search Weekly rollup/ });

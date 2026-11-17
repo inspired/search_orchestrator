@@ -34,7 +34,7 @@ import LineLabel, { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 import { DraftLine, SelectionBox } from './DragFeedback';
-import { clipboardShortcut } from './clipboard';
+import { runClipboardShortcut } from './clipboard';
 
 export type { FlowSelection, ScreenPoint };
 
@@ -64,7 +64,7 @@ export interface FlowCanvasProps {
     onRequestRemove?: (key: string) => void;
     /** Delete on a multi-selection: the caller confirms, then removes them all. */
     onRequestRemoveNodes?: (keys: string[]) => void;
-    /** Ctrl/Cmd+C, Ctrl/Cmd+D (duplicate the selection) and Ctrl/Cmd+V (paste at canvas point `at`). */
+    /** Ctrl/Cmd+C, D (duplicate) and V (paste at canvas point `at`). */
     onCopy?: () => void;
     onDuplicate?: () => void;
     onPaste?: (at: Pos) => void;
@@ -253,15 +253,7 @@ export default function FlowCanvas({
             onSelect(normaliseSelection(graph.nodes.map((n) => n.key).filter((k) => k !== JOB_KEY)));
             return;
         }
-        const clip = readOnly ? null : clipboardShortcut(ev);
-        const handler = clip === 'copy' ? onCopy : clip === 'duplicate' ? onDuplicate : undefined;
-        if (clip && (handler || (clip === 'paste' && onPaste))) {
-            ev.preventDefault();
-            if (handler) {
-                handler();
-            } else if (onPaste) {
-                onPaste(quickAddAt(false));
-            }
+        if (runClipboardShortcut(ev, { enabled: !readOnly, hasSelection: selectedKeys(selected).length > 0, onCopy, onDuplicate, onPaste, at: () => quickAddAt(false) })) {
             return;
         }
         if (ev.ctrlKey || ev.metaKey || ev.altKey) {
