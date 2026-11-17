@@ -144,13 +144,15 @@ class _Ctx:
 # Routing.
 
 def _routes():
-    from . import preview_api as pv  # imports this module: loaded on first use, no cycle
+    from . import history_api as hv, preview_api as pv  # these import this module: no cycle
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
         (r"jobs/(?P<job_id>[^/]+)", {"GET": get_job, "PUT": update_job, "DELETE": delete_job}),
         (r"jobs/(?P<job_id>[^/]+)/runs", {"POST": start_run}),
         (r"jobs/(?P<job_id>[^/]+)/enabled", {"POST": set_enabled}),
+        (r"jobs/(?P<job_id>[^/]+)/versions", {"GET": hv.versions}),
+        (r"jobs/(?P<job_id>[^/]+)/restore", {"POST": hv.restore}),
         (r"runs", {"GET": list_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
