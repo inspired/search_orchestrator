@@ -28,14 +28,14 @@ export function conditionShort(e: Pick<Edge, 'expression' | 'expression_kind'>):
     return kind === 'eval' ? `where ${text}` : kind === 'search' ? `search ${text}` : text;
 }
 
-/** Each `|` that starts a command, skipping double-quoted strings, 'field names', macros and
- * ``` comments; `||` is not a pipe. As model.py's _pipes. */
+/** Whether a `|` starts a command, skipping double-quoted strings, macros and ``` comments;
+ * `||` is not a pipe, and a ' is not a delimiter. As model.py's _pipes. */
 function hasPipe(spl: string): boolean {
     const n = spl.length;
     let i = 0;
     while (i < n) {
         const c = spl[i];
-        if (c === '"' || c === "'") {
+        if (c === '"') {
             i += 1;
             while (i < n && spl[i] !== c) {
                 i += spl[i] === '\\' ? 2 : 1;

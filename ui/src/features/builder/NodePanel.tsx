@@ -26,9 +26,11 @@ export const EMPTY_HINT =
 
 const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes'];
 /** Codes that are about a line only when their message names one ("dependency a->b: ..."). */
-const LINE_CODES = ['unsafe_token_position', 'bad_edge'];
-const aboutEdge = (i: Issue, edge: { from: string; to: string }): boolean =>
-    EXPRESSION_CODES.includes(i.code) || (LINE_CODES.includes(i.code) && i.message.startsWith(`dependency ${edge.from}->${edge.to}:`));
+const LINE_CODES = ['unsafe_token_position', 'bad_edge', 'duplicate_edge'];
+const aboutEdge = (i: Issue, edge: { from: string; to: string }): boolean => {
+    const named = `dependency ${edge.from}->${edge.to}`;
+    return EXPRESSION_CODES.includes(i.code) || (LINE_CODES.includes(i.code) && i.message.startsWith(named) && [':', ' '].includes(i.message[named.length]));
+};
 
 export interface NodePanelProps {
     job: JobDefinition;

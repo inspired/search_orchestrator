@@ -113,6 +113,7 @@ const CLIENT_CODES = [
     'bad_expression',
     'bad_output',
     'condition_writes',
+    'duplicate_edge',
 ] as const;
 type ClientCode = (typeof CLIENT_CODES)[number];
 export const CLIENT_ISSUE_CODES: ReadonlySet<string> = new Set<string>(CLIENT_CODES);
@@ -164,6 +165,21 @@ export function findIssues(job: JobDefinition): Issue[] {
         }
     });
     const edges = job.edges || [];
+    const pairs = new Map<string, Edge[]>();
+    edges.forEach((e) => pairs.set(`${e.from}>${e.to}`, [...(pairs.get(`${e.from}>${e.to}`) || []), e]));
+    pairs.forEach((same) => {
+        if (same.length > 1 && same.some((e) => e.condition === 'expression')) {
+            const { from, to } = same[0];
+            out.push(
+                issue(
+                    'error',
+                    'duplicate_edge',
+                    `dependency ${from}->${to} is listed more than once and has a condition; remove the extra line so only one connects these steps`,
+                    seen.has(to) ? to : null
+                )
+            );
+        }
+    });
     edges.forEach((e, i) => {
         const missing = [e.from, e.to].filter((end) => !seen.has(end));
         missing.forEach((end) => {

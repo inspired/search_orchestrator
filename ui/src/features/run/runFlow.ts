@@ -43,13 +43,15 @@ function withTarget(base: LineState, target?: StepStatus): LineState {
 
 /** The state of every line, by link key. `actions` (from actionStates) tells which action lines have fired.
  * `conditions` (the run's SPL condition results, by `<from>><to>`): a condition being checked is
- * pending, met fires, not met or failed won't fire. */
+ * pending, met fires, not met or failed won't fire. `ended`: the run is over, so a condition still
+ * unchecked never will be. */
 export function lineStates(
     def: JobDefinition,
     steps: Steps,
     graph: FlowGraph,
     actions: Record<string, ActionState> = {},
-    conditions: Record<string, ConditionStatus | undefined> = {}
+    conditions: Record<string, ConditionStatus | undefined> = {},
+    ended = false
 ): Record<string, LineState> {
     const out: Record<string, LineState> = {};
     const started = Object.keys(steps).some((k) => steps[k]);
@@ -86,8 +88,10 @@ export function lineStates(
             if (notTaken(leg.tgt)) {
                 out[l.key] = 'wont';
             } else if (spl && finished && (!result || !['met', 'not_met', 'failed'].includes(result.state))) {
-                // Being checked (or about to be); a cancelled check ends with the run.
-                out[l.key] = result && result.state === 'cancelled' ? 'wont' : 'pending';
+                // Being checked (or about to be); never again once the run ended or the target
+                // was cancelled or abandoned.
+                const over = ended || (!!result && result.state === 'cancelled') || (!!leg.tgt && ['cancelled', 'abandoned'].includes(leg.tgt.state));
+                out[l.key] = over ? 'wont' : 'pending';
             } else if (spl && finished && result && result.state !== 'met') {
                 out[l.key] = 'wont';
             } else if (!finished) {

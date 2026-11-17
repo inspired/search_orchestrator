@@ -34,8 +34,9 @@ export interface EdgePanelProps {
 const HELP: Record<ConditionKind, (from: string) => string> = {
     simple: (from) => `Checked when ${from} finishes. Compare tokens with ==, !=, >, <, and, or, not.`,
     eval: (from) =>
-        `Checked when ${from} finishes: true when | makeresults | where <this> returns a row. Any eval function works, such as now(), relative_time() or match(); now() is the run's scheduled time, $run.now$ the time it is checked.`,
-    search: (from) => `Checked when ${from} finishes: true when the search returns at least one row. It runs as the job owner and can't write data.`,
+        `Checked when ${from} finishes: true when | makeresults | where <this> returns a row. Any eval function works, such as now(), relative_time() or match(); now() is the run's scheduled time, $run.now$ the time it is checked. Result counts and times compare as numbers; wrap first-row and parameter values in tonumber() to compare them as numbers, as in tonumber($${from}.first.count$) > 5.`,
+    search: (from) =>
+        `Checked when ${from} finishes: true when the search returns at least one row (it stops at the first). It runs as the job owner and can't write data. Tokens are quoted strings; use tonumber() to compare them as numbers.`,
 };
 
 const FIELD_LABEL: Record<ConditionKind, string> = { simple: 'Expression', eval: 'SPL expression', search: 'Search' };

@@ -24,7 +24,9 @@ A condition line (an edge with `condition: "expression"`) can only use the small
 At job save, `hidden.plan` writes one content-addressed hidden saved search per SPL condition, owned by the job owner: `_so_<job>_cond_<hash8>`. The hash covers job, from, to, kind, compiled SPL, earliest and latest, so old and new versions coexist while runs use them. The name goes into the edge as `hidden_search`, is tracked in `hidden_searches`, and is kept by `hidden.used` while the job or an active run needs it.
 
 - `eval`: `| makeresults | where <compiled expression>`, dispatched with the time range `-1m`..`now` (it reads no events).
-- `search`: the compiled search with its own earliest/latest.
+- `search`: the compiled search, then `| head 1` (one row decides), with its own earliest/latest. A truncated subsearch fails the condition.
+- **Quoting (review fix):** the token scanner treats `'...'` as opaque and refuses a token inside it (eval field name, or a lone `'` in a search), so a `"` there can't make a token look quoted. This applies to step SPL too. The writing-command and pipe checks don't treat `'` as a delimiter.
+- A duplicate (from, to) pair where either line has a condition is an error (`duplicate_edge`): the result key is the pair.
 - **Tokens** compile with `tokens.compile_spl` (quoted, escaped, never raw SPL). **(builder call)** In `eval` mode the numeric tokens (`$<step>.resultCount$`, `$run.scheduled_time$`, `$run.now$`) outside a string become `tonumber("$args.x$")`, so `$daily.resultCount$ > 0` compares numbers. `search` mode follows the step rules exactly (every token is a quoted string).
 - **`now()`** in a condition is the run's scheduled time, as in steps: condition searches are dispatched with `dispatch.now` = scheduled time, so `relative_time(now(), "@d")` means the scheduled day. `$run.now$` (and SPL's `time()`) is the wall-clock time.
 

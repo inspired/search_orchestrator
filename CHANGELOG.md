@@ -9,7 +9,9 @@ Full SPL in conditions on lines, and a `$run.now$` token.
 - Saving refuses an empty SPL condition, unknown tokens, writing commands (`collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail`, `delete`), `| orchestrate`, and a `|` in an SPL expression, each with how to fix it.
 - The run graph keeps a condition's line pending while it is checked, fires it when met and greys it when not met or failed.
 - New token **`$run.now$`**: the epoch time when the value is filled in, in step searches, conditions, actions and run-when expressions. It is in every **Insert value** list.
-- In an SPL expression, `$<step>.resultCount$`, `$run.scheduled_time$` and `$run.now$` go in as numbers (`tonumber("…")`); every other token is a quoted string, as in steps.
+- In an SPL expression, `$<step>.resultCount$`, `$run.scheduled_time$` and `$run.now$` go in as numbers (`tonumber("…")`); every other token is a quoted string, as in steps, so wrap first-row and parameter values in `tonumber()` to compare numbers. A search condition runs as `<search> | head 1`; a truncated subsearch fails it.
+- Two lines between the same steps can't be saved when one has a condition (`duplicate_edge`).
+- **Security:** a token after an unclosed `'` (an eval field name) is refused, in conditions and in step searches, and a `"` inside `'…'` no longer makes a token look quoted. A `'` no longer hides a writing command from the condition checks.
 
 ## 1.16.1 (2026-11-17)
 

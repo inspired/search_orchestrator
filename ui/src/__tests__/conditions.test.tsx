@@ -170,3 +170,34 @@ test('the step drawer shows its conditions', () => {
     expect(screen.getByText('Condition after a')).toBeInTheDocument();
     expect(screen.getByText(/Failed \(counts as not met\): condition search s1 failed: boom/)).toBeInTheDocument();
 });
+
+describe('review fixes', () => {
+    test("a ' does not hide a pipe or a writing command", () => {
+        const codes = (j: JobDefinition) => findIssues(j).map((i) => i.code);
+        expect(codes(job({ expression_kind: 'eval', expression: "'a|b'=1" }))).toEqual(['bad_expression']);
+        expect(codes(job({ expression_kind: 'search', expression: "index=main O'Brien | collect index=x" }))).toEqual(['condition_writes']);
+    });
+    test('a duplicate step pair with a condition is an error', () => {
+        const j = job({ expression_kind: 'eval', expression: '1=1' });
+        j.edges!.push({ from: 'a', to: 'b', condition: 'on_success' });
+        const found = findIssues(j).filter((i) => i.code === 'duplicate_edge');
+        expect(found).toHaveLength(1);
+        expect(found[0].message).toBe('dependency a->b is listed more than once and has a condition; remove the extra line so only one connects these steps');
+        expect(found[0].step).toBe('b');
+        j.edges = [
+            { from: 'a', to: 'b' },
+            { from: 'a', to: 'b' },
+        ];
+        expect(findIssues(j).map((i) => i.code)).not.toContain('duplicate_edge');
+    });
+    test('an unchecked SPL condition will not fire once the run ended or the target was cancelled', () => {
+        const def = job({ expression_kind: 'eval', expression: '1=1' });
+        const g = buildGraph(def);
+        const thenKey = `${condKey('a', 'b')}-then->step:b`;
+        const a: StepStatus = { state: 'succeeded' };
+        expect(lineStates(def, { a, b: { state: 'waiting' } }, g, {}, {})[thenKey]).toBe('pending');
+        expect(lineStates(def, { a, b: { state: 'waiting' } }, g, {}, {}, true)[thenKey]).toBe('wont');
+        expect(lineStates(def, { a, b: { state: 'cancelled' } }, g, {}, {})[thenKey]).toBe('wont');
+        expect(lineStates(def, { a, b: { state: 'abandoned' } }, g, {}, { 'a>b': { state: 'running' } })[thenKey]).toBe('wont');
+    });
+});

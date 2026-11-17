@@ -61,7 +61,7 @@ export default function RunGraph({ definition, states, actions, onSelect, select
         [definition, states, active]
     );
     const lines = useMemo(() => {
-        const out: Record<string, LineState> = lineStates(definition, states, graph, acts, conditions);
+        const out: Record<string, LineState> = lineStates(definition, states, graph, acts, conditions, !active);
         if (!active) {
             // The final picture: nothing flows any more.
             Object.keys(out).forEach((k) => {

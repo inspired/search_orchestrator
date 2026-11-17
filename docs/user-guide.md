@@ -213,9 +213,12 @@ How SPL conditions run:
 - **When the line's source finishes** (succeeds or fails), the condition search runs **as the job owner**, like a step, through a hidden saved search (`_so_<job>_cond_<hash>`) written when you save the job. The next step stays *Waiting* meanwhile. A source that was skipped never runs it: the line is not taken.
 - **Once per run.** The result is kept on the run. **Re-run from a step** checks the conditions into the steps it resets again.
 - **Time.** `now()` and the time range are relative to the run's **scheduled time**, as in steps, so `relative_time(now(), "@d")` is the scheduled day. `$run.now$` (and SPL's `time()`) is the clock time when the condition is checked. **Search returns results** has a **Time range** (default **The 24 hours before**); **All time** searches everything.
-- **Tokens** go in as quoted strings, as in steps. In an SPL expression, the number tokens (`$<step>.resultCount$`, `$run.scheduled_time$`, `$run.now$`) go in as numbers, so `$daily.resultCount$ > 0` compares numbers; in a search, wrap them in `tonumber()` inside `| where` or `| eval`.
+- **Tokens** go in as quoted strings, as in steps. In an SPL expression, the number tokens (`$<step>.resultCount$`, `$run.scheduled_time$`, `$run.now$`) go in as numbers, so `$daily.resultCount$ > 0` compares numbers. **First-row and parameter values stay strings**: wrap them in `tonumber()` to compare them as numbers, as in `tonumber($daily.first.count$) > 5`. In a search, every token is a string; use `tonumber()` inside `| where` or `| eval`.
+- **Single quotes.** A token can't follow an unclosed `'`: in an SPL expression `'...'` is a field name, so write `'my field' > $daily.resultCount$`, not `'$daily.first.f$'`. The same rule applies to a step's search. Put text with an apostrophe in double quotes (`"O'Brien"`).
+- **One row decides.** A search condition runs as `<your search> | head 1`, so it stops at the first matching row.
+- **One line per pair of steps.** A condition's result is kept per pair, so two lines between the same steps, one of them with a condition, can't be saved; remove the extra line.
 - **A condition only reads.** It can't use `collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail`, `delete` or `| orchestrate`; saving says so. An SPL expression can't contain `|` outside quotes; use **Search returns results** for a full search.
-- **A condition that fails counts as not met.** That covers a search error, a token with no value, and a search still running after **300 seconds** (it is stopped). The step after it is skipped, the run page's step details show the error, and the audit index gets `condition_failed`. Every result is audited as `condition_evaluated`.
+- **A condition that fails counts as not met.** That covers a search error, a token with no value, a subsearch cut short, and a search still running after **300 seconds** (it is stopped). The step after it is skipped, the run page's step details show the error, and the audit index gets `condition_failed`. Every result is audited as `condition_evaluated`.
 - **Limits.** A condition search counts toward the running-search limits, like a step. Previews never run conditions: a preview treats an SPL condition as met.
 
 The SPL field has the same colours and **Insert value** as a step's search. **Put each | on a new line** is offered for **Search returns results** only.
@@ -415,7 +418,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false) and `condition_failed` (with `error`). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 
