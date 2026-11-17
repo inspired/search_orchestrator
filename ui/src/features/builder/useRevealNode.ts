@@ -7,7 +7,8 @@ import { nodeSize } from './nodeStyle';
 
 const MARGIN = 20;
 
-function shift(start: number, end: number, size: number): number {
+/** How far to move a span [start, end] so it sits within 20 px of a view of `size` (0 when it does). */
+export function shift(start: number, end: number, size: number): number {
     if (start < MARGIN) {
         return MARGIN - start;
     }

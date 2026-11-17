@@ -1,5 +1,5 @@
 /* Run detail: header with controls, why-it-needs-attention banner, and tabs for the
- * timeline, graph, logs, actions and parameters. */
+ * timeline, graph (live while the run is active, under a progress strip), logs, actions and parameters. */
 import React, { useEffect, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
 import TabBar from '@splunk/react-ui/TabBar';
@@ -15,6 +15,7 @@ import {
 } from '../../api/client';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
 import RunBanner from '../../components/RunBanner';
+import useNow from '../../hooks/useNow';
 import usePoll from '../../hooks/usePoll';
 import ActionsTab from '../../features/run/ActionsTab';
 import ErrorMessage from '../../features/run/ErrorMessage';
@@ -23,6 +24,7 @@ import ParamsTab from '../../features/run/ParamsTab';
 import RerunDialog from '../../features/run/RerunDialog';
 import RunGraph from '../../features/run/RunGraph';
 import RunHeader from '../../features/run/RunHeader';
+import RunProgress from '../../features/run/RunProgress';
 import StepDrawer from '../../features/run/StepDrawer';
 import Timeline from '../../features/run/Timeline';
 import { formatDuration, formatTime } from '../../format';
@@ -39,7 +41,6 @@ function RunPage() {
     const [rerunOpen, setRerunOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [actionError, setActionError] = useState<Error | null>(null);
-    const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
     useEffect(() => {
         getMe()
@@ -51,7 +52,8 @@ function RunPage() {
     const run = detail && detail.run;
     const active = Boolean(run && ACTIVE.includes(run.state));
     useEffect(() => setFast(active), [active]);
-    useEffect(() => setNow(Math.floor(Date.now() / 1000)), [detail]);
+    // One client clock for every timer and countdown: ticks each second while the run is active.
+    const now = useNow(active, detail);
 
     const control = async (fn: (id: string) => Promise<unknown>) => {
         setBusy(true);
@@ -115,12 +117,17 @@ function RunPage() {
                         <Timeline run={run} now={now} selected={selected} onSelect={setSelected} />
                     )}
                     {tab === 'graph' && (
+                        <RunProgress run={run} definition={run.definition} steps={run.steps} now={now} active={active} />
+                    )}
+                    {tab === 'graph' && (
                         <RunGraph
                             definition={run.definition}
                             states={run.steps}
                             actions={detail.actions || []}
                             onSelect={setSelected}
                             selected={selected}
+                            active={active}
+                            now={now}
                         />
                     )}
                     {tab === 'logs' && <LogsTab attempts={detail.attempts || []} />}

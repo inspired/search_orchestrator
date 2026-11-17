@@ -65,6 +65,8 @@ export interface GestureOptions {
     memberGraph?: FlowGraph;
     onGroupMove?: (id: string, dx: number, dy: number, members: string[]) => void;
     onGroupResize?: (id: string, size: { w: number; h: number }) => void;
+    /** The user panned (dragged the background) or zoomed with the wheel. */
+    onUserView?: () => void;
 }
 
 const movedFar = (dx: number, dy: number) => Math.max(Math.abs(dx), Math.abs(dy)) >= CLICK_SLOP;
@@ -93,6 +95,8 @@ export default function useCanvasGestures(opts: GestureOptions) {
     view.current = { pan, zoom };
     const live = useRef<Gesture | null>(null);
     live.current = gesture;
+    const userView = useRef(opts.onUserView);
+    userView.current = opts.onUserView;
 
     // Wheel zoom needs a non-passive listener so the page does not scroll as well.
     useEffect(() => {
@@ -102,6 +106,7 @@ export default function useCanvasGestures(opts: GestureOptions) {
         }
         const onWheel = (ev: WheelEvent) => {
             ev.preventDefault();
+            userView.current?.();
             setZoom((z) => clampZoom(z * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)));
         };
         svg.addEventListener('wheel', onWheel, { passive: false });
@@ -323,6 +328,9 @@ export default function useCanvasGestures(opts: GestureOptions) {
             setGesture({ ...gesture, moved: true });
         }
         if (gesture.kind === 'pan') {
+            if (moved && !gesture.moved) {
+                userView.current?.();
+            }
             setPan({ x: gesture.origin.x + dx, y: gesture.origin.y + dy });
             return;
         }

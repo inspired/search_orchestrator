@@ -91,3 +91,19 @@ export function rollupRun(over: Partial<RunDetail> = {}): RunDetail {
         ...over,
     };
 }
+
+/** window.matchMedia answering `prefers-reduced-motion: reduce` with `reduce`; delete window.matchMedia to undo. */
+export function mockReducedMotion(reduce: boolean) {
+    Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: (query: string) => ({
+            matches: reduce && query.includes('prefers-reduced-motion: reduce'),
+            media: query,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+            addListener: () => undefined,
+            removeListener: () => undefined,
+        }),
+    });
+}

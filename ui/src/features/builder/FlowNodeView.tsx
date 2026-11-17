@@ -16,11 +16,16 @@ import { barFraction, previewLine, PreviewSummary } from './nodePreview';
 import { FAMILY_OF, FAMILY_STYLE, hasHandle } from './nodeStyle';
 import { NodeShape, NodeShapeProps } from './NodeShape';
 import PlusHandle from './PlusHandle';
+import RunningMark from './RunningMark';
 
 export interface Detail {
     text: string;
     icon?: React.ReactNode;
     color?: string;
+    /** A running step's timer ("0:31"), drawn by RunningMark. */
+    timer?: string;
+    /** Drawn at 0.6 opacity (a waiting or skipped step). */
+    dim?: boolean;
 }
 
 export type NodeStatus = Record<string, Detail | undefined>;
@@ -87,9 +92,12 @@ export interface FlowNodesProps {
     onHover: (key: string, on: boolean) => void;
     onNodeDown: (ev: React.PointerEvent, key: string) => void;
     onLineDown: (ev: React.PointerEvent, key: string, outcome?: PortId) => void;
+    /** Running steps (RunningMark), and whether their marks animate. */
+    running?: Set<string>;
+    motion?: boolean;
 }
 
-export function FlowNodes({ nodes, shown, look, chosen, tabsOf, theme, compact, readOnly, canMove, onHover, onNodeDown, onLineDown }: FlowNodesProps) {
+export function FlowNodes({ nodes, shown, look, chosen, tabsOf, theme, compact, readOnly, canMove, onHover, onNodeDown, onLineDown, running, motion = true }: FlowNodesProps) {
     return (
         <>
             {nodes.map((n) => {
@@ -109,6 +117,7 @@ export function FlowNodes({ nodes, shown, look, chosen, tabsOf, theme, compact, 
                         tabIndex={0}
                         aria-label={label}
                         aria-pressed={isSelected}
+                        opacity={detail && detail.dim ? 0.6 : undefined}
                         onPointerEnter={() => onHover(n.key, true)}
                         onPointerLeave={() => onHover(n.key, false)}
                         onPointerDown={(ev) => {
@@ -137,6 +146,7 @@ export function FlowNodes({ nodes, shown, look, chosen, tabsOf, theme, compact, 
                                 onTabDown={readOnly ? undefined : (ev, outcome) => onLineDown(ev, n.key, outcome)}
                             />
                         )}
+                        {running && running.has(n.key) && <RunningMark node={n} theme={theme} compact={compact} motion={motion} timer={detail ? detail.timer : undefined} />}
                     </NodeGroup>
                 );
             })}
@@ -153,10 +163,12 @@ export interface NodeOverlaysProps {
     theme: Theme;
     tabsOf: Record<string, PortId[]>;
     readOnly: boolean;
+    running?: Set<string>;
+    motion?: boolean;
 }
 
 /** Compact nodes: the full node over the hovered or selected ones, above every node. */
-export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme, tabsOf, readOnly }: NodeOverlaysProps) {
+export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme, tabsOf, readOnly, running, motion = true }: NodeOverlaysProps) {
     return (
         <>
             {nodes.map((n) => {
@@ -170,6 +182,7 @@ export function NodeOverlays({ nodes, shown, look, chosen, hovered, theme, tabsO
                     <g key={n.key} data-testid={`node-full-${n.key}`} transform={`translate(${p.x},${p.y})`} pointerEvents="none" aria-hidden>
                         <NodeShape node={n} theme={theme} selected={isSelected} stroke={detail ? detail.color : undefined} {...previewProps} />
                         {hasHandle(n.kind) && <PlusHandle nodeKey={n.key} kind={n.kind} theme={theme} tabs={tabsOf[n.key] || []} plus={!readOnly} compact testIdPrefix="overlay-" />}
+                        {running && running.has(n.key) && <RunningMark node={n} theme={theme} compact={false} motion={motion} timer={detail ? detail.timer : undefined} testIdPrefix="overlay-" />}
                     </g>
                 );
             })}

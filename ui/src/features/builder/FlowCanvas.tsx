@@ -18,13 +18,15 @@
  * node, Tidy up and Full screen when the caller handles them. Colours come from theme tokens only.
  * Groups (groups.ts, GroupFrame): drag the title bar to move one with its nodes, the corner to resize,
  * double-click to edit the title; Ctrl/Cmd+G groups the selection; as keyboard stops after the nodes,
- * Enter selects, Delete removes, arrows move, Shift+arrows resize. `readOnly` draws them expanded. */
+ * Enter selects, Delete removes, arrows move, Shift+arrows resize. `readOnly` draws them expanded.
+ * The run page adds line states and row labels (FlowLines), running nodes (RunningMark) and
+ * following the running steps (useFollowRun) until the user pans or zooms (`onUserView`). */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Issue } from '../../api/types';
 import { Pos, Positions } from './graphLogic';
 import { NodeGroup, Theme } from './GraphView';
-import { FlowGraph, FlowLink, FlowNode, JOB_KEY, PortId } from './nodeModel';
+import { FlowGraph, FlowLink, JOB_KEY, PortId } from './nodeModel';
 import { maxRows, PreviewSummary } from './nodePreview';
 import useCompactPref from './useCompactPref';
 import { PORT_STYLE, hasHandle } from './nodeStyle';
@@ -34,8 +36,11 @@ import { Group, MIN_GROUP, collapsedEnd, hiddenMembers, membersOf, validGroups }
 import Legend from './Legend';
 import Minimap, { exceedsView } from './Minimap';
 import { flowLinkLabel, usedOutcomes } from './outcomes';
+import { FlowLines, LineState, LinkGeometry, LiveStyles, MARKER_TOKENS } from './FlowLines';
+import useFollowRun from './useFollowRun';
+import usePrefersReducedMotion from '../../hooks/usePrefersReducedMotion';
 import { bezierAt, clampZoom, frameView, linkEnds, linkPath } from './flowCanvasGeometry';
-import LineLabel, { labelBox } from './LineLabel';
+import { labelBox } from './LineLabel';
 import useCanvasGestures, { ScreenPoint } from './useCanvasGestures';
 import { FlowSelection, normaliseSelection, selectedKeys, toggleInSelection } from './selection';
 import { ArrowMarkers, DraftLine, GridDots, GuideLines, SelectionBox } from './DragFeedback';
@@ -113,27 +118,25 @@ export interface FlowCanvasProps {
     onRequestRemoveGroup?: (id: string) => void;
     /** Ctrl/Cmd+G or the toolbar's Group selection, with the selected nodes. */
     onGroup?: (keys: string[]) => void;
+    /** Run page: each line's run state and row labels ("1,204 rows →", replacing the outcome label), by link key. */
+    lineStates?: Record<string, LineState>;
+    lineLabels?: Record<string, string>;
+    /** Run page: the running nodes, by key (outline, spinner, timer from `status`). */
+    running?: string[];
+    /** Keep the running nodes in view; `onUserView` on any user pan, zoom or frame. */
+    follow?: boolean;
+    onUserView?: () => void;
+    /** Adds "Follow the run" to the toolbar while `follow` is off. */
+    onFollow?: () => void;
 }
 
 const NUDGE = 10;
-/** Below this zoom, line labels show only on the selected line. */
-const LABEL_ZOOM = 0.7;
 const ARROWS: Record<string, Pos> = {
     ArrowLeft: { x: -NUDGE, y: 0 },
     ArrowRight: { x: NUDGE, y: 0 },
     ArrowUp: { x: 0, y: -NUDGE },
     ArrowDown: { x: 0, y: NUDGE },
 };
-const TRIGGER_TOKEN = 'categoricalA1Strong';
-const MARKER_TOKENS = Array.from(new Set([...Object.values(PORT_STYLE).map((p) => p.colorToken), TRIGGER_TOKEN, 'focusColor']));
-
-interface LinkGeometry {
-    l: FlowLink;
-    from: FlowNode;
-    to: FlowNode;
-    d: string;
-    mid: Pos;
-}
 
 export default function FlowCanvas({
     graph,
@@ -172,6 +175,12 @@ export default function FlowCanvas({
     onGroupTitle,
     onRequestRemoveGroup,
     onGroup,
+    lineStates,
+    lineLabels,
+    running,
+    follow = false,
+    onUserView,
+    onFollow,
 }: FlowCanvasProps) {
     const theme = useSplunkTheme() as unknown as Theme;
     const uid = `so-flow-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
@@ -183,6 +192,13 @@ export default function FlowCanvas({
     const toggleCompact = onToggleCompact ?? toggleOwnCompact;
     const [hovered, setHovered] = useState<string | null>(null);
     const [size, setSize] = useState({ w: 0, h: 0 });
+    const motion = !usePrefersReducedMotion();
+    const runningSet = useMemo(() => (running && running.length ? new Set(running) : undefined), [running]);
+    const userView = () => {
+        if (follow && onUserView) {
+            onUserView();
+        }
+    };
 
     const canMove = !readOnly && !!onMove;
     const groups = useMemo(() => validGroups(groupsProp), [groupsProp]);
@@ -192,7 +208,7 @@ export default function FlowCanvas({
     const visible = useMemo<FlowGraph>(() => (hide ? { nodes: graph.nodes.filter((n) => !hidden[n.key]), links: graph.links.filter((l) => !hidden[l.from] && !hidden[l.to]) } : graph), [graph, hidden, hide]);
     const g = useCanvasGestures({
         svgRef, graph: visible, memberGraph: graph, positions, canMove, canSelectMany: !readOnly, selected, onSelect, onMove, onPlus, onConnect, onDropOnNode, onDropOnCanvas, onSplice, canSpliceNode, compact,
-        groups, onGroupMove, onGroupResize,
+        groups, onGroupMove, onGroupResize, onUserView: userView,
     });
     const { pan, setPan, zoom, setZoom, view, gesture, shown, cursor, spliceLink, guides, over, pointer, toCanvas, toScreen } = g;
     const byKey = useMemo(() => new Map(graph.nodes.map((n) => [n.key, n] as const)), [graph]);
@@ -210,6 +226,7 @@ export default function FlowCanvas({
     const chosen = new Set(selectedKeys(selected));
 
     useRevealNode(svgRef, selectedNode ? byKey.get(selectedNode) : undefined, positions, view, setPan, compact);
+    useFollowRun(svgRef, follow, running, byKey, positions, view, setPan, compact, gesture !== null);
     const mostRows = useMemo(() => maxRows(previews, graph.nodes.flatMap((n) => (n.stepId ? [n.stepId] : []))), [previews, graph]);
     const look = nodeLook({ issues, status, previews, mostRows, theme });
     const groupView = groups.map((grp) => ({ grp, live: g.groupShown(grp), collapsed: !readOnly && !!grp.collapsed, members: membersOf(grp, graph, positions, compact).length }));
@@ -244,6 +261,7 @@ export default function FlowCanvas({
     };
 
     const frameAll = () => {
+        userView();
         const svg = svgRef.current;
         const next = svg ? frameView(visible, positions, svg.clientWidth, svg.clientHeight, undefined, compact, groupView.map((v) => drawnBox(v.grp, v.collapsed))) : null;
         if (next) {
@@ -437,8 +455,8 @@ export default function FlowCanvas({
                 onTidy={onTidy}
                 onGroup={onGroup ? () => onGroup(selectedKeys(selected)) : undefined}
                 canGroup={selectedKeys(selected).length > 0}
-                onZoom={(f) => setZoom((z) => clampZoom(z * f))}
-                onReset={() => (setZoom(1), setPan({ x: 0, y: 0 }))}
+                onZoom={(f) => (userView(), setZoom((z) => clampZoom(z * f)))}
+                onReset={() => (userView(), setZoom(1), setPan({ x: 0, y: 0 }))}
                 onFrame={frameAll}
                 legendOpen={legendOpen}
                 onToggleLegend={() => setLegendOpen((o) => !o)}
@@ -448,6 +466,7 @@ export default function FlowCanvas({
                 onToggleCompact={toggleCompact}
                 fullScreen={fullScreen}
                 onToggleFullScreen={onToggleFullScreen}
+                onFollow={!follow ? onFollow : undefined}
             />
             <div style={{ position: 'relative' }}>
             <svg
@@ -481,6 +500,7 @@ export default function FlowCanvas({
                 onContextMenu={onContext && !readOnly ? context.onContextMenu : undefined}
             >
                 <ArrowMarkers uid={uid} tokens={MARKER_TOKENS} theme={theme} />
+                {(lineStates || running) && <LiveStyles />}
                 <g data-view="true" transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
                     {gridOn && <GridDots uid={uid} pan={pan} zoom={zoom} width={size.w} height={size.h} theme={theme} />}
                     {groupView.map((v) => (
@@ -496,54 +516,20 @@ export default function FlowCanvas({
                             onTitleDouble={readOnly || !onGroupTitle ? undefined : () => onGroupTitle(v.grp.id)}
                         />
                     ))}
-                    {linkGeometry.map(({ l, d }) => {
-                        const trigger = l.kind === 'trigger' || !l.port;
-                        const isSel = !trigger && isSelectedLink(l);
-                        const into = spliceLink === l.key;
-                        const token = isSel || into ? 'focusColor' : trigger || !l.port ? TRIGGER_TOKEN : PORT_STYLE[l.port].colorToken;
-                        const width = into ? 3 : (l.data ? 3 : 1.5) + (isSel ? 1 : 0);
-                        return (
-                            <g
-                                key={l.key}
-                                data-testid={`link-${l.key}`}
-                                data-link-hit={trigger ? undefined : l.key}
-                                pointerEvents={trigger ? 'none' : undefined}
-                                onPointerDown={trigger ? undefined : (ev) => ev.stopPropagation()}
-                                onClick={trigger ? undefined : () => selectLink(l)}
-                                style={{ cursor: trigger ? undefined : 'pointer' }}
-                            >
-                                <path
-                                    d={d}
-                                    fill="none"
-                                    stroke={theme[token]}
-                                    strokeWidth={width}
-                                    strokeDasharray={trigger ? '5 4' : undefined}
-                                    markerEnd={markerUrl(token)}
-                                />
-                                {!trigger && <path d={d} fill="none" stroke={theme[token]} strokeOpacity={0} strokeWidth={12} pointerEvents="stroke" />}
-                            </g>
-                        );
-                    })}
-                    {linkGeometry.map((geo) => {
-                        const { l, mid } = geo;
-                        const text = flowLinkLabel(graph, l);
-                        const isSel = isSelectedLink(l);
-                        if (!text || (zoom < LABEL_ZOOM && !isSel)) {
-                            return null;
-                        }
-                        const token = isSel || spliceLink === l.key ? 'focusColor' : PORT_STYLE[l.port as PortId].colorToken;
-                        return (
-                            <LineLabel
-                                key={l.key}
-                                linkKey={l.key}
-                                text={text}
-                                at={mid}
-                                theme={theme}
-                                colorToken={token}
-                                onPick={() => pickLine(geo)}
-                            />
-                        );
-                    })}
+                    <FlowLines
+                        lines={linkGeometry}
+                        graph={graph}
+                        theme={theme}
+                        zoom={zoom}
+                        spliceLink={spliceLink}
+                        isSelected={isSelectedLink}
+                        markerUrl={markerUrl}
+                        onSelect={selectLink}
+                        onPick={pickLine}
+                        lineStates={lineStates}
+                        lineLabels={lineLabels}
+                        motion={motion}
+                    />
                     {gesture && gesture.kind === 'line' && cursor && (
                         <DraftLine node={byKey.get(gesture.from)} at={shown[gesture.from]} tabs={tabsOf[gesture.from] || []} outcome={gesture.outcome} to={cursor} theme={theme} compact={compact} />
                     )}
@@ -560,6 +546,8 @@ export default function FlowCanvas({
                         onHover={(key, on) => setHovered((k) => (on ? key : k === key ? null : k))}
                         onNodeDown={g.startNode}
                         onLineDown={g.startLine}
+                        running={runningSet}
+                        motion={motion}
                     />
                     {/* Focus targets for groups, after the nodes and before the lines. */}
                     {!readOnly && groupView.map((v) => <GroupFocus key={v.grp.id} group={v.live} collapsed={v.collapsed} members={v.members} selected={selectedGroup === v.grp.id} />)}
@@ -579,7 +567,7 @@ export default function FlowCanvas({
                                 <path d={d} fill="none" stroke="none" />
                             </NodeGroup>
                         ))}
-                    {compact && <NodeOverlays nodes={visible.nodes} shown={shown} look={look} chosen={chosen} hovered={hovered} theme={theme} tabsOf={tabsOf} readOnly={readOnly} />}
+                    {compact && <NodeOverlays nodes={visible.nodes} shown={shown} look={look} chosen={chosen} hovered={hovered} theme={theme} tabsOf={tabsOf} readOnly={readOnly} running={runningSet} motion={motion} />}
                     {guides.length > 0 && <GuideLines guides={guides} theme={theme} />}
                     {gesture && gesture.kind === 'box' && gesture.moved && cursor && <SelectionBox from={gesture.start} to={cursor} theme={theme} />}
                 </g>
@@ -590,7 +578,7 @@ export default function FlowCanvas({
                 </div>
             )}
             {exceedsView(visible, shown, zoom, size.w, size.h, compact) && (
-                <Minimap graph={visible} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={setPan} compact={compact} />
+                <Minimap graph={visible} positions={shown} pan={pan} zoom={zoom} width={size.w} height={size.h} onPan={(p) => (userView(), setPan(p))} compact={compact} />
             )}
             {overlay}
             </div>
