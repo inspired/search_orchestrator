@@ -285,3 +285,35 @@ def test_invalid_params_skip_the_slot_and_are_audited():
     d = doc(w)
     assert d["next"] == 2 and d["state"] == "done"
     assert w.audit.of("backfill_done")[0]["counts"] == {}
+
+
+def test_backfill_of_a_deleted_job_is_cancelled():
+    w = World(T0)
+    w.add_job(make_job(cron=None), scripts=RUNNING)
+    s = slots(3)
+    add_backfill(w, s)
+    w.tick()
+    first = bf_runs(w)[0]
+    w.finish(first["steps"]["a"]["sid"])
+    w.tick(advance=5)
+    w.store.delete_job("j")
+    w.tick(advance=5)
+    d = doc(w)
+    assert d["state"] == "cancelled" and d["ended_at"] == T0 + 10
+    assert d["cancelled_by"] is None and d["next"] == 1
+    cancelled = w.audit.of("backfill_cancelled", backfill_id=BF)
+    assert len(cancelled) == 1
+    assert cancelled[0]["reason"] == "job_deleted" and cancelled[0]["job_id"] == "j"
+    # A new job with the same id does not resume it.
+    w.add_job(make_job(cron=None), scripts=RUNNING)
+    w.tick(advance=5)
+    assert len(bf_runs(w)) == 1 and doc(w)["state"] == "cancelled"
+    assert len(w.audit.of("backfill_cancelled", backfill_id=BF)) == 1
+
+
+def test_backfill_of_a_disabled_job_waits():
+    w = World(T0)
+    w.add_job(make_job(cron=None, enabled=False), scripts=RUNNING)
+    add_backfill(w, slots(2))
+    w.tick()
+    assert doc(w)["state"] == "running" and not bf_runs(w)

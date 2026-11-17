@@ -56,11 +56,19 @@ def _save(engine, doc):
 
 def feed(engine, jobs, settings, now):
     """Create the next runs of each ``running`` backfill whose job exists and is on, and
-    mark a backfill ``done`` once every slot has a run and none is queued or active."""
+    mark a backfill ``done`` once every slot has a run and none is queued or active. A
+    backfill whose job was deleted is ``cancelled`` (audited with reason ``job_deleted``),
+    so a new job with the same id never resumes it. A turned-off job's backfill waits."""
     for doc in engine.gw.kv_query(BACKFILLS, {"state": "running"}, sort="created_at:1"):
         engine._keep_lease()
         job = jobs.get(doc.get("job_id"))
-        if job is not None and job.get("enabled") is not False:
+        if job is None:
+            doc.update(state="cancelled", ended_at=now)
+            _save(engine, doc)
+            engine._emit({"type": "backfill_cancelled", "backfill_id": doc["_key"],
+                          "job_id": doc.get("job_id"), "user": None, "reason": "job_deleted"},
+                         now)
+        elif job.get("enabled") is not False:
             _feed_one(engine, doc, job, settings, now)
 
 
