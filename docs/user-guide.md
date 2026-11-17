@@ -240,6 +240,17 @@ How SPL conditions run:
 
 The SPL field has the same colours and **Insert value** as a step's search. **Put each | on a new line** is offered for **Search returns results** only.
 
+#### Test condition
+
+**Test condition** sits under the condition field, on a line and on an **If…** node. It runs that one condition now, with the same input, **Preview as if scheduled at** time and parameters as **Preview step**, and shows:
+
+- **True** or **False**, and whether the line would be taken.
+- A **why** line: for a simple comparison, each token with the value it had; for the other two checks, the row count.
+- The filled search or expression, with **Copy**.
+- The row count, for **SPL expression** and **Search returns results** (a row means true).
+
+If the source step has no current preview, the result says "Preview <step> first to test this condition." and offers a button for it. After you change the condition, the source or the input, the old result is marked "Out of date. Test again." Like a preview, it runs as you, not as the job owner, never takes part in a run, and is audited as `condition_tested`. A source step that a run would skip gives False without a search.
+
 ### Results of earlier steps
 
 A **Results of earlier steps** step searches the results of the steps it depends on, with no search of its own to repeat. Its SPL runs on their rows, as if each were loaded with `| loadjob`: the first dependency's results, then each later one appended, in the order the dependencies were connected.
@@ -329,6 +340,14 @@ The **Source** tab, after Settings, shows the job as JSON text, so you can copy 
 Switching to another tab drops unapplied edits, so apply or copy them first.
 
 To bring a job in from text, choose **Import job** on the Jobs page, paste the JSON or choose a `.json` file, and choose **Open in builder**. The job opens as a new, unsaved job (its id and server fields are dropped); choose **Save** to create it.
+
+### History
+
+The **History** tab, the last tab in the builder after Source, lists every saved version of the job, newest first. Each save that changes the job adds a version, with who saved it, when, and up to eight short lines about what changed ("Changed the search of daily", "Added a line from a to b"). A job saved before 1.19.0 starts with "Saved before version history started". The newest 50 versions are kept.
+
+- **Compare with current** shows what changed between that version and the job as it is now. To compare two versions, select both and choose **Compare selected**.
+- **Restore** saves that version as a new version, after you confirm in **Restore version N?**. Nothing is deleted, and the job's history shows "Restored from version N". It is hidden on the newest version. You need the right to edit the job. Unsaved changes in the builder are lost, and the dialog says so. If you are an admin and not the owner, you become the owner, as with any save.
+- Anyone who may see the job may read its history. A new job has none until you save it. Deleting a job deletes its history.
 
 ### Previewing steps
 
@@ -435,7 +454,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`) and `job_versions_pruned`; **Test condition** adds `condition_tested`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
 
 ## Help in the app
 

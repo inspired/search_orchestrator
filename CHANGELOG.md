@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.19.0 (2026-11-17)
+
+- **Version history:** every save that changes a job stores a version (the newest 50 are kept, in the new `so_job_versions` KV Store collection). The **History** tab, the last tab in the builder, lists them with who saved, when and what changed. **Compare with current** and **Compare selected** show the changes; **Restore** saves an old version as a new one after you confirm, and is hidden on the newest. New routes `GET jobs/<id>/versions` (`version=`, `compare=a,b|current`) and `POST jobs/<id>/restore`; audit events `job_version_saved`, `job_restored` and `job_versions_pruned`.
+- **Test condition:** a button under the condition field (on a line and on an **If…** node) runs that condition now and shows true or false, why, the filled SPL with **Copy** and the row count. It says "Preview <step> first…" when the source has no preview, and "Out of date. Test again." after a change. It runs as you, like a preview (`POST preview/condition`), and is audited as `condition_tested`.
+
 ## 1.18.2 (2026-11-17)
 
 - Fixed: previewing a step whose search doesn't start with `|` (for example `index=_internal …`) failed with "Unknown search command 'index'". Previews now add the leading `search` that Splunk's search API needs.

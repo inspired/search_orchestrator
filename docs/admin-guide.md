@@ -1,6 +1,6 @@
 # Search Orchestrator: admin guide
 
-Version 1.18.2. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
+Version 1.19.0. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
 
 ## Supported platforms
 
@@ -58,7 +58,7 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 - **An admin who saves someone else's job becomes its owner.** This is audited, and the builder asks first. It stops anyone changing SPL that runs under another person's identity.
 - **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10.
 - **Secrets.** Webhook URLs and headers are kept in Splunk's credential store (`storage/passwords`). The Settings page never shows them again after saving.
-- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler.
+- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job.
 - **TLS.** Outbound webhooks always verify TLS. Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
 
 ### Saved-search steps and the `| savedsearch` wrapper
@@ -209,6 +209,9 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `health`, `me` | GET |
 | `selftest` | POST (admin) |
 | `schedule/next` | POST (builders: `cron`, optional `timezone` and `count`; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`) |
+| `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |
+| `jobs/<id>/restore` | POST (`version`: saves that version as a new version; needs the right to edit the job) |
+| `preview/condition` | POST (builders: tests one condition line now, as the caller like a preview; see [Test condition](user-guide.md#test-condition)) |
 | `timerange/resolve` | POST (builders: `earliest`, `latest`, `scheduled_time`; returns the epoch window they cover) |
 
 ## Known limits
@@ -217,4 +220,5 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 - Classic Experience Cloud stacks are not supported.
 - Custom page templates are deprecated from Splunk 10.4; migration is planned.
 - Node positions in the builder are not saved.
+- Version history keeps the newest 50 versions of each job; older ones are pruned and audited as `job_versions_pruned`.
 - No per-step workload pool: the dispatch endpoint rejected it.
