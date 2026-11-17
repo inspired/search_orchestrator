@@ -4,12 +4,12 @@
 import React, { useState } from 'react';
 import type { Theme } from './GraphView';
 import type { NodeKind, PortId } from './nodeModel';
-import { OUTCOME_LABEL, Outcome } from './outcomes';
+import { Outcome, outcomeLabel } from './outcomes';
 import { HANDLE_R, PORT_STYLE, TAB_D, TAB_GAP, handleOffset, tabOffset } from './nodeStyle';
 
-/** "Succeeds", "Fails"; an If line's tab reads "If". The tab itself shows only the glyph. */
-export function tabWord(outcome: PortId): string {
-    return outcome === 'if' ? 'If' : outcome === 'then' ? PORT_STYLE.then.label : OUTCOME_LABEL[outcome as Outcome];
+/** "Succeeds", "Fails" ("Approved" on an approval node); an If line's tab reads "If". The tab itself shows only the glyph. */
+export function tabWord(outcome: PortId, kind?: NodeKind): string {
+    return outcome === 'if' ? 'If' : outcome === 'then' ? PORT_STYLE.then.label : outcomeLabel(kind, outcome as Outcome);
 }
 
 /** A tab's box relative to the node's top-left: an 18 px circle just outside the right edge, at `tabOffset`. */
@@ -46,7 +46,7 @@ export default function PlusHandle({ nodeKey, kind, theme, tabs, plus, reveal = 
                 <rect data-testid={`${testIdPrefix}plus-bridge-${nodeKey}`} data-plus data-plus-bridge x={h.x - HANDLE_R - TAB_GAP} y={h.y - HANDLE_R} width={HANDLE_R * 2 + TAB_GAP} height={HANDLE_R * 2} fill="transparent" data-plus-shown={reveal ? 'true' : undefined} />
             )}
             {tabs.map((outcome, i) => {
-                const word = tabWord(outcome);
+                const word = tabWord(outcome, kind);
                 const box = tabBox(kind, i, tabs.length, outcome, compact);
                 const color = theme[PORT_STYLE[outcome].colorToken];
                 return (

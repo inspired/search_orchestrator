@@ -1,7 +1,8 @@
 /* The side panel for the selected step: search, time range, "Depends on" (so steps can be
  * connected without a pointer), run when, delayed after, give up after, max runtime and
  * retries, with the step's issues from the client check and the server. Its actions are
- * nodes of their own. */
+ * nodes of their own. An approval step has no search, time range, max runtime or retries:
+ * its own settings (ApprovalPanel) take their place. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -26,6 +27,7 @@ import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wo
 import { BUILTIN_DEFAULTS, generatedInput, previewRefusal } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
+import ApprovalPanel from './ApprovalPanel';
 
 export interface DurationFieldProps {
     id: string;
@@ -160,6 +162,8 @@ export interface StepPanelProps {
     resolveTimeRange: BuilderApi['resolveTimeRange'];
     /** Field names of each step's current preview, for the first-row tokens. */
     previewFields?: Record<string, string[]>;
+    /** Roles an approval step's Who may approve offers. */
+    roles?: string[];
 }
 
 export default function StepPanel({
@@ -176,6 +180,7 @@ export default function StepPanel({
     resolveTimeRange,
     previewFields = {},
     live = true,
+    roles = [],
 }: StepPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
@@ -233,6 +238,7 @@ export default function StepPanel({
         return d === undefined || d === null ? BUILTIN_DEFAULTS[key] : d;
     };
     const retries = step.retries === null || step.retries === undefined ? inherit('retries') : step.retries;
+    const approval = step.type === 'approval';
 
     return (
         <section aria-label={`Step ${stepLabel(step)}`}>
@@ -261,96 +267,102 @@ export default function StepPanel({
                     }}
                 />
             </ControlGroup>
-            <ControlGroup
-                label="Type"
-                labelFor={`${p}-type`}
-                labelPosition="top"
-                help={step.type === 'previous' ? 'Works on the rows the steps before it found, with no search of its own.' : undefined}
-            >
-                <Select
-                    inputId={`${p}-type`}
-                    data-testid="type-select"
-                    value={step.type}
-                    onChange={(_e: unknown, { value }: { value: unknown }) => set({ type: value as StepDef['type'] })}
-                >
-                    <Select.Option label="Search" value="inline" />
-                    <Select.Option label="Saved search" value="saved_search" />
-                    <Select.Option label="Results of earlier steps" value="previous" />
-                </Select>
-            </ControlGroup>
-            {step.type === 'previous' && <LearnMore anchor="results-of-earlier-steps" topic="Results of earlier steps" />}
-            {step.type === 'saved_search' ? (
-                <>
-                <ControlGroup
-                    label="Saved search"
-                    labelFor={`${p}-ref`}
-                    labelPosition="top"
-                    help="If this is your own private search, it runs as saved. Otherwise its own alerts and summary indexing don't run; add collect to the step if you need them."
-                >
-                    <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
-                </ControlGroup>
-                <LearnMore anchor="steps" topic="saved search steps" />
-                </>
+            {approval ? (
+                <ApprovalPanel step={step} roles={roles} dispatch={dispatch} tokenGroups={tokenGroups} giveUpAfter={step.give_up_after ?? inherit('give_up_after')} />
             ) : (
-                <>
-                    {step.type === 'previous' && (
-                        <ControlGroup label="Reads results from" labelPosition="top">
-                            <StaticContent>
-                                <Typography as="span" variant="monoBody">
-                                    {generatedInput(job, stepId)}
-                                </Typography>
-                            </StaticContent>
-                        </ControlGroup>
-                    )}
-                    <ControlGroup
-                        label="Search"
-                        labelFor={`${p}-spl`}
-                        labelPosition="top"
-                        help={step.type === 'previous' ? 'Starts with |. Results of the steps before this one come first.' : undefined}
+            <>
+                <ControlGroup
+                    label="Type"
+                    labelFor={`${p}-type`}
+                    labelPosition="top"
+                    help={step.type === 'previous' ? 'Works on the rows the steps before it found, with no search of its own.' : undefined}
+                >
+                    <Select
+                        inputId={`${p}-type`}
+                        data-testid="type-select"
+                        value={step.type}
+                        onChange={(_e: unknown, { value }: { value: unknown }) => set({ type: value as StepDef['type'] })}
                     >
-                        <TokenInput
-                            inputId={`${p}-spl`}
-                            fieldLabel="Search"
-                            multiline
-                            expandable
-                            value={step.spl || ''}
-                            rowsMin={4}
-                            groups={tokenGroups}
-                            onValue={(spl) => set({ spl })}
-                        />
+                        <Select.Option label="Search" value="inline" />
+                        <Select.Option label="Saved search" value="saved_search" />
+                        <Select.Option label="Results of earlier steps" value="previous" />
+                    </Select>
+                </ControlGroup>
+                {step.type === 'previous' && <LearnMore anchor="results-of-earlier-steps" topic="Results of earlier steps" />}
+                {step.type === 'saved_search' ? (
+                    <>
+                    <ControlGroup
+                        label="Saved search"
+                        labelFor={`${p}-ref`}
+                        labelPosition="top"
+                        help="If this is your own private search, it runs as saved. Otherwise its own alerts and summary indexing don't run; add collect to the step if you need them."
+                    >
+                        <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
                     </ControlGroup>
-                    <LearnMore anchor="tokens" topic="tokens" />
-                </>
-            )}
-            {onPreview && (
-                <div style={{ marginBottom: '12px' }}>
-                    {refusal ? (
-                        <>
-                            <Button appearance="secondary" label="Preview step" disabled="dimmed" />
-                            <Typography as="p" variant="body">
-                                {refusal}
-                            </Typography>
-                        </>
-                    ) : (
-                        <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
-                    )}
-                    <PreviewResult
-                        preview={preview}
-                        onCancel={() => onCancelPreview && onCancelPreview(stepId)}
-                        onAnyway={() => onPreview(stepId, { anyway: true })}
+                    <LearnMore anchor="steps" topic="saved search steps" />
+                    </>
+                ) : (
+                    <>
+                        {step.type === 'previous' && (
+                            <ControlGroup label="Reads results from" labelPosition="top">
+                                <StaticContent>
+                                    <Typography as="span" variant="monoBody">
+                                        {generatedInput(job, stepId)}
+                                    </Typography>
+                                </StaticContent>
+                            </ControlGroup>
+                        )}
+                        <ControlGroup
+                            label="Search"
+                            labelFor={`${p}-spl`}
+                            labelPosition="top"
+                            help={step.type === 'previous' ? 'Starts with |. Results of the steps before this one come first.' : undefined}
+                        >
+                            <TokenInput
+                                inputId={`${p}-spl`}
+                                fieldLabel="Search"
+                                multiline
+                                expandable
+                                value={step.spl || ''}
+                                rowsMin={4}
+                                groups={tokenGroups}
+                                onValue={(spl) => set({ spl })}
+                            />
+                        </ControlGroup>
+                        <LearnMore anchor="tokens" topic="tokens" />
+                    </>
+                )}
+                {onPreview && (
+                    <div style={{ marginBottom: '12px' }}>
+                        {refusal ? (
+                            <>
+                                <Button appearance="secondary" label="Preview step" disabled="dimmed" />
+                                <Typography as="p" variant="body">
+                                    {refusal}
+                                </Typography>
+                            </>
+                        ) : (
+                            <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
+                        )}
+                        <PreviewResult
+                            preview={preview}
+                            onCancel={() => onCancelPreview && onCancelPreview(stepId)}
+                            onAnyway={() => onPreview(stepId, { anyway: true })}
+                        />
+                    </div>
+                )}
+                {step.type !== 'previous' && (
+                    <TimeRangeField
+                        idPrefix={p}
+                        earliest={step.earliest}
+                        latest={step.latest}
+                        scheduledTime={scheduledTime}
+                        timezone={job.timezone}
+                        resolve={resolveTimeRange}
+                        onChange={(earliest, latest) => set({ earliest, latest })}
                     />
-                </div>
-            )}
-            {step.type !== 'previous' && (
-                <TimeRangeField
-                    idPrefix={p}
-                    earliest={step.earliest}
-                    latest={step.latest}
-                    scheduledTime={scheduledTime}
-                    timezone={job.timezone}
-                    resolve={resolveTimeRange}
-                    onChange={(earliest, latest) => set({ earliest, latest })}
-                />
+                )}
+            </>
             )}
             <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Starts after these steps succeed. Steps that would make a loop aren't listed.">
                 <Multiselect inputId={`${p}-depends`} values={parents} onChange={onDepends} noOptionsMessage="No other steps can come before this one.">
@@ -402,30 +414,34 @@ export default function StepPanel({
                 help="From the scheduled time."
                 onChange={(v) => set({ give_up_after: v })}
             />
-            <DurationField
-                id={`${p}-maxrt`}
-                label="Max runtime"
-                value={step.max_runtime}
-                inherited={inherit('max_runtime')}
-                inheritedFrom="Job default"
-                help="Per attempt. Longer counts as a failed attempt."
-                onChange={(v) => set({ max_runtime: v })}
-            />
-            <ControlGroup label="Retries" labelFor={`${p}-retries`} labelPosition="top">
-                <Text
-                    inputId={`${p}-retries`}
-                    value={step.retries === null || step.retries === undefined ? '' : String(step.retries)}
-                    placeholder={`Job default (${inherit('retries')})`}
-                    onChange={(_e: unknown, { value }: { value: string }) => {
-                        const digits = value.replace(/[^0-9]/g, '');
-                        set({ retries: digits === '' ? null : parseInt(digits, 10) });
-                    }}
+            {!approval && (
+            <>
+                <DurationField
+                    id={`${p}-maxrt`}
+                    label="Max runtime"
+                    value={step.max_runtime}
+                    inherited={inherit('max_runtime')}
+                    inheritedFrom="Job default"
+                    help="Per attempt. Longer counts as a failed attempt."
+                    onChange={(v) => set({ max_runtime: v })}
                 />
-            </ControlGroup>
-            {retries > 0 && (
-                <Message type="warning" appearance="default">
-                    A retry runs the search again, which can write duplicates to a summary index.
-                </Message>
+                <ControlGroup label="Retries" labelFor={`${p}-retries`} labelPosition="top">
+                    <Text
+                        inputId={`${p}-retries`}
+                        value={step.retries === null || step.retries === undefined ? '' : String(step.retries)}
+                        placeholder={`Job default (${inherit('retries')})`}
+                        onChange={(_e: unknown, { value }: { value: string }) => {
+                            const digits = value.replace(/[^0-9]/g, '');
+                            set({ retries: digits === '' ? null : parseInt(digits, 10) });
+                        }}
+                    />
+                </ControlGroup>
+                {retries > 0 && (
+                    <Message type="warning" appearance="default">
+                        A retry runs the search again, which can write duplicates to a summary index.
+                    </Message>
+                )}
+            </>
             )}
             {onRequestRemove && (
                 <div style={{ marginTop: '12px' }}>

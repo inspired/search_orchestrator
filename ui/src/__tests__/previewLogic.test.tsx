@@ -255,3 +255,28 @@ describe('previewRefusal', () => {
         });
     });
 });
+
+describe('approval steps', () => {
+    const gated = job(
+        [
+            { id: 'a', type: 'inline', spl: 'search x' },
+            { id: 'gate', type: 'approval', approval: {} },
+            { id: 'b', type: 'inline', spl: 'search y' },
+        ],
+        [
+            { from: 'a', to: 'gate', condition: 'on_success' },
+            { from: 'gate', to: 'b', condition: 'on_success' },
+        ]
+    );
+
+    test('an approval step has no search to preview', () => {
+        expect(previewRefusal(gated, 'gate', true)).toBe('An approval step has no search to preview.');
+        expect(previewRefusal(gated, 'gate', false)).toBe('An approval step has no search to preview.');
+        expect(previewRefusal(gated, 'b', true)).toBeNull();
+    });
+
+    test('a preview of a step after it never previews the approval step', () => {
+        const previews: Record<string, LivePreview> = {};
+        expect(toBeRun(gated, 'b', previews, keysOf(gated, ctx, previews))).toEqual(['a', 'b']);
+    });
+});

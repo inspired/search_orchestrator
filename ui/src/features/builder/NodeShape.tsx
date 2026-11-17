@@ -9,6 +9,7 @@ import Clock from '@splunk/react-icons/Clock';
 import Cylinder from '@splunk/react-icons/Cylinder';
 import Diamond from '@splunk/react-icons/Diamond';
 import Filter from '@splunk/react-icons/Filter';
+import HandRise from '@splunk/react-icons/HandRise';
 import Magnifier from '@splunk/react-icons/Magnifier';
 import MobilePhone from '@splunk/react-icons/MobilePhone';
 import ArrowRight from '@splunk/react-icons/ArrowRight';
@@ -22,6 +23,7 @@ const ICON: Record<Family, Icon> = {
     search: Magnifier,
     transform: Filter,
     condition: Diamond,
+    approval: HandRise,
     notify: Bell,
     write: Cylinder,
     chain: ArrowRight,

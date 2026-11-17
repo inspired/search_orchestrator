@@ -274,7 +274,8 @@ export function isStale(preview: LivePreview, currentKey: string): boolean {
 }
 
 /** The steps to preview, in order, to preview `stepId`: each upstream step whose preview
- * is missing, stale or gone from the server, or that reads one of those; then the step. */
+ * is missing, stale or gone from the server, or that reads one of those; then the step.
+ * Approval steps are never previewed: the server takes them as approved. */
 export function toBeRun(
     job: JobDefinition,
     stepId: string,
@@ -282,7 +283,11 @@ export function toBeRun(
     keyOf: (id: string) => string
 ): string[] {
     const out: string[] = [];
+    const approvals = (job.steps || []).filter((s) => s.type === 'approval').map((s) => s.id);
     upstreamOf(job, stepId).forEach((id) => {
+        if (approvals.includes(id)) {
+            return;
+        }
         const p = previews[id];
         const own = !p || p.state === 'missing' || isStale(p, keyOf(id));
         if (own || upstreamOf(job, id).some((u) => out.includes(u))) {
@@ -305,6 +310,9 @@ function stepWrites(step: StepDef): string | null {
 export function previewRefusal(job: JobDefinition, stepId: string, live: boolean): string | null {
     const steps = job.steps || [];
     const step = steps.find((s) => s.id === stepId);
+    if (step && step.type === 'approval') {
+        return 'An approval step has no search to preview.';
+    }
     if (step && step.output) {
         return `${NO_WRITES}; preview the step before it.`;
     }

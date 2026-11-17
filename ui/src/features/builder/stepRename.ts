@@ -63,5 +63,8 @@ export function renameStepTokens(step: StepDef, from: string, to: string): StepD
     if (out.actions) {
         out.actions = renameActions(out.actions, from, to);
     }
+    if (out.approval && typeof out.approval.message === 'string') {
+        out.approval = { ...out.approval, message: renameTokens(out.approval.message, from, to) };
+    }
     return out;
 }

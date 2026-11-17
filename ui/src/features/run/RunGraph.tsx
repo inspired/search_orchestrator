@@ -20,7 +20,7 @@ import { buildGraph, stepKey } from '../builder/nodeModel';
 import type { Theme } from '../builder/GraphView';
 import type { Detail } from '../builder/FlowNodeView';
 import { actionLiveText, actionStates, actionStatusIcon } from './actionStates';
-import { lineStates, LineState, rowLabels, waitingFor } from './runFlow';
+import { lineStates, LineState, looksWaiting, rowLabels, waitingFor } from './runFlow';
 
 export interface RunGraphProps {
     definition: JobDefinition;
@@ -79,7 +79,7 @@ export default function RunGraph({ definition, states, actions, onSelect, select
             const delayed = st ? isStepDelayed(st) : false;
             const Icon = statusIcon(state, delayed);
             let color: string | undefined;
-            if (delayed) {
+            if (delayed || state === 'awaiting_approval') {
                 color = theme.statusColorMedium;
             } else if (state === 'failed') {
                 color = theme.statusColorHigh;
@@ -95,7 +95,7 @@ export default function RunGraph({ definition, states, actions, onSelect, select
                 text: wait || text,
                 icon: <Icon aria-hidden width={24} height={24} />,
                 color,
-                dim: state === 'waiting' || state === 'ready' || state === 'skipped',
+                dim: looksWaiting(state),
                 timer: isRunning && st && st.started_at ? formatClock(now - st.started_at) : undefined,
             };
         });

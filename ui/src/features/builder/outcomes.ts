@@ -1,8 +1,8 @@
 /* Pure outcome model for the + handle: what a node can do "when" something happens, which
  * outcomes are used, and how lines are labelled. */
 import type { JobDefinition } from '../../api/types';
-import type { FlowGraph, FlowLink, PortId } from './nodeModel';
-import { JOB_KEY, buildGraph, canConnect, nodeKindOfStep, outputPorts } from './nodeModel';
+import type { FlowGraph, FlowLink, NodeKind, PortId } from './nodeModel';
+import { ACTION_ONLY_PORTS, JOB_KEY, buildGraph, canConnect, nodeKindOfStep, outputPorts } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
 import { conditionKind, conditionShort } from './conditions';
 
@@ -23,8 +23,19 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
     start: 'Starts',
     delayed: 'Is delayed',
     late: 'Is late',
+    approval: 'Asks for approval',
     if: 'If a condition is true',
 };
+
+/** An approval node's own words for how it ends. */
+const APPROVAL_LABEL: Partial<Record<Outcome, string>> = { success: 'Approved', failure: 'Rejected', always: 'Decided either way' };
+
+/** The outcome's words on a node of `kind` ("Approved" on an approval node, else "Succeeds"). */
+export function outcomeLabel(kind: NodeKind | null | undefined, outcome: Outcome): string {
+    return (kind === 'approval' && APPROVAL_LABEL[outcome]) || OUTCOME_LABEL[outcome];
+}
+
+const graphKind = (graph: FlowGraph, key: string): NodeKind | undefined => graph.nodes.find((n) => n.key === key)?.kind;
 
 const MAX_EXPR = 24;
 
@@ -51,18 +62,18 @@ export function whenOptions(job: JobDefinition, from: string, to?: string | null
         .map((o) => {
             const opt: WhenOption = {
                 outcome: o,
-                label: OUTCOME_LABEL[o],
+                label: outcomeLabel(kindOf(job, from), o),
                 glyph: PORT_STYLE[o].glyph,
                 count: graph.links.filter((l) => l.from === from && l.port === o).length,
             };
-            if (!to && (o === 'start' || o === 'delayed' || o === 'late')) {
+            if (!to && ACTION_ONLY_PORTS.includes(o)) {
                 opt.note = 'actions only';
             }
             return opt;
         });
 }
 
-const ORDER: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late', 'if', 'then'];
+const ORDER: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late', 'approval', 'if', 'then'];
 
 export function usedOutcomes(graph: FlowGraph, key: string): PortId[] {
     const used = new Set<PortId>();
@@ -101,14 +112,14 @@ export function flowLinkLabel(graph: FlowGraph, link: FlowLink): string {
     if (link.port === 'if') {
         return `${PORT_STYLE.if.glyph} If`;
     }
-    return `${PORT_STYLE[link.port].glyph} ${OUTCOME_LABEL[link.port as Outcome]}`;
+    return `${PORT_STYLE[link.port].glyph} ${outcomeLabel(graphKind(graph, link.from), link.port as Outcome)}`;
 }
 
 /** The words of a line's label, for its accessible name: "Succeeds", "If", or the condition's
  * expression on the line out of a diamond (the visible label without its glyph). */
 export function flowLinkWords(graph: FlowGraph, link: FlowLink): string {
     if (link.port && link.port !== 'then' && link.port !== 'if') {
-        return OUTCOME_LABEL[link.port];
+        return outcomeLabel(graphKind(graph, link.from), link.port);
     }
     return link.port === 'if' ? 'If' : flowLinkLabel(graph, link);
 }
@@ -120,7 +131,7 @@ export function linkLabel(job: JobDefinition, link: FlowLink): string {
     if (link.kind === 'condition') {
         return conditionText(job, link.from.startsWith('cond:') ? link.from : link.to);
     }
-    return `${PORT_STYLE[link.port].glyph} ${OUTCOME_LABEL[link.port as Outcome]}`;
+    return `${PORT_STYLE[link.port].glyph} ${outcomeLabel(kindOf(job, link.from), link.port as Outcome)}`;
 }
 
 /** The outcomes a line's menu offers. A condition's legs can only become a plain line (the

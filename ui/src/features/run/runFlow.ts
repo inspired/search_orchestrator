@@ -12,6 +12,13 @@ const FINISHED = ['succeeded', 'failed', 'skipped'];
 const isFinished = (s?: StepStatus): boolean => !!s && FINISHED.includes(s.state);
 const isActive = (s?: StepStatus): boolean => !!s && (s.state === 'running' || s.state === 'starting');
 const notTaken = (s?: StepStatus): boolean => !!s && s.state === 'skipped' && s.skip_kind === 'not_taken';
+// A step waiting for a decision runs nothing: the line into it stays pending, never flowing.
+const awaiting = (s?: StepStatus): boolean => !!s && s.state === 'awaiting_approval';
+
+/** States the live graph draws as waiting (dimmed, no spinner), a step awaiting approval among them. */
+export function looksWaiting(state: string): boolean {
+    return ['waiting', 'ready', 'skipped', 'awaiting_approval'].includes(state);
+}
 const idOf = (key: string): string => (key.startsWith('step:') ? key.slice(5) : '');
 
 /** Whether a source's finish meets a condition, as the engine's edge() decides it (state.py):
@@ -37,6 +44,9 @@ function met(src: StepStatus | undefined, cond: string): LineState {
 function withTarget(base: LineState, target?: StepStatus): LineState {
     if (notTaken(target) && base !== 'pending') {
         return 'wont';
+    }
+    if (awaiting(target)) {
+        return base === 'wont' ? 'wont' : 'pending';
     }
     return base === 'fired' && isActive(target) ? 'flowing' : base;
 }
@@ -67,7 +77,7 @@ export function lineStates(
     graph.links.forEach((l: FlowLink) => {
         const target = steps[idOf(l.to)];
         if (l.kind === 'trigger') {
-            out[l.key] = started ? (isActive(target) ? 'flowing' : 'fired') : 'pending';
+            out[l.key] = started && !awaiting(target) ? (isActive(target) ? 'flowing' : 'fired') : 'pending';
         } else if (l.kind === 'action') {
             if (actions[l.to]) {
                 out[l.key] = 'fired';
@@ -97,7 +107,7 @@ export function lineStates(
             } else if (!finished) {
                 out[l.key] = isFinished(leg.src) ? 'wont' : 'pending';
             } else {
-                out[l.key] = isActive(leg.tgt) ? 'flowing' : 'fired';
+                out[l.key] = awaiting(leg.tgt) ? 'pending' : isActive(leg.tgt) ? 'flowing' : 'fired';
             }
         } else {
             const cond = l.port === 'failure' ? 'on_failure' : l.port === 'always' ? 'always' : 'on_success';

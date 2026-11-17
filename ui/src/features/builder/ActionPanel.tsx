@@ -10,7 +10,7 @@ import { ActionFields } from './ActionsEditor';
 import { stepLabel } from './GraphView';
 import PresetOptions from './PresetOptions';
 import { IssueList } from './StepPanel';
-import { ActionScope, HOOK_FOR_PORT, PortId, actionKey } from './nodeModel';
+import { ActionScope, HOOK_FOR_PORT, PortId, actionKey, nodeKindOfStep, outputPorts } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
 import type { BuilderAction } from './reducer';
 import type { TokenGroup } from './tokens';
@@ -31,7 +31,7 @@ export interface ActionPanelProps {
     onRequestRemove: (key: string) => void;
 }
 
-const WHEN_PORTS: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late'];
+const WHEN_PORTS: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late', 'approval'];
 const encode = (scope: ActionScope, hook: Action['hook']) => `${scope}:${hook}`;
 const decode = (value: string): { scope: ActionScope; hook: Action['hook'] } => {
     const at = value.lastIndexOf(':');
@@ -61,7 +61,7 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
     if (!action) {
         return null;
     }
-    const sources = [...steps.map((s) => ({ scope: s.id as ActionScope, label: stepLabel(s) })), { scope: 'job' as ActionScope, label: 'Whole job' }];
+    const sources = [...steps.map((s) => ({ scope: s.id as ActionScope, label: stepLabel(s), ports: outputPorts(nodeKindOfStep(s)) })), { scope: 'job' as ActionScope, label: 'Whole job', ports: outputPorts('job') }];
     const key = actionKey(scope, index);
     const current = encode(scope, action.hook);
 
@@ -81,7 +81,7 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
             <ControlGroup label="When" labelFor="action-when" labelPosition="top">
                 <Select inputId="action-when" value={current} onChange={(_e: unknown, { value }: { value: unknown }) => onWhen(String(value))}>
                     {sources.map((src) =>
-                        WHEN_PORTS.filter((port) => port !== 'late' || src.scope === 'job').map((port) => {
+                        WHEN_PORTS.filter((port) => src.ports.includes(port)).map((port) => {
                             const hook = HOOK_FOR_PORT[port] as Action['hook'];
                             return <Select.Option key={encode(src.scope, hook)} label={`${src.label} · ${PORT_STYLE[port].label}`} value={encode(src.scope, hook)} />;
                         })

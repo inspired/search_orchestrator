@@ -68,4 +68,22 @@ describe('RunsTable', () => {
         );
         expect(screen.getAllByRole('row').slice(1)).toHaveLength(2);
     });
+
+    test('a run with a step waiting for approval says so and needs attention', () => {
+        const waiting = runSummary({
+            id: 'daily:9',
+            state: 'running',
+            ended_at: null,
+            steps: { a: { state: 'succeeded' }, gate: { state: 'awaiting_approval', approval_state: { requested_at: NOW - 60, message: 'ok?', decision: null } } },
+        });
+        expect(needsAttention(waiting)).toBe(true);
+        expect(needsAttention(runSummary({ state: 'running', ended_at: null, steps: { a: { state: 'running' } } }))).toBe(false);
+        renderThemed(
+            <RunsTable runs={[...runs, waiting]} jobNames={jobNames} filters={{ state: 'attention' }} onFiltersChange={jest.fn()} now={NOW} />
+        );
+        const rows = screen.getAllByRole('row').slice(1);
+        expect(rows).toHaveLength(2);
+        expect(within(rows[1]).getByText('Running · waiting for approval')).toBeInTheDocument();
+        expect(within(rows[0]).queryByText(/waiting for approval/)).toBeNull();
+    });
 });

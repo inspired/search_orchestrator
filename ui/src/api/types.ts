@@ -15,6 +15,7 @@ export const STEP_STATES = [
     'skipped',
     'cancelled',
     'abandoned',
+    'awaiting_approval',
 ] as const;
 export type StepState = (typeof STEP_STATES)[number];
 
@@ -59,7 +60,8 @@ export interface RunWhen {
 }
 
 export interface Action {
-    hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed' | 'on_late';
+    /** `on_approval_requested`: approval steps only. */
+    hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed' | 'on_late' | 'on_approval_requested';
     type: 'webhook' | 'email' | 'event' | 'start_job' | 'alert_action';
     /** Webhooks: the body format; absent uses the destination's. */
     preset?: WebhookPreset;
@@ -76,7 +78,7 @@ export interface StepDef {
     id: string;
     name?: string;
     /** `previous`: SPL that starts with |, run on the results of the steps it depends on. */
-    type: 'inline' | 'saved_search' | 'previous';
+    type: 'inline' | 'saved_search' | 'previous' | 'approval';
     spl?: string;
     saved_search_ref?: string;
     earliest?: string;
@@ -88,6 +90,8 @@ export interface StepDef {
     retries?: number | null;
     actions?: Action[];
     output?: StepOutput;
+    /** `approval` steps (no search, time range, retries or max runtime); absent fields use defaults. */
+    approval?: { message?: string; approver_roles?: string[]; timeout?: number; on_timeout?: 'reject' | 'approve' };
 }
 
 /** How an expression line is checked: the small comparison language (the default when
@@ -214,6 +218,17 @@ export interface StepStatus {
     result_count?: number | null;
     error?: string | null;
     dispatch_errors?: number;
+    /** Approval steps: the request and, once someone (or the timeout, `by: "timeout"`) decides, the decision. */
+    approval_state?: ApprovalState;
+}
+
+export interface ApprovalState {
+    requested_at: number;
+    message: string;
+    decision: 'approve' | 'reject' | null;
+    by?: string;
+    comment?: string;
+    decided_at?: number;
 }
 
 /** A run as GET runs lists it (no definition). */

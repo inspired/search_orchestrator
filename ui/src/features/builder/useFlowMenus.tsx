@@ -23,7 +23,7 @@ import { targetKinds } from './nodeCatalog';
 import { JOB_KEY, condKey } from './nodeModel';
 import type { FlowGraph, FlowLink, NodeKind, PortId } from './nodeModel';
 import { PORT_STYLE, hasHandle } from './nodeStyle';
-import { OUTCOME_LABEL, lineMenuOutcomes, whenOptions } from './outcomes';
+import { lineMenuOutcomes, outcomeLabel, whenOptions } from './outcomes';
 import type { Outcome } from './outcomes';
 import QuickAdd from './QuickAdd';
 import { addNodeKey } from './reducer';
@@ -388,7 +388,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         if (link) {
             const outcomes = lineMenuOutcomes(job, link)
                 .filter((o) => o !== link.port)
-                .map((o) => ({ outcome: o, label: OUTCOME_LABEL[o], glyph: PORT_STYLE[o].glyph }));
+                .map((o) => ({ outcome: o, label: outcomeLabel(graph.nodes.find((n) => n.key === link.from)?.kind, o), glyph: PORT_STYLE[o].glyph }));
             const insertable = insertKinds(job, graph, link).length > 0;
             const moves = spliceCandidates(job, link.key);
             // Actions always belong somewhere: their lines are moved, never removed.

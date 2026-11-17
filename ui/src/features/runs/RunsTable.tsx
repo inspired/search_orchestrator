@@ -10,14 +10,19 @@ import StatusText, { isRunDelayed, statusLabel } from '../../components/StatusTe
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
 
-/** The state filter: a run state, or 'attention' for blocked, failed and held runs. */
+/** The state filter: a run state, or 'attention' for blocked, failed and held runs and runs waiting for approval. */
 export type RunsTableFilters = Omit<Pick<RunFilters, 'job_id' | 'state'>, 'state'> & {
     state?: RunState | 'attention';
 };
 
-/** Blocked or failed runs, and held runs of any state. */
+/** A step of the run is waiting for someone to approve or reject it. */
+export function awaitsApproval(run: RunSummary): boolean {
+    return Object.values(run.steps || {}).some((s) => s && s.state === 'awaiting_approval');
+}
+
+/** Blocked or failed runs, held runs of any state, and runs waiting for approval. */
 export function needsAttention(run: RunSummary): boolean {
-    return run.state === 'blocked' || run.state === 'failed' || run.held === true;
+    return run.state === 'blocked' || run.state === 'failed' || run.held === true || awaitsApproval(run);
 }
 
 export function filterRuns(runs: RunSummary[], filters: RunsTableFilters): RunSummary[] {
@@ -103,7 +108,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                     <Link to={pageHref('run', { run_id: run.id })}>{formatTime(run.scheduled_time)}</Link>
                                 </Table.Cell>
                                 <Table.Cell>
-                                    <StatusText state={run.state} delayed={isRunDelayed(run)} />
+                                    <StatusText state={run.state} delayed={isRunDelayed(run)} detail={awaitsApproval(run) ? 'waiting for approval' : undefined} />
                                 </Table.Cell>
                                 <Table.Cell>{duration(run, at)}</Table.Cell>
                                 <Table.Cell>{run.catchup ? `${run.trigger} (catch-up)` : run.trigger}</Table.Cell>

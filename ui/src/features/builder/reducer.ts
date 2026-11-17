@@ -159,8 +159,8 @@ function convertType(job: JobDefinition, before: StepDef, after: StepDef): StepD
     return { ...after, spl: tail ? `${input} ${tail}` : input };
 }
 
-const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
-const ID_PREFIX: Partial<Record<NodeKind, string>> = { summary_index: 'summary', lookup: 'lookup' };
+const STEP_NODE_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup', 'approval'];
+const ID_PREFIX: Partial<Record<NodeKind, string>> = { summary_index: 'summary', lookup: 'lookup', approval: 'approval' };
 const newStepId = (steps: StepDef[], kind: NodeKind) => nextStepId(steps, ID_PREFIX[kind]);
 const ACTION_DEFAULTS: Partial<Record<NodeKind, Omit<Action, 'hook'>>> = {
     email: { type: 'email', to: '' },
@@ -223,6 +223,9 @@ function addNodeJob(job: JobDefinition, kind: NodeKind, from?: { key: string; po
         let step: StepDef = { id, name: '', type: 'inline', spl: '', earliest: '-24h', latest: 'now' };
         if (kind === 'saved_search') {
             step = { id, name: '', type: 'saved_search', saved_search_ref: '' };
+        } else if (kind === 'approval') {
+            // No search, time range, retries or max runtime: the server refuses an approval step with them.
+            step = { id, type: 'approval', name: 'Approval', approval: {} };
         } else if (kind === 'previous') {
             step = { id, name: '', type: 'previous', spl: '| stats count' };
         } else if (kind === 'summary_index' || kind === 'lookup') {

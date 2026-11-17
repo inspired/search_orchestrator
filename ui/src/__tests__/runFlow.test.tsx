@@ -1,6 +1,6 @@
 import type { JobDefinition, StepStatus } from '../api/types';
 import { buildGraph } from '../features/builder/nodeModel';
-import { lineStates, progress, rowLabels, waitingFor } from '../features/run/runFlow';
+import { lineStates, looksWaiting, progress, rowLabels, waitingFor } from '../features/run/runFlow';
 
 const def: JobDefinition = {
     name: 'j',
@@ -118,5 +118,41 @@ describe('rowLabels', () => {
         expect(Object.values(rowLabels(d3, { a: st('succeeded', { result_count: 1 }) }, gg, 'en-US'))).toEqual(['1 row →']);
         expect(rowLabels(d3, { a: st('running', { result_count: 5 }) }, gg, 'en-US')).toEqual({});
         expect(rowLabels(d3, { a: st('succeeded') }, gg, 'en-US')).toEqual({});
+    });
+});
+
+describe('a step awaiting approval', () => {
+    const gated = {
+        name: 'g',
+        enabled: true,
+        triggers: [{ type: 'cron', cron: '* * * * *' }],
+        steps: [
+            { id: 'a', type: 'inline', spl: 'x' },
+            { id: 'gate', type: 'approval', approval: {} },
+            { id: 'b', type: 'inline', spl: 'y' },
+        ],
+        edges: [
+            { from: 'a', to: 'gate', condition: 'on_success' },
+            { from: 'gate', to: 'b', condition: 'expression', expression: '$gate.first.by$ != ""' },
+        ],
+    } as JobDefinition;
+    const gg = buildGraph(gated);
+
+    test('looks like a waiting step', () => {
+        expect(looksWaiting('awaiting_approval')).toBe(true);
+        expect(looksWaiting('waiting')).toBe(true);
+        expect(looksWaiting('running')).toBe(false);
+        expect(looksWaiting('succeeded')).toBe(false);
+    });
+
+    test('the line into it is pending, never flowing', () => {
+        const out = lineStates(gated, { a: st('succeeded'), gate: st('awaiting_approval') }, gg);
+        expect(out[key('a', 'gate', 'success')]).toBe('pending');
+        expect(Object.values(out)).not.toContain('flowing');
+    });
+
+    test('a trigger line into it is pending', () => {
+        const solo = { ...gated, steps: [{ id: 'gate', type: 'approval' }], edges: [] } as JobDefinition;
+        expect(lineStates(solo, { gate: st('awaiting_approval') }, buildGraph(solo))['trigger:0->step:gate']).toBe('pending');
     });
 });

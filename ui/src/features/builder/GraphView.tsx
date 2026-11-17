@@ -175,6 +175,9 @@ export function stepTypeLabel(step: GraphStep): string {
     if (step.type === 'previous') {
         return 'Results of earlier steps';
     }
+    if (step.type === 'approval') {
+        return 'Waits for approval';
+    }
     if (step.type === 'saved_search') {
         return step.saved_search_ref ? `Saved search: ${step.saved_search_ref}` : 'Saved search';
     }

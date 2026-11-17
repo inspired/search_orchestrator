@@ -68,6 +68,8 @@ export interface NodePanelProps {
     previewLive?: boolean;
     /** The panel for a selected group (see useGroups). */
     groupPanel?: React.ReactNode;
+    /** Roles an approval step's Who may approve offers (the caller's own). */
+    roles?: string[];
 }
 
 export default function NodePanel(props: NodePanelProps) {
@@ -117,6 +119,7 @@ export default function NodePanel(props: NodePanelProps) {
 
     const node = selection && selection.kind === 'node' ? graph.nodes.find((n) => n.key === selection.key) : undefined;
     if (node && node.stepId) {
+        // An approval node gets the step panel too, which shows its ApprovalPanel in place of a search.
         const id = node.stepId;
         if (node.kind === 'summary_index' || node.kind === 'lookup') {
             return (
@@ -147,6 +150,7 @@ export default function NodePanel(props: NodePanelProps) {
                 onCancelPreview={props.onCancelPreview}
                 live={props.previewLive}
                 previewFields={previewFields}
+                roles={props.roles}
             />
         );
     }

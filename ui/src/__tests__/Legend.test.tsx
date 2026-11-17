@@ -9,7 +9,7 @@ describe('Legend', () => {
     test('has one row per family with its label and example kinds', () => {
         renderThemed(<Legend />);
         const rows = screen.getAllByRole('listitem').filter((r) => r.getAttribute('data-family'));
-        expect(rows).toHaveLength(8);
+        expect(rows).toHaveLength(9);
         Object.values(FAMILY_STYLE).forEach((f) => expect(screen.getAllByText(f.label).length).toBeGreaterThan(0));
         const write = rows.find((r) => r.getAttribute('data-family') === 'write') as HTMLElement;
         expect(within(write).getByText(/Summary index, Lookup, Event to an index/)).toBeInTheDocument();
@@ -27,7 +27,7 @@ describe('Legend', () => {
             const row = within(when).getByText(OUTCOME_LABEL[o]).closest('li') as HTMLElement;
             expect(within(row).getByText(PORT_STYLE[o].glyph)).toBeInTheDocument();
         });
-        expect(within(when).getAllByText('actions only')).toHaveLength(3);
+        expect(within(when).getAllByText('actions only')).toHaveLength(4);
         expect(screen.queryByText('Succeeded')).toBeNull();
         expect(screen.getByTestId('legend-plus')).toBeInTheDocument();
         expect(screen.getByText(/Point at a node to show \+; click it to choose what happens next/)).toBeInTheDocument();

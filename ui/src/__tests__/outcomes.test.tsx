@@ -1,7 +1,7 @@
 import type { JobDefinition } from '../api/types';
 import { initialState, reducer } from '../features/builder/reducer';
 import { buildGraph } from '../features/builder/nodeModel';
-import { linkLabel, lineMenuOutcomes, usedOutcomes, whenOptions } from '../features/builder/outcomes';
+import { flowLinkLabel, flowLinkWords, linkLabel, lineMenuOutcomes, outcomeLabel, usedOutcomes, whenOptions } from '../features/builder/outcomes';
 
 const job: JobDefinition = {
     name: 'nightly',
@@ -101,5 +101,48 @@ describe('the late outcome', () => {
     it('connecting it to a new email makes a job action on_late', () => {
         const s = reducer(initialState(job), { type: 'addNode', kind: 'email', from: { key: 'job', port: 'late' } });
         expect(s.job.actions).toContainEqual({ hook: 'on_late', type: 'email', to: '' });
+    });
+});
+
+describe('approval outcomes', () => {
+    const gated: JobDefinition = {
+        name: 'gated',
+        enabled: true,
+        steps: [
+            { id: 'a', type: 'inline', spl: 'search x' },
+            { id: 'gate', name: 'Sign-off', type: 'approval', approval: {}, actions: [{ hook: 'on_approval_requested', type: 'email', to: 'ops@x' }] },
+            { id: 'b', type: 'inline', spl: 'search y' },
+        ],
+        edges: [
+            { from: 'a', to: 'gate', condition: 'on_success' },
+            { from: 'gate', to: 'b', condition: 'on_success' },
+        ],
+    };
+    const gg = buildGraph(gated);
+    const gl = (from: string, to: string) => gg.links.find((l) => l.from === from && l.to === to)!;
+
+    it('an approval node reads Approved, Rejected and Decided either way', () => {
+        const o = whenOptions(gated, 'step:gate');
+        expect(o.map((x) => x.outcome)).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'approval', 'if']);
+        expect(o.map((x) => x.label)).toEqual(['Approved', 'Rejected', 'Decided either way', 'Starts', 'Is delayed', 'Asks for approval', 'If a condition is true']);
+        expect(o.find((x) => x.outcome === 'approval')).toEqual(expect.objectContaining({ glyph: '⚑', count: 1, note: 'actions only' }));
+        expect(whenOptions(gated, 'step:gate', 'step:b').map((x) => x.outcome)).not.toContain('approval');
+    });
+
+    it('outcomeLabel names outcomes for the node kind', () => {
+        expect(outcomeLabel('approval', 'success')).toBe('Approved');
+        expect(outcomeLabel('approval', 'failure')).toBe('Rejected');
+        expect(outcomeLabel('approval', 'always')).toBe('Decided either way');
+        expect(outcomeLabel('approval', 'start')).toBe('Starts');
+        expect(outcomeLabel('search', 'success')).toBe('Succeeds');
+        expect(outcomeLabel('job', 'failure')).toBe('Fails');
+    });
+
+    it('lines out of an approval node use its words', () => {
+        expect(linkLabel(gated, gl('step:gate', 'step:b'))).toBe('✓ Approved');
+        expect(linkLabel(gated, gl('step:gate', 'action:gate:0'))).toBe('⚑ Asks for approval');
+        expect(flowLinkLabel(gg, gl('step:gate', 'step:b'))).toBe('✓ Approved');
+        expect(flowLinkWords(gg, gl('step:gate', 'step:b'))).toBe('Approved');
+        expect(linkLabel(gated, gl('step:a', 'step:gate'))).toBe('✓ Succeeds');
     });
 });

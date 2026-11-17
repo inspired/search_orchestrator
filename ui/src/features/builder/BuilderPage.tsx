@@ -493,6 +493,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onCancelPreview={previews.cancel}
                     previewLive={source === 'live'}
                     groupPanel={grouping.panel}
+                    roles={me ? me.roles : []}
                 />
             </div>
         </div>

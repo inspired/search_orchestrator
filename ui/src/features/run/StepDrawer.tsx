@@ -1,11 +1,12 @@
-/* Details of one step, opened from the timeline or graph. */
+/* Details of one step, opened from the timeline or graph; an approval step's decision too (ApprovalBox). */
 import React from 'react';
 import Link from '@splunk/react-ui/Link';
 import { createURL } from '@splunk/splunk-utils/url';
-import type { ConditionStatus, RunDetail } from '../../api/types';
+import type { ConditionStatus, Me, RunDetail } from '../../api/types';
 import { conditionKind } from '../builder/conditions';
 import StatusText, { isStepDelayed } from '../../components/StatusText';
 import { formatDuration, formatTime } from '../../format';
+import ApprovalBox, { decidedText } from './ApprovalBox';
 
 /** Links to a search job. `createURL` adds the locale and encodes the sid. */
 export function searchJobUrl(sid: string): string {
@@ -40,9 +41,13 @@ export interface StepDrawerProps {
     stepId: string;
     now: number;
     onClose: () => void;
+    /** Who is looking (the me route): Approve and Reject are for users who may approve. */
+    me?: Me | null;
+    /** An approval decision was sent. */
+    onDecided?: () => void;
 }
 
-export default function StepDrawer({ run, stepId, now, onClose }: StepDrawerProps) {
+export default function StepDrawer({ run, stepId, now, onClose, me = null, onDecided = () => undefined }: StepDrawerProps) {
     const def = (run.definition.steps || []).find((s) => s.id === stepId);
     const st = (run.steps || {})[stepId];
     if (!def || !st) {
@@ -62,6 +67,7 @@ export default function StepDrawer({ run, stepId, now, onClose }: StepDrawerProp
                 <span style={{ flex: 1 }} />
                 <Link onClick={onClose}>Close</Link>
             </div>
+            <ApprovalBox key={stepId} run={run} stepId={stepId} me={me} onDecided={onDecided} />
             <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
                 <dt>Attempt</dt>
                 <dd>{st.attempt || 0}</dd>
@@ -83,7 +89,7 @@ export default function StepDrawer({ run, stepId, now, onClose }: StepDrawerProp
                         <dd>{st.result_count}</dd>
                     </>
                 )}
-                {st.error && (
+                {st.error && !decidedText(def, st) && (
                     <>
                         <dt>Error</dt>
                         <dd>{st.error}</dd>

@@ -15,6 +15,7 @@ export type NodeKind =
     | 'summary_index'
     | 'lookup'
     | 'condition'
+    | 'approval'
     | 'email'
     | 'webhook'
     | 'slack'
@@ -25,7 +26,7 @@ export type NodeKind =
     | 'alert_action'
     | 'start_job'
     | 'job';
-export type PortId = 'success' | 'failure' | 'always' | 'start' | 'delayed' | 'if' | 'then' | 'late';
+export type PortId = 'success' | 'failure' | 'always' | 'start' | 'delayed' | 'if' | 'then' | 'late' | 'approval';
 export type ActionScope = 'job' | string; // 'job' or a step id
 
 export const JOB_KEY = 'job';
@@ -68,6 +69,7 @@ export const HOOK_FOR_PORT: Record<PortId, Action['hook'] | null> = {
     start: 'on_start',
     delayed: 'on_delayed',
     late: 'on_late',
+    approval: 'on_approval_requested',
     if: null,
     then: null,
 };
@@ -79,6 +81,7 @@ export const EDGE_CONDITION_FOR_PORT: Record<PortId, Edge['condition'] | null> =
     start: null,
     delayed: null,
     late: null,
+    approval: null,
     if: 'expression',
     then: null,
 };
@@ -95,6 +98,8 @@ export function portForHook(hook: Action['hook']): PortId {
             return 'delayed';
         case 'on_late':
             return 'late';
+        case 'on_approval_requested':
+            return 'approval';
         default:
             return 'success';
     }
@@ -114,6 +119,9 @@ export function portForEdge(e: Edge): PortId {
 }
 
 export function nodeKindOfStep(step: StepDef): NodeKind {
+    if (step.type === 'approval') {
+        return 'approval';
+    }
     if (step.output?.kind === 'summary_index') {
         return 'summary_index';
     }
@@ -144,9 +152,14 @@ export function nodeKindOfAction(a: Action): NodeKind {
     }
 }
 
-const STEP_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
+export const STEP_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup', 'approval'];
+/** Outcomes that only lead to actions. */
+export const ACTION_ONLY_PORTS: PortId[] = ['start', 'delayed', 'late', 'approval'];
 
 export function outputPorts(kind: NodeKind): PortId[] {
+    if (kind === 'approval') {
+        return ['success', 'failure', 'always', 'start', 'delayed', 'approval', 'if'];
+    }
     if (kind === 'job') {
         return ['success', 'failure', 'always', 'start', 'delayed', 'late'];
     }
@@ -329,6 +342,9 @@ export function canConnect(job: JobDefinition, from: string, port: PortId, to: s
     }
     if (port === 'start' || port === 'delayed') {
         return no('Starts and Is delayed lines can only go to an action');
+    }
+    if (port === 'approval') {
+        return no('Asks for approval lines can only go to an action');
     }
     if (fromStep === toId || wouldCycle(edges, fromStep as string, toId)) {
         return no('That line would make a loop; steps cannot depend on themselves, even through other steps');

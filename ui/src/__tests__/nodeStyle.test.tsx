@@ -48,7 +48,7 @@ describe('nodeStyle', () => {
     it('styles ports', () => {
         const glyphs = (['success', 'failure', 'always', 'start', 'delayed', 'if', 'then'] as PortId[]).map((p) => PORT_STYLE[p].glyph);
         expect(glyphs).toEqual(['✓', '✗', '∞', '▶', '⏱', '◇', '→']);
-        expect(Object.values(PORT_STYLE).map((p) => p.label)).toEqual(['Succeeded', 'Failed', 'Finished either way', 'Started', 'Delayed', 'Late', 'If…', 'Then']);
+        expect(Object.values(PORT_STYLE).map((p) => p.label)).toEqual(['Succeeded', 'Failed', 'Finished either way', 'Started', 'Delayed', 'Late', 'If…', 'Then', 'Asks for approval']);
         expect(PORT_STYLE.late.glyph).toBe('⌛');
         expect(PORT_STYLE.late.colorToken).toBe('statusColorMedium');
         expect(PORT_STYLE.success.colorToken).toBe('statusColorNormal');

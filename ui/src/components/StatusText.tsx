@@ -1,4 +1,4 @@
-/* Run and step status as plain text with an icon. Colour only for failed and delayed;
+/* Run and step status as plain text with an icon. Colour only for failed, delayed and waiting for approval;
  * never a filled pill or badge (owner's call). */
 import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -31,6 +31,7 @@ const LABELS: Record<AnyState, string> = {
     retrying: 'Retrying',
     skipped: 'Skipped',
     abandoned: 'Abandoned',
+    awaiting_approval: 'Waiting for approval',
 };
 
 type Icon = React.ComponentType<React.SVGProps<SVGSVGElement> & { 'aria-hidden'?: boolean }>;
@@ -49,6 +50,7 @@ const ICONS: Record<AnyState, Icon> = {
     retrying: ArrowClockwise,
     skipped: ControlFastForward,
     abandoned: MinusCircle,
+    awaiting_approval: Clock,
 };
 
 /** Visually hidden but read by screen readers. Use inside a positioned element. */
@@ -96,13 +98,15 @@ export interface StatusTextProps {
     state: AnyState;
     delayed?: boolean;
     skipKind?: SkipKind | null;
+    /** Words after the state: "Running · waiting for approval". */
+    detail?: string;
 }
 
-export default function StatusText({ state, delayed = false, skipKind }: StatusTextProps) {
+export default function StatusText({ state, delayed = false, skipKind, detail }: StatusTextProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const IconFor = statusIcon(state, delayed);
     let color: string | undefined;
-    if (delayed) {
+    if (delayed || state === 'awaiting_approval') {
         color = theme.statusColorMedium;
     } else if (state === 'failed') {
         color = theme.statusColorHigh;
@@ -120,7 +124,7 @@ export default function StatusText({ state, delayed = false, skipKind }: StatusT
     return (
         <span style={style} data-state={state} data-delayed={delayed ? 'true' : undefined}>
             <IconFor aria-hidden />
-            <span>{label}</span>
+            <span>{detail ? `${label} · ${detail}` : label}</span>
             {delayed && <span style={srOnly}>{`, ${LABELS[state] || state}`}</span>}
         </span>
     );

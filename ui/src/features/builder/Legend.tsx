@@ -5,6 +5,7 @@ import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import { Theme } from './GraphView';
 import { CATALOG } from './nodeCatalog';
+import { ACTION_ONLY_PORTS } from './nodeModel';
 import { FAMILY_OF, FAMILY_STYLE, Family, HANDLE_R, PORT_STYLE, shapePath } from './nodeStyle';
 import { OUTCOME_LABEL, Outcome } from './outcomes';
 
@@ -65,7 +66,7 @@ export default function Legend() {
                             {PORT_STYLE[o].glyph}
                         </span>
                         <span>{OUTCOME_LABEL[o]}</span>
-                        {(o === 'start' || o === 'delayed' || o === 'late') && <span style={{ color: theme.contentColorMuted }}>actions only</span>}
+                        {ACTION_ONLY_PORTS.includes(o) && <span style={{ color: theme.contentColorMuted }}>actions only</span>}
                     </li>
                 ))}
             </ul>

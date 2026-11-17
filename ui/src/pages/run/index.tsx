@@ -13,6 +13,7 @@ import {
     pauseRun,
     resumeRun,
 } from '../../api/client';
+import type { Me } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
 import RunBanner from '../../components/RunBanner';
 import useNow from '../../hooks/useNow';
@@ -36,7 +37,8 @@ function RunPage() {
     const runId = queryParam('run_id') || '';
     const [fast, setFast] = useState(true);
     const poll = usePoll(() => getRun(runId), fast ? 5000 : 30000, Boolean(runId));
-    const [canRun, setCanRun] = useState(false);
+    const [who, setWho] = useState<Me | null>(null);
+    const canRun = Boolean(who && who.can_run);
     const [tab, setTab] = useState('timeline');
     const [selected, setSelected] = useState<string | null>(null);
     const [rerunOpen, setRerunOpen] = useState(false);
@@ -45,8 +47,8 @@ function RunPage() {
 
     useEffect(() => {
         getMe()
-            .then((m) => setCanRun(m.can_run))
-            .catch(() => setCanRun(false));
+            .then(setWho)
+            .catch(() => setWho(null));
     }, []);
 
     const detail = poll.data;
@@ -137,7 +139,7 @@ function RunPage() {
                     {tab === 'actions' && <ActionsTab actions={detail.actions || []} />}
                     {tab === 'params' && <ParamsTab run={run} />}
                     {selected && (tab === 'timeline' || tab === 'graph') && (
-                        <StepDrawer run={run} stepId={selected} now={now} onClose={() => setSelected(null)} />
+                        <StepDrawer run={run} stepId={selected} now={now} onClose={() => setSelected(null)} me={who} onDecided={poll.refresh} />
                     )}
                     <RerunDialog
                         run={run}

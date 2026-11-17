@@ -1,8 +1,9 @@
 import type { JobDefinition } from '../api/types';
 import {
-    EDGE_CONDITION_FOR_PORT, HOOK_FOR_PORT, buildGraph, canConnect, nodeKindOfAction, outputPorts,
+    EDGE_CONDITION_FOR_PORT, HOOK_FOR_PORT, buildGraph, canConnect, nodeKindOfAction, nodeKindOfStep, outputPorts, portForHook,
 } from '../features/builder/nodeModel';
-import { FAMILY_OF } from '../features/builder/nodeStyle';
+import { searchCatalog, targetKinds } from '../features/builder/nodeCatalog';
+import { FAMILY_OF, FAMILY_STYLE, PORT_STYLE, nodeSize, shapePath } from '../features/builder/nodeStyle';
 import { addNodeKey, initialState, reducer } from '../features/builder/reducer';
 
 const job: JobDefinition = {
@@ -59,8 +60,8 @@ describe('ports', () => {
         expect(outputPorts('email')).toEqual([]);
     });
     it('maps ports', () => {
-        expect(HOOK_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'on_complete', start: 'on_start', delayed: 'on_delayed', late: 'on_late', if: null, then: null });
-        expect(EDGE_CONDITION_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'always', start: null, delayed: null, late: null, if: 'expression', then: null });
+        expect(HOOK_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'on_complete', start: 'on_start', delayed: 'on_delayed', late: 'on_late', approval: 'on_approval_requested', if: null, then: null });
+        expect(EDGE_CONDITION_FOR_PORT).toEqual({ success: 'on_success', failure: 'on_failure', always: 'always', start: null, delayed: null, late: null, approval: null, if: 'expression', then: null });
     });
 });
 
@@ -145,5 +146,78 @@ describe('channel nodes', () => {
         expect(pd.job.actions?.[1]).toEqual({ type: 'webhook', preset: 'pagerduty', hook: 'on_failure', destination: '' });
         const teams = reducer(s0, { type: 'addNode', kind: 'teams' });
         expect(teams.job.actions?.[1]).toEqual({ type: 'webhook', preset: 'teams', hook: 'on_failure', destination: '' });
+    });
+});
+
+describe('approval nodes', () => {
+    const gated: JobDefinition = {
+        name: 'gated',
+        enabled: true,
+        steps: [
+            { id: 'a', type: 'inline', spl: 'search x' },
+            {
+                id: 'gate',
+                name: 'Sign-off',
+                type: 'approval',
+                approval: { message: 'ok?' },
+                actions: [{ hook: 'on_approval_requested', type: 'email', to: 'ops@x' }],
+            },
+        ],
+        edges: [{ from: 'a', to: 'gate', condition: 'on_success' }],
+    };
+
+    it('an approval step is a node of its own kind, with its own outcomes', () => {
+        expect(nodeKindOfStep({ id: 'gate', type: 'approval' })).toBe('approval');
+        expect(outputPorts('approval')).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'approval', 'if']);
+        expect(HOOK_FOR_PORT.approval).toBe('on_approval_requested');
+        expect(portForHook('on_approval_requested')).toBe('approval');
+        expect(FAMILY_OF.approval).toBe('approval');
+    });
+
+    it('draws an octagon in the gate colour, with a ⚑ Asks for approval port', () => {
+        expect(FAMILY_STYLE.approval).toEqual({ shape: 'octagon', colorToken: 'categoricalA4Strong', label: 'Approval' });
+        expect(PORT_STYLE.approval).toEqual({ glyph: '⚑', label: 'Asks for approval', colorToken: 'contentColorMuted' });
+        const { w, h } = nodeSize('approval');
+        const d = shapePath('octagon', w, h);
+        expect(d.startsWith('M')).toBe(true);
+        expect(d.trim().endsWith('Z')).toBe(true);
+        expect(d.match(/[ML]/g)).toHaveLength(8);
+        expect(d).not.toBe(shapePath('rounded', w, h));
+    });
+
+    it('draws the Asks for approval action on its approval port', () => {
+        const g = buildGraph(gated);
+        expect(g.nodes.find((n) => n.key === 'step:gate')!.kind).toBe('approval');
+        const line = g.links.find((l) => l.from === 'step:gate' && l.to === 'action:gate:0')!;
+        expect(line.port).toBe('approval');
+    });
+
+    it('Asks for approval leads only to actions', () => {
+        expect(canConnect(gated, 'step:gate', 'approval', 'action:gate:0').ok).toBe(true);
+        const toStep = canConnect(gated, 'step:gate', 'approval', 'step:a');
+        expect(toStep.ok).toBe(false);
+        expect(canConnect(gated, 'step:a', 'approval', 'action:gate:0').ok).toBe(false);
+    });
+
+    it('adding an approval node makes a step the server accepts: no search, time range, retries or runtime', () => {
+        const s0 = initialState(gated);
+        const from = { key: 'step:a', port: 'success' as const };
+        expect(addNodeKey(s0.job, 'approval', from)).toBe('step:approval');
+        const s = reducer(s0, { type: 'addNode', kind: 'approval', from });
+        expect(s.job.steps[2]).toEqual({ id: 'approval', type: 'approval', name: 'Approval', approval: {} });
+        expect(s.job.edges).toContainEqual({ from: 'a', to: 'approval', condition: 'on_success' });
+    });
+
+    it('renaming a step renames its tokens in an approval message', () => {
+        const job2: JobDefinition = { ...gated, steps: [gated.steps[0], { ...gated.steps[1], approval: { message: 'Rows: $a.resultCount$' } }] };
+        const s = reducer(initialState(job2), { type: 'updateStep', id: 'a', changes: { id: 'daily' } });
+        expect(s.job.steps[1].approval).toEqual({ message: 'Rows: $daily.resultCount$' });
+    });
+
+    it('is in the catalog under approve, sign-off, gate, human and manual', () => {
+        ['approve', 'sign-off', 'gate', 'human', 'manual'].forEach((q) => expect(searchCatalog(q).map((e) => e.kind)).toContain('approval'));
+        expect(targetKinds('success', 'search')).toContain('approval');
+        expect(targetKinds('approval', 'approval')).not.toContain('approval');
+        expect(targetKinds('approval', 'approval')).toContain('email');
     });
 });

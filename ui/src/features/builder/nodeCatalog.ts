@@ -1,5 +1,6 @@
 /* The kinds of node a person can add, and which ones make sense after a given port. */
 import type { NodeKind, PortId } from './nodeModel';
+import { STEP_KINDS } from './nodeModel';
 import { FAMILY_OF } from './nodeStyle';
 import type { Family } from './nodeStyle';
 
@@ -27,6 +28,7 @@ export const CATALOG: CatalogEntry[] = [
     entry('previous', 'Results of earlier steps', ['earlier', 'previous', 'combine', 'merge', 'join', 'append'], 'Work with the results of steps that ran before.'),
     entry('summary_index', 'Summary index', ['collect', 'write', 'index', 'store'], 'Write the results of earlier steps to a summary index.'),
     entry('lookup', 'Lookup', ['outputlookup', 'csv', 'write', 'store'], 'Write the results of earlier steps to a lookup.'),
+    entry('approval', 'Approval', ['approve', 'sign-off', 'gate', 'human', 'manual'], 'Wait until someone approves or rejects before going on.'),
     entry('email', 'Email', ['mail', 'message', 'notify'], 'Send an email when the step or job gets here.'),
     entry('webhook', 'Webhook', ['http', 'post', 'url', 'notify'], 'Send a web request when the step or job gets here.'),
     entry('slack', 'Slack', ['chat', 'message', 'notify', 'channel'], 'Post a message to Slack when the step or job gets here.'),
@@ -38,7 +40,6 @@ export const CATALOG: CatalogEntry[] = [
     entry('start_job', 'Start another job', ['chain', 'run', 'job', 'trigger'], 'Start a different job when the step or job gets here.'),
 ];
 
-const STEP_KINDS: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup'];
 const ACTION_KINDS: NodeKind[] = ['email', 'webhook', 'event', 'alert_action', 'start_job', 'slack', 'teams', 'pagerduty', 'servicenow'];
 
 const inCatalog = (kinds: NodeKind[]): NodeKind[] => CATALOG.filter((e) => kinds.includes(e.kind)).map((e) => e.kind);
@@ -61,6 +62,7 @@ export function targetKinds(port: PortId | null, fromKind: NodeKind | null): Nod
         case 'start':
         case 'delayed':
         case 'late':
+        case 'approval':
             return actions;
         default:
             return steps;

@@ -23,7 +23,7 @@ export function readiness(job: JobDefinition): ChecklistItem[] {
     const triggers = job.triggers || [];
     const searchesDone =
         steps.length > 0 &&
-        steps.every((s) => (s.type === 'saved_search' ? Boolean((s.saved_search_ref || '').trim()) : Boolean((s.spl || '').trim())));
+        steps.every((s) => s.type === 'approval' || (s.type === 'saved_search' ? Boolean((s.saved_search_ref || '').trim()) : Boolean((s.spl || '').trim())));
     const scheduled = triggers.some((t) => t.type === 'cron' || t.type === 'completion');
     // The server warns unless the job itself has an on_failure action.
     const notified = (job.actions || []).some((a) => a.hook === 'on_failure');

@@ -3,8 +3,8 @@
 import type { NodeKind, PortId } from './nodeModel';
 import { outputPorts } from './nodeModel';
 
-export type Family = 'trigger' | 'search' | 'transform' | 'condition' | 'notify' | 'write' | 'chain' | 'job';
-export type Shape = 'stadium' | 'rounded' | 'cut' | 'diamond' | 'flag' | 'cylinder' | 'parallelogram' | 'double';
+export type Family = 'trigger' | 'search' | 'transform' | 'condition' | 'approval' | 'notify' | 'write' | 'chain' | 'job';
+export type Shape = 'stadium' | 'rounded' | 'cut' | 'diamond' | 'octagon' | 'flag' | 'cylinder' | 'parallelogram' | 'double';
 
 export const FAMILY_OF: Record<NodeKind, Family> = {
     trigger_cron: 'trigger',
@@ -16,6 +16,7 @@ export const FAMILY_OF: Record<NodeKind, Family> = {
     lookup: 'write',
     event: 'write',
     condition: 'condition',
+    approval: 'approval',
     email: 'notify',
     webhook: 'notify',
     slack: 'notify',
@@ -32,6 +33,7 @@ export const FAMILY_STYLE: Record<Family, { shape: Shape; colorToken: string; la
     search: { shape: 'rounded', colorToken: 'categoricalA2Strong', label: 'Search' },
     transform: { shape: 'cut', colorToken: 'categoricalA3Strong', label: 'Transform' },
     condition: { shape: 'diamond', colorToken: 'categoricalA4Strong', label: 'Condition' },
+    approval: { shape: 'octagon', colorToken: 'categoricalA4Strong', label: 'Approval' },
     notify: { shape: 'flag', colorToken: 'categoricalA5Strong', label: 'Notify' },
     write: { shape: 'cylinder', colorToken: 'categoricalA7Strong', label: 'Write' },
     chain: { shape: 'parallelogram', colorToken: 'categoricalA6Strong', label: 'Start another job' },
@@ -47,6 +49,7 @@ export const PORT_STYLE: Record<PortId, { glyph: string; label: string; colorTok
     late: { glyph: '⌛', label: 'Late', colorToken: 'statusColorMedium' },
     if: { glyph: '◇', label: 'If…', colorToken: 'contentColorMuted' },
     then: { glyph: '→', label: 'Then', colorToken: 'contentColorMuted' },
+    approval: { glyph: '⚑', label: 'Asks for approval', colorToken: 'contentColorMuted' },
 };
 
 const STEP_SIZE = { w: 200, h: 76 };
@@ -66,6 +69,7 @@ export function nodeSize(kind: NodeKind, compact = false): { w: number; h: numbe
         case 'search':
         case 'transform':
         case 'write':
+        case 'approval':
             return STEP_SIZE;
         default:
             return { w: 200, h: 56 };
@@ -88,6 +92,11 @@ export function shapePath(shape: Shape, w: number, h: number): string {
             return `M${CUT},0 L${w - CUT},0 L${w},${CUT} L${w},${h - CUT} L${w - CUT},${h} L${CUT},${h} L0,${h - CUT} L0,${CUT} Z`;
         case 'diamond':
             return `M${w / 2},0 L${w},${h / 2} L${w / 2},${h} L0,${h / 2} Z`;
+        case 'octagon': {
+            // Corners cut at 30% of the height: a stop-sign outline, bolder than `cut`.
+            const c = Math.round(h * 0.3);
+            return `M${c},0 L${w - c},0 L${w},${c} L${w},${h - c} L${w - c},${h} L${c},${h} L0,${h - c} L0,${c} Z`;
+        }
         case 'flag':
             return `M0,0 L${w},0 L${w - 12},${h / 2} L${w},${h} L0,${h} Z`;
         case 'cylinder':

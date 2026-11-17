@@ -1,6 +1,8 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
-import StatusText from '../components/StatusText';
+import Clock from '@splunk/react-icons/Clock';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import StatusText, { statusIcon, statusLabel } from '../components/StatusText';
 import JobsTable from '../features/jobs/JobsTable';
 import RunsTable from '../features/runs/RunsTable';
 import RunBanner, { bannerMessages } from '../components/RunBanner';
@@ -167,3 +169,33 @@ describe('RunBanner', () => {
         expect(screen.queryByText(/^This run failed\./)).toBeNull();
     });
 });
+
+describe('awaiting_approval', () => {
+    test('reads Waiting for approval, with the clock icon in statusColorMedium', () => {
+        let medium = '';
+        function Probe() {
+            medium = (useSplunkTheme() as unknown as Record<string, string>).statusColorMedium;
+            return null;
+        }
+        renderThemed(
+            <>
+                <Probe />
+                <StatusText state="awaiting_approval" />
+            </>
+        );
+        const label = screen.getByText('Waiting for approval');
+        const span = label.parentElement as HTMLElement;
+        expect(span.getAttribute('data-state')).toBe('awaiting_approval');
+        expect(medium).not.toBe('');
+        expect(span.style.color).toBe(toRgb(medium));
+        expect(statusIcon('awaiting_approval')).toBe(Clock);
+        expect(statusLabel('awaiting_approval')).toBe('Waiting for approval');
+    });
+});
+
+/** jsdom gives inline colours back as rgb(). */
+function toRgb(color: string): string {
+    const el = document.createElement('span');
+    el.style.color = color;
+    return el.style.color;
+}
