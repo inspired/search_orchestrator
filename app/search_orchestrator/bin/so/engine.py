@@ -1030,11 +1030,13 @@ class Engine:
     @staticmethod
     def _input_sids(run, sdef):
         """A ``previous`` step's input search IDs: its dependencies that succeeded, in
-        edge order. Skipped and failed ones add nothing."""
+        edge order. Skipped and failed ones add nothing, nor does an approval step (it
+        succeeds with no search, so no sid)."""
         steps = run.get("steps") or {}
         return [(steps.get(up) or {}).get("sid")
                 for up in tokens.previous_inputs(run.get("definition") or {}, sdef["id"])
-                if (steps.get(up) or {}).get("state") == "succeeded"]
+                if (steps.get(up) or {}).get("state") == "succeeded"
+                and (steps.get(up) or {}).get("sid")]
 
     def _search_name(self, run, sdef):
         """The saved search this attempt dispatches, for dispatch, history adoption and

@@ -196,3 +196,19 @@ def test_waiting_gate_uses_no_search_slot():
     assert w.step(r, "gate")["state"] == "awaiting_approval"
     assert w.dispatched("side")
     assert not [d for d in w.gw.dispatch_log if d["name"].split("_")[3] == "gate"]
+
+
+def test_results_of_earlier_steps_after_an_approval_runs_its_empty_search():
+    """An approval succeeds with no search, so a previous step after it has no input to
+    load; it runs its empty-input search instead of failing on a bad search id."""
+    prev = {"id": "prev", "type": "previous", "spl": '| eval by="x"'}
+    w, r = gate_world(extra_steps=[prev], extra_edges=[("gate", "prev")])
+    approve(w, r)
+    for _ in range(4):
+        w.tick(advance=5)
+    sent = w.dispatched("prev")
+    assert sent, w.run(r)["steps"]["prev"]
+    defn = w.run(r)["definition"]
+    empty = next(s for s in defn["steps"] if s["id"] == "prev")["hidden_search_empty"]
+    assert sent[0]["name"] == empty
+    assert w.step(r, "prev")["state"] != "failed"

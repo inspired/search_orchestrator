@@ -153,10 +153,12 @@ def reads(definition, step_id):
 
 def input_sids(definition, step_id, upstream):
     """A ``previous`` step's input sids: its dependencies that succeeded, in edge order
-    (``Engine._input_sids``'s rule). ``upstream`` is ``{step_id: {"state", "sid"}}``."""
+    (``Engine._input_sids``'s rule: an approval step, with no sid, adds nothing).
+    ``upstream`` is ``{step_id: {"state", "sid"}}``."""
     return [(upstream.get(up) or {}).get("sid")
             for up in tokens.previous_inputs(definition, step_id)
-            if (upstream.get(up) or {}).get("state") == "succeeded"]
+            if (upstream.get(up) or {}).get("state") == "succeeded"
+            and (upstream.get(up) or {}).get("sid")]
 
 
 def token_context(definition, scheduled_time, params, upstream, now=None):

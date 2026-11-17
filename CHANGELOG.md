@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.24.1 (2026-11-17)
+
+- **Fixed:** a **Results of earlier steps** step right after an approval step failed with `token $so_input$: bad search id` (an approval has no search). An approval now adds no input, like a skipped step, in runs and previews.
+- **Examples:** the platform health example's **Record the escalation** is a search of its own, so it shows who approved, the comment, the score and the environment.
+
 ## 1.24.0 (2026-11-17)
 
 - **View output:** Lookup and Summary index nodes have **View output**, Email actions **View sent emails** and Event actions **View output**: a dialog with up to 100 rows, the total, the search and **Open in Search**. In the builder it searches the last 24 hours, 7 days or 30 days (a lookup: its contents now); on the run page, under **Output** in a step's details, only that run's time window and run id. New route `POST preview/output` (runs as the caller, like a preview; polled with `preview/<sid>`), audited `output_viewed`.

@@ -167,8 +167,8 @@
     {
       "id": "escalate",
       "name": "Record the escalation",
-      "type": "previous",
-      "spl": "| eval escalated_by=\"$approve_escalation.first.by|unknown$\", comment=\"$approve_escalation.first.comment|none$\"",
+      "type": "inline",
+      "spl": "| makeresults\n| eval escalated_by=\"$approve_escalation.first.by|unknown$\", comment=\"$approve_escalation.first.comment|none$\", score=\"$score.first.score$\", env=\"$run.param.environment$\"\n| table _time escalated_by comment score env",
       "actions": [
         {
           "hook": "on_success",
@@ -176,7 +176,9 @@
           "index": "main",
           "payload": "{\"source\": \"search_orchestrator\", \"job\": \"{{job}}\", \"run_id\": \"{{run_id}}\", \"score\": \"$score.first.score$\", \"env\": \"$run.param.environment$\"}"
         }
-      ]
+      ],
+      "earliest": "-1d@d",
+      "latest": "@d"
     },
     {
       "id": "note_rejection",
