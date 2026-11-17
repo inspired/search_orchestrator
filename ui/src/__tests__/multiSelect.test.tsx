@@ -64,6 +64,11 @@ describe('selection helpers', () => {
         expect(toggleInSelection({ kind: 'node', key: 'step:a' }, 'step:a')).toBeNull();
     });
 
+    test('a selection box never picks the Whole job node', () => {
+        expect(keysInBox(graph, positions, { x: 0, y: 350 }, { x: 300, y: 500 })).toEqual([]);
+        expect(keysInBox(graph, positions, { x: 0, y: 50 }, { x: 600, y: 500 })).not.toContain('job');
+    });
+
     test('keysInBox finds the nodes whose boxes touch the box, in either drag direction', () => {
         expect(keysInBox(graph, positions, { x: 300, y: 50 }, { x: 600, y: 120 })).toEqual(['step:a', 'step:b']);
         expect(keysInBox(graph, positions, { x: 600, y: 120 }, { x: 300, y: 50 })).toEqual(['step:a', 'step:b']);

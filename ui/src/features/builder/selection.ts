@@ -1,6 +1,7 @@
 /* What is selected on the flow canvas: one node, one line, or several nodes. A selection of
  * several nodes always holds two or more keys; one key is a node selection. Pure helpers. */
 import type { Pos, Positions } from './graphLogic';
+import { JOB_KEY } from './nodeModel';
 import type { FlowGraph } from './nodeModel';
 import { nodeSize } from './nodeStyle';
 
@@ -29,7 +30,7 @@ export function toggleInSelection(sel: FlowSelection, key: string): FlowSelectio
     return normaliseSelection(keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]);
 }
 
-/** Keys of the nodes whose boxes touch the box with corners `a` and `b`, in graph order. */
+/** Keys of the nodes whose boxes touch the box with corners `a` and `b`, in graph order (never the Whole job node). */
 export function keysInBox(graph: FlowGraph, positions: Positions, a: Pos, b: Pos): string[] {
     const x0 = Math.min(a.x, b.x);
     const x1 = Math.max(a.x, b.x);
@@ -37,6 +38,9 @@ export function keysInBox(graph: FlowGraph, positions: Positions, a: Pos, b: Pos
     const y1 = Math.max(a.y, b.y);
     return graph.nodes
         .filter((n) => {
+            if (n.key === JOB_KEY) {
+                return false;
+            }
             const p = positions[n.key];
             if (!p) {
                 return false;
