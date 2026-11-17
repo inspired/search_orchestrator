@@ -1,6 +1,7 @@
 /* Shapes of the Search Orchestrator REST API (app/search_orchestrator/bin/so/api.py).
  * Times are integer epoch seconds. */
 import type { ApprovalState } from './approvals';
+import type { StepPerf } from './performance';
 
 export const RUN_STATES = ['queued', 'running', 'blocked', 'paused', 'succeeded', 'failed', 'cancelled'] as const;
 export type RunState = (typeof RUN_STATES)[number];
@@ -209,6 +210,8 @@ export interface Job extends JobDefinition {
 
 export interface StepStatus {
     state: StepState;
+    /** What the search cost, once it finished (bin/so/engine.py); keys are left out when unknown. */
+    perf?: StepPerf;
     skip_kind?: SkipKind | null;
     attempt?: number;
     sid?: string | null;

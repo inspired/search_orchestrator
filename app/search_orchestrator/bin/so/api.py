@@ -150,7 +150,7 @@ class _Ctx:
 
 def _routes():
     from . import condition_test as ct, history_api as hv, preview_api as pv  # these import this module: no cycle
-    from . import approval_api as ap, backfill_api as bf, calendar_api as cal, snippets as sn
+    from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -172,6 +172,7 @@ def _routes():
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
         (r"runs/(?P<run_id>[^/]+)/rerun", {"POST": rerun}),
         (r"runs/(?P<run_id>[^/]+)/approve", {"POST": ap.approve}),
+        (r"runs/(?P<run_id>[^/]+)/performance", {"GET": pf.performance}),
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
