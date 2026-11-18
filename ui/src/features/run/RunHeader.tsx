@@ -4,6 +4,7 @@ import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { RunDetail } from '../../api/types';
 import StatusText, { isRunDelayed } from '../../components/StatusText';
+import { QueueReasonLine } from '../../components/WaitReason';
 import { formatTime } from '../../format';
 import { formatDeadline } from './DeadlineMessage';
 
@@ -32,7 +33,10 @@ export default function RunHeader({ run, canRun, busy, onPause, onResume, onCanc
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
             <strong>{name}</strong>
             <span>{`Run ${formatTime(run.scheduled_time)}`}</span>
-            <StatusText state={state} delayed={isRunDelayed(run)} />
+            <span>
+                <StatusText state={state} delayed={isRunDelayed(run)} />
+                {state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
+            </span>
             {run.deadline_at && <span style={{ color: theme.contentColorMuted }}>{`Deadline ${formatDeadline(run.deadline_at, run.definition.timezone)}`}</span>}
             <span style={{ flex: 1 }} />
             {allowed && (

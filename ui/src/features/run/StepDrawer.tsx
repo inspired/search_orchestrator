@@ -7,6 +7,7 @@ import { conditionKind } from '../builder/conditions';
 import StatusText, { isStepDelayed } from '../../components/StatusText';
 import { formatDuration, formatTime } from '../../format';
 import ApprovalBox, { decidedText } from './ApprovalBox';
+import { stepReasonText } from '../../components/WaitReason';
 import OutputViewer from '../output/OutputViewer';
 
 /** Links to a search job. `createURL` adds the locale and encodes the sid. */
@@ -73,6 +74,11 @@ export default function StepDrawer({ run, stepId, now, onClose, me = null, onDec
                 <span style={{ flex: 1 }} />
                 <Link onClick={onClose}>Close</Link>
             </div>
+            {run.step_reasons && run.step_reasons[stepId] && (st.state === 'waiting' || st.state === 'ready') && (
+                <p data-testid="step-reason" style={{ margin: '6px 0' }}>
+                    {stepReasonText(run.step_reasons[stepId])}
+                </p>
+            )}
             <ApprovalBox key={stepId} run={run} stepId={stepId} me={me} onDecided={onDecided} />
             <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
                 <dt>Attempt</dt>

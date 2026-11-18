@@ -704,7 +704,17 @@ def list_runs(ctx, body):
         limit = max(1, min(1000, int(body.get("limit") or 200)))
     except (TypeError, ValueError):
         raise ApiError(400, "bad_request", "limit must be a number")
-    return 200, {"runs": [_summary(r) for r in _visible_runs(ctx, filters, limit)]}
+    from . import queue_info
+    runs = _visible_runs(ctx, filters, limit)
+    engine = queue_info.engine_status(ctx)
+    reasons = queue_info.queue_reasons(ctx, runs, engine)
+    out = []
+    for r in runs:
+        s = _summary(r)
+        if (r.get("_key") or r.get("id")) in reasons:
+            s["queue_reason"] = reasons[r.get("_key") or r.get("id")]
+        out.append(s)
+    return 200, {"runs": out, "engine": engine}
 
 
 def _visible_runs(ctx, query, limit):
@@ -787,7 +797,13 @@ def get_run(ctx, body, run_id):
     out["permissions"] = {"can_run": ctx.allowed(authz.can_run, _run_job(ctx, run))}
     attempts = ctx.store.list_step_runs(run_id)
     actions = ctx.sys_gw.kv_query(ACTION_RUNS, {"run_id": run_id})
-    return 200, {"run": out, "attempts": attempts, "actions": actions}
+    from . import queue_info
+    engine = queue_info.engine_status(ctx)
+    reason = queue_info.queue_reasons(ctx, [run], engine).get(run_id)
+    if reason:
+        out["queue_reason"] = reason
+    out["step_reasons"] = queue_info.step_reasons(ctx, run)
+    return 200, {"run": out, "attempts": attempts, "actions": actions, "engine": engine}
 
 
 def _controllable_run(ctx, run_id, action):

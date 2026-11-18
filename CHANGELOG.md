@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.29.0 (2026-11-18)
+
+- **Why it waits:** a queued run shows why under its status on the Runs page and the run page, with a link to the run in the way: another run of the job is active, other queued runs go first, a held run blocks the job, or the engine isn't running (a red banner on the run page too). A waiting step's details say which steps it waits for, or which search limit in Settings is full. `GET runs` adds `queue_reason` to queued runs and `engine` (`running`, `last_seen`, from the engine lease); `GET runs/<id>` adds `queue_reason`, `step_reasons` and `engine`.
+
 ## 1.28.1 (2026-11-18)
 
 - **Fixed:** in the Simple view, clicking a choice under **When this search…** closed the picker and did nothing. **+ Add…** now has two steps: pick when, then what (with **‹ Back**), and it stays open until you pick what.

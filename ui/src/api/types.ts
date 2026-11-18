@@ -229,8 +229,30 @@ export interface StepStatus {
 }
 
 /** A run as GET runs lists it (no definition). */
+/** Why a queued run hasn't started (bin/so/queue_info.py). */
+export type QueueReason =
+    | { kind: 'engine_stopped'; last_seen: number | null }
+    | { kind: 'held'; run_id: string }
+    | { kind: 'waiting_for_run'; run_id: string; state: RunState }
+    | { kind: 'behind'; ahead: number; next_run_id: string }
+    | { kind: 'next_tick' };
+
+/** Why a step of a running run hasn't started. */
+export type StepReason =
+    | { kind: 'waiting_for'; steps: string[] }
+    | { kind: 'search_slots'; job_running: number; job_max: number; all_running: number; all_max: number }
+    | { kind: 'next_tick' };
+
+export interface EngineStatus {
+    running: boolean;
+    /** Epoch seconds of the engine's last tick, if it ever ran. */
+    last_seen: number | null;
+}
+
 export interface RunSummary {
     id: string;
+    /** Queued runs: why they haven't started. */
+    queue_reason?: QueueReason;
     job_id: string;
     owner: string;
     /** How the run started, such as manual, cron, completion or backfill. */
@@ -269,6 +291,8 @@ export interface RerunLatest {
 
 /** A run as GET runs/<id> returns it. */
 export interface RunDetail extends RunSummary {
+    /** Running runs: why steps that wait haven't started, by step id. */
+    step_reasons?: Record<string, StepReason>;
     definition: JobDefinition & { id: string };
     definition_changed: boolean;
     rerun_latest: Record<string, RerunLatest>;
@@ -289,6 +313,7 @@ export interface ActionRun {
 
 export interface RunDetailResponse {
     run: RunDetail;
+    engine?: EngineStatus;
     attempts: StepAttempt[];
     actions: ActionRun[];
 }

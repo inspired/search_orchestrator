@@ -7,6 +7,7 @@ import Table from '@splunk/react-ui/Table';
 import { RUN_STATES } from '../../api/types';
 import type { RunFilters, RunState, RunSummary } from '../../api/types';
 import StatusText, { isRunDelayed, statusLabel } from '../../components/StatusText';
+import { QueueReasonLine } from '../../components/WaitReason';
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
 
@@ -109,6 +110,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                 </Table.Cell>
                                 <Table.Cell>
                                     <StatusText state={run.state} delayed={isRunDelayed(run)} detail={awaitsApproval(run) ? 'waiting for approval' : undefined} />
+                                    {run.state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
                                 </Table.Cell>
                                 <Table.Cell>{duration(run, at)}</Table.Cell>
                                 <Table.Cell>{run.catchup ? `${run.trigger} (catch-up)` : run.trigger}</Table.Cell>

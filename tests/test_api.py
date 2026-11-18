@@ -606,7 +606,7 @@ def test_rest_adapter_builds_user_and_system_sessions(w):
     assert {label for label, name in w.calls if name.startswith("kv_")} == {"system-token"}
     out = orchestrator_rest.respond(_request("GET", "/orchestrator/runs", query=[["job_id", "daily"]]),
                                     build=build, audit_factory=lambda gw: w.audit)
-    assert out["status"] == 200 and json.loads(out["payload"]) == {"runs": []}
+    assert out["status"] == 200 and json.loads(out["payload"])["runs"] == []
 
 
 def test_rest_adapter_errors(w):
@@ -922,13 +922,14 @@ def test_list_runs_pushes_query_limit_and_projection_into_kv(w):
                          {"job_id": "daily", "state": "queued", "limit": "2"})
     assert status == 200
     run_calls = [c for c in calls if c[0] == RUNS]
-    assert run_calls == [(RUNS, {"job_id": "daily", "state": "queued"}, "created_at:-1", 2, 0,
-                          "definition:0")]
+    # The list itself; a second query looks up why the queued runs wait (queue_info).
+    assert run_calls[0] == (RUNS, {"job_id": "daily", "state": "queued"}, "created_at:-1", 2, 0,
+                            "definition:0")
     assert len(out["runs"]) == 2 and all("definition" not in r for r in out["runs"])
     calls.clear()
     status, out = w.call("carol", "GET", "/orchestrator/runs", {"limit": "3"})
     run_calls = [c for c in calls if c[0] == RUNS]
-    assert len(run_calls) == 1 and run_calls[0][3] == 3 and run_calls[0][5] == "definition:0"
+    assert run_calls[0][3] == 3 and run_calls[0][5] == "definition:0"
     assert len(out["runs"]) == 3
     calls.clear()
     assert w.call("bob", "GET", "/orchestrator/runs")[1]["runs"] == []

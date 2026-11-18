@@ -27,6 +27,7 @@ import ParamsTab from '../../features/run/ParamsTab';
 import RerunDialog from '../../features/run/RerunDialog';
 import RunGraph from '../../features/run/RunGraph';
 import RunHeader from '../../features/run/RunHeader';
+import { EngineBanner } from '../../components/WaitReason';
 import RunProgress from '../../features/run/RunProgress';
 import StepDrawer from '../../features/run/StepDrawer';
 import Timeline from '../../features/run/Timeline';
@@ -88,6 +89,7 @@ function RunPage() {
             {!run && !poll.error && <WaitSpinner size="medium" />}
             {run && detail && (
                 <>
+                    {['queued', 'running', 'blocked', 'paused'].includes(run.state) && <EngineBanner engine={detail.engine} />}
                     <RunHeader
                         run={run}
                         canRun={canRun}

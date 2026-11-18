@@ -451,6 +451,8 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 - **Runs** lists runs, filterable by job and state. The **Needs attention** state filter shows blocked and failed runs, and runs that hold later runs back.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector. The **Performance** tab shows what each step cost; see [Performance](#performance).
 
+**Why it waits.** A **Queued** run says why under its status, on the Runs page and the run page, with a link to the run in the way: another run of the job is running (a job runs one run at a time), other queued runs of the job go first, a run that gave up holds the job until you re-run or dismiss it, or the engine isn't running (also a red banner on the run page). A step that hasn't started says why in its details: the steps before it haven't finished, or the search limits in Settings (**Searches at once**, **Searches at once per job**) are full.
+
 Statuses are plain text with an icon. **Delayed** is not a state: the work is still expected to finish. A step that a branch didn't reach shows as *Skipped (branch not taken)*.
 
 | Run state | Meaning |
