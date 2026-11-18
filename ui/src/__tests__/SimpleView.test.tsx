@@ -22,8 +22,8 @@ const searches = () => within(screen.getByRole('list', { name: 'Searches' })).ge
 function add(i: number, when: string, what: string) {
     fireEvent.click(within(searches()[i]).getByRole('button', { name: '+ Add…' }));
     const picker = screen.getByTestId('simple-add');
-    fireEvent.click(within(picker).getByRole('radio', { name: new RegExp(`^${when}`) }));
-    fireEvent.click(within(picker).getByRole('menuitem', { name: what }));
+    fireEvent.click(within(picker).getByRole('menuitem', { name: new RegExp(`^${when}`) }));
+    fireEvent.click(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: what }));
 }
 
 describe('Simple view', () => {
@@ -99,17 +99,24 @@ describe('Simple view', () => {
         await show(<BuilderPage api={api} jobId="rollups" />);
         fireEvent.click(within(searches()[0]).getByRole('button', { name: '+ Add…' }));
         const picker = screen.getByTestId('simple-add');
-        expect(within(picker).getAllByRole('radio').map((r) => r.textContent)).toEqual([
-            '✓Succeeds',
-            '◇If a condition is true',
-            '✗Failsmessages only',
-            '∞Finishes either waymessages only',
-            '▶Startsmessages only',
-            '⏱Is delayedmessages only',
+        expect(within(picker).getAllByRole('menuitem').map((r) => r.textContent)).toEqual([
+            '✓Succeeds›',
+            '◇If a condition is true›',
+            '✗Failsmessages only›',
+            '∞Finishes either waymessages only›',
+            '▶Startsmessages only›',
+            '⏱Is delayedmessages only›',
         ]);
-        fireEvent.click(within(picker).getByRole('radio', { name: /^Is delayed/ }));
-        expect(within(picker).queryByRole('menuitem', { name: 'Save to lookup' })).toBeNull();
-        fireEvent.click(within(picker).getByRole('menuitem', { name: 'Post to Teams' }));
+        fireEvent.click(within(picker).getByRole('menuitem', { name: /^Is delayed/ }));
+        const then = screen.getByTestId('simple-add');
+        expect(within(then).getByText('When it is delayed, then…')).toBeInTheDocument();
+        expect(within(then).queryByRole('menuitem', { name: 'Save to lookup' })).toBeNull();
+        fireEvent.click(within(then).getByRole('button', { name: '‹ Back' }));
+        expect(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: /^Succeeds/ })).toBeInTheDocument();
+        fireEvent.click(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: /^Is delayed/ }));
+        fireEvent.click(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: 'Post to Teams' }));
+        // Added: the picker starts over at When (it closes in the browser).
+        expect(screen.queryByText('When it is delayed, then…')).toBeNull();
         add(0, 'If a condition is true', 'Save to summary index');
         add(0, 'If a condition is true', 'Email');
         expect(within(searches()[0]).getByText('When it is delayed')).toBeInTheDocument();

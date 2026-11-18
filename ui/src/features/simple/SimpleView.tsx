@@ -422,13 +422,18 @@ function ThenList({
     );
 }
 
-/** "+ Add…": pick when (the Flow editor's When list) and then what happens. */
+/** "+ Add…": first when (the Flow editor's When list), then what happens; Back returns to
+ * the When list. */
 function AddThen({ onAdd }: { onAdd: (kind: ThenKind, when: When) => void }) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [open, setOpen] = useState(false);
-    const [when, setWhen] = useState<When>('success');
-    const kinds = THEN_KINDS.filter((k) => !(k === 'summary_index' || k === 'lookup') || OUTPUT_WHENS.includes(when));
-    const option = (active: boolean): React.CSSProperties => ({
+    const [when, setWhen] = useState<When | null>(null);
+    const close = () => {
+        setOpen(false);
+        setWhen(null);
+    };
+    const kinds = when ? THEN_KINDS.filter((k) => !(k === 'summary_index' || k === 'lookup') || OUTPUT_WHENS.includes(when)) : [];
+    const option: React.CSSProperties = {
         display: 'flex',
         gap: '8px',
         alignItems: 'center',
@@ -436,51 +441,62 @@ function AddThen({ onAdd }: { onAdd: (kind: ThenKind, when: When) => void }) {
         textAlign: 'left',
         border: 0,
         borderRadius: '4px',
-        padding: '6px 10px',
+        padding: '7px 10px',
         font: 'inherit',
         cursor: 'pointer',
         color: theme.contentColorDefault,
-        background: active ? theme.backgroundColorHover || theme.backgroundColorSection : 'transparent',
-    });
+        background: 'transparent',
+    };
     const muted = { color: theme.contentColorMuted, fontSize: '12px' };
+    const glyph = (w: When) => (
+        <span aria-hidden style={{ color: theme[PORT_STYLE[WHEN_PORT[w]].colorToken], width: '16px', textAlign: 'center' }}>
+            {PORT_STYLE[WHEN_PORT[w]].glyph}
+        </span>
+    );
     return (
         <div>
-            <Dropdown
-                open={open}
-                onRequestOpen={() => setOpen(true)}
-                onRequestClose={() => setOpen(false)}
-                toggle={<Button appearance="subtle" label="+ Add…" isMenu />}
-            >
-                <div data-testid="simple-add" style={{ display: 'flex', gap: '4px', padding: '6px', flexWrap: 'wrap', maxWidth: '560px' }}>
-                    <div role="radiogroup" aria-label="When this search" style={{ flex: '1 1 240px', minWidth: 0 }}>
-                        <div style={{ ...muted, padding: '4px 10px' }}>When this search…</div>
-                        {WHEN_ORDER.map((w) => (
-                            <button key={w} type="button" role="radio" aria-checked={when === w} onClick={() => setWhen(w)} style={option(when === w)}>
-                                <span aria-hidden style={{ color: theme[PORT_STYLE[WHEN_PORT[w]].colorToken], width: '16px', textAlign: 'center' }}>
-                                    {PORT_STYLE[WHEN_PORT[w]].glyph}
-                                </span>
-                                <span style={{ flex: 1 }}>{WHEN_LABEL[w]}</span>
-                                {!OUTPUT_WHENS.includes(w) && <span style={muted}>messages only</span>}
+            <Dropdown open={open} onRequestOpen={() => setOpen(true)} onRequestClose={close} closeReasons={['clickAway', 'escapeKey', 'offScreen', 'toggleClick']} toggle={<Button appearance="subtle" label="+ Add…" isMenu />}>
+                <div data-testid="simple-add" className="so-add-then" style={{ padding: '6px', width: '340px', maxWidth: '90vw' }}>
+                    <style>{`.so-add-then button:hover, .so-add-then button:focus-visible { background: ${theme.backgroundColorHover || theme.borderColorWeak || theme.borderColor} !important; }`}</style>
+                    {when === null ? (
+                        <div role="menu" aria-label="When this search">
+                            <div style={{ ...muted, padding: '4px 10px' }}>When this search…</div>
+                            {WHEN_ORDER.map((w) => (
+                                <button key={w} type="button" role="menuitem" onClick={() => setWhen(w)} style={option}>
+                                    {glyph(w)}
+                                    <span style={{ flex: 1 }}>{WHEN_LABEL[w]}</span>
+                                    {!OUTPUT_WHENS.includes(w) && <span style={muted}>messages only</span>}
+                                    <span aria-hidden style={muted}>
+                                        ›
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div role="menu" aria-label={`${WHEN_HEADING[when]}, then`}>
+                            <button type="button" onClick={() => setWhen(null)} style={{ ...option, ...muted }}>
+                                ‹ Back
                             </button>
-                        ))}
-                    </div>
-                    <div role="menu" aria-label="Then" style={{ flex: '1 1 220px', minWidth: 0, borderLeft: `1px solid ${theme.borderColorWeak || theme.borderColor}` }}>
-                        <div style={{ ...muted, padding: '4px 10px' }}>…then</div>
-                        {kinds.map((k) => (
-                            <button
-                                key={k}
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                    onAdd(k, when);
-                                    setOpen(false);
-                                }}
-                                style={option(false)}
-                            >
-                                {THEN_LABEL[k]}
-                            </button>
-                        ))}
-                    </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '4px 10px', fontWeight: 600 }}>
+                                {glyph(when)}
+                                {`${WHEN_HEADING[when]}, then…`}
+                            </div>
+                            {kinds.map((k) => (
+                                <button
+                                    key={k}
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                        onAdd(k, when);
+                                        close();
+                                    }}
+                                    style={option}
+                                >
+                                    {THEN_LABEL[k]}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </Dropdown>
         </div>

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.28.1 (2026-11-18)
+
+- **Fixed:** in the Simple view, clicking a choice under **When this search…** closed the picker and did nothing. **+ Add…** now has two steps: pick when, then what (with **‹ Back**), and it stays open until you pick what.
+
 ## 1.28.0 (2026-11-18)
 
 - **Simple view:** **+ Add…** under a search picks when (**Succeeds**, **If a condition is true**, **Fails**, **Finishes either way**, **Starts**, **Is delayed**, as in Flow) and then what happens; items are grouped under a heading per choice. A condition item has a **Condition** field; a save on a condition uses Run when, a message uses the new action condition.
