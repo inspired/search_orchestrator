@@ -322,12 +322,21 @@ describe('FlowCanvas', () => {
             expect(props.onSelect).toHaveBeenCalledWith({ kind: 'node', key: 'action:a:0' });
         });
 
-        test('trigger links are dashed and cannot be selected', () => {
-            setup();
+        test('trigger links are dashed, can be selected, and Delete removes them', () => {
+            const onRemoveLink = jest.fn();
+            const { props } = setup({ onRemoveLink });
             const link = screen.getByTestId('link-trigger:0->step:a');
-            expect(link.getAttribute('pointer-events')).toBe('none');
             expect(link.querySelector('path')!.getAttribute('stroke-dasharray')).toBeTruthy();
-            expect(screen.queryByRole('button', { name: /^Line from Schedule/ })).toBeNull();
+            const line = screen.getByRole('button', { name: /^Line from .*, starts, to a/ });
+            fireEvent.keyDown(line, { key: 'Enter' });
+            expect(props.onSelect).toHaveBeenCalledWith({ kind: 'link', key: 'trigger:0->step:a' });
+        });
+
+        test('Delete on a selected line removes it', () => {
+            const onRemoveLink = jest.fn();
+            const { canvas } = setup({ onRemoveLink, selected: { kind: 'link', key: 'trigger:0->step:a' } });
+            fireEvent.keyDown(canvas, { key: 'Delete' });
+            expect(onRemoveLink).toHaveBeenCalledWith('trigger:0->step:a');
         });
 
         test('a link can be selected from the keyboard', () => {

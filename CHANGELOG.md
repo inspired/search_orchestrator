@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.27.2 (2026-11-18)
+
+- **Simple view:** each search has **If it succeeds** and **If it fails** lists; **+ If it fails…** adds an email, Slack or Teams post, page, incident or event for when that search fails (a step action on failure). The job-wide band is now **If any step fails**.
+- **Fixed:** a trigger's lines can be selected (click, or Tab and Enter), removed with **Remove line** in the side panel or the line menu, or with `Delete`. `Delete` also removes a selected step or condition line.
+
 ## 1.27.1 (2026-11-18)
 
 - **Simple view:** each **Then** row has **Settings** with every field of that item: an email's subject and message (with tokens), a webhook's destination and preset options, an event's payload, a summary index's source and run id marker, a lookup's append, and **View output**.

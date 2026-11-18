@@ -472,6 +472,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     canSpliceNode={menus.canSpliceNode}
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
+                    onRemoveLink={menus.removeLink}
                     onCopy={clipboard.onCopy}
                     onDuplicate={clipboard.onDuplicate}
                     onPaste={clipboard.onPaste}
@@ -496,6 +497,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onSelect={setSelected}
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
+                    onRemoveLink={menus.removeLink}
                     onArrange={arrange}
                     onTidy={tidy}
                     onOpenSettings={() => setActiveTab('settings')}

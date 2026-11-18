@@ -69,6 +69,26 @@ describe('Simple view', () => {
         expect(daily.actions[0]).toEqual(expect.objectContaining({ to: 'ops@example.com', subject: 'Errors in $run.param.env$', message: 'Found $daily.resultCount$ rows' }));
     });
 
+    it('a search can do one thing when it succeeds and another when it fails', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.click(within(searches()[0]).getByRole('button', { name: '+ If it fails…' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Email' }));
+        fireEvent.click(within(searches()[0]).getByRole('button', { name: '+ Then…' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Save to lookup' }));
+        const rows = within(searches()[0]).getAllByTestId('simple-then');
+        expect(rows).toHaveLength(2);
+        // Only a success item can wait for results.
+        expect(within(searches()[0]).getAllByRole('checkbox', { name: 'Only if it found results' })).toHaveLength(1);
+        fireEvent.change(within(searches()[0]).getByRole('textbox', { name: 'Email to' }), { target: { value: 'oncall@example.com' } });
+        fireEvent.change(within(searches()[0]).getByRole('textbox', { name: 'Lookup' }), { target: { value: 'ok.csv' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        const sent = (api.updateJob as jest.Mock).mock.calls[0][1];
+        expect(sent.steps.find((s: { id: string }) => s.id === 'daily').actions).toEqual([{ hook: 'on_failure', type: 'email', to: 'oncall@example.com' }]);
+        expect(sent.steps.some((s: { output?: { name?: string } }) => s.output && s.output.name === 'ok.csv')).toBe(true);
+    });
+
     it('shows a job it cannot edit read only, with the reason and Edit in Flow', async () => {
         const job = rollupJob({ edges: [{ from: 'daily', to: 'weekly', condition: 'on_failure' }, { from: 'weekly', to: 'monthly', condition: 'on_success' }] });
         await show(<BuilderPage api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} jobId="rollups" />);
