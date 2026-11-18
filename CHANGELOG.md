@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.1 (2026-11-18)
+
+- **Simple view:** each **Then** row has **Settings** with every field of that item: an email's subject and message (with tokens), a webhook's destination and preset options, an event's payload, a summary index's source and run id marker, a lookup's append, and **View output**.
+
 ## 1.27.0 (2026-11-18)
 
 - **Simple view:** the Flow tab has a **Simple / Flow** switch (remembered in this browser; Simple by default for jobs it can edit). Simple lists the searches top to bottom, each starting when the one above succeeds, with **+ Then…** items (save to a summary index or lookup, email, Slack, Teams, PagerDuty, ServiceNow, write an event), an **Only if it found results** choice, **+ Add search**, move and remove, preview, and bands for **Starts**, **If a step fails** and **When done** (start another job). It writes ordinary steps, edges and actions, so Flow shows the same job; a job it can't edit opens read only with the reasons and **Edit in Flow**.

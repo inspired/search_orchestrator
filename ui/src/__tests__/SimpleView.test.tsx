@@ -53,6 +53,22 @@ describe('Simple view', () => {
         expect(searches()[3].querySelector('button')!.getAttribute('aria-expanded')).toBe('true');
     });
 
+    it('Settings opens every field of a then, such as the email subject and message', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.click(within(searches()[0]).getByRole('button', { name: '+ Then…' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Email' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Settings of Email' }));
+        const settings = screen.getByTestId('simple-then-settings');
+        fireEvent.change(within(settings).getByLabelText('Subject'), { target: { value: 'Errors in $run.param.env$' } });
+        fireEvent.change(within(settings).getByLabelText('Message'), { target: { value: 'Found $daily.resultCount$ rows' } });
+        fireEvent.change(screen.getAllByRole('textbox', { name: 'Email to' })[0], { target: { value: 'ops@example.com' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        const daily = (api.updateJob as jest.Mock).mock.calls[0][1].steps.find((s: { id: string }) => s.id === 'daily');
+        expect(daily.actions[0]).toEqual(expect.objectContaining({ to: 'ops@example.com', subject: 'Errors in $run.param.env$', message: 'Found $daily.resultCount$ rows' }));
+    });
+
     it('shows a job it cannot edit read only, with the reason and Edit in Flow', async () => {
         const job = rollupJob({ edges: [{ from: 'daily', to: 'weekly', condition: 'on_failure' }, { from: 'weekly', to: 'monthly', condition: 'on_success' }] });
         await show(<BuilderPage api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} jobId="rollups" />);

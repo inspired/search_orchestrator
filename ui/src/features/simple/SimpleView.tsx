@@ -24,6 +24,11 @@ import SplEditor from '../builder/SplEditor';
 import { IssueList } from '../builder/StepPanel';
 import TimeRangeField from '../builder/TimeRangeField';
 import TriggerPanel from '../builder/TriggerPanel';
+import { ActionFields } from '../builder/ActionsEditor';
+import PresetOptions from '../builder/PresetOptions';
+import { availableTokens } from '../builder/tokens';
+import type { TokenGroup } from '../builder/tokens';
+import OutputViewer from '../output/OutputViewer';
 import { issuesByStep } from '../builder/graphLogic';
 import { addSearch, addThen, moveSearch, readSimple, removeSearch, removeThen, setJobAction, THEN_LABEL, updateThen } from './simpleModel';
 import type { Then, ThenKind } from './simpleModel';
@@ -44,6 +49,8 @@ export interface SimpleViewProps {
     onOpenFlow: () => void;
     onOpenSettings: () => void;
     onRequestRemove: (key: string) => void;
+    /** Field names seen in previews, by step: offered as tokens in messages. */
+    previewFields?: Record<string, string[]>;
 }
 
 const THEN_KINDS: ThenKind[] = ['summary_index', 'lookup', 'email', 'slack', 'teams', 'pagerduty', 'servicenow', 'event'];
@@ -219,6 +226,7 @@ export default function SimpleView(p: SimpleViewProps) {
                                     destinations={p.destinations}
                                     set={set}
                                     byStep={byStep}
+                                    tokenGroups={availableTokens(job, step.id, p.previewFields || {})}
                                 />
                             </div>
                         </li>
@@ -294,6 +302,7 @@ function ThenList({
     destinations,
     set,
     byStep,
+    tokenGroups,
 }: {
     stepId: string;
     thens: Then[];
@@ -302,8 +311,10 @@ function ThenList({
     destinations: Destination[];
     set: (next: JobDefinition, key?: string) => void;
     byStep: Record<string, Issue[]>;
+    tokenGroups: TokenGroup[];
 }) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
+    const [shown, setShown] = useState<Record<string, boolean>>({});
     const row: React.CSSProperties = {
         display: 'flex',
         gap: '8px',
@@ -340,8 +351,24 @@ function ThenList({
                             <Switch appearance="checkbox" selected={t.onlyIfResults} disabled={readOnly} onClick={() => set(updateThen(job, stepId, t, { onlyIfResults: !t.onlyIfResults }))}>
                                 Only if it found results
                             </Switch>
+                            <Button
+                                appearance="subtle"
+                                label={shown[key] ? 'Hide settings' : 'Settings'}
+                                aria-expanded={Boolean(shown[key])}
+                                aria-label={`${shown[key] ? 'Hide settings of' : 'Settings of'} ${THEN_LABEL[t.kind]}`}
+                                onClick={() => setShown((s) => ({ ...s, [key]: !s[key] }))}
+                            />
                             {!readOnly && <Button appearance="subtle" label="Remove" aria-label={`Remove ${THEN_LABEL[t.kind]}`} onClick={() => set(removeThen(job, stepId, t))} />}
                         </div>
+                        {shown[key] && (
+                            <fieldset
+                                disabled={readOnly}
+                                data-testid="simple-then-settings"
+                                style={{ border: `1px solid ${theme.borderColorWeak || theme.borderColor}`, borderRadius: '6px', margin: '0 0 0 24px', padding: '8px 12px', minWidth: 0 }}
+                            >
+                                <ThenSettings then={t} stepId={stepId} job={job} idPrefix={id} destinations={destinations} tokenGroups={tokenGroups} set={set} />
+                            </fieldset>
+                        )}
                         {issues.length > 0 && <IssueList issues={issues} />}
                     </div>
                 );
@@ -363,3 +390,75 @@ function ThenList({
     );
 }
 
+
+/** Every setting of one "then": the action's own fields (subject and message for email,
+ * body options for webhooks, payload for events), or the output's index, source, run id
+ * marker or append; and View output for what it wrote. */
+function ThenSettings({
+    then: t,
+    stepId,
+    job,
+    idPrefix,
+    destinations,
+    tokenGroups,
+    set,
+}: {
+    then: Then;
+    stepId: string;
+    job: JobDefinition;
+    idPrefix: string;
+    destinations: Destination[];
+    tokenGroups: TokenGroup[];
+    set: (next: JobDefinition, key?: string) => void;
+}) {
+    if ('stepId' in t) {
+        const out = t.output;
+        const put = (next: StepOutput, key: string) => set(updateThen(job, stepId, t, { output: next }), `${idPrefix}-${key}`);
+        return (
+            <>
+                {out.kind === 'summary_index' ? (
+                    <>
+                        <ControlGroup label="Source" labelFor={`${idPrefix}-source`} labelPosition="top" help="Optional; lets you find these events later, as in source=daily.">
+                            <Text inputId={`${idPrefix}-source`} value={out.source || ''} onChange={(_e: unknown, { value }: { value: string }) => put({ ...out, source: value }, 'source')} />
+                        </ControlGroup>
+                        <Switch appearance="toggle" selected={out.add_run_id !== false} onClick={() => put({ ...out, add_run_id: out.add_run_id === false }, 'runid')}>
+                            Add the run id (so_run) to each event
+                        </Switch>
+                    </>
+                ) : (
+                    <Switch appearance="toggle" selected={Boolean(out.append)} onClick={() => put({ ...out, append: !out.append }, 'append')}>
+                        Append instead of replacing the lookup
+                    </Switch>
+                )}
+                <div style={{ marginTop: '8px' }}>
+                    <OutputViewer target={{ step_id: t.stepId }} name={THEN_LABEL[t.kind]} job={job} />
+                </div>
+            </>
+        );
+    }
+    const action = t.action;
+    return (
+        <>
+            <ActionFields
+                action={action}
+                idPrefix={idPrefix}
+                destinations={destinations}
+                tokenGroups={tokenGroups}
+                onChange={(next) => set(updateThen(job, stepId, t, { action: next }), `${idPrefix}-fields`)}
+            />
+            {action.type === 'webhook' && (
+                <PresetOptions
+                    preset={action.preset}
+                    options={action.options}
+                    idPrefix={`${idPrefix}-options`}
+                    onChange={(options) => set(updateThen(job, stepId, t, { action: { options } }), `${idPrefix}-options`)}
+                />
+            )}
+            {(action.type === 'email' || action.type === 'event') && (
+                <div style={{ marginTop: '8px' }}>
+                    <OutputViewer target={{ action: { scope: stepId, index: t.index } }} name={THEN_LABEL[t.kind]} job={job} label={action.type === 'email' ? 'View sent emails' : 'View output'} />
+                </div>
+            )}
+        </>
+    );
+}

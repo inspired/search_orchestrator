@@ -438,6 +438,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                 onOpenFlow={() => setView('flow')}
                 onOpenSettings={() => setActiveTab('settings')}
                 onRequestRemove={requestRemove}
+                previewFields={previewFields}
             />
         ) : (
         <div
