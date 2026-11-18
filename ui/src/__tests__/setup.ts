@@ -31,3 +31,12 @@ beforeEach(() => {
         // no storage in this environment
     }
 });
+
+// The Runs page groups by job for new browsers; its tests use the flat list unless they pick.
+beforeEach(() => {
+    try {
+        window.localStorage.setItem('so.runs.grouped', '0');
+    } catch (err) {
+        // no storage in this environment
+    }
+});

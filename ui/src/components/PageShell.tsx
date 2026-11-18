@@ -1,6 +1,7 @@
 /* The frame every page shares: a heading, optional header actions and the content.
  * renderPage mounts a page with Splunk's layout and the user's theme. */
 import React from 'react';
+import ApprovalAlert from './ApprovalAlert';
 import layout from '@splunk/react-page/18';
 import { username } from '@splunk/splunk-utils/config';
 import { getThemeOptions, getUserTheme } from '@splunk/splunk-utils/themes';
@@ -24,6 +25,7 @@ export default function PageShell({ title, description, actions, children }: Pag
                 {actions && <div style={{ display: 'flex', gap: '8px' }}>{actions}</div>}
             </div>
             {description && <div style={{ marginBottom: '16px' }}>{description}</div>}
+            <ApprovalAlert />
             {children}
         </div>
     );

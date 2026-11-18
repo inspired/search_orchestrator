@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.30.0 (2026-11-18)
+
+- **Runs grouped by job:** one row per job (latest run, runs per state, **⚑ N waiting for approval**) that opens to all its runs, with **Only this job**; **Show: All runs** keeps the flat list (remembered in this browser).
+- **Approvals stand out:** a banner on every app page while any step waits for approval, with the job, step, message, how long it has waited and **Review**, which opens the run page with that step's drawer (`run?run_id=…&step=…`).
+
 ## 1.29.1 (2026-11-18)
 
 - **Run timeline:** each step's bar shows the time it took beside it (so far, while it runs).

@@ -1,5 +1,11 @@
-/* The Runs table: job, scheduled time, state, duration and trigger, with filters. */
-import React from 'react';
+/* The Runs table: job, scheduled time, state, duration and trigger, with filters. By default
+ * runs are grouped by job: one row per job (its latest run, how many runs are in each state,
+ * and a mark when a step waits for approval) that opens to list all its runs. "All runs" shows
+ * them in one list, newest first; picking one job shows its runs. The choice is remembered in
+ * this browser (`so.runs.grouped`). */
+import React, { useState } from 'react';
+import RadioBar from '@splunk/react-ui/RadioBar';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
 import Select from '@splunk/react-ui/Select';
@@ -34,6 +40,45 @@ export function filterRuns(runs: RunSummary[], filters: RunsTableFilters): RunSu
     );
 }
 
+const GROUPED_KEY = 'so.runs.grouped';
+
+function storedGrouped(): boolean {
+    try {
+        return window.localStorage.getItem(GROUPED_KEY) !== '0';
+    } catch (err) {
+        return true;
+    }
+}
+
+export interface JobGroup {
+    jobId: string;
+    runs: RunSummary[];
+    counts: Partial<Record<RunState, number>>;
+    approvals: number;
+}
+
+/** The runs grouped by job, the job with the newest run first; each group newest first. */
+export function groupByJob(runs: RunSummary[]): JobGroup[] {
+    const by = new Map<string, JobGroup>();
+    runs.forEach((r) => {
+        let g = by.get(r.job_id);
+        if (!g) {
+            g = { jobId: r.job_id, runs: [], counts: {}, approvals: 0 };
+            by.set(r.job_id, g);
+        }
+        g.runs.push(r);
+        g.counts[r.state] = (g.counts[r.state] || 0) + 1;
+        if (awaitsApproval(r)) {
+            g.approvals += 1;
+        }
+    });
+    const groups = Array.from(by.values());
+    groups.forEach((g) => g.runs.sort((a, b) => b.created_at - a.created_at));
+    return groups.sort((a, b) => b.runs[0].created_at - a.runs[0].created_at);
+}
+
+const COUNT_ORDER: RunState[] = ['running', 'queued', 'blocked', 'paused', 'failed', 'succeeded', 'cancelled'];
+
 function duration(run: RunSummary, now: number): string {
     if (!run.started_at) {
         return '';
@@ -57,9 +102,49 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
     const at = now !== undefined ? now : Math.floor(Date.now() / 1000);
     const rows = filterRuns(runs, filters);
     const jobIds = Object.keys(jobNames).sort((a, b) => jobNames[a].localeCompare(jobNames[b]));
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
+    const [grouped, setGroupedState] = useState(storedGrouped);
+    const [open, setOpen] = useState<Record<string, boolean>>({});
+    const setGrouped = (v: boolean) => {
+        setGroupedState(v);
+        try {
+            window.localStorage.setItem(GROUPED_KEY, v ? '1' : '0');
+        } catch (err) {
+            // Not remembered; it still switches for this page.
+        }
+    };
+    // One job picked: its runs, ungrouped.
+    const showGroups = grouped && !filters.job_id;
+    const stateCell = (run: RunSummary) => (
+        <>
+            <StatusText state={run.state} delayed={isRunDelayed(run)} detail={awaitsApproval(run) ? 'waiting for approval' : undefined} />
+            {run.state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
+        </>
+    );
+    const runRow = (run: RunSummary, nested: boolean) => (
+        <Table.Row key={run.id}>
+            <Table.Cell>
+                {nested ? <span style={{ paddingLeft: '20px', color: theme.contentColorMuted }}>{'└'}</span> : jobNames[run.job_id] || run.job_id}
+            </Table.Cell>
+            <Table.Cell>
+                <Link to={pageHref('run', { run_id: run.id })}>{formatTime(run.scheduled_time)}</Link>
+            </Table.Cell>
+            <Table.Cell>{stateCell(run)}</Table.Cell>
+            <Table.Cell>{duration(run, at)}</Table.Cell>
+            <Table.Cell>{run.catchup ? `${run.trigger} (catch-up)` : run.trigger}</Table.Cell>
+        </Table.Row>
+    );
     return (
         <>
             <div style={{ display: 'flex', gap: '24px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                {!filters.job_id && (
+                    <ControlGroup label="Show" labelPosition="top">
+                        <RadioBar aria-label="Show" value={grouped ? 'jobs' : 'runs'} onChange={(_e: unknown, { value }: { value: unknown }) => setGrouped(value === 'jobs')}>
+                            <RadioBar.Option label="By job" value="jobs" />
+                            <RadioBar.Option label="All runs" value="runs" />
+                        </RadioBar>
+                    </ControlGroup>
+                )}
                 <ControlGroup label="Job" labelFor="runs-filter-job" labelPosition="top">
                     <Select
                         inputId="runs-filter-job"
@@ -96,26 +181,61 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                 <Table stripeRows>
                     <Table.Head>
                         <Table.HeadCell>Job</Table.HeadCell>
-                        <Table.HeadCell>Scheduled time</Table.HeadCell>
+                        <Table.HeadCell>{showGroups ? 'Latest run' : 'Scheduled time'}</Table.HeadCell>
                         <Table.HeadCell>State</Table.HeadCell>
-                        <Table.HeadCell>Duration</Table.HeadCell>
+                        <Table.HeadCell>{showGroups ? 'Runs' : 'Duration'}</Table.HeadCell>
                         <Table.HeadCell>Trigger</Table.HeadCell>
                     </Table.Head>
                     <Table.Body>
-                        {rows.map((run) => (
-                            <Table.Row key={run.id}>
-                                <Table.Cell>{jobNames[run.job_id] || run.job_id}</Table.Cell>
-                                <Table.Cell>
-                                    <Link to={pageHref('run', { run_id: run.id })}>{formatTime(run.scheduled_time)}</Link>
-                                </Table.Cell>
-                                <Table.Cell>
-                                    <StatusText state={run.state} delayed={isRunDelayed(run)} detail={awaitsApproval(run) ? 'waiting for approval' : undefined} />
-                                    {run.state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
-                                </Table.Cell>
-                                <Table.Cell>{duration(run, at)}</Table.Cell>
-                                <Table.Cell>{run.catchup ? `${run.trigger} (catch-up)` : run.trigger}</Table.Cell>
-                            </Table.Row>
-                        ))}
+                        {showGroups
+                            ? groupByJob(rows).flatMap((g) => {
+                                  const isOpen = Boolean(open[g.jobId]);
+                                  const latest = g.runs[0];
+                                  const head = (
+                                      <Table.Row key={`job:${g.jobId}`} data-testid={`job-group-${g.jobId}`}>
+                                          <Table.Cell>
+                                              <button
+                                                  type="button"
+                                                  aria-expanded={isOpen}
+                                                  onClick={() => setOpen((o) => ({ ...o, [g.jobId]: !isOpen }))}
+                                                  style={{ background: 'none', border: 0, padding: 0, font: 'inherit', fontWeight: 600, color: 'inherit', cursor: 'pointer', textAlign: 'left' }}
+                                              >
+                                                  {`${isOpen ? '▾' : '▸'} ${jobNames[g.jobId] || g.jobId}`}
+                                              </button>
+                                              {g.approvals > 0 && (
+                                                  <span
+                                                      style={{
+                                                          marginLeft: '8px',
+                                                          padding: '1px 8px',
+                                                          borderRadius: '10px',
+                                                          fontSize: '12px',
+                                                          fontWeight: 600,
+                                                          border: `1px solid ${theme.statusColorMedium}`,
+                                                          color: theme.statusColorMedium,
+                                                      }}
+                                                  >
+                                                      {`⚑ ${g.approvals} waiting for approval`}
+                                                  </span>
+                                              )}
+                                          </Table.Cell>
+                                          <Table.Cell>
+                                              <Link to={pageHref('run', { run_id: latest.id })}>{formatTime(latest.scheduled_time)}</Link>
+                                          </Table.Cell>
+                                          <Table.Cell>{stateCell(latest)}</Table.Cell>
+                                          <Table.Cell>
+                                              {[
+                                                  `${g.runs.length} run${g.runs.length === 1 ? '' : 's'}`,
+                                                  ...COUNT_ORDER.filter((s) => g.counts[s]).map((s) => `${g.counts[s]} ${statusLabel(s).toLowerCase()}`),
+                                              ].join(' · ')}
+                                          </Table.Cell>
+                                          <Table.Cell>
+                                              <Link onClick={() => onFiltersChange({ ...filters, job_id: g.jobId })}>Only this job</Link>
+                                          </Table.Cell>
+                                      </Table.Row>
+                                  );
+                                  return isOpen ? [head, ...g.runs.map((run) => runRow(run, true))] : [head];
+                              })
+                            : rows.map((run) => runRow(run, false))}
                     </Table.Body>
                 </Table>
             )}

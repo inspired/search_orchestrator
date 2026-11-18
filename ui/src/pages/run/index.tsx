@@ -42,7 +42,8 @@ function RunPage() {
     const [who, setWho] = useState<Me | null>(null);
     const canRun = Boolean(who && who.can_run);
     const [tab, setTab] = useState('timeline');
-    const [selected, setSelected] = useState<string | null>(null);
+    // ?step= (from Review on the approval banner) opens that step's drawer.
+    const [selected, setSelected] = useState<string | null>(() => queryParam('step'));
     const [rerunOpen, setRerunOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [actionError, setActionError] = useState<Error | null>(null);
