@@ -17,6 +17,10 @@ SEARCH_SECONDS = 30
 NOTE_INTROSPECTION = "CPU and memory need read access to _introspection; ask an admin."
 NOTE_AUDIT = "Some steps ran before 1.23.0 and their numbers come from _audit."
 NOTE_MAX = "Only the first 50 searches are shown."
+NOTE_NO_SAMPLES = ("Splunk has no CPU or memory samples for these searches. It samples search "
+                   "processes about every 10 seconds, so shorter searches have none, and it "
+                   "records none while resource usage introspection is off (server.conf "
+                   "[introspection:generator:resource_usage]).")
 INTRO_FIELDS = ("cpu_peak", "cpu_avg", "mem_peak_mb")
 AUDIT_FIELDS = ("run_duration", "scan_count", "event_count", "result_count")
 
@@ -96,8 +100,11 @@ def performance(ctx, body, run_id):
                      "earliest": earliest, "latest": latest},
                     {"label": "Audit", "spl": audit_query(searched),
                      "earliest": earliest, "latest": latest}]
+        before = len(notes)
         intro = _numbers(_search(ctx, introspection_query(searched), earliest, latest, notes,
                                  NOTE_INTROSPECTION), INTRO_FIELDS)
+        if not intro and len(notes) == before:  # the search ran and found no samples
+            notes.append(NOTE_NO_SAMPLES)
         if any(not perf for _, perf in steps.values()):
             audit = _numbers(_search(ctx, audit_query(searched), earliest, latest, notes, None),
                              AUDIT_FIELDS)

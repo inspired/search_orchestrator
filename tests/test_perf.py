@@ -54,7 +54,7 @@ def test_step_without_perf_uses_audit_numbers(w):
     assert status == 200, out
     assert out["steps"]["a"] == {"run_duration": 2.5, "scan_count": 100.0, "event_count": 7.0,
                                  "result_count": 3.0, "source": "audit"}
-    assert out["notes"] == [NOTE_OLD]
+    assert out["notes"] == [perf.NOTE_NO_SAMPLES, NOTE_OLD]
 
 
 def test_introspection_403_adds_note_and_still_returns_200(w):
@@ -91,7 +91,7 @@ def test_more_than_50_sids_are_cut_with_a_note(w):
                           for i in range(51)})
     handler(w)
     status, out = get(w, run_id)
-    assert status == 200 and out["notes"] == [NOTE_MAX]
+    assert status == 200 and out["notes"] == [NOTE_MAX, perf.NOTE_NO_SAMPLES]
     assert len(out["steps"]) == 50
     assert "sid49" in w.gw.search_log[0][1] and "sid50" not in w.gw.search_log[0][1]
 
@@ -144,3 +144,13 @@ def test_the_searches_are_listed_for_open_in_search(w):
     assert [s["label"] for s in out["searches"]] == ["CPU and memory", "Audit"]
     assert out["searches"][0]["spl"] == perf.introspection_query(["s1"])
     assert out["searches"][0]["earliest"] == str(T0 + 10 - 60)
+
+
+def test_no_cpu_samples_say_why(w):
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1", "perf": PERF}})
+    handler(w, intro=[])
+    status, out = get(w, run_id)
+    assert status == 200 and perf.NOTE_NO_SAMPLES in out["notes"]
+    handler(w, intro=[{"sid": "s1", "cpu_peak": "12.5", "cpu_avg": "4", "mem_peak_mb": "80"}])
+    status, out = get(w, run_id)
+    assert perf.NOTE_NO_SAMPLES not in out["notes"] and out["steps"]["a"]["cpu_peak"] == 12.5

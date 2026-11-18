@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.31.1 (2026-11-18)
+
+- **Performance tab:** when Splunk has no CPU or memory samples for a run's searches, a note says why (samples are taken about every 10 seconds, and none while resource usage introspection is off) instead of leaving the columns blank without a word. Checked against a live instance: the engine's stored numbers match `_audit` (run time, events scanned, events, results), the `_audit` search finds step searches by their quoted search id, and the `_introspection` field names are right.
+
 ## 1.31.0 (2026-11-18)
 
 - **Performance tab:** a running step's runtime counts up live ("1m 15s (running)"); each step with a search has **Open in Search**; after **Load CPU and memory** the CPU and memory and audit searches can be opened in Search too (`GET runs/<id>/performance` adds `searches`); the button counts seconds while it searches and can load again.
