@@ -63,7 +63,10 @@ def _search(ctx, query, earliest, latest, notes, note):
                                     max_time=SEARCH_SECONDS)
     except GatewayError as err:
         if err.status not in (401, 403):  # a failing search is not a failing request either
-            note = "Splunk could not run a search for CPU, memory or audit numbers; try again."
+            detail = str(err).strip()
+            note = ("Splunk could not run the search for CPU, memory or audit numbers (%s); "
+                    "try again." % detail[:200] if detail else
+                    "Splunk could not run the search for CPU, memory or audit numbers; try again.")
         if note and note not in notes:
             notes.append(note)
         return []

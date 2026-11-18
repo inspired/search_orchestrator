@@ -581,3 +581,11 @@ def test_status_perf_leaves_out_unparsable_and_missing_numbers():
     s = g.parse_job_status(_status_body(runDuration="1.5", scanCount="x", eventCount="10",
                                         resultCount="3"))
     assert s["perf"] == {"run_duration": 1.5, "event_count": 10, "result_count": 3}
+
+
+def test_oneshot_search_adds_search_unless_it_starts_with_a_pipe_or_search():
+    from so.gateway import oneshot_search
+    assert oneshot_search("index=_audit action=search") == "search index=_audit action=search"
+    assert oneshot_search("  | makeresults") == "  | makeresults"
+    assert oneshot_search("search index=main") == "search index=main"
+    assert oneshot_search("searchfoo=1") == "search searchfoo=1"

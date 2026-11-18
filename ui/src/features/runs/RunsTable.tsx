@@ -124,7 +124,14 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
     const runRow = (run: RunSummary, nested: boolean) => (
         <Table.Row key={run.id}>
             <Table.Cell>
-                {nested ? <span style={{ paddingLeft: '20px', color: theme.contentColorMuted }}>{'└'}</span> : jobNames[run.job_id] || run.job_id}
+                {nested ? (
+                    <span
+                        aria-label="Run of this job"
+                        style={{ display: 'block', marginLeft: '14px', borderLeft: `2px solid ${theme.borderColorStrong || theme.borderColor}`, height: '18px' }}
+                    />
+                ) : (
+                    jobNames[run.job_id] || run.job_id
+                )}
             </Table.Cell>
             <Table.Cell>
                 <Link to={pageHref('run', { run_id: run.id })}>{formatTime(run.scheduled_time)}</Link>

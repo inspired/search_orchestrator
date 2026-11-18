@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.30.1 (2026-11-18)
+
+- **Fixed:** the run page's **Performance** tab always said "Splunk could not run a search for CPU, memory or audit numbers": its searches (`index=_introspection …`, `index=_audit …`) went to search/jobs without the leading `search` command, which Splunk refuses. Every one-shot search now gets it (`gateway.oneshot_search`), and the note now includes Splunk's error.
+- **Runs:** a job's runs, opened under its row, are marked with an indented line instead of a └ character.
+
 ## 1.30.0 (2026-11-18)
 
 - **Runs grouped by job:** one row per job (latest run, runs per state, **⚑ N waiting for approval**) that opens to all its runs, with **Only this job**; **Show: All runs** keeps the flat list (remembered in this browser).

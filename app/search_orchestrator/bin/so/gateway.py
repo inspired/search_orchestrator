@@ -211,6 +211,15 @@ def parse_preview_results(body):
     return {"fields": fields, "rows": list(data.get("results") or [])}
 
 
+def oneshot_search(query):
+    """search/jobs needs a leading ``search`` unless the SPL starts with ``|`` (as
+    ``preview_dispatch_params``); a query that already starts with ``search`` is kept."""
+    stripped = query.lstrip()
+    if stripped.startswith("|") or re.match(r"(?i)search\b", stripped):
+        return query
+    return "search " + stripped
+
+
 def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
     """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
     sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s.
@@ -772,6 +781,7 @@ class SplunkGateway:
         """Result rows of a blocking read-only search run as ``owner`` in this app;
         ``max_time`` (seconds) stops the search after that long."""
         extra = {"max_time": max_time} if max_time else {}
+        query = oneshot_search(query)
         try:
             body = self._call("post", "search/jobs", owner, search=query, exec_mode="oneshot",
                               earliest_time=earliest, latest_time=latest,
