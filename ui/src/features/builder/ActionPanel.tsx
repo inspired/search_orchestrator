@@ -6,6 +6,7 @@ import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
+import Switch from '@splunk/react-ui/Switch';
 import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
 import { ActionFields } from './ActionsEditor';
 import { stepLabel } from './GraphView';
@@ -97,6 +98,15 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
                 tokenGroups={tokenGroups}
                 onChange={(next) => dispatch({ type: 'updateAction', scope, index, changes: diff(action, next) })}
             />
+            {scope !== 'job' && action.hook === 'on_success' && action.type !== 'start_job' && (
+                <Switch
+                    appearance="checkbox"
+                    selected={action.only_if_results === true}
+                    onClick={() => dispatch({ type: 'updateAction', scope, index, changes: { only_if_results: action.only_if_results === true ? undefined : true } })}
+                >
+                    Only if the step found results
+                </Switch>
+            )}
             {action.type === 'webhook' && (
                 <PresetOptions
                     preset={action.preset}

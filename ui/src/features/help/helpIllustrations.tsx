@@ -57,6 +57,12 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             <Panel title="Count errors" rows={[['Name', 'Count errors'], ['Search', 'index=_internal log_level=ERROR'], ['Time range', 'Last 24 hours'], ['', '[Preview step]']]} />
         </Figure>
     ),
+    'simple-and-flow': () => (
+        <Figure caption="Simple: searches top to bottom, each with what happens to its results. Flow: the same job as nodes.">
+            <Panel title="1  Count errors" rows={[['', '→ Save to summary index · summary'], ['', '→ Email · ops@example.com · only if it found results']]} width={300} />
+            <Panel title="2  Top components" rows={[['', '→ Save to lookup · top_components.csv'], ['', '[+ Then…]']]} width={260} />
+        </Figure>
+    ),
     'the-flow-editor': () => (
         <Figure caption="Point at a node to show +; click it and pick what happens next, or drag it onto another node.">
             <Flow

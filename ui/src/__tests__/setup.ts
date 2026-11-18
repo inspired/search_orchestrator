@@ -21,3 +21,13 @@ if (typeof window.PointerEvent === 'undefined') {
     }
     (window as unknown as { PointerEvent: unknown }).PointerEvent = PointerEventPolyfill;
 }
+
+// The builder opens in Simple for new browsers; the builder tests drive Flow unless a
+// test picks Simple itself.
+beforeEach(() => {
+    try {
+        window.localStorage.setItem('so.builder.view', 'flow');
+    } catch (err) {
+        // no storage in this environment
+    }
+});

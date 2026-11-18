@@ -51,6 +51,15 @@ The job is drawn on the **Flow** tab as nodes and lines, read from left to right
 
 Where you put nodes is saved with the job. Nodes you never moved are placed for you. Moving nodes does not count as changing the job when you re-run a step.
 
+### Simple and Flow
+
+The Flow tab has two views, switched with **Simple** and **Flow** above it; the choice is remembered in this browser, and with none yet, Simple opens every job it can edit.
+
+- **Simple** lists the searches top to bottom. Each starts when the one above succeeds. Click a search to change its name, what it searches (its own data, or the results of the search above), the search and the time range, and to preview it, move it or remove it. **+ Add search** adds one at the end.
+- **+ Then…** under a search adds what happens with its results: **Save to summary index**, **Save to lookup**, **Email**, **Post to Slack**, **Post to Teams**, **Page PagerDuty**, **Open a ServiceNow incident** or **Write an event**. **Only if it found results** sends or saves only when the search returned rows. Slack, Teams, PagerDuty and ServiceNow need a destination your admin has set up.
+- **Starts** is the job's schedule, or another job it runs after. **If a step fails** stops the run and tells someone. **When done** starts another job, so jobs chain.
+- **Flow** is the node editor, for everything else: conditions, approval steps, steps side by side, retries and delay alerts. Both views edit the same job. A job that uses something Simple can't show opens read only in Simple, with what it is and **Edit in Flow**.
+
 ### The flow editor
 
 Each kind of node has its own shape and colour. The colour is a stripe on the left and the icon; it never says whether something worked.

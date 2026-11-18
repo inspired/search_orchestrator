@@ -767,3 +767,29 @@ def test_ctx_has_approval_message_for_approval_requested():
     ctx = ActionRunner._ctx(run, "on_approval_requested", "step", "gate")
     assert ctx["approval_message"] == "Rows: 12"
     assert "approval_message" not in ActionRunner._ctx(run, "on_start", "step", "gate")
+
+
+def test_only_if_results_skips_the_action_when_the_step_found_nothing():
+    mail = {"hook": "on_success", "type": "email", "to": "ops@example.com", "only_if_results": True}
+    always = {"hook": "on_success", "type": "email", "to": "boss@example.com"}
+    w = W(step_actions=[mail, always])
+    w.run["steps"]["a"] = {"state": "succeeded", "sid": "s1", "result_count": 0}
+    assert w.runner.submit(w.run, "on_success", "step", "a") is True
+    row = w.gw.kv["so_action_runs"]["r1:step:on_success:a:0"]
+    assert [e["action"]["to"] for e in row["actions"]] == ["boss@example.com"]
+    w.run["steps"]["a"]["result_count"] = 3
+    w.run["rerun_count"] = 1
+    w.runner.submit(w.run, "on_success", "step", "a")
+    row = w.gw.kv["so_action_runs"]["r1:step:on_success:a:1"]
+    assert [e["action"]["to"] for e in row["actions"]] == ["ops@example.com", "boss@example.com"]
+
+
+def test_only_if_results_saves_through_the_api():
+    from test_api import World, job_body
+    w = World()
+    body = job_body()
+    body["steps"][0]["actions"] = [{"hook": "on_success", "type": "email", "to": "ops@example.com",
+                                    "only_if_results": True}]
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 201, out
+    assert out["job"]["steps"][0]["actions"][0]["only_if_results"] is True

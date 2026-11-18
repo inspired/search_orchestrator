@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.27.0 (2026-11-18)
+
+- **Simple view:** the Flow tab has a **Simple / Flow** switch (remembered in this browser; Simple by default for jobs it can edit). Simple lists the searches top to bottom, each starting when the one above succeeds, with **+ Then…** items (save to a summary index or lookup, email, Slack, Teams, PagerDuty, ServiceNow, write an event), an **Only if it found results** choice, **+ Add search**, move and remove, preview, and bands for **Starts**, **If a step fails** and **When done** (start another job). It writes ordinary steps, edges and actions, so Flow shows the same job; a job it can't edit opens read only with the reasons and **Edit in Flow**.
+- **Actions:** a step action may have `only_if_results: true` and is then left out when the step found no rows. Flow's action panel has **Only if the step found results** for step actions on success.
+
 ## 1.26.0 (2026-11-18)
 
 - **Triggers start chosen steps:** a Schedule or "after job" trigger starts only the steps it is connected to (new trigger field `steps`), so different searches in one job can have different schedules. Triggers now have a **+** and can be dragged onto a step with no line into it; a trigger's line can be removed. New triggers start nothing until connected. A run records `entry_steps`; a first step its trigger isn't connected to is skipped with `skip_kind` `not_started`, and so is the branch after it (an *always* line out of it doesn't fire). Schedules firing at once start the union of their steps. Manual, search, alert, REST and backfill runs start every first step, and triggers without `steps` (jobs saved before 1.26.0) behave as before. New checks: `bad_trigger` (an unknown step, or one with a line into it), warnings `trigger_starts_nothing` and `step_not_started`.

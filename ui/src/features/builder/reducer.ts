@@ -86,6 +86,9 @@ export type BuilderAction =
     | { type: 'updateTrigger'; index: number; changes: Partial<Trigger> }
     | { type: 'removeTrigger'; index: number }
     | { type: 'connectPort'; from: string; port: PortId; to: string }
+    /** The Simple view's edits: the whole job, as one undo step (edits with the same `key`
+     * in a row, such as typing in one field, merge). */
+    | { type: 'setJob'; job: JobDefinition; key?: string }
     /** Trigger `index` no longer starts `step`. */
     | { type: 'disconnectTrigger'; index: number; step: string }
     | { type: 'setJobField'; field: keyof JobDefinition; value: unknown }
@@ -292,6 +295,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return initialState(action.job);
         case 'applyTemplate':
             return edits(state, action.job);
+        case 'setJob':
+            return edits(state, action.job, action.key);
         case 'saved':
             return { ...state, savedJob: normalised(action.job) };
         case 'addStep': {

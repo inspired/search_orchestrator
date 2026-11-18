@@ -31,6 +31,9 @@ are SPL-string escaped.
 * ``event``: ``index``, optional ``payload`` (template)
 * ``start_job``: ``job`` (target job ID) and optional ``params``
 * ``alert_action``: ``action`` (name) and ``params``
+
+Any step action may have ``only_if_results: true``: it is left out of the hook's firing
+when the step's ``result_count`` is 0 (the Simple view's "only if it found results").
 Email, event and alert_action dispatch a hidden search as the run's owner,
 named by the action's ``hidden_search`` in the run's definition snapshot
 (content-addressed, written at job save; see ``hidden.py`` for the args contract).
@@ -197,8 +200,11 @@ class ActionRunner:
         run_id = run.get("_key") or run.get("id")
         key = idempotency_key(run_id, scope, hook, step_id, occurrence)
         definition = run.get("definition") or {}
+        found = (((run.get("steps") or {}).get(step_id) or {}).get("result_count") or 0) \
+            if scope == "step" else None
         matching = [(i, a) for i, s, sid, a in indexed_actions(definition)
-                    if s == scope and sid == step_id and a.get("hook") == hook]
+                    if s == scope and sid == step_id and a.get("hook") == hook
+                    and not (a.get("only_if_results") is True and scope == "step" and not found)]
         ctx = self._ctx(run, hook, scope, step_id)
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),

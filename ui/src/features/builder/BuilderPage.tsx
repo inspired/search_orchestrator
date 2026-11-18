@@ -16,6 +16,8 @@ import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilter
 import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
 import SidePanel, { usePanelLayout } from './SidePanel';
+import SimpleView from '../simple/SimpleView';
+import { ViewSwitch, useBuilderView } from '../simple/useBuilderView';
 import useCompactPref from './useCompactPref';
 import useFlowLayout from './useFlowLayout';
 import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
@@ -398,6 +400,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const canvasHeight = useFillHeight(() => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'), MIN_CANVAS, fullScreen);
     const panelRef = useRef<HTMLDivElement | null>(null);
     const panel = usePanelLayout();
+    const [view, setView] = useBuilderView(job);
     const panelHeight = useFillHeight(() => panelRef.current, MIN_CANVAS, fullScreen);
 
     const stepsTab = (
@@ -417,6 +420,26 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             onOpenRuns={() => loadRuns(jobId)}
             resultRetention={resultRetention}
         />
+        <ViewSwitch view={view} onView={setView} />
+        {view === 'simple' ? (
+            <SimpleView
+                job={job}
+                dispatch={dispatch}
+                canEdit={meta.canEdit}
+                issues={issues}
+                jobs={jobs}
+                destinations={destinations}
+                nextSlots={api.nextSlots}
+                scheduledTime={scheduledTime}
+                resolveTimeRange={api.resolveTimeRange}
+                previews={previews.previews}
+                onPreview={meta.canEdit ? (id, opts) => void previews.preview(id, opts) : undefined}
+                onCancelPreview={previews.cancel}
+                onOpenFlow={() => setView('flow')}
+                onOpenSettings={() => setActiveTab('settings')}
+                onRequestRemove={requestRemove}
+            />
+        ) : (
         <div
             data-testid="flow-area"
             style={
@@ -496,6 +519,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             </SidePanel>
         </div>
         </div>
+        )}
         </>
     );
 
