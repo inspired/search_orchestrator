@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.31.0 (2026-11-18)
+
+- **Performance tab:** a running step's runtime counts up live ("1m 15s (running)"); each step with a search has **Open in Search**; after **Load CPU and memory** the CPU and memory and audit searches can be opened in Search too (`GET runs/<id>/performance` adds `searches`); the button counts seconds while it searches and can load again.
+- **Runs:** a job's runs, opened under its row, are numbered (**Run #12**, oldest is #1) with a marked left edge.
+
 ## 1.30.1 (2026-11-18)
 
 - **Fixed:** the run page's **Performance** tab always said "Splunk could not run a search for CPU, memory or audit numbers": its searches (`index=_introspection …`, `index=_audit …`) went to search/jobs without the leading `search` command, which Splunk refuses. Every one-shot search now gets it (`gateway.oneshot_search`), and the note now includes Splunk's error.

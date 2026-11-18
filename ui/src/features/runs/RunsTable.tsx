@@ -121,14 +121,11 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
             {run.state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
         </>
     );
-    const runRow = (run: RunSummary, nested: boolean) => (
-        <Table.Row key={run.id}>
+    const runRow = (run: RunSummary, nested: boolean, runNumber = 0) => (
+        <Table.Row key={run.id} style={nested ? { boxShadow: `inset 3px 0 0 ${theme.borderColorStrong || theme.borderColor}` } : undefined}>
             <Table.Cell>
                 {nested ? (
-                    <span
-                        aria-label="Run of this job"
-                        style={{ display: 'block', marginLeft: '14px', borderLeft: `2px solid ${theme.borderColorStrong || theme.borderColor}`, height: '18px' }}
-                    />
+                    <span style={{ paddingLeft: '22px', color: theme.contentColorMuted, fontVariantNumeric: 'tabular-nums' }}>{`Run #${runNumber}`}</span>
                 ) : (
                     jobNames[run.job_id] || run.job_id
                 )}
@@ -240,7 +237,8 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                           </Table.Cell>
                                       </Table.Row>
                                   );
-                                  return isOpen ? [head, ...g.runs.map((run) => runRow(run, true))] : [head];
+                                  // Numbered oldest first, so a run keeps its number as new ones arrive.
+                                  return isOpen ? [head, ...g.runs.map((run, i) => runRow(run, true, g.runs.length - i))] : [head];
                               })
                             : rows.map((run) => runRow(run, false))}
                     </Table.Body>

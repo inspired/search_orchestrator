@@ -14,6 +14,14 @@ export interface StepPerf {
     source?: 'engine' | 'audit';
 }
 
-export function getPerformance(runId: string): Promise<{ steps: Record<string, StepPerf>; notes: string[] }> {
+/** A search the route ran, to open in Search. */
+export interface PerfSearch {
+    label: string;
+    spl: string;
+    earliest: string;
+    latest: string;
+}
+
+export function getPerformance(runId: string): Promise<{ steps: Record<string, StepPerf>; notes: string[]; searches?: PerfSearch[] }> {
     return request('GET', `runs/${enc(runId)}/performance`);
 }

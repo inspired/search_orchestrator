@@ -108,7 +108,7 @@ def test_searches_run_as_the_caller_in_the_run_window(w):
 def test_no_search_when_there_are_no_sids(w):
     run_id = run_with(w, {"a": {"state": "waiting"}})
     status, out = get(w, run_id)
-    assert status == 200 and out == {"steps": {}, "notes": []} and w.gw.search_log == []
+    assert status == 200 and out == {"steps": {}, "notes": [], "searches": []} and w.gw.search_log == []
 
 
 def test_dave_cannot_see_the_run(w):
@@ -134,3 +134,13 @@ def test_audit_rows_with_quoted_search_id_map_back_to_the_step(w):
     handler(w, audit=[{"search_id": "'s1'", "run_duration": "2.5"}])
     status, out = get(w, run_id)
     assert status == 200 and out["steps"]["a"] == {"run_duration": 2.5, "source": "audit"}
+
+
+def test_the_searches_are_listed_for_open_in_search(w):
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1", "perf": PERF}})
+    w.gw.search_rows = []
+    status, out = get(w, run_id)
+    assert status == 200
+    assert [s["label"] for s in out["searches"]] == ["CPU and memory", "Audit"]
+    assert out["searches"][0]["spl"] == perf.introspection_query(["s1"])
+    assert out["searches"][0]["earliest"] == str(T0 + 10 - 60)

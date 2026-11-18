@@ -3,7 +3,8 @@
 ``GET runs/<id>/performance``: the numbers the engine stored on each step (``perf``), plus
 CPU and memory from ``_introspection`` and, for steps from before 1.23.0, run time and
 counts from ``_audit``. Both searches run read-only as the caller, so a caller without
-access to an index gets a note instead of an error.
+access to an index gets a note instead of an error. ``searches`` lists them (label, SPL,
+time range) so the page can open them in Search.
 """
 import re
 
@@ -87,9 +88,14 @@ def performance(ctx, body, run_id):
         steps = {k: v for k, v in steps.items() if v[0] in keep}
         searched = searched[:MAX_SIDS]
     intro, audit = {}, {}
+    searches = []
     if searched:
         earliest = str(int(run.get("started_at") or ctx.now) - 60)
         latest = str(int(run.get("ended_at") or ctx.now) + 300)
+        searches = [{"label": "CPU and memory", "spl": introspection_query(searched),
+                     "earliest": earliest, "latest": latest},
+                    {"label": "Audit", "spl": audit_query(searched),
+                     "earliest": earliest, "latest": latest}]
         intro = _numbers(_search(ctx, introspection_query(searched), earliest, latest, notes,
                                  NOTE_INTROSPECTION), INTRO_FIELDS)
         if any(not perf for _, perf in steps.values()):
@@ -105,4 +111,4 @@ def performance(ctx, body, run_id):
         entry.update(intro.get(sid) or {})
         if entry:
             out[step_id] = entry
-    return 200, {"steps": out, "notes": notes}
+    return 200, {"steps": out, "notes": notes, "searches": searches}

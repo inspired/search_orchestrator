@@ -34,7 +34,8 @@ describe('PerformanceTab', () => {
         expect(a.getByText('3.2 s')).toBeInTheDocument();
         expect(a.getByText('1 204')).toBeInTheDocument();
         expect(a.getByText('2.0 MB')).toBeInTheDocument();
-        expect(within(rowOf('c')).getAllByText('—')).toHaveLength(6);
+        // Six numbers and the Search column (no search yet).
+        expect(within(rowOf('c')).getAllByText('—')).toHaveLength(7);
     });
 
     test('the Total row sums the steps', () => {
@@ -65,5 +66,23 @@ describe('PerformanceTab', () => {
         renderThemed(<PerformanceTab run={run() as never} />);
         await userEvent.click(screen.getByRole('button', { name: 'Load CPU and memory' }));
         expect(await screen.findByText(/CPU and memory could not be loaded: boom/)).toBeInTheDocument();
+    });
+
+    test('a running step counts up; a step with a search opens in Search; loaded searches open too', async () => {
+        const r = run() as never as { steps: Record<string, unknown> };
+        r.steps.a = { ...(r.steps.a as object), sid: 'scheduler__a_1' };
+        r.steps.c = { state: 'running', started_at: Math.floor(Date.now() / 1000) - 75, sid: 'scheduler__c_1' };
+        api.getPerformance.mockResolvedValue({
+            steps: {},
+            notes: [],
+            searches: [{ label: 'CPU and memory', spl: 'index=_introspection x', earliest: '100', latest: '200' }],
+        });
+        renderThemed(<PerformanceTab run={r as never} />);
+        expect(screen.getByTestId('live-c')).toHaveTextContent('1m 15s (running)');
+        expect(within(rowOf('Count logins')).getByRole('link', { name: /Open in Search/ }).getAttribute('href')).toContain('sid=scheduler__a_1');
+        await userEvent.click(screen.getByRole('button', { name: 'Load CPU and memory' }));
+        const link = await screen.findByRole('link', { name: /Open the cpu and memory search in Search/ });
+        expect(link.getAttribute('href')).toContain('q=search%20index%3D_introspection%20x');
+        expect(screen.getByRole('button', { name: 'Load CPU and memory again' })).toBeInTheDocument();
     });
 });
