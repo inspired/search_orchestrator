@@ -24,7 +24,8 @@ dispatching and is treated exactly like ``running`` (never re-started).
 search, so never started, polled, counted or cancelled as one.
 
 * evaluate owns ``attempt`` (1-based number of the current search attempt),
-  ``next_attempt_at``, ``skip_kind`` ("run_when" | "not_taken"),
+  ``next_attempt_at``, ``skip_kind`` ("run_when" | "not_taken" | "not_started": a step with no line into it
+  that the trigger which started the run isn't connected to, ``run.entry_steps``),
   ``delay_alerted`` and ``hooks_fired`` (list of hook names, step and run).
 * The engine reports the end of an attempt by setting ``outcome`` on a
   starting/running step, and evaluate clears it once handled:
@@ -249,6 +250,8 @@ class _Eval:
                 return True
             return self.condition(e)
         if s == "skipped":
+            if kind == "not_started":
+                return False  # a branch this run's trigger didn't start runs nothing
             if cond == "always":
                 return True
             return cond == "on_success" and kind == "run_when"
@@ -272,6 +275,11 @@ class _Eval:
             changed = False
             for sid in self.order:
                 if self.steps[sid].get("state") != "waiting":
+                    continue
+                entry = self.run.get("entry_steps")
+                if not self.incoming[sid] and entry is not None and sid not in entry:
+                    self.set(sid, state="skipped", skip_kind="not_started")
+                    changed = True
                     continue
                 results = [self.edge(e) for e in self.incoming[sid]]
                 if any(r is None for r in results):

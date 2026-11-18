@@ -22,7 +22,7 @@ export const STEP_STATES = [
 export type StepState = (typeof STEP_STATES)[number];
 
 /** Why a step was skipped: its cadence did not apply, or no incoming edge was satisfied. */
-export type SkipKind = 'run_when' | 'not_taken';
+export type SkipKind = 'run_when' | 'not_taken' | 'not_started';
 
 export type AnyState = RunState | StepState;
 
@@ -129,6 +129,8 @@ export interface Trigger {
     job?: string;
     on?: 'success' | 'complete';
     enabled?: boolean;
+    /** The steps it starts (each with no line into it); without it, every such step. */
+    steps?: string[];
 }
 
 export interface Defaults {

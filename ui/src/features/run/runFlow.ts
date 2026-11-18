@@ -29,6 +29,9 @@ function met(src: StepStatus | undefined, cond: string): LineState {
         return 'pending';
     }
     const state = src!.state;
+    if (state === 'skipped' && src!.skip_kind === 'not_started') {
+        return 'wont'; // a branch the run's trigger didn't start runs nothing (state.py)
+    }
     if (cond === 'always') {
         return 'fired';
     }

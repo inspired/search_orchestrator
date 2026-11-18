@@ -268,7 +268,7 @@ describe('FlowCanvas', () => {
         expect(screen.getByTestId('plus-job')).not.toHaveAttribute('data-plus-shown');
     });
 
-    test('steps, the whole job and conditions have a +; triggers and actions do not', () => {
+    test('steps, the whole job, conditions and triggers have a +; actions do not', () => {
         const withCond = buildGraph({ ...job, edges: [{ from: 'a', to: 'b', condition: 'expression', expression: 'x > 1' }] });
         renderThemed(
             <FlowCanvas
@@ -284,7 +284,7 @@ describe('FlowCanvas', () => {
         expect(screen.getByTestId('plus-step:b')).toBeInTheDocument();
         expect(screen.getByTestId('plus-job')).toBeInTheDocument();
         expect(screen.getByTestId('plus-cond:a>b')).toBeInTheDocument();
-        expect(screen.queryByTestId('plus-trigger:0')).toBeNull();
+        expect(screen.getByTestId('plus-trigger:0')).toBeInTheDocument();
         expect(screen.queryByTestId('plus-action:a:0')).toBeNull();
         expect(screen.getByTestId('tab-step:a-if')).toHaveTextContent('◇');
     });

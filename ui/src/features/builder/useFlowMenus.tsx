@@ -20,7 +20,7 @@ import type { MenuItem } from './CanvasMenu';
 import type { ContextTarget } from './useContextTrigger';
 import LineMenu, { LineChoice } from './LineMenu';
 import { targetKinds } from './nodeCatalog';
-import { JOB_KEY, condKey } from './nodeModel';
+import { JOB_KEY, canConnect, condKey } from './nodeModel';
 import type { FlowGraph, FlowLink, NodeKind, PortId } from './nodeModel';
 import { PORT_STYLE, hasHandle } from './nodeStyle';
 import { lineMenuOutcomes, outcomeLabel, whenOptions } from './outcomes';
@@ -218,8 +218,15 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         }
     };
 
+    const isTrigger = (k: NodeKind | null | undefined) => k === 'trigger_cron' || k === 'trigger_completion';
+
     const onPlus = (from: string, screen: ScreenPoint) => {
         const kind = kindOf(from);
+        // A trigger's + adds a step it starts.
+        if (isTrigger(kind)) {
+            openQuick({ kinds: targetKinds('then', kind as NodeKind), from: { key: from, port: 'then' }, screen });
+            return;
+        }
         // A condition already leads somewhere; its line is moved by dragging, not continued.
         if (kind && kind !== 'condition') {
             open({ kind: 'when', from, screen });
@@ -227,6 +234,15 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
     };
 
     const onDropOnNode = (from: string, to: string, screen: ScreenPoint, outcome?: PortId) => {
+        if (isTrigger(kindOf(from))) {
+            const check = canConnect(job, from, 'then', to);
+            if (check.ok) {
+                connectLine(from, 'then', to);
+            } else {
+                showMessage(check.reason);
+            }
+            return;
+        }
         if (kindOf(from) === 'condition' || outcome) {
             connectLine(from, outcome || 'then', to);
             return;
@@ -242,6 +258,10 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
     const onDropOnCanvas = (from: string, at: Pos, screen: ScreenPoint, outcome?: PortId) => {
         const kind = kindOf(from);
         if (!kind || kind === 'condition') {
+            return;
+        }
+        if (isTrigger(kind)) {
+            openQuick({ kinds: targetKinds('then', kind), from: { key: from, port: 'then' }, at, screen });
             return;
         }
         if (outcome) {
@@ -361,6 +381,8 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             } else if (link.kind === 'edge') {
                 select({ kind: 'link', key: `${link.from}-${choice.outcome}->${link.to}` });
             }
+        } else if (link.kind === 'trigger') {
+            dispatch({ type: 'disconnectTrigger', index: Number(link.from.slice('trigger:'.length)), step: link.to.slice('step:'.length) });
         } else {
             const ends = link.kind === 'condition' ? parseCond(link.from.startsWith('cond:') ? link.from : link.to) : null;
             const from = ends ? ends.from : link.from.slice('step:'.length);
@@ -415,7 +437,7 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
             const insertable = insertKinds(job, graph, link).length > 0;
             const moves = spliceCandidates(job, link.key);
             // Actions always belong somewhere: their lines are moved, never removed.
-            const canRemove = link.kind === 'edge' || link.kind === 'condition';
+            const canRemove = link.kind === 'edge' || link.kind === 'condition' || link.kind === 'trigger';
             const rows = outcomes.length + (insertable ? 1 : 0) + moves.length + (canRemove ? 1 : 0);
             overlay = (
                 <LineMenu

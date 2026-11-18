@@ -6,6 +6,7 @@ import { actionsOf, changeLineOutcome, disconnectJob, dropActionKey, parseAction
 import { pasteResult } from './clipboard';
 import type { Clip } from './clipboard';
 import { nextStepId, renameActions, renameStepTokens, renameTokens } from './stepRename';
+import { renameTriggerSteps, setTriggerStep, syncTriggerSteps } from './triggerSteps';
 import { insertJob, remapLayout, removeStepJob, removeTriggerJob, renameStepKeys, setActions, spliceJob, spotRightOf } from './flowEdits';
 import { tidyJob, withNodes, withPlacedNode } from './flowEdits';
 import { expandForPlaced, groupEdit } from './groups';
@@ -85,6 +86,8 @@ export type BuilderAction =
     | { type: 'updateTrigger'; index: number; changes: Partial<Trigger> }
     | { type: 'removeTrigger'; index: number }
     | { type: 'connectPort'; from: string; port: PortId; to: string }
+    /** Trigger `index` no longer starts `step`. */
+    | { type: 'disconnectTrigger'; index: number; step: string }
     | { type: 'setJobField'; field: keyof JobDefinition; value: unknown }
     /** Groups (backdrops) in job.layout.groups; each is one undo step; typing a title, width or height in the panel is one. */
     | GroupAction
@@ -124,7 +127,8 @@ export function isDirty(state: BuilderState): boolean {
     return JSON.stringify(toDefinition(state.job)) !== JSON.stringify(toDefinition(state.savedJob));
 }
 
-function edits(state: BuilderState, job: JobDefinition, key?: string): BuilderState {
+function edits(state: BuilderState, edited: JobDefinition, key?: string): BuilderState {
+    const job = syncTriggerSteps(edited);
     if (key && key === state.lastKey) {
         return { ...state, job, future: [], lastKey: key };
     }
@@ -243,13 +247,15 @@ function addNodeJob(job: JobDefinition, kind: NodeKind, from?: { key: string; po
             }
             edges = [...edges, edge];
         }
-        return { ...job, steps: [...steps, step], edges };
+        const added = { ...job, steps: [...steps, step], edges };
+        const fromTrigger = from && from.key.startsWith('trigger:') ? Number(from.key.slice(8)) : null;
+        return fromTrigger !== null ? setTriggerStep(added, fromTrigger, id, true) || added : added;
     }
     if (kind === 'trigger_cron' || kind === 'trigger_completion') {
         const trigger: Trigger =
             kind === 'trigger_cron'
-                ? { type: 'cron', cron: '0 6 * * *', enabled: true }
-                : { type: 'completion', job: '', on: 'success', enabled: true };
+                ? { type: 'cron', cron: '0 6 * * *', enabled: true, steps: [] }
+                : { type: 'completion', job: '', on: 'success', enabled: true, steps: [] };
         return { ...job, triggers: [...(job.triggers || []), trigger] };
     }
     const defaults = ACTION_DEFAULTS[kind];
@@ -335,12 +341,16 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             return edits(
                 state,
                 renameStepKeys(
-                    {
-                        ...job,
-                        steps: nextSteps.map((st) => renameStepTokens(st, action.id, to)),
-                        edges: edgesOut,
-                        actions: renameActions(job.actions, action.id, to),
-                    },
+                    renameTriggerSteps(
+                        {
+                            ...job,
+                            steps: nextSteps.map((st) => renameStepTokens(st, action.id, to)),
+                            edges: edgesOut,
+                            actions: renameActions(job.actions, action.id, to),
+                        },
+                        action.id,
+                        to
+                    ),
                     action.id,
                     to
                 )
@@ -490,6 +500,10 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
             const next = removeTriggerJob(job, action.index);
             return next ? edits(state, next) : state;
         }
+        case 'disconnectTrigger': {
+            const next = setTriggerStep(job, action.index, action.step, false);
+            return next ? edits(state, next) : state;
+        }
         case 'connectPort': {
             if (!canConnect(job, action.from, action.port, action.to).ok) {
                 return state;
@@ -504,6 +518,10 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
                 return reducer(state, { type: 'moveAction', scope: target.scope, index: target.index, toScope: scope, hook });
             }
             const toId = action.to.slice(5);
+            if (action.from.startsWith('trigger:')) {
+                const next = setTriggerStep(job, Number(action.from.slice(8)), toId, true);
+                return next ? edits(state, next) : state;
+            }
             if (action.from.startsWith('cond:')) {
                 const c = parseCond(action.from);
                 const old = c && edgeList.find((e) => same(e, c.from, c.to));

@@ -73,9 +73,9 @@ describe('nodeStyle', () => {
         const d = nodeSize('condition');
         expect(inputOffset('condition')).toEqual({ x: 0, y: d.h / 2 });
     });
-    it('gives a + to steps, the whole job and conditions only', () => {
-        const yes: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup', 'job', 'condition'];
-        const no: NodeKind[] = ['trigger_cron', 'trigger_completion', 'email', 'webhook', 'slack', 'event', 'alert_action', 'start_job'];
+    it('gives a + to steps, the whole job, conditions and triggers only', () => {
+        const yes: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup', 'job', 'condition', 'trigger_cron', 'trigger_completion'];
+        const no: NodeKind[] = ['email', 'webhook', 'slack', 'event', 'alert_action', 'start_job'];
         yes.forEach((k) => expect(hasHandle(k)).toBe(true));
         no.forEach((k) => expect(hasHandle(k)).toBe(false));
     });

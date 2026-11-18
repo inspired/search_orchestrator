@@ -84,7 +84,7 @@ export function statusLabel(state: AnyState, delayed = false, skipKind?: SkipKin
         return 'Delayed';
     }
     if (state === 'skipped' && skipKind) {
-        return skipKind === 'run_when' ? 'Skipped (run when)' : 'Skipped (branch not taken)';
+        return skipKind === 'run_when' ? 'Skipped (run when)' : skipKind === 'not_started' ? 'Skipped (not started by this trigger)' : 'Skipped (branch not taken)';
     }
     return LABELS[state] || state;
 }

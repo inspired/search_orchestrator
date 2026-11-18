@@ -163,7 +163,7 @@ export function outputPorts(kind: NodeKind): PortId[] {
     if (kind === 'job') {
         return ['success', 'failure', 'always', 'start', 'delayed', 'late'];
     }
-    if (kind === 'condition') {
+    if (kind === 'condition' || kind === 'trigger_cron' || kind === 'trigger_completion') {
         return ['then'];
     }
     if (STEP_KINDS.includes(kind)) {
@@ -261,9 +261,10 @@ export function buildGraph(job: JobDefinition): FlowGraph {
     });
 
     const hasIncoming = new Set(valid.map((e) => e.to));
-    (job.triggers || []).forEach((_, i) => {
+    (job.triggers || []).forEach((t, i) => {
+        const listed = Array.isArray(t.steps) ? t.steps : null;
         steps.forEach((s) => {
-            if (!hasIncoming.has(s.id)) {
+            if (!hasIncoming.has(s.id) && (!listed || listed.includes(s.id))) {
                 links.push({ key: `${triggerKey(i)}->${stepKey(s.id)}`, from: triggerKey(i), port: null, to: stepKey(s.id), kind: 'trigger', data: false });
             }
         });
@@ -311,6 +312,22 @@ export function canConnect(job: JobDefinition, from: string, port: PortId, to: s
         if (!outputPorts(nodeKindOfStep(step)).includes(port)) {
             return no('That output does not exist on this step');
         }
+    } else if (from.startsWith('trigger:')) {
+        const t = (job.triggers || [])[Number(from.slice(8))];
+        if (!t || port !== 'then' || !to.startsWith('step:')) {
+            return no('A schedule or trigger can only start a step');
+        }
+        const id = to.slice(5);
+        if (!steps.some((s) => s.id === id)) {
+            return no('That step no longer exists');
+        }
+        if (edges.some((e) => e.to === id)) {
+            return no('A trigger can only start a step with no line into it');
+        }
+        if (Array.isArray(t.steps) ? t.steps.includes(id) : true) {
+            return no('This trigger already starts that step');
+        }
+        return { ok: true };
     } else if (from.startsWith('cond:')) {
         if (port !== 'then') {
             return no('A condition only has a Then line');

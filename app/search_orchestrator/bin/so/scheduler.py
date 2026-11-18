@@ -65,6 +65,34 @@ def cron_specs(job):
     return specs
 
 
+def entry_of(triggers):
+    """The steps a run started by ``triggers`` (all fired at once) begins with: the union
+    of their ``steps``, or None (every step with no line into it) when any of them has
+    no ``steps`` list. A job saved before triggers had ``steps`` keeps starting them all."""
+    out = set()
+    for t in triggers:
+        steps = t.get("steps") if isinstance(t, dict) else None
+        if not isinstance(steps, list):
+            return None
+        out.update(s for s in steps if isinstance(s, str))
+    return sorted(out)
+
+
+def cron_entry(job, slot):
+    """``entry_of`` the enabled cron triggers that fire at ``slot``."""
+    fired = []
+    for t in job.get("triggers") or []:
+        if t.get("type") != "cron" or t.get("enabled") is False:
+            continue
+        try:
+            spec = cronmod.parse(t.get("cron"))
+        except cronmod.CronError:
+            continue
+        if cronmod.matches(spec, int(slot), job.get("timezone")):
+            fired.append(t)
+    return entry_of(fired) if fired else None
+
+
 def due_runs(job, last_checked, now):
     """Slots in (last_checked, now] to create runs for, oldest first."""
     if last_checked is None or job.get("enabled") is False:
@@ -165,12 +193,14 @@ def _report_rejected(store, job, run, queue_cap, now, audit, actions):
 
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
                catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0,
-               rerun=None, action_index=None, backfill=None, started_by=None, upstream_run=None):
+               rerun=None, action_index=None, backfill=None, started_by=None, upstream_run=None,
+               entry=None):
     """Insert a queued run and return its ID, or None if it already exists or the
     job's queue is full. Raises tokens.TokenError for invalid parameters. ``started_by``:
     the user who started a manual run (they may decide its approval steps).
     ``upstream_run``: the run (or outbox row) that started a chained run; a chained run
-    gets a deadline only when it was eligible (``deadline.eligible``).
+    gets a deadline only when it was eligible (``deadline.eligible``). ``entry``: the steps
+    the run begins with (``entry_of``); None starts every step with no line into it.
 
     KV Store has no transactions, so the cap is checked again after the insert: a run
     that finds the queue over the cap removes itself. Two exactly simultaneous starts can
@@ -193,6 +223,7 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "deadline_at": deadlinemod.deadline_at(definition, scheduled_time, trigger, catchup,
                                                   upstream_run),
            "late_at": None, "backfill": backfill, "started_by": started_by,
+           "entry_steps": list(entry) if entry is not None else None,
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:
         queue_cap = (store.get_settings() or {}).get("queue_cap") or QUEUE_CAP

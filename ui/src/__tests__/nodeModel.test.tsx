@@ -56,7 +56,7 @@ describe('ports', () => {
         expect(outputPorts('search')).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'if']);
         expect(outputPorts('job')).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'late']);
         expect(outputPorts('condition')).toEqual(['then']);
-        expect(outputPorts('trigger_cron')).toEqual([]);
+        expect(outputPorts('trigger_cron')).toEqual(['then']);
         expect(outputPorts('email')).toEqual([]);
     });
     it('maps ports', () => {

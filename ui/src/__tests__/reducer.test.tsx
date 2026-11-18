@@ -328,7 +328,7 @@ describe('builder reducer: layout and node edits', () => {
         const st = reducer(s0, { type: 'addNode', kind: 'start_job' });
         expect(st.job.actions?.[0].hook).toBe('on_success');
         const tr = reducer(s0, { type: 'addNode', kind: 'trigger_cron' });
-        expect(tr.job.triggers).toEqual([{ type: 'cron', cron: '0 6 * * *', enabled: true }]);
+        expect(tr.job.triggers).toEqual([{ type: 'cron', cron: '0 6 * * *', enabled: true, steps: [] }]);
         expect(addNodeKey(s0.job, 'search')).toBe('step:step_4');
         expect('layout' in sl.job).toBe(false);
     });

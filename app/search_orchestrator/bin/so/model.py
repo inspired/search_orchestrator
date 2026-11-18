@@ -504,6 +504,36 @@ def _validate(job, known_saved_searches):
             else:
                 issues.append(_issue("error", "bad_edge", "%s: condition check %r isn't supported; pick Simple comparison, SPL expression or Search returns results" % (where, kind), b if b in ids else None))
 
+    targets = {e.get("to") for e in edges}
+    for i, t in enumerate(job.get("triggers", []) or []):
+        if not isinstance(t, dict) or t.get("steps") is None:
+            continue
+        what = "the schedule" if t.get("type") == "cron" else "the trigger"
+        listed = t["steps"]
+        if not isinstance(listed, list) or not all(isinstance(s, str) for s in listed):
+            issues.append(_issue("error", "bad_trigger", "%s's steps must be a list of step ids" % what))
+            continue
+        for sid in listed:
+            if sid not in ids:
+                issues.append(_issue("error", "bad_trigger", "%s starts step %r, which doesn't exist; remove its line" % (what, sid)))
+            elif sid in targets:
+                issues.append(_issue("error", "bad_trigger", "%s starts %r, but a line already leads into that step; a trigger can only start a step with no line into it" % (what, sid), sid))
+        if not listed and t.get("enabled") is not False:
+            issues.append(_issue("warning", "trigger_starts_nothing", "%s isn't connected to any step, so its runs do nothing; drag from it to the steps it should start" % what))
+    if job.get("triggers") and any(isinstance(t, dict) and isinstance(t.get("steps"), list) for t in job["triggers"]):
+        started = set()
+        everything = False
+        for t in job["triggers"]:
+            if isinstance(t, dict) and isinstance(t.get("steps"), list):
+                started.update(t["steps"])
+            elif isinstance(t, dict):
+                everything = True
+        if not everything:
+            for s in steps:
+                sid = s.get("id")
+                if sid in ids and sid not in targets and sid not in started:
+                    issues.append(_issue("warning", "step_not_started", "no trigger starts this step, so only manual runs and runs from other jobs reach it; connect a schedule to it", sid))
+
     _, succ = _graph(job)
     try:
         topo_order(job)

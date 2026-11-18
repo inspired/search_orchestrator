@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.26.0 (2026-11-18)
+
+- **Triggers start chosen steps:** a Schedule or "after job" trigger starts only the steps it is connected to (new trigger field `steps`), so different searches in one job can have different schedules. Triggers now have a **+** and can be dragged onto a step with no line into it; a trigger's line can be removed. New triggers start nothing until connected. A run records `entry_steps`; a first step its trigger isn't connected to is skipped with `skip_kind` `not_started`, and so is the branch after it (an *always* line out of it doesn't fire). Schedules firing at once start the union of their steps. Manual, search, alert, REST and backfill runs start every first step, and triggers without `steps` (jobs saved before 1.26.0) behave as before. New checks: `bad_trigger` (an unknown step, or one with a line into it), warnings `trigger_starts_nothing` and `step_not_started`.
+
 ## 1.25.1 (2026-11-17)
 
 - **Fixed:** **Test condition** always said "Preview <step> first" even when that step had a current preview: it sent the previews of the steps before the line's source step, but not the source step's own. It now sends both.

@@ -359,7 +359,8 @@ class Engine:
         try:
             scheduler.create_run(self.store, job, "cron", slot, {}, now=now,
                                  catchup=scheduler.is_catchup(slot, now), audit=self.audit,
-                                 actions=self.actions, queue_cap=settings["queue_cap"])
+                                 actions=self.actions, queue_cap=settings["queue_cap"],
+                                 entry=scheduler.cron_entry(job, slot))
         except tokens.TokenError as err:
             job_id = job.get("id") or job.get("_key")
             self._emit({"type": "run_rejected", "reason": "invalid_params", "job_id": job_id,
@@ -725,12 +726,12 @@ class Engine:
         for job_id, job in sorted(self._jobs.items()):
             if job.get("enabled") is False:
                 continue
-            for t in job.get("triggers") or []:
-                if (isinstance(t, dict) and t.get("type") == "completion"
-                        and t.get("enabled") is not False and t.get("job") == run.get("job_id")
-                        and state in COMPLETION_STATES.get(t.get("on") or "success", ())):
-                    out.append((job_id, job))
-                    break
+            fired = [t for t in job.get("triggers") or []
+                     if isinstance(t, dict) and t.get("type") == "completion"
+                     and t.get("enabled") is not False and t.get("job") == run.get("job_id")
+                     and state in COMPLETION_STATES.get(t.get("on") or "success", ())]
+            if fired:
+                out.append((job_id, job, scheduler.entry_of(fired)))
         return out
 
     def _fire_completions(self, run, settings, now, pending):
@@ -744,7 +745,7 @@ class Engine:
         depth = int(run.get("chain_depth") or 0) + 1
         owner = run.get("owner")
         access = None
-        for job_id, job in targets:
+        for job_id, job, entry in targets:
             key = scheduler.run_key(job_id, "completion", run["scheduled_time"], upstream, rerun)
             if self.store.get_run(key) is not None:
                 continue  # already fired for this upstream run
@@ -772,7 +773,7 @@ class Engine:
                     self.store, job, "completion", run["scheduled_time"], {}, upstream=upstream,
                     now=now, audit=self.audit, actions=self.actions,
                     queue_cap=settings["queue_cap"], chain_depth=depth, rerun=rerun,
-                    upstream_run=run)
+                    upstream_run=run, entry=entry)
             except tokens.TokenError as err:
                 pending.events.append(self._event(
                     run, "run_rejected", now, reason="invalid_params", target_job=job_id,
