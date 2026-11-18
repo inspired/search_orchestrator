@@ -24,6 +24,13 @@ describe('Timeline', () => {
         expect(screen.getByText('Skipped (branch not taken)')).toBeInTheDocument();
     });
 
+    test('shows the time a step took beside its bar, so far while it runs; none when waiting or skipped', () => {
+        renderThemed(<Timeline run={run} now={NOW} onSelect={jest.fn()} />);
+        expect(screen.getByTestId('time-daily')).toHaveTextContent('50m');
+        expect(screen.queryByTestId('time-weekly')).toBeNull();
+        expect(screen.queryByTestId('time-monthly')).toBeNull();
+    });
+
     test('running bar is neutral, not a status or positive colour', () => {
         let t: Record<string, string> = {};
         function Probe() {
