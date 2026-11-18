@@ -793,3 +793,21 @@ def test_only_if_results_saves_through_the_api():
     status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
     assert status == 201, out
     assert out["job"]["steps"][0]["actions"][0]["only_if_results"] is True
+
+
+def test_an_action_condition_leaves_the_action_out_when_false():
+    big = {"hook": "on_success", "type": "email", "to": "big@example.com", "condition": "$a.resultCount$ > 100"}
+    w = W(step_actions=[big])
+    w.run["steps"]["a"] = {"state": "succeeded", "sid": "s1", "result_count": 5}
+    assert w.runner.submit(w.run, "on_success", "step", "a") is False
+    w.run["steps"]["a"]["result_count"] = 500
+    w.run["rerun_count"] = 1
+    assert w.runner.submit(w.run, "on_success", "step", "a") is True
+
+
+def test_an_action_condition_is_checked_on_save():
+    from so import model
+    from test_api import job_body
+    body = job_body()
+    body["steps"][0]["actions"] = [{"hook": "on_success", "type": "email", "to": "x@example.com", "condition": "$nope.resultCount$ >"}]
+    assert any(i["code"] in ("bad_expression", "unknown_token") and i["level"] == "error" for i in model.validate_job(body))

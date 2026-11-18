@@ -534,6 +534,14 @@ def _validate(job, known_saved_searches):
                 if sid in ids and sid not in targets and sid not in started:
                     issues.append(_issue("warning", "step_not_started", "no trigger starts this step, so only manual runs and runs from other jobs reach it; connect a schedule to it", sid))
 
+    for scope_step, alist in [(None, job.get("actions") or [])] + [(s.get("id"), s.get("actions") or []) for s in steps]:
+        for a in alist:
+            if isinstance(a, dict) and a.get("condition") not in (None, ""):
+                if not isinstance(a["condition"], str):
+                    issues.append(_issue("error", "bad_expression", "an action's condition must be text", scope_step))
+                else:
+                    _check_expr_tokens(a["condition"], ids, params, issues, scope_step if scope_step in ids else None, "action condition")
+
     _, succ = _graph(job)
     try:
         topo_order(job)

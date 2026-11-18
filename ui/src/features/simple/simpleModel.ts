@@ -1,7 +1,8 @@
 /* The Simple view's reading of a job, and its edits. Simple shows a job as a chain of
  * searches that run top to bottom (each starts when the one above succeeds), each with a
  * list of "then" items: a Summary index or Lookup step hanging off it, or an action that
- * fires when it succeeds (optionally only when it found results) or when it fails. Around the chain: one
+ * fires at any of the Flow editor's Whens: succeeds (optionally only when it found
+ * results), fails, finishes either way, starts, is delayed, or when a condition is true. Around the chain: one
  * trigger, one "if a step fails" action and one "when done, start job" action. Everything
  * Simple writes is ordinary steps, edges and actions, so Flow shows the same job. A job
  * using anything else (conditions, approval, branches, more triggers ...) is read but not
@@ -13,9 +14,24 @@ import { nextStepId } from '../builder/stepRename';
 
 export type ThenKind = 'summary_index' | 'lookup' | 'email' | 'slack' | 'teams' | 'pagerduty' | 'servicenow' | 'event';
 
+/** When a "then" happens, as the Flow editor's When list: a save only on success or a condition. */
+export type When = 'success' | 'failure' | 'always' | 'start' | 'delayed' | 'condition';
+
+export const WHEN_HOOK: Record<When, Action['hook']> = {
+    success: 'on_success',
+    failure: 'on_failure',
+    always: 'on_complete',
+    start: 'on_start',
+    delayed: 'on_delayed',
+    condition: 'on_success',
+};
+
+/** The Whens a save (Summary index, Lookup) can have. */
+export const OUTPUT_WHENS: When[] = ['success', 'condition'];
+
 export type Then =
-    | { kind: 'summary_index' | 'lookup'; stepId: string; output: StepOutput; onlyIfResults: boolean }
-    | { kind: Exclude<ThenKind, 'summary_index' | 'lookup'>; index: number; action: Action; onlyIfResults: boolean; when: 'success' | 'failure' };
+    | { kind: 'summary_index' | 'lookup'; stepId: string; output: StepOutput; onlyIfResults: boolean; when: 'success' | 'condition'; condition?: string }
+    | { kind: Exclude<ThenKind, 'summary_index' | 'lookup'>; index: number; action: Action; onlyIfResults: boolean; when: When; condition?: string };
 
 export interface SimpleStep {
     step: StepDef;
@@ -44,6 +60,7 @@ export const THEN_LABEL: Record<ThenKind, string> = {
 };
 
 const isOutput = (s: StepDef) => Boolean(s.output);
+const HOOK_WHEN: Partial<Record<string, When>> = { on_success: 'success', on_failure: 'failure', on_complete: 'always', on_start: 'start', on_delayed: 'delayed' };
 const hitsExpr = (id: string) => `$${id}.resultCount$ > 0`;
 
 function actionKind(a: Action): Exclude<ThenKind, 'summary_index' | 'lookup'> | null {
@@ -89,7 +106,7 @@ export function readSimple(job: JobDefinition): SimpleJob {
             reasons.push(`${name(s.id)} has a Run when rule`);
         }
         (s.actions || []).forEach((a) => {
-            if ((a.hook !== 'on_success' && a.hook !== 'on_failure') || !actionKind(a)) {
+            if (!HOOK_WHEN[a.hook] || !actionKind(a)) {
                 reasons.push(`${name(s.id)} has a ${a.hook.replace('on_', '')} action Simple doesn't show`);
             }
         });
@@ -105,7 +122,7 @@ export function readSimple(job: JobDefinition): SimpleJob {
         if ((s.actions || []).length) {
             reasons.push(`${name(s.id)} has actions`);
         }
-        if (s.run_when && !(from.length === 1 && s.run_when.kind === 'expression' && s.run_when.value === hitsExpr(from[0]))) {
+        if (s.run_when && s.run_when.kind !== 'expression') {
             reasons.push(`${name(s.id)} has a Run when rule`);
         }
     });
@@ -148,13 +165,17 @@ export function readSimple(job: JobDefinition): SimpleJob {
         outOf(step.id)
             .map((id) => byId.get(id))
             .filter((s): s is StepDef => Boolean(s && s.output))
-            .forEach((s) =>
-                thens.push({ kind: s.output!.kind, stepId: s.id, output: s.output!, onlyIfResults: Boolean(s.run_when && s.run_when.value === hitsExpr(step.id)) })
-            );
+            .forEach((s) => {
+                const rw = s.run_when && s.run_when.kind === 'expression' ? String(s.run_when.value || '') : null;
+                const hits = rw === hitsExpr(step.id);
+                thens.push({ kind: s.output!.kind, stepId: s.id, output: s.output!, onlyIfResults: hits, when: rw !== null && !hits ? 'condition' : 'success', condition: rw !== null && !hits ? rw : undefined });
+            });
         (step.actions || []).forEach((a, index) => {
             const kind = actionKind(a);
-            if (kind && (a.hook === 'on_success' || a.hook === 'on_failure')) {
-                thens.push({ kind, index, action: a, onlyIfResults: a.only_if_results === true, when: a.hook === 'on_failure' ? 'failure' : 'success' });
+            const when = HOOK_WHEN[a.hook];
+            if (kind && when) {
+                const cond = typeof a.condition === 'string' && a.hook === 'on_success' ? a.condition : undefined;
+                thens.push({ kind, index, action: a, onlyIfResults: a.only_if_results === true, when: cond !== undefined ? 'condition' : when, condition: cond });
             }
         });
         return { step, thens };
@@ -210,13 +231,19 @@ export function moveSearch(job: JobDefinition, id: string, dir: -1 | 1): JobDefi
     return withChain(job, order);
 }
 
-/** A new "then" of `kind` on search `id`, when it succeeds or (an action only) fails. */
-export function addThen(job: JobDefinition, id: string, kind: ThenKind, when: 'success' | 'failure' = 'success'): JobDefinition {
+/** The condition a new "If a condition is true" item starts with. */
+export const defaultCondition = (id: string) => `$${id}.resultCount$ > 100`;
+
+/** A new "then" of `kind` on search `id`, at `when` (a save only on success or a condition). */
+export function addThen(job: JobDefinition, id: string, kind: ThenKind, when: When = 'success'): JobDefinition {
     const steps = job.steps || [];
     if (kind === 'summary_index' || kind === 'lookup') {
         const out: StepOutput = kind === 'summary_index' ? { kind, index: 'summary', add_run_id: true } : { kind, name: '' };
         const sid = nextStepId(steps, kind === 'summary_index' ? 'save_summary' : 'save_lookup');
         const step: StepDef = { id: sid, name: THEN_LABEL[kind], type: 'previous', spl: outputSpl(out), output: out };
+        if (when === 'condition') {
+            step.run_when = { kind: 'expression', value: defaultCondition(id) };
+        }
         return { ...job, steps: [...steps, step], edges: [...(job.edges || []), { from: id, to: sid, condition: 'on_success' }] };
     }
     const defaults: Record<string, Omit<Action, 'hook'>> = {
@@ -227,7 +254,10 @@ export function addThen(job: JobDefinition, id: string, kind: ThenKind, when: 's
         servicenow: { type: 'webhook', preset: 'servicenow', destination: '' },
         event: { type: 'event', index: 'main' },
     };
-    const action = { hook: when === 'failure' ? 'on_failure' : 'on_success', ...defaults[kind] } as Action;
+    const action = { hook: WHEN_HOOK[when], ...defaults[kind] } as Action;
+    if (when === 'condition') {
+        action.condition = defaultCondition(id);
+    }
     return { ...job, steps: steps.map((s) => (s.id === id ? { ...s, actions: [...(s.actions || []), action] } : s)) };
 }
 
@@ -239,8 +269,13 @@ export function removeThen(job: JobDefinition, id: string, then: Then): JobDefin
     return { ...job, steps: (job.steps || []).map((s) => (s.id === id ? { ...s, actions: (s.actions || []).filter((_, i) => i !== then.index) } : s)) };
 }
 
-/** `then` of search `id` changed: its output or action fields, or only-if-results. */
-export function updateThen(job: JobDefinition, id: string, then: Then, change: { output?: StepOutput; action?: Partial<Action>; onlyIfResults?: boolean }): JobDefinition {
+/** `then` of search `id` changed: its output or action fields, only-if-results, or its condition. */
+export function updateThen(
+    job: JobDefinition,
+    id: string,
+    then: Then,
+    change: { output?: StepOutput; action?: Partial<Action>; onlyIfResults?: boolean; condition?: string }
+): JobDefinition {
     if ('stepId' in then) {
         return {
             ...job,
@@ -251,7 +286,9 @@ export function updateThen(job: JobDefinition, id: string, then: Then, change: {
                 const out = change.output || s.output!;
                 const only = change.onlyIfResults ?? then.onlyIfResults;
                 const next: StepDef = { ...s, output: out, spl: outputSpl(out) };
-                if (only) {
+                if (then.when === 'condition') {
+                    next.run_when = { kind: 'expression', value: change.condition ?? then.condition ?? '' };
+                } else if (only) {
                     next.run_when = { kind: 'expression', value: hitsExpr(id) };
                 } else {
                     delete next.run_when;
@@ -271,6 +308,9 @@ export function updateThen(job: JobDefinition, id: string, then: Then, change: {
                     return a;
                 }
                 const next = { ...a, ...(change.action || {}) } as Action;
+                if (change.condition !== undefined) {
+                    next.condition = change.condition;
+                }
                 if (change.onlyIfResults !== undefined) {
                     if (change.onlyIfResults) {
                         next.only_if_results = true;

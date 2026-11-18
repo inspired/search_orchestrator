@@ -8,7 +8,6 @@ import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Dropdown from '@splunk/react-ui/Dropdown';
-import Menu from '@splunk/react-ui/Menu';
 import Message from '@splunk/react-ui/Message';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
@@ -30,8 +29,10 @@ import { availableTokens } from '../builder/tokens';
 import type { TokenGroup } from '../builder/tokens';
 import OutputViewer from '../output/OutputViewer';
 import { issuesByStep } from '../builder/graphLogic';
-import { addSearch, addThen, moveSearch, readSimple, removeSearch, removeThen, setJobAction, THEN_LABEL, updateThen } from './simpleModel';
-import type { Then, ThenKind } from './simpleModel';
+import { addSearch, addThen, moveSearch, OUTPUT_WHENS, readSimple, removeSearch, removeThen, setJobAction, THEN_LABEL, updateThen } from './simpleModel';
+import type { Then, ThenKind, When } from './simpleModel';
+import { PORT_STYLE } from '../builder/nodeStyle';
+import type { PortId } from '../builder/nodeModel';
 
 export interface SimpleViewProps {
     job: JobDefinition;
@@ -54,7 +55,24 @@ export interface SimpleViewProps {
 }
 
 const THEN_KINDS: ThenKind[] = ['summary_index', 'lookup', 'email', 'slack', 'teams', 'pagerduty', 'servicenow', 'event'];
-const FAIL_THEN_KINDS: ThenKind[] = ['email', 'slack', 'teams', 'pagerduty', 'servicenow', 'event'];
+const WHEN_ORDER: When[] = ['success', 'condition', 'failure', 'always', 'start', 'delayed'];
+const WHEN_PORT: Record<When, PortId> = { success: 'success', failure: 'failure', always: 'always', start: 'start', delayed: 'delayed', condition: 'if' };
+const WHEN_LABEL: Record<When, string> = {
+    success: 'Succeeds',
+    failure: 'Fails',
+    always: 'Finishes either way',
+    start: 'Starts',
+    delayed: 'Is delayed',
+    condition: 'If a condition is true',
+};
+const WHEN_HEADING: Record<When, string> = {
+    success: 'When it succeeds',
+    failure: 'When it fails',
+    always: 'When it finishes either way',
+    start: 'When it starts',
+    delayed: 'When it is delayed',
+    condition: 'If a condition is true',
+};
 const FAIL_KINDS: Array<{ value: string; label: string }> = [
     { value: '', label: 'Stop (the admin fallback is told)' },
     { value: 'email', label: 'Stop and email' },
@@ -347,7 +365,18 @@ function ThenList({
                             <Target id={id} action={t.action} destinations={destinations} disabled={readOnly} onChange={(c) => set(updateThen(job, stepId, t, { action: c }), id)} />
                         )}
                     </div>
-                    {('stepId' in t || t.when === 'success') && (
+                    {t.when === 'condition' && (
+                        <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                            <Text
+                                inputId={`${id}-condition`}
+                                aria-label="Condition"
+                                value={t.condition || ''}
+                                disabled={readOnly}
+                                onChange={(_e: unknown, { value }: { value: string }) => set(updateThen(job, stepId, t, { condition: value }), `${id}-condition`)}
+                            />
+                        </div>
+                    )}
+                    {t.when === 'success' && (
                         <Switch appearance="checkbox" selected={t.onlyIfResults} disabled={readOnly} onClick={() => set(updateThen(job, stepId, t, { onlyIfResults: !t.onlyIfResults }))}>
                             Only if it found results
                         </Switch>
@@ -374,37 +403,89 @@ function ThenList({
             </div>
         );
     };
-    const menu = (label: string, kinds: ThenKind[], when: 'success' | 'failure') =>
-        !readOnly && (
-            <div>
-                <Dropdown toggle={<Button appearance="subtle" label={label} isMenu />}>
-                    <Menu>
-                        {kinds.map((k) => (
-                            <Menu.Item key={k} onClick={() => set(addThen(job, stepId, k, when))}>
-                                {THEN_LABEL[k]}
-                            </Menu.Item>
-                        ))}
-                    </Menu>
-                </Dropdown>
-            </div>
-        );
-    const heading = (text: string) => (
-        <div style={{ fontSize: '11px', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600, color: theme.contentColorMuted, marginTop: '4px' }}>{text}</div>
-    );
-    const ok = thens.filter((t) => 'stepId' in t || t.when === 'success');
-    const bad = thens.filter((t) => !('stepId' in t) && t.when === 'failure');
+    const sections = WHEN_ORDER.map((w) => ({ w, items: thens.filter((x) => x.when === w) })).filter((s) => s.items.length > 0);
     return (
         <div style={{ display: 'grid', gap: '6px', marginTop: '10px' }}>
-            {heading('If it succeeds')}
-            {ok.map(renderRow)}
-            {menu('+ Then…', THEN_KINDS, 'success')}
-            {heading('If it fails')}
-            {bad.map(renderRow)}
-            {menu('+ If it fails…', FAIL_THEN_KINDS, 'failure')}
+            {sections.map(({ w, items }) => (
+                <React.Fragment key={w}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: theme.contentColorMuted, marginTop: '4px' }}>
+                        <span aria-hidden style={{ color: theme[PORT_STYLE[WHEN_PORT[w]].colorToken], width: '14px', textAlign: 'center' }}>
+                            {PORT_STYLE[WHEN_PORT[w]].glyph}
+                        </span>
+                        {WHEN_HEADING[w]}
+                    </div>
+                    {items.map(renderRow)}
+                </React.Fragment>
+            ))}
+            {!readOnly && <AddThen onAdd={(kind, when) => set(addThen(job, stepId, kind, when))} />}
         </div>
     );
 }
 
+/** "+ Add…": pick when (the Flow editor's When list) and then what happens. */
+function AddThen({ onAdd }: { onAdd: (kind: ThenKind, when: When) => void }) {
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
+    const [open, setOpen] = useState(false);
+    const [when, setWhen] = useState<When>('success');
+    const kinds = THEN_KINDS.filter((k) => !(k === 'summary_index' || k === 'lookup') || OUTPUT_WHENS.includes(when));
+    const option = (active: boolean): React.CSSProperties => ({
+        display: 'flex',
+        gap: '8px',
+        alignItems: 'center',
+        width: '100%',
+        textAlign: 'left',
+        border: 0,
+        borderRadius: '4px',
+        padding: '6px 10px',
+        font: 'inherit',
+        cursor: 'pointer',
+        color: theme.contentColorDefault,
+        background: active ? theme.backgroundColorHover || theme.backgroundColorSection : 'transparent',
+    });
+    const muted = { color: theme.contentColorMuted, fontSize: '12px' };
+    return (
+        <div>
+            <Dropdown
+                open={open}
+                onRequestOpen={() => setOpen(true)}
+                onRequestClose={() => setOpen(false)}
+                toggle={<Button appearance="subtle" label="+ Add…" isMenu />}
+            >
+                <div data-testid="simple-add" style={{ display: 'flex', gap: '4px', padding: '6px', flexWrap: 'wrap', maxWidth: '560px' }}>
+                    <div role="radiogroup" aria-label="When this search" style={{ flex: '1 1 240px', minWidth: 0 }}>
+                        <div style={{ ...muted, padding: '4px 10px' }}>When this search…</div>
+                        {WHEN_ORDER.map((w) => (
+                            <button key={w} type="button" role="radio" aria-checked={when === w} onClick={() => setWhen(w)} style={option(when === w)}>
+                                <span aria-hidden style={{ color: theme[PORT_STYLE[WHEN_PORT[w]].colorToken], width: '16px', textAlign: 'center' }}>
+                                    {PORT_STYLE[WHEN_PORT[w]].glyph}
+                                </span>
+                                <span style={{ flex: 1 }}>{WHEN_LABEL[w]}</span>
+                                {!OUTPUT_WHENS.includes(w) && <span style={muted}>messages only</span>}
+                            </button>
+                        ))}
+                    </div>
+                    <div role="menu" aria-label="Then" style={{ flex: '1 1 220px', minWidth: 0, borderLeft: `1px solid ${theme.borderColorWeak || theme.borderColor}` }}>
+                        <div style={{ ...muted, padding: '4px 10px' }}>…then</div>
+                        {kinds.map((k) => (
+                            <button
+                                key={k}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    onAdd(k, when);
+                                    setOpen(false);
+                                }}
+                                style={option(false)}
+                            >
+                                {THEN_LABEL[k]}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </Dropdown>
+        </div>
+    );
+}
 
 /** Every setting of one "then": the action's own fields (subject and message for email,
  * body options for webhooks, payload for events), or the output's index, source, run id

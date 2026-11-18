@@ -33,7 +33,9 @@ are SPL-string escaped.
 * ``alert_action``: ``action`` (name) and ``params``
 
 Any step action may have ``only_if_results: true``: it is left out of the hook's firing
-when the step's ``result_count`` is 0 (the Simple view's "only if it found results").
+when the step's ``result_count`` is 0 (the Simple view's "only if it found results"), and
+an optional ``condition`` (a simple comparison over tokens, as on an If… line, such as
+``$count.resultCount$ > 100``): the action is left out when it doesn't hold.
 Email, event and alert_action dispatch a hidden search as the run's owner,
 named by the action's ``hidden_search`` in the run's definition snapshot
 (content-addressed, written at job save; see ``hidden.py`` for the args contract).
@@ -78,7 +80,7 @@ import logging
 import time
 from urllib.parse import quote, urlsplit
 
-from . import authz, hidden, presets, scheduler, tokens
+from . import authz, expr as exprmod, hidden, presets, scheduler, tokens
 from . import deadline as deadlinemod
 from .gateway import DispatchError, GatewayError, check_webhook_url
 from .state import backoff
@@ -177,6 +179,52 @@ def _needs_late_fallback(run, definition):
     return not any(a.get("hook") == "on_late" for a in definition.get("actions") or [])
 
 
+def _run_lookup(run, now):
+    """A token lookup over ``run`` for ``expr.evaluate``, as the evaluator's (state.py)."""
+    steps = run.get("steps") or {}
+
+    def lookup(name):
+        parts = name.split(".")
+        if parts[0] == "run":
+            if name == "run.id":
+                return run.get("id") or run.get("_key")
+            if name == "run.scheduled_time":
+                return run.get("scheduled_time")
+            if name == "run.now":
+                return now
+            if len(parts) == 3 and parts[1] == "param":
+                return (run.get("params") or {}).get(parts[2])
+            return None
+        st = steps.get(parts[0])
+        if st is None or len(parts) < 2:
+            return None
+        if parts[1] == "status":
+            return st.get("state")
+        if parts[1] == "sid":
+            return st.get("sid")
+        if st.get("state") != "succeeded":
+            return None
+        if parts[1] == "resultCount" and len(parts) == 2:
+            return st.get("result_count")
+        if parts[1] == "first" and len(parts) == 3:
+            row = st.get("first")
+            return row.get(parts[2]) if isinstance(row, dict) else None
+        return None
+    return lookup
+
+
+def _condition_holds(action, run, now):
+    """An action's optional ``condition`` (a simple comparison, as on an If… line): True
+    when it has none or it holds; an expression that can't be read counts as false."""
+    text = action.get("condition")
+    if not isinstance(text, str) or not text.strip():
+        return True
+    try:
+        return bool(exprmod.evaluate(exprmod.parse(text), _run_lookup(run, now)))
+    except exprmod.ExprError:
+        return False
+
+
 class ActionRunner:
     def __init__(self, gateway, store=None, audit=None, clock=time.time,
                  monotonic=time.monotonic):
@@ -204,7 +252,8 @@ class ActionRunner:
             if scope == "step" else None
         matching = [(i, a) for i, s, sid, a in indexed_actions(definition)
                     if s == scope and sid == step_id and a.get("hook") == hook
-                    and not (a.get("only_if_results") is True and scope == "step" and not found)]
+                    and not (a.get("only_if_results") is True and scope == "step" and not found)
+                    and _condition_holds(a, run, int(self.clock()))]
         ctx = self._ctx(run, hook, scope, step_id)
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.28.0 (2026-11-18)
+
+- **Simple view:** **+ Add…** under a search picks when (**Succeeds**, **If a condition is true**, **Fails**, **Finishes either way**, **Starts**, **Is delayed**, as in Flow) and then what happens; items are grouped under a heading per choice. A condition item has a **Condition** field; a save on a condition uses Run when, a message uses the new action condition.
+- **Actions:** an action may have `condition`, a simple comparison over tokens as on an If… line; it is left out of the hook's firing when the comparison doesn't hold, and checked on save. Flow's action panel has **Only when** for step actions on success.
+
 ## 1.27.2 (2026-11-18)
 
 - **Simple view:** each search has **If it succeeds** and **If it fails** lists; **+ If it fails…** adds an email, Slack or Teams post, page, incident or event for when that search fails (a step action on failure). The job-wide band is now **If any step fails**.

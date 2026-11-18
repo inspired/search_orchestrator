@@ -7,6 +7,7 @@ import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
+import Text from '@splunk/react-ui/Text';
 import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
 import { ActionFields } from './ActionsEditor';
 import { stepLabel } from './GraphView';
@@ -106,6 +107,20 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
                 >
                     Only if the step found results
                 </Switch>
+            )}
+            {scope !== 'job' && action.hook === 'on_success' && action.type !== 'start_job' && (
+                <ControlGroup
+                    label="Only when"
+                    labelFor={`action-${scope}-${index}-condition`}
+                    labelPosition="top"
+                    help="Optional. A comparison, as on an If… line, such as $count.resultCount$ > 100; empty always sends."
+                >
+                    <Text
+                        inputId={`action-${scope}-${index}-condition`}
+                        value={typeof action.condition === 'string' ? action.condition : ''}
+                        onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'updateAction', scope, index, changes: { condition: value || undefined } })}
+                    />
+                </ControlGroup>
             )}
             {action.type === 'webhook' && (
                 <PresetOptions
