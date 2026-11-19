@@ -204,7 +204,10 @@ def test_kv_409_on_update_raises_kv_error():
 
 def test_parse_user_access():
     body = ('{"entry":[{"content":{"roles":["ops"],"capabilities":["orchestrator_run"]}}]}')
-    assert g.parse_user_access(body) == {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
+    assert g.parse_user_access(body) == {"roles": ["ops"], "capabilities": ["orchestrator_run"],
+                                         "email": ""}
+    body = '{"entry":[{"content":{"roles":[],"capabilities":[],"email":"a@example.com"}}]}'
+    assert g.parse_user_access(body)["email"] == "a@example.com"
 
 
 def test_parse_saved_search_info():

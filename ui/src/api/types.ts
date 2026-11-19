@@ -89,6 +89,8 @@ export interface StepDef {
     delayed_after?: number | null;
     give_up_after?: number | null;
     max_runtime?: number | null;
+    /** Events this step's search may scan; null or absent uses Settings > Events scanned limit. */
+    max_scan?: number | null;
     retries?: number | null;
     actions?: Action[];
     output?: StepOutput;
@@ -145,6 +147,8 @@ export interface JobDefinition {
     id?: string;
     name: string;
     description?: string;
+    /** Up to 10 words to group jobs by (team, system); filters on Jobs, Runs and Calendar. */
+    tags?: string[];
     enabled: boolean;
     timezone?: string;
     catchup?: 'all' | 'latest' | 'none';
@@ -210,6 +214,8 @@ export interface Job extends JobDefinition {
     recent_runs?: LastRun[];
     /** Problems a re-save fixes, such as previous_old_time_range. */
     warnings?: Issue[];
+    /** You follow this job (GET jobs). */
+    following?: boolean;
 }
 
 export interface StepStatus {
@@ -223,6 +229,8 @@ export interface StepStatus {
     ended_at?: number | null;
     next_attempt_at?: number | null;
     delay_alerted?: boolean;
+    /** The attempt that went over the events scanned limit (Settings: warn). */
+    scan_warned?: number | null;
     result_count?: number | null;
     error?: string | null;
     dispatch_errors?: number;
@@ -371,6 +379,9 @@ export interface Settings {
     base_url: string | null;
     /** ERROR, WARNING, INFO (default) or DEBUG: what the app writes to its log files. */
     log_level?: string;
+    /** Events a step's search may scan (null: no limit), and what happens over it. */
+    scan_limit?: number | null;
+    scan_limit_action?: 'warn' | 'stop';
     [key: string]: unknown;
 }
 

@@ -178,3 +178,13 @@ describe('channel action panels', () => {
         expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { preset: 'pagerduty', destination: '' } });
     });
 });
+
+describe('action retries', () => {
+    test('retryText spells out the waits', () => {
+        const { retryText } = jest.requireActual('../features/builder/ActionPanel');
+        expect(retryText(3, 30)).toMatch(/^3 retries, waiting 30 s, 1 min and 2 min\./);
+        expect(retryText(1, 600)).toMatch(/^1 retry, waiting 10 min\./);
+        expect(retryText(0, 30)).toBe('No retries: a failed send fails the action at once.');
+        expect(retryText(8, 600)).toMatch(/10 min, 20 min, 40 min, … and 1 h \(at most 1 h each\)/);
+    });
+});

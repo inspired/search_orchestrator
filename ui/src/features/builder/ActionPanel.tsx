@@ -1,10 +1,12 @@
 /* The side panel for a selected action node: when it fires (a step or the whole job, and
- * which of its outcomes), what it does (with its preset's options), and removing it. */
+ * which of its outcomes), what it does (with its preset's options), how often it is retried
+ * when sending fails, and removing it. */
 import React from 'react';
 import OutputViewer from '../output/OutputViewer';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
+import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
@@ -32,6 +34,21 @@ export interface ActionPanelProps {
     onMoved: (key: string) => void;
     /** The page confirms, then removes. */
     onRequestRemove: (key: string) => void;
+}
+
+export const DEFAULT_RETRIES = 3;
+export const DEFAULT_RETRY_WAIT = 30;
+
+/** The retries line: "3 retries, after 30 s, 60 s and 120 s". */
+export function retryText(retries: number, wait: number): string {
+    if (retries === 0) {
+        return 'No retries: a failed send fails the action at once.';
+    }
+    const waits = Array.from({ length: Math.min(retries, 4) }, (_, i) => Math.min(wait * 2 ** i, 3600));
+    const fmt = (s: number) => (s >= 3600 ? '1 h' : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
+    const shown = waits.map(fmt);
+    const list = shown.length > 1 ? `${shown.slice(0, -1).join(', ')}${retries > 4 ? ', …' : ''} and ${shown[shown.length - 1]}` : shown[0];
+    return `${retries} retr${retries === 1 ? 'y' : 'ies'}, waiting ${list}${retries > 4 ? ' (at most 1 h each)' : ''}. Errors that won't go away (such as a 404 or a missing destination) fail at once.`;
 }
 
 const WHEN_PORTS: PortId[] = ['success', 'failure', 'always', 'start', 'delayed', 'late', 'approval'];
@@ -138,6 +155,41 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
                         job={job}
                         label={action.type === 'email' ? 'View sent emails' : 'View output'}
                     />
+                </div>
+            )}
+            {action.type !== 'start_job' && (
+                <div data-testid="action-retries" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <ControlGroup label="Retries" labelFor={`action-${scope}-${index}-retries`} labelPosition="top" help="0 to 10">
+                        <NumberInput
+                            inputId={`action-${scope}-${index}-retries`}
+                            min={0}
+                            max={10}
+                            step={1}
+                            roundTo={0}
+                            value={typeof action.retries === 'number' ? action.retries : DEFAULT_RETRIES}
+                            onChange={(_e: unknown, { value }: { value?: number }) => {
+                                const v = value === undefined || Number.isNaN(value) ? undefined : Math.max(0, Math.min(10, Math.round(value)));
+                                dispatch({ type: 'updateAction', scope, index, changes: { retries: v === DEFAULT_RETRIES ? undefined : v } });
+                            }}
+                        />
+                    </ControlGroup>
+                    <ControlGroup label="First wait (seconds)" labelFor={`action-${scope}-${index}-retry-wait`} labelPosition="top" help="10 to 3600; doubles each time">
+                        <NumberInput
+                            inputId={`action-${scope}-${index}-retry-wait`}
+                            min={10}
+                            max={3600}
+                            step={10}
+                            roundTo={0}
+                            value={typeof action.retry_wait === 'number' ? action.retry_wait : DEFAULT_RETRY_WAIT}
+                            onChange={(_e: unknown, { value }: { value?: number }) => {
+                                const v = value === undefined || Number.isNaN(value) ? undefined : Math.max(10, Math.min(3600, Math.round(value)));
+                                dispatch({ type: 'updateAction', scope, index, changes: { retry_wait: v === DEFAULT_RETRY_WAIT ? undefined : v } });
+                            }}
+                        />
+                    </ControlGroup>
+                    <p style={{ flex: '1 1 100%', margin: 0, fontSize: '12px' }}>
+                        {retryText(typeof action.retries === 'number' ? action.retries : DEFAULT_RETRIES, typeof action.retry_wait === 'number' ? action.retry_wait : DEFAULT_RETRY_WAIT)}
+                    </p>
                 </div>
             )}
             <div style={{ marginTop: '12px' }}>

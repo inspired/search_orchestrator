@@ -24,6 +24,7 @@ import DeadlineMessage from '../../features/run/DeadlineMessage';
 import ErrorMessage from '../../features/run/ErrorMessage';
 import LogsTab from '../../features/run/LogsTab';
 import PerformanceTab from '../../features/run/PerformanceTab';
+import CompareTab from '../../features/run/CompareTab';
 import ParamsTab from '../../features/run/ParamsTab';
 import RerunDialog from '../../features/run/RerunDialog';
 import RunGraph from '../../features/run/RunGraph';
@@ -113,6 +114,7 @@ function RunPage() {
                         <TabBar.Tab label="Logs" tabId="logs" />
                         <TabBar.Tab label="Actions" tabId="actions" />
                         <TabBar.Tab label="Performance" tabId="performance" />
+                        <TabBar.Tab label="Compare" tabId="compare" />
                         <TabBar.Tab label="Parameters" tabId="params" />
                     </TabBar>
                     <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap', padding: '10px 14px' }}>
@@ -149,6 +151,7 @@ function RunPage() {
                     {tab === 'actions' && <ActionsTab actions={detail.actions || []} />}
                     {tab === 'performance' && <PerformanceTab run={run} now={now} />}
                     {tab === 'params' && <ParamsTab run={run} />}
+                    {tab === 'compare' && <CompareTab run={run} />}
                     {selected && (tab === 'timeline' || tab === 'graph') && (
                         <StepDrawer run={run} stepId={selected} now={now} onClose={() => setSelected(null)} me={who} onDecided={poll.refresh} />
                     )}

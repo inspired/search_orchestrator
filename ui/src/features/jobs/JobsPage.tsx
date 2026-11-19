@@ -11,6 +11,7 @@ import PageShell, { pageHref } from '../../components/PageShell';
 import DeleteJobDialog from './DeleteJobDialog';
 import ExamplesDialog from './ExamplesDialog';
 import ImportJobDialog from './ImportJobDialog';
+import FollowDialog from './FollowDialog';
 import { download, exportFileName, exportJobs } from './jobsFile';
 import JobsTable from './JobsTable';
 import RunNowDialog from './RunNowDialog';
@@ -46,6 +47,8 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
     const [browsing, setBrowsing] = useState(false);
     const examplesOpener = useRef<HTMLElement | null>(null);
     const [deleting, setDeleting] = useState<Job | null>(null);
+    const [followingJob, setFollowingJob] = useState<Job | null>(null);
+    const followOpener = useRef<HTMLElement | null>(null);
     const deleteOpener = useRef<HTMLElement | null>(null);
     const [busy, setBusy] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -126,6 +129,10 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     }}
                     onToggleEnabled={onToggle}
                     onBrowseExamples={browseExamples}
+                    onFollow={(job, opener) => {
+                        followOpener.current = opener;
+                        setFollowingJob(job);
+                    }}
                     onExport={(shown) => {
                         if (!download(exportJobs(shown), exportFileName())) {
                             setError('The browser blocked the download. Allow downloads for this page and try again.');
@@ -135,6 +142,15 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                         deleteOpener.current = opener;
                         setDeleting(job);
                     }}
+                />
+            )}
+            {followingJob && (
+                <FollowDialog
+                    job={followingJob}
+                    canUseWebhooks={Boolean(me && (me.can_build || me.can_admin))}
+                    onClose={() => setFollowingJob(null)}
+                    onChanged={jobs.refresh}
+                    returnFocus={followOpener}
                 />
             )}
             {importing && (

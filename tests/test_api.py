@@ -1724,7 +1724,7 @@ def test_schedule_next_bad_cron(w):
 
 
 def test_schedule_next_count_bounds(w):
-    for count in (6, 0):
+    for count in (11, 0):
         status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
                              {"cron": "0 1 * * *", "timezone": "UTC", "count": count})
         assert status == 400 and error(out) == "bad_request"
@@ -2038,3 +2038,51 @@ def test_screen_fields_sent_back_with_a_save_are_not_stored(w):
     stored = w.store.get_job("daily")
     for key in ("recent_runs", "warnings", "last_run", "next_run", "permissions"):
         assert key not in stored
+
+
+def test_schedule_next_gives_up_to_ten_slots_and_other_jobs_in_the_same_minute(w):
+    saved(w, body=job_body("hourly", name="Hourly", triggers=[{"type": "cron", "cron": "0 * * * *"}]))
+    saved(w, body=job_body("quarter", name="Quarter", triggers=[{"type": "cron", "cron": "*/15 * * * *"}]))
+    saved(w, body=job_body("off", name="Off", enabled=False, triggers=[{"type": "cron", "cron": "0 * * * *"}]))
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "30 * * * *", "timezone": "UTC", "count": 10, "clashes": True,
+                          "job_id": "daily"})
+    assert status == 200 and len(out["slots"]) == 10
+    assert out["clashes"] == [[{"id": "quarter", "name": "Quarter"}]] * 10
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 * * * *", "timezone": "UTC", "count": 2, "clashes": True,
+                          "job_id": "hourly"})
+    assert out["clashes"] == [[{"id": "quarter", "name": "Quarter"}]] * 2  # not itself, not disabled
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 * * * *", "count": 11})
+    assert status == 400
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next", {"cron": "0 * * * *"})
+    assert "clashes" not in out
+
+
+def test_action_retry_settings_are_checked_on_save(w):
+    good = job_body(actions=[{"hook": "on_failure", "type": "email", "to": "a@example.com",
+                              "retries": 5, "retry_wait": 60}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", good)
+    assert out["valid"], out
+    for bad in ({"retries": 11}, {"retries": -1}, {"retries": "3"}, {"retry_wait": 5},
+                {"retry_wait": 7200}, {"retries": True}):
+        body = job_body(actions=[dict({"hook": "on_failure", "type": "email",
+                                       "to": "a@example.com"}, **bad)])
+        status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", body)
+        assert not out["valid"], bad
+
+
+def test_scan_limit_settings(w):
+    status, out = w.call("root", "PUT", "/orchestrator/settings",
+                         {"scan_limit": 50000000, "scan_limit_action": "stop"})
+    assert status == 200, out
+    assert (out["settings"]["scan_limit"], out["settings"]["scan_limit_action"]) == (50000000, "stop")
+    status, out = w.call("root", "PUT", "/orchestrator/settings", {"scan_limit": None})
+    assert out["settings"]["scan_limit"] is None
+    for bad in ({"scan_limit": -1}, {"scan_limit": "many"}, {"scan_limit_action": "explode"}):
+        status, out = w.call("root", "PUT", "/orchestrator/settings", bad)
+        assert status == 400, bad
+    body = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults", "max_scan": 0}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", body)
+    assert not out["valid"]

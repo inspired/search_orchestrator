@@ -17,6 +17,8 @@ from . import tokens as tk
 
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # job ids; also preview sids' job part
 STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")  # and no "__": arg names use it
+TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
+MAX_TAGS = 10
 PARAM_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 BUILTIN_DEFAULTS = {"delayed_after": 3600, "give_up_after": 86400,
                     "max_runtime": 14400, "retries": 0}
@@ -321,6 +323,19 @@ def _shape_issues(job):
         bad("defaults must be an object")
     if job.get("timezone") is not None and not isinstance(job["timezone"], str):
         bad("timezone must be a string")
+    tags = job.get("tags")
+    if tags is not None:
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            bad("tags must be a list of words")
+        elif len(tags) > MAX_TAGS:
+            bad("a job can have at most %d tags; remove some" % MAX_TAGS)
+        else:
+            for t in tags:
+                if not TAG_RE.fullmatch(t):
+                    bad("tag %r isn't valid: use 1-40 letters, digits, spaces, _ . or -, "
+                        "starting with a letter or digit" % t)
+            if len({t.lower() for t in tags}) != len(tags):
+                bad("a tag is listed twice; give each tag once")
     if job.get("deadline") is not None and not isinstance(job["deadline"], dict):
         out.append(_issue("error", "bad_deadline", deadlinemod.shape_issues(job["deadline"])[0]))
 
@@ -341,6 +356,8 @@ def _shape_issues(job):
             continue
         sid = s.get("id") if isinstance(s.get("id"), str) else None
         check_durations(s, "step", sid)
+        if s.get("max_scan") is not None and (not _is_int(s["max_scan"]) or s["max_scan"] < 1):
+            bad("step Events scanned limit must be a whole number of events, at least 1", sid)
         for k in ("spl", "saved_search_ref", "type"):
             if s.get(k) is not None and not isinstance(s[k], str):
                 bad("step %s must be a string" % k, sid)

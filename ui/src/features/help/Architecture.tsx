@@ -8,6 +8,7 @@
  * Everything scales to the help column (no sideways scrolling). Colours come from theme
  * tokens only, so it follows light and dark mode. */
 import React, { useState } from 'react';
+import TabBar from '@splunk/react-ui/TabBar';
 import { useTheme } from './illustrationKit';
 import type { Theme } from './illustrationKit';
 
@@ -70,7 +71,7 @@ export const PARTS: Part[] = [
     { id: 'alert', label: 'Alert action', sub: 'start_orchestrator_job.py', layer: 'entry', x: 16, y: 134, w: 204, files: ['bin/start_orchestrator_job.py', 'default/alert_actions.conf'], text: '"Start orchestrator job" on any alert: posts to the REST endpoint over loopback with the alert owner\'s session, so the same checks apply as on the screens.' },
     { id: 'cmd', label: '| orchestrate', sub: 'orchestrate.py', layer: 'entry', x: 232, y: 134, w: 204, files: ['bin/orchestrate.py', 'default/commands.conf', 'default/searchbnf.conf'], text: 'start, status, cancel, rerun, approve, backfill, jobs and selftest from a search. Each calls the REST endpoint over loopback as the person running the search.' },
     { id: 'rest', label: 'REST handler', sub: 'orchestrator_rest.py · /orchestrator', layer: 'entry', x: 16, y: 190, w: 420, files: ['bin/orchestrator_rest.py', 'default/restmap.conf', 'default/web.conf'], text: 'A persistent splunkd handler at /services/orchestrator. Every screen call lands here with the caller\'s session and the system session; it builds two gateways (as the user, as the system) and hands the request to the API router. Logs one line per request.' },
-    { id: 'api', label: 'API router', sub: 'api.py, authz, *_api.py', layer: 'logic', x: 16, y: 246, w: 204, files: ['so/api.py', 'so/authz.py', 'so/approval_api.py', 'so/backfill_api.py', 'so/calendar_api.py', 'so/history_api.py', 'so/snippets.py'], text: 'Matches the path to a route, checks capabilities and job permissions (authz), and runs the route: jobs (with their warnings), runs and actions on many runs, approvals, backfills, calendar, versions, snippets, settings, destinations.' },
+    { id: 'api', label: 'API router', sub: 'api.py, authz, *_api.py', layer: 'logic', x: 16, y: 246, w: 204, files: ['so/api.py', 'so/authz.py', 'so/approval_api.py', 'so/backfill_api.py', 'so/calendar_api.py', 'so/history_api.py', 'so/snippets.py', 'so/follows.py'], text: 'Matches the path to a route, checks capabilities and job permissions (authz), and runs the route: jobs (with their tags and warnings), follows, runs and actions on many runs, approvals, backfills, calendar, versions, snippets, settings (with the events scanned limit), destinations, and the schedule preview with other jobs in the same minute.' },
     { id: 'model', label: 'Validation', sub: 'model.py, tokens.py', layer: 'logic', x: 232, y: 246, w: 204, files: ['so/model.py', 'so/tokens.py', 'so/expr.py', 'so/history.py', 'so/hidden.py', 'so/names.py'], text: 'Checks a job before it is saved: steps, lines, cycles, triggers, tokens, parameters and conditions. Saving keeps a version and writes one hidden saved search per step.' },
     { id: 'preview', label: 'Preview and test', sub: 'preview_api, condition_test', layer: 'logic', x: 16, y: 302, w: 204, files: ['so/preview_api.py', 'so/preview.py', 'so/condition_test.py', 'so/output_view.py'], text: 'Runs a step\'s search, a condition or a read-only view of an output (lookup, summary index, email, event) as you, with the tokens filled, and returns the rows.' },
     { id: 'insight', label: 'Why and how fast', sub: 'queue_info, perf, logs_api', layer: 'logic', x: 232, y: 302, w: 204, files: ['so/queue_info.py', 'so/perf.py', 'so/logs_api.py'], text: 'Why a run is queued or a step waits (from the lease and the other runs), what each search cost (engine numbers, _audit and _introspection), and the Troubleshooting routes: the log lines with their fields and names, a summary for the health values and graphs, the slowest routes and splunkd calls, and errors grouped into problems.' },
@@ -79,10 +80,10 @@ export const PARTS: Part[] = [
     { id: 'tick', label: 'Engine tick', sub: 'engine.py, lease.py', layer: 'logic', x: 464, y: 246, w: 204, files: ['so/engine.py', 'so/lease.py'], text: 'Each tick: take or renew the lease, fire cron (logging a disabled job\'s skipped slot and slots missed while the engine was down), apply commands (pause, resume, cancel, re-run, approve), feed backfills, promote queued runs (logging why a run waits), advance every active run (logging a step that waits for a search slot), pump actions, prune old runs, and every 5 minutes log a heartbeat.' },
     { id: 'sched', label: 'Scheduler', sub: 'scheduler, cron, backfill', layer: 'logic', x: 680, y: 246, w: 204, files: ['so/scheduler.py', 'so/cron.py', 'so/backfill.py', 'so/deadline.py'], text: 'Finds due cron slots in the job\'s time zone, catches up missed ones, plans backfills and creates runs (one per slot; the queue cap is checked), each with its deadline. Run now from the API creates runs here too.' },
     { id: 'steps', label: 'Steps and conditions', sub: 'state.py, expr.py, approval', layer: 'logic', x: 464, y: 302, w: 204, files: ['so/state.py', 'so/expr.py', 'so/approval.py', 'so/tokens.py'], text: 'The pure evaluator: from each step\'s state and the lines (success, failure, always, if, delayed, late), decides which steps start, wait, are skipped or fail. Conditions are evaluated safely; approval steps wait for a decision or time out.' },
-    { id: 'actions', label: 'Actions', sub: 'actions.py, presets.py', layer: 'logic', x: 680, y: 302, w: 204, files: ['so/actions.py', 'so/presets.py', 'so/alert_forms.py'], text: 'The action outbox (so_action_runs): email, webhooks with Slack, Teams, PagerDuty and ServiceNow presets, lookups, summary index, events, alert actions and starting other jobs. Retries, and falls back to the fallback notification.' },
+    { id: 'actions', label: 'Actions', sub: 'actions.py, presets.py', layer: 'logic', x: 680, y: 302, w: 204, files: ['so/actions.py', 'so/presets.py', 'so/alert_forms.py'], text: 'The action outbox (so_action_runs): email, webhooks with Slack, Teams, PagerDuty and ServiceNow presets, lookups, summary index, events, alert actions and starting other jobs. Retries (3, from 30 s, or what the action sets), falls back to the fallback notification, and tells the people who follow the job.' },
     // Through the gateway
     { id: 'gateway', label: 'Gateway', sub: 'gateway.py, store.py · every call to splunkd', layer: 'storage', x: 16, y: 408, w: 868, h: 30, files: ['so/gateway.py', 'so/store.py'], text: 'The only door to splunkd: KV Store reads and writes (store.py over the so_* collections), saved searches, search jobs, secrets and email. Times out within the engine lease; logs each call at debug level.' },
-    { id: 'kv', label: 'KV Store', sub: '11 so_* collections', layer: 'storage', x: 16, y: 448, w: 284, files: ['so_jobs', 'so_job_versions', 'so_runs', 'so_step_runs', 'so_action_runs', 'so_commands', 'so_locks', 'so_settings', 'so_backfills', 'so_snippets', 'so_selftest'], text: 'Everything the app remembers: jobs and their versions, runs and step attempts, the action outbox, commands from the screens, the engine lease, settings, backfills and snippets.' },
+    { id: 'kv', label: 'KV Store', sub: '12 so_* collections', layer: 'storage', x: 16, y: 448, w: 284, files: ['so_jobs', 'so_job_versions', 'so_runs', 'so_step_runs', 'so_action_runs', 'so_commands', 'so_locks', 'so_settings', 'so_backfills', 'so_snippets', 'so_follows', 'so_selftest'], text: 'Everything the app remembers: jobs and their versions, runs and step attempts, the action outbox, commands from the screens, the engine lease, settings, backfills, snippets and who follows which job.' },
     { id: 'saved', label: 'Hidden saved searches', sub: 'one private search per step', layer: 'storage', x: 308, y: 448, w: 284, files: ['so/hidden.py', 'so/names.py'], text: 'Each step\'s SPL is a private saved search owned by the job owner, so a step runs with the owner\'s permissions. The engine dispatches it with the run\'s tokens as arguments.' },
     { id: 'secrets', label: 'Secrets', sub: 'storage/passwords', layer: 'storage', x: 600, y: 448, w: 284, files: ['storage/passwords (realm search_orchestrator)'], text: 'Webhook URLs and headers are kept encrypted in Splunk\'s password store, never in KV Store or logs.' },
     { id: 'search', label: 'Search jobs', sub: 'dispatch and poll', layer: 'splunk', x: 16, y: 502, w: 168, files: ['saved/searches/<name>/dispatch', 'search/jobs/<sid>'], text: 'Splunk runs each step as a normal search job. The engine polls its status every tick and reads the result count and the first row for tokens.' },
@@ -392,6 +393,7 @@ export const MODULES: Array<[string, string, string]> = [
     ['so/calendar_api.py', 'API', 'Schedules, runs and backfills for a day, week or month.'],
     ['so/history_api.py · history.py', 'API', 'Version history: every save is a version; compare and restore.'],
     ['so/snippets.py', 'API', 'Saved sub-flows shared between builders.'],
+    ['so/follows.py', 'API', 'Following a job: the follow routes, and which followers to tell when a job fails, is late, is delayed or succeeds.'],
     ['so/preview_api.py · preview.py', 'API', 'Preview a step’s search as you, with tokens from earlier previews.'],
     ['so/condition_test.py', 'API', 'Test a condition against a preview’s rows.'],
     ['so/output_view.py', 'API', 'Read-only view of what a write step or action produced.'],
@@ -402,7 +404,7 @@ export const MODULES: Array<[string, string, string]> = [
     ['so/tokens.py', 'Validation', 'Tokens such as $step.first.field$, saved-search arguments, parameter checks.'],
     ['so/expr.py', 'Validation · Engine', 'The safe expression language for conditions and run when.'],
     ['so/hidden.py · names.py', 'Storage', 'The hidden saved searches the app owns, and their names.'],
-    ['so/engine.py', 'Engine', 'The tick: cron, commands, backfills, promotion, advancing runs, dispatch and poll, conditions, actions, pruning, the 5-minute heartbeat.'],
+    ['so/engine.py', 'Engine', 'The tick: cron, commands, backfills, promotion, advancing runs, dispatch and poll (with the events scanned limit), conditions, actions, pruning, the 5-minute heartbeat.'],
     ['so/state.py', 'Engine', 'The pure run-state evaluator: which steps start, wait, skip or fail.'],
     ['so/scheduler.py · cron.py', 'Engine', 'Cron slots in a time zone, catch-up and run creation with the queue cap.'],
     ['so/deadline.py', 'Engine', 'Finish-by and finish-within deadlines, and Late alerts.'],
@@ -420,7 +422,7 @@ function ModuleTable({ t }: { t: Theme }) {
             <thead>
                 <tr>
                     {['File', 'Part', 'What it does'].map((h) => (
-                        <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: `1px solid ${t.borderColor}`, color: t.contentColorMuted }}>
+                        <th key={h} style={{ textAlign: 'left', padding: '4px 8px', borderBottom: `1px solid ${t.borderColor}`, color: t.contentColorMuted, width: h === 'What it does' ? undefined : '1%', whiteSpace: 'nowrap' }}>
                             {h}
                         </th>
                     ))}
@@ -428,10 +430,14 @@ function ModuleTable({ t }: { t: Theme }) {
             </thead>
             <tbody>
                 {MODULES.map(([file, part, text]) => (
-                    <tr key={file}>
-                        <td style={{ padding: '4px 8px', fontFamily: t.fontFamilyMono || 'monospace', verticalAlign: 'top', overflowWrap: 'anywhere' }}>{file}</td>
-                        <td style={{ padding: '4px 8px', color: t.contentColorMuted, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{part}</td>
-                        <td style={{ padding: '4px 8px', verticalAlign: 'top' }}>{text}</td>
+                    <tr key={file} style={{ borderTop: `1px solid ${t.borderColorWeak || t.borderColor}` }}>
+                        <td style={{ padding: '6px 8px', fontFamily: t.fontFamilyMono || 'monospace', fontSize: '12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                            {file.split(' · ').map((f, i) => (
+                                <div key={f}>{i && file.startsWith('so/') ? `so/${f}` : f}</div>
+                            ))}
+                        </td>
+                        <td style={{ padding: '6px 8px', color: t.contentColorMuted, verticalAlign: 'top', fontSize: '12px' }}>{part}</td>
+                        <td style={{ padding: '6px 8px', verticalAlign: 'top' }}>{text}</td>
                     </tr>
                 ))}
             </tbody>
@@ -439,9 +445,12 @@ function ModuleTable({ t }: { t: Theme }) {
     );
 }
 
+type View = 'parts' | 'life' | 'modules';
+
 export default function Architecture() {
     const t = useTheme();
     const [selected, setSelected] = useState<string | null>(null);
+    const [view, setView] = useState<View>('parts');
     const box: React.CSSProperties = {
         margin: '8px 0 16px',
         padding: '12px 14px',
@@ -452,22 +461,33 @@ export default function Architecture() {
     const h = { fontWeight: 600, fontSize: '14px', margin: '0 0 6px' } as React.CSSProperties;
     return (
         <div data-testid="help-architecture">
-            <figure data-testid="help-figure" style={box}>
-                <div style={h}>The parts and how they call each other</div>
-                <ComponentMap selected={selected} onSelect={setSelected} />
-                <Details id={selected} />
-            </figure>
-            <figure style={box}>
-                <div style={h}>The life of a run</div>
-                <LifeOfARun />
-                <figcaption style={{ marginTop: '6px', fontSize: '12px', color: t.contentColorMuted }}>
-                    Every numbered change also writes an audit event to index=orchestrator and a line to the app&apos;s log in _internal.
-                </figcaption>
-            </figure>
-            <figure style={box}>
-                <div style={h}>Every module</div>
-                <ModuleTable t={t} />
-            </figure>
+            <TabBar activeTabId={view} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setView((selectedTabId as View) || 'parts')}>
+                <TabBar.Tab tabId="parts" label="The parts" />
+                <TabBar.Tab tabId="life" label="The life of a run" />
+                <TabBar.Tab tabId="modules" label={`Every module (${MODULES.length})`} />
+            </TabBar>
+            {view === 'parts' && (
+                <figure data-testid="help-figure" style={box}>
+                    <div style={h}>The parts and how they call each other</div>
+                    <ComponentMap selected={selected} onSelect={setSelected} />
+                    <Details id={selected} />
+                </figure>
+            )}
+            {view === 'life' && (
+                <figure style={box}>
+                    <div style={h}>The life of a run</div>
+                    <LifeOfARun />
+                    <figcaption style={{ marginTop: '6px', fontSize: '12px', color: t.contentColorMuted }}>
+                        Every numbered change also writes an audit event to index=orchestrator and a line to the app&apos;s log in _internal.
+                    </figcaption>
+                </figure>
+            )}
+            {view === 'modules' && (
+                <figure style={box}>
+                    <div style={h}>Every module</div>
+                    <ModuleTable t={t} />
+                </figure>
+            )}
         </div>
     );
 }

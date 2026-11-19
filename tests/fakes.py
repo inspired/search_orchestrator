@@ -145,7 +145,7 @@ class FakeGateway:
                   "error": job["error"] if state == "failed" else None,
                   "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
                   "truncated": job.get("truncated")}
-        if job.get("perf") and state != "running":
+        if job.get("perf") and (state != "running" or job.get("perf_while_running")):
             status["perf"] = dict(job["perf"])
         return status
 

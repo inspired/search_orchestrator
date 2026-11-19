@@ -77,6 +77,9 @@ export interface Draft {
     preset: string;
     baseUrl: string;
     logLevel: LogLevel;
+    /** Events scanned limit, as typed; empty is no limit. */
+    scanLimit: string;
+    scanAction: 'warn' | 'stop';
 }
 
 export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG';
@@ -102,6 +105,8 @@ function toDraft(s: Settings): Draft {
         preset: (fb && fb.type === 'webhook' && fb.preset) || '',
         baseUrl: s.base_url || '',
         logLevel: ((s.log_level as string) || 'INFO').toUpperCase() as LogLevel,
+        scanLimit: typeof s.scan_limit === 'number' && s.scan_limit > 0 ? String(s.scan_limit) : '',
+        scanAction: s.scan_limit_action === 'stop' ? 'stop' : 'warn',
     };
 }
 
@@ -148,6 +153,13 @@ export function changes(original: Settings, d: Draft): Partial<Settings> {
     if (d.logLevel !== base.logLevel) {
         out.log_level = d.logLevel;
     }
+    if (d.scanLimit.replace(/[\s,]/g, '') !== base.scanLimit) {
+        const n = d.scanLimit.replace(/[\s,]/g, '');
+        out.scan_limit = n ? parseInt(n, 10) : null;
+    }
+    if (d.scanAction !== base.scanAction) {
+        out.scan_limit_action = d.scanAction;
+    }
     return out as Partial<Settings>;
 }
 
@@ -182,7 +194,9 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
         draft.fallbackType === 'email' && !draft.email.includes('@') ? 'Enter an email address.' : null;
     const destError =
         draft.fallbackType === 'webhook' && !draft.destination ? 'Choose a webhook destination.' : null;
-    const invalid = Object.values(errors).some(Boolean) || Boolean(emailError) || Boolean(destError);
+    const scanText = draft.scanLimit.replace(/[\s,]/g, '');
+    const scanError = scanText && (!/^\d+$/.test(scanText) || parseInt(scanText, 10) < 1) ? 'Enter a whole number of events, or leave it empty for no limit.' : null;
+    const invalid = Object.values(errors).some(Boolean) || Boolean(emailError) || Boolean(destError) || Boolean(scanError);
     const pending = invalid ? {} : changes(settings, draft);
     const dirty = Object.keys(pending).length > 0;
 
@@ -247,6 +261,23 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                     {LOG_LEVELS.map((l) => (
                         <Select.Option key={l.value} value={l.value} label={l.label} />
                     ))}
+                </Select>
+            </ControlGroup>
+
+            <Heading level={2}>Search cost</Heading>
+            <ControlGroup
+                label="Events scanned limit"
+                labelFor="settings-scan-limit"
+                labelPosition="top"
+                help={scanError || 'For every step that sets none of its own: how many events a step\'s search may scan. Empty: no limit. A step can set its own in its panel.'}
+                error={Boolean(scanError)}
+            >
+                <Text inputId="settings-scan-limit" value={draft.scanLimit} placeholder="No limit" onChange={(_e: unknown, { value }: { value: string }) => set({ scanLimit: value })} />
+            </ControlGroup>
+            <ControlGroup label="When a step goes over" labelFor="settings-scan-action" labelPosition="top">
+                <Select inputId="settings-scan-action" value={draft.scanAction} onChange={(_e: unknown, { value }: { value: unknown }) => set({ scanAction: value as 'warn' | 'stop' })}>
+                    <Select.Option value="warn" label="Warn: log it, show it on the run and in Troubleshooting, and let the search finish" />
+                    <Select.Option value="stop" label="Stop the search: the step fails (and retries, if it has retries)" />
                 </Select>
             </ControlGroup>
 

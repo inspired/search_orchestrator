@@ -811,3 +811,25 @@ def test_an_action_condition_is_checked_on_save():
     body = job_body()
     body["steps"][0]["actions"] = [{"hook": "on_success", "type": "email", "to": "x@example.com", "condition": "$nope.resultCount$ >"}]
     assert any(i["code"] in ("bad_expression", "unknown_token") and i["level"] == "error" for i in model.validate_job(body))
+
+
+def test_an_action_sets_its_own_retries_and_first_wait():
+    from so.actions import retry_delay, retry_plan
+    assert retry_plan({}) == (3, None)
+    assert retry_plan({"retries": 0, "retry_wait": 120}) == (0, 120)
+    assert retry_plan({"retries": 99, "retry_wait": 5}) == (3, None)  # out of range: defaults
+    assert [retry_delay(n, 120) for n in (1, 2, 3, 6)] == [120, 240, 480, 3600]
+    boom = lambda *a: (_ for _ in ()).throw(
+        __import__("so.gateway", fromlist=["x"]).GatewayError("boom", transient=True))
+    w = W(actions=[dict(WEBHOOK, retries=1, retry_wait=60)])
+    w.gw.post_webhook = boom
+    w.submit()
+    w.pump(T)
+    assert w.pump(T + 31) == 0 and w.pump(T + 61) == 1  # waited its own 60 s
+    row = w.rows(kind="action")[0]
+    assert row["state"] == "failed" and row["attempts"] == 2
+    w2 = W(actions=[dict(WEBHOOK, retries=0)])
+    w2.gw.post_webhook = boom
+    w2.submit()
+    w2.pump(T)
+    assert w2.rows(kind="action")[0]["state"] == "failed"  # no retry at all

@@ -16,6 +16,8 @@ import MonthView from '../../features/calendar/MonthView';
 import { addMonths, monthDays } from '../../features/calendar/monthLayout';
 import { addDays, dayBounds, weekStart } from '../../features/calendar/calendarLayout';
 import usePoll from '../../hooks/usePoll';
+import { allTags, hasTag } from '../../features/jobs/tags';
+import type { CalendarItem } from '../../api/calendar';
 
 type View = 'day' | 'week' | 'month';
 const ALL = '';
@@ -43,6 +45,8 @@ function CalendarPage() {
     const [anchor, setAnchor] = useState<Date>(() => new Date());
     const [jobId, setJobId] = useState<string>(ALL);
     const [jobNames, setJobNames] = useState<Array<[string, string]>>([]);
+    const [jobTags, setJobTags] = useState<Record<string, string[]>>({});
+    const [tag, setTag] = useState<string>(ALL);
 
     const days = useMemo(() => {
         if (view === 'month') {
@@ -76,10 +80,19 @@ function CalendarPage() {
 
     useEffect(() => {
         listJobs()
-            .then((jobs) => setJobNames(jobs.map((j) => [j.id, j.name] as [string, string]).sort((a, b) => a[1].localeCompare(b[1]))))
+            .then((jobs) => {
+                setJobNames(jobs.map((j) => [j.id, j.name] as [string, string]).sort((a, b) => a[1].localeCompare(b[1])));
+                const byId: Record<string, string[]> = {};
+                jobs.forEach((j) => {
+                    byId[j.id] = j.tags || [];
+                });
+                setJobTags(byId);
+            })
             .catch(() => undefined);
     }, []);
 
+    const tags = allTags(Object.values(jobTags).map((t) => ({ tags: t })));
+    const items: CalendarItem[] = ((calendar.data && calendar.data.items) || []).filter((i) => !tag || hasTag({ tags: jobTags[i.job_id] }, tag));
     const step = view === 'week' ? 7 : 1;
     const shift = (n: number) => setAnchor((a) => addDays(a, n));
     const move = (dir: number) => (view === 'month' ? setAnchor((a) => addMonths(a, dir)) : shift(dir * step));
@@ -107,6 +120,16 @@ function CalendarPage() {
                         ))}
                     </Select>
                 </ControlGroup>
+                {tags.length > 0 && (
+                    <ControlGroup label="Tag" labelFor="calendar-tag" labelPosition="top">
+                        <Select inputId="calendar-tag" value={tag} onChange={(_e: unknown, { value }: { value: unknown }) => setTag(value ? String(value) : ALL)}>
+                            <Select.Option label="All tags" value={ALL} />
+                            {tags.map((t) => (
+                                <Select.Option key={t} label={t} value={t} />
+                            ))}
+                        </Select>
+                    </ControlGroup>
+                )}
                 <div style={{ paddingBottom: '6px' }}>{title}</div>
             </div>
             {calendar.error && (
@@ -124,7 +147,7 @@ function CalendarPage() {
             ) : view === 'month' ? (
                 <MonthView
                     month={anchor}
-                    items={(calendar.data && calendar.data.items) || []}
+                    items={items}
                     now={now}
                     onOpenDay={(d) => {
                         setAnchor(d);
@@ -134,7 +157,7 @@ function CalendarPage() {
             ) : (
                 <CalendarView
                     days={days}
-                    items={(calendar.data && calendar.data.items) || []}
+                    items={items}
                     now={now}
                     onOpen={(href) => window.location.assign(href)}
                     onShiftDay={shift}

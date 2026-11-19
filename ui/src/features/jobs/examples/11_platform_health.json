@@ -1,8 +1,12 @@
 {
   "id": "example_platform_health",
   "name": "Example: platform health pipeline (everything)",
-  "description": "The showcase job: it uses almost every feature at once. Every weekday morning (and after the rollup example succeeds) four checks run in parallel: splunkd errors, skipped scheduled searches, license usage and search activity. They merge into one table and a health score. The score is appended to so_example_platform_health.csv, and on Mondays a weekly trend reads it back (Run when). Three kinds of If\u2026 condition: a simple comparison against the error_threshold parameter drills into the worst components, a search condition explains skipped searches, and an SPL expression asks an admin to approve an escalation when the score is below 80. Approve writes an event to index=main; reject or a one-hour timeout notes the rejection. A summary runs either way. The job must finish by 07:30 (or within 90 minutes) or it emails as late; it also emails on failure, on a slow step and when approval is needed, and starts the hourly errors example when it succeeds. To page instead of email, add a Teams, PagerDuty or ServiceNow destination in Settings and swap an Email node for a Webhook node.",
+  "description": "The showcase job: it uses almost every feature at once. Every weekday morning (and after the rollup example succeeds) four checks run in parallel: splunkd errors, skipped scheduled searches, license usage and search activity. They merge into one table and a health score. The score is appended to so_example_platform_health.csv, and on Mondays a weekly trend reads it back (Run when). Three kinds of If… condition: a simple comparison against the error_threshold parameter drills into the worst components, a search condition explains skipped searches, and an SPL expression asks an admin to approve an escalation when the score is below 80. Approve writes an event to index=main; reject or a one-hour timeout notes the rejection. A summary runs either way. The job must finish by 07:30 (or within 90 minutes) or it emails as late; it also emails on failure, on a slow step and when approval is needed, and starts the hourly errors example when it succeeds. To page instead of email, add a Teams, PagerDuty or ServiceNow destination in Settings and swap an Email node for a Webhook node.",
   "enabled": false,
+  "tags": [
+    "example",
+    "chaining"
+  ],
   "triggers": [
     {
       "type": "cron",

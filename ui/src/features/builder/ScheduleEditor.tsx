@@ -4,6 +4,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import DefinitionList from '@splunk/react-ui/DefinitionList';
+import Link from '@splunk/react-ui/Link';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import { joinNames } from '../../format';
 import Multiselect from '@splunk/react-ui/Multiselect';
 import NumberInput from '@splunk/react-ui/Number';
 import RadioBar from '@splunk/react-ui/RadioBar';
@@ -12,7 +15,7 @@ import { pad, parseTime } from './PreviewBar';
 import type { NextSlotsResponse } from '../../api/client';
 import { DAY_NAMES, SchedulePreset, describeSchedule, fromCron, toCron } from './schedule';
 
-export type NextSlots = (cron: string, timezone: string | null, count?: number) => Promise<NextSlotsResponse>;
+export type NextSlots = (cron: string, timezone: string | null, count?: number, opts?: { clashes?: boolean; jobId?: string }) => Promise<NextSlotsResponse>;
 
 export interface ScheduleEditorProps {
     id: string;
@@ -21,7 +24,12 @@ export interface ScheduleEditorProps {
     timezone?: string;
     onChange: (cron: string) => void;
     nextSlots?: NextSlots;
+    /** The job's id, left out when looking for other jobs at the same times. */
+    jobId?: string;
 }
+
+const FEW = 3;
+const MANY = 10;
 
 const KINDS: SchedulePreset['kind'][] = ['hourly', 'daily', 'weekly', 'monthly', 'custom'];
 const KIND_LABELS: Record<SchedulePreset['kind'], string> = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', custom: 'Custom' };
@@ -73,7 +81,9 @@ function switchKind(from: SchedulePreset, kind: SchedulePreset['kind']): Schedul
     }
 }
 
-export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots }: ScheduleEditorProps) {
+export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots, jobId }: ScheduleEditorProps) {
+    const [many, setMany] = useState(false);
+    const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [preset, setPreset] = useState<SchedulePreset>(() => fromCron(cron));
     const [timeDraft, setTimeDraft] = useState('');
     const [next, setNext] = useState<NextSlotsResponse | null>(null);
@@ -117,7 +127,7 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
         }
         let stale = false;
         const timer = setTimeout(() => {
-            nextSlots(cron, timezone || null, 3).then(
+            nextSlots(cron, timezone || null, many ? MANY : FEW, { clashes: true, jobId }).then(
                 (r) => {
                     if (!stale) {
                         setNext(r);
@@ -138,7 +148,7 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
             stale = true;
             clearTimeout(timer);
         };
-    }, [cron, timezone, nextSlots]);
+    }, [cron, timezone, nextSlots, many, jobId]);
 
     const timeError = hasTime && !parseTime(timeDraft);
     const setTime = (text: string) => {
@@ -271,9 +281,25 @@ export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots
                 <DefinitionList termWidth="90px">
                     <DefinitionList.Term>Next runs</DefinitionList.Term>
                     <DefinitionList.Description>
-                        {next.slots.map((s, i) => (
-                            <div key={s}>{formatSlot(s, next.utc_offsets[i] ?? 0)}</div>
-                        ))}
+                        {next.slots.map((s, i) => {
+                            const others = (next.clashes && next.clashes[i]) || [];
+                            return (
+                                <div key={s} data-testid="next-slot">
+                                    {formatSlot(s, next.utc_offsets[i] ?? 0)}
+                                    {others.length > 0 && (
+                                        <span data-testid="slot-clash" style={{ color: theme.contentColorMuted }}>
+                                            {` · same minute as ${others.length > 3 ? `${others.slice(0, 3).map((o) => o.name).join(', ')} and ${others.length - 3} more` : joinNames(others.map((o) => o.name))}`}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {next.clashes && next.clashes.some((c) => c.length > 0) && (
+                            <div style={{ fontSize: '12px', color: theme.contentColorMuted, marginTop: '4px' }}>
+                                Jobs that start in the same minute compete for search slots; moving this one a few minutes spreads the load.
+                            </div>
+                        )}
+                        <Link onClick={() => setMany(!many)}>{many ? `Show the next ${FEW}` : `Show the next ${MANY}`}</Link>
                     </DefinitionList.Description>
                 </DefinitionList>
             )}

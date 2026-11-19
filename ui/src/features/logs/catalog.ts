@@ -428,6 +428,14 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'completion_fired':
             return d('run', 'info', `Started ${jobName(names, f.target_job)} because this run ${f.outcome || 'finished'}`);
 
+        case 'step_scan_limit':
+            return f.action === 'stop'
+                ? d('step', 'error', `Search for step ${step || f.step_id || ''} stopped: it scanned ${num(f.scanned)} events, more than its limit of ${num(f.limit)}`, { why: 'The Events scanned limit (Settings, or the step\u2019s own) is set to stop searches that go over it.', fix: 'Narrow the search (index, sourcetype, time range), or raise the step\u2019s Events scanned limit.' })
+                : d('step', 'warning', `Search for step ${step || f.step_id || ''} scanned ${num(f.scanned)} events, more than its limit of ${num(f.limit)}`, { why: 'The Events scanned limit is set to warn: the search was left to finish.', fix: 'Narrow the search, or raise the step\u2019s Events scanned limit if this is expected.' });
+        case 'job_followed':
+            return d('job', 'info', `${user || 'Someone'} follows ${job || 'the job'} (${(f.on || '').split(',').filter(Boolean).join(', ')}, by ${f.notify || 'email'})`);
+        case 'job_unfollowed':
+            return d('job', 'info', `${user || 'Someone'} stopped following ${job || 'the job'}`);
         case 'bulk_run_action': {
             const failed = Number(f.failed) || 0;
             return d('run', failed ? 'warning' : 'info', `${user || 'Someone'} chose ${BULK_WORD[f.action || ''] || f.action} for ${num(f.count)} runs at once on the Runs page${failed ? `; ${failed} could not be changed` : ''}`, failed ? { why: 'Each run is checked as if changed on its own: a run in the wrong state, or one the user may not run, is left as it is.' } : {});
@@ -540,6 +548,9 @@ export function eventLabel(event: string): string {
         approval_decided: 'Approvals decided',
         command_requested: 'Commands from the screens',
         bulk_run_action: 'Actions on many runs',
+        step_scan_limit: 'Searches over the events scanned limit',
+        job_followed: 'Jobs followed',
+        job_unfollowed: 'Jobs unfollowed',
         heartbeat: 'Engine heartbeats',
         command: 'Commands applied',
         job_saved: 'Jobs saved',

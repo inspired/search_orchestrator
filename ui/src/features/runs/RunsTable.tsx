@@ -20,11 +20,14 @@ import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
 import type { BulkAction, BulkResult } from '../../api/client';
 import BulkActions, { outcomeText } from './BulkActions';
+import { allTags, hasTag } from '../jobs/tags';
 import type { Outcome } from './BulkActions';
 
 /** The state filter: a run state, or 'attention' for blocked, failed and held runs and runs waiting for approval. */
 export type RunsTableFilters = Omit<Pick<RunFilters, 'job_id' | 'state'>, 'state'> & {
     state?: RunState | 'attention';
+    /** Runs of jobs with this tag (filtered here, from the jobs' tags). */
+    tag?: string;
 };
 
 /** A step of the run is waiting for someone to approve or reject it. */
@@ -37,11 +40,12 @@ export function needsAttention(run: RunSummary): boolean {
     return run.state === 'blocked' || run.state === 'failed' || run.held === true || awaitsApproval(run);
 }
 
-export function filterRuns(runs: RunSummary[], filters: RunsTableFilters): RunSummary[] {
+export function filterRuns(runs: RunSummary[], filters: RunsTableFilters, jobTags: Record<string, string[]> = {}): RunSummary[] {
     return runs.filter(
         (r) =>
-            (!filters.state ||
-                (filters.state === 'attention' ? needsAttention(r) : r.state === filters.state)) && (!filters.job_id || r.job_id === filters.job_id)
+            (!filters.state || (filters.state === 'attention' ? needsAttention(r) : r.state === filters.state)) &&
+            (!filters.job_id || r.job_id === filters.job_id) &&
+            (!filters.tag || hasTag({ tags: jobTags[r.job_id] }, filters.tag))
     );
 }
 
@@ -105,13 +109,16 @@ export interface RunsTableProps {
     canApprove?: boolean;
     /** Called after a bulk action, to reload the runs. */
     onChanged?: () => void;
+    /** Job id to its tags, for the Tag filter (shown when any job has a tag). */
+    jobTags?: Record<string, string[]>;
 }
 
 const ALL = '';
 
-export default function RunsTable({ runs, jobNames, filters, onFiltersChange, now, bulk, canApprove = false, onChanged }: RunsTableProps) {
+export default function RunsTable({ runs, jobNames, filters, onFiltersChange, now, bulk, canApprove = false, onChanged, jobTags = {} }: RunsTableProps) {
     const at = now !== undefined ? now : Math.floor(Date.now() / 1000);
-    const rows = filterRuns(runs, filters);
+    const rows = filterRuns(runs, filters, jobTags);
+    const tags = allTags(Object.values(jobTags).map((t) => ({ tags: t })));
     const jobIds = Object.keys(jobNames).sort((a, b) => jobNames[a].localeCompare(jobNames[b]));
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [grouped, setGroupedState] = useState(storedGrouped);
@@ -204,6 +211,20 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                         ))}
                     </Select>
                 </ControlGroup>
+                {tags.length > 0 && (
+                    <ControlGroup label="Tag" labelFor="runs-filter-tag" labelPosition="top">
+                        <Select
+                            inputId="runs-filter-tag"
+                            value={filters.tag || ALL}
+                            onChange={(_e: unknown, { value }: { value: unknown }) => onFiltersChange({ ...filters, tag: value ? String(value) : undefined })}
+                        >
+                            <Select.Option label="All tags" value={ALL} />
+                            {tags.map((t) => (
+                                <Select.Option key={t} label={t} value={t} />
+                            ))}
+                        </Select>
+                    </ControlGroup>
+                )}
                 <ControlGroup label="State" labelFor="runs-filter-state" labelPosition="top">
                     <Select
                         inputId="runs-filter-state"

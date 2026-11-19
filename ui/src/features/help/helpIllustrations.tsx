@@ -3,6 +3,8 @@
 import React from 'react';
 import Architecture from './Architecture';
 import { Bars, Chips, Code, Figure, Flow, MiniCalendar, MiniTable, Notes, Panel } from './illustrationKit';
+import ExampleDiagram from '../jobs/ExampleDiagram';
+import { EXAMPLE_JOBS, GROUPS } from '../jobs/examples';
 
 const n = (id: string, f: Parameters<typeof Flow>[0]['nodes'][number]['f'], label: string, x: number, y: number, extra: Partial<Parameters<typeof Flow>[0]['nodes'][number]> = {}) => ({
     id,
@@ -30,16 +32,12 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'example-jobs': () => (
-        <Figure caption="Browse examples on the Jobs page: eleven jobs from simple to advanced, all turned off.">
+        <Figure caption="Browse examples: 18 jobs in five tabs, each drawn as its flow; Add brings along the examples it starts or follows.">
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                <ExampleDiagram job={EXAMPLE_JOBS.find((e) => e.job.id === 'example_condition')!.job} title="Investigate only when errors were found" height={110} />
+            </div>
             <Chips
-                items={[
-                    { text: 'Hourly splunkd errors · Simple', tone: 'ok' },
-                    { text: 'Top sourcetypes to a lookup · Simple', tone: 'ok' },
-                    { text: 'Daily, weekly and monthly rollup · Intermediate', tone: 'info' },
-                    { text: 'Two branches, one report · Intermediate', tone: 'info' },
-                    { text: 'Retries, recovery and clean-up · Advanced', tone: 'warn' },
-                    { text: 'Platform health pipeline · Advanced', tone: 'warn' },
-                ]}
+                items={GROUPS.map((g) => ({ text: `${g.label} (${EXAMPLE_JOBS.filter((e) => e.group === g.id).length})`, tone: 'muted' as const }))}
             />
         </Figure>
     ),
@@ -306,19 +304,75 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     { from: 'b', to: 'c' },
                 ]}
             />
+        </Figure>
+    ),
+    'the-jobs-page': () => (
+        <Figure caption="Each job with how soon it runs next, its newest runs, how long the last one took against the usual, and warnings about jobs it starts or follows.">
             <MiniTable
                 head={['Job', 'Next run', 'Last runs', 'Duration']}
                 rows={[
-                    ['Daily logins', '10:30 · in 6 min', '✓ ✓ ✗ ✓ ✓  · 1 of the last 5 failed', '⚠ 3m 20s · 3.6× the usual 55s'],
+                    ['Daily logins #security 🔔', '10:30 · in 6 min', '✓ ✓ ✗ ✓ ✓  · 1 of the last 5 failed', '⚠ 3m 20s · 3.6× the usual 55s'],
                     ['Weekly rollup ⚠ starts job “gone”, which doesn’t exist', 'Mon 06:00 · in 4 days', '✓ ✓ ✓ ✓ ✓', '1m 2s · usually 58s'],
+                ]}
+            />
+        </Figure>
+    ),
+    tags: () => (
+        <Figure caption="Tags group jobs by team or system; the Jobs, Runs and Calendar pages filter by them.">
+            <Chips
+                items={[
+                    { text: '#billing', tone: 'muted' },
+                    { text: '#security', tone: 'muted' },
+                    { text: '#nightly-etl', tone: 'muted' },
+                    { text: 'Tag: All tags ▾', tone: 'info' },
+                ]}
+            />
+        </Figure>
+    ),
+    'follow-a-job': () => (
+        <Figure caption="Follow a job to be told when it fails or is late, by email to yourself or through a webhook, without editing it.">
+            <Panel title="Follow Daily logins" rows={[['Tell me when', '☑ It fails  ☑ It misses its deadline'], ['', '☐ A step is delayed  ☐ It succeeds'], ['How', 'Email me (you@example.com) ▾'], ['', '[Follow]']]} width={320} />
+        </Figure>
+    ),
+    'the-runs-page': () => (
+        <Figure caption="Runs grouped by job; tick runs to cancel, re-run, approve or reject them together.">
+            <MiniTable
+                head={['', 'Job', 'Latest run', 'State']}
+                rows={[
+                    ['☑', 'Daily logins', 'Today 06:00', '✗ Failed'],
+                    ['☑', 'Weekly rollup', 'Today 06:30', '▶ Running'],
+                    ['☐', 'Health check', 'Today 07:00', '⚑ Waiting for approval'],
                 ]}
             />
             <Chips
                 items={[
-                    { text: '3 runs selected', tone: 'muted' },
-                    { text: 'Cancel 2', tone: 'muted' },
+                    { text: '2 runs selected', tone: 'muted' },
+                    { text: 'Cancel 1', tone: 'muted' },
                     { text: 'Re-run 1', tone: 'muted' },
-                    { text: 'Approve 1', tone: 'muted' },
+                ]}
+            />
+        </Figure>
+    ),
+    'compare-two-runs': () => (
+        <Figure caption="Compare puts a run next to another run of the job and says, per step, what changed.">
+            <MiniTable
+                head={['Step', 'This run', 'Other run', 'What changed']}
+                rows={[
+                    ['Count logins', '1m 40s · 0 results', '40s · 1 204 results', '2.5× slower · 1 204 → 0 results'],
+                    ['Score', 'Failed', 'Succeeded', 'succeeded → failed'],
+                    ['Report', '—', 'Succeeded', 'No change'],
+                ]}
+            />
+        </Figure>
+    ),
+    'app-health-alerts': () => (
+        <Figure caption="Three Splunk alerts watch the app itself; they are off until an admin turns them on.">
+            <MiniTable
+                head={['Alert', 'Fires when', 'Checks']}
+                rows={[
+                    ['Engine not running', 'no heartbeat for 15 min', 'every 5 min'],
+                    ['Missed schedules', 'scheduled runs never started', 'every 15 min'],
+                    ['Errors', 'the app logged an error', 'every 15 min'],
                 ]}
             />
         </Figure>
@@ -447,7 +501,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     troubleshooting: () => (
-        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start. Three app health alerts (off until an admin turns them on) watch the same lines.">
+        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start.">
             <Chips
                 items={[
                     { text: 'Engine: Running', tone: 'muted' },
@@ -464,13 +518,6 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     ['10:00:05', 'Error', 'Webhook failed after 3 tries: HTTP 404', 'Daily logins'],
                     ['10:00:00', 'Info', 'Run waits for run daily:cron:1 to finish (running)', 'Daily logins'],
                     ['09:58:00', 'Detail', 'Engine is alive: 60 ticks in the last 5 minutes, the slowest 42 ms', ''],
-                ]}
-            />
-            <Chips
-                items={[
-                    { text: 'Alert: Engine not running (off)', tone: 'muted' },
-                    { text: 'Alert: Missed schedules (off)', tone: 'muted' },
-                    { text: 'Alert: Errors (off)', tone: 'muted' },
                 ]}
             />
         </Figure>

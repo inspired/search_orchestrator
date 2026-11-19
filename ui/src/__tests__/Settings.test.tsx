@@ -233,6 +233,8 @@ describe('Settings', () => {
             preset: '',
             baseUrl: '',
             logLevel: 'INFO',
+            scanLimit: '',
+            scanAction: 'warn',
         };
         expect(changes(SETTINGS, draft)).toEqual({});
         expect(changes(SETTINGS, { ...draft, logLevel: 'DEBUG' })).toEqual({ log_level: 'DEBUG' });
@@ -249,9 +251,22 @@ describe('Settings', () => {
             preset: 'slack',
             baseUrl: '',
             logLevel: 'INFO',
+            scanLimit: '',
+            scanAction: 'warn',
         };
         expect(changes(original, draft)).toEqual({ fallback: { type: 'webhook', destination: 'pager', preset: 'slack' } });
         // Unchanged, the preset is not dropped either.
         expect(changes(original, { ...draft, destination: 'slack_ops' })).toEqual({});
+    });
+});
+
+describe('Search cost settings', () => {
+    test('the scan limit and action are sent only when they change', () => {
+        const { changes: diff } = jest.requireActual('../features/settings/SettingsForm');
+        const base = { max_searches: 10, max_searches_per_job: 4, queue_cap: 20, result_retention: 86400, run_retention_days: 90, fallback: null, base_url: null, log_level: 'INFO', scan_limit: null, scan_limit_action: 'warn' };
+        const draft = { ints: { max_searches: '10', max_searches_per_job: '4', queue_cap: '20', result_retention: '24', run_retention_days: '90' }, fallbackType: 'none', email: '', destination: '', preset: '', baseUrl: '', logLevel: 'INFO', scanLimit: '', scanAction: 'warn' };
+        expect(diff(base, draft)).toEqual({});
+        expect(diff(base, { ...draft, scanLimit: '50 000 000', scanAction: 'stop' })).toEqual({ scan_limit: 50000000, scan_limit_action: 'stop' });
+        expect(diff({ ...base, scan_limit: 5 }, draft)).toEqual({ scan_limit: null });
     });
 });

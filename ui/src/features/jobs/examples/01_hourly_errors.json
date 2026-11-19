@@ -3,6 +3,10 @@
   "name": "Example: hourly splunkd errors",
   "description": "Counts the ERROR lines splunkd logged in the hour before each run. One search step on a schedule: the smallest job there is.",
   "enabled": false,
+  "tags": [
+    "example",
+    "getting started"
+  ],
   "triggers": [
     {
       "type": "cron",

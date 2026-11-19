@@ -130,6 +130,7 @@ const SERVER_FIELDS = [
     'last_run',
     'recent_runs',
     'warnings',
+    'following',
     'hidden_searches',
     'created_at',
     'created_by',
@@ -254,10 +255,20 @@ export interface NextSlotsResponse {
     utc_offsets: number[];
     timezone: string | null;
     timezone_status: 'ok' | 'unknown' | 'unavailable';
+    /** With `clashes`: per slot, the other enabled jobs (that you may see) scheduled in the same minute. */
+    clashes?: Array<Array<{ id: string; name: string }>>;
 }
 
-export function nextSlots(cron: string, timezone: string | null, count = 3): Promise<NextSlotsResponse> {
-    return request('POST', 'schedule/next', { body: { cron, timezone, count } });
+/** The next `count` (1 to 10) slots; `jobId` is left out of the clashes. */
+export function nextSlots(cron: string, timezone: string | null, count = 3, opts: { clashes?: boolean; jobId?: string } = {}): Promise<NextSlotsResponse> {
+    const body: Record<string, unknown> = { cron, timezone, count };
+    if (opts.clashes) {
+        body.clashes = true;
+        if (opts.jobId) {
+            body.job_id = opts.jobId;
+        }
+    }
+    return request('POST', 'schedule/next', { body });
 }
 
 /** The window `earliest`/`latest` cover for a run scheduled at `scheduledTime`, as epoch seconds
@@ -295,6 +306,28 @@ export async function putSettings(changes: Partial<Settings>): Promise<Settings>
 
 export async function listDestinations(): Promise<Destination[]> {
     return (await request<{ destinations: Destination[] }>('GET', 'destinations')).destinations;
+}
+
+export type FollowEvent = 'failure' | 'late' | 'delayed' | 'success';
+export type FollowNotify = { type: 'email' } | { type: 'webhook'; destination: string };
+export interface Follow {
+    on: FollowEvent[];
+    notify: FollowNotify;
+    email: string | null;
+}
+
+/** Your own follow of a job (null when you don't follow it) and your Splunk email address. */
+export function getFollow(jobId: string): Promise<{ follow: Follow | null; email: string | null }> {
+    return request('GET', `jobs/${enc(jobId)}/follow`);
+}
+
+/** Follow a job, or change what you are told about. Email goes to your Splunk account's address. */
+export function putFollow(jobId: string, on: FollowEvent[], notify: FollowNotify): Promise<{ follow: Follow }> {
+    return request('PUT', `jobs/${enc(jobId)}/follow`, { body: { on, notify } });
+}
+
+export function deleteFollow(jobId: string): Promise<{ follow: null }> {
+    return request('DELETE', `jobs/${enc(jobId)}/follow`);
 }
 
 /** The custom alert actions the caller can pick for an alert action step or job action. */

@@ -1,5 +1,5 @@
 /* The builder's tabs: Flow (the node editor and its side panel), Parameters, Access (who may
- * run), Settings (description, time zone, missed runs, step defaults, after give-up) Source
+ * run), Settings (description, tags, time zone, missed runs, step defaults, after give-up) Source
  * (the job as JSON text) and History (saved versions).
  * Triggers and actions are nodes in Flow. */
 import React from 'react';
@@ -7,6 +7,7 @@ import ComboBox from '@splunk/react-ui/ComboBox';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Message from '@splunk/react-ui/Message';
+import Multiselect from '@splunk/react-ui/Multiselect';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
@@ -25,6 +26,7 @@ import { DurationField } from './StepPanel';
 import LearnMore from '../../components/LearnMore';
 import { issueCounts } from './issueTabs';
 import { timeZoneOptions } from './schedule';
+import { cleanTags, tagsProblem } from '../jobs/tags';
 
 export type TabId = 'steps' | 'params' | 'access' | 'settings' | 'source' | 'history';
 
@@ -52,9 +54,41 @@ export interface JobTabsProps {
     canEdit?: boolean;
     /** The History tab; without it the tab shows the unsaved-job note. */
     history?: HistoryProps;
+    /** Tags other jobs use, offered in the Tags field. */
+    knownTags?: string[];
 }
 
-function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
+export function TagsField({ job, dispatch, knownTags = [] }: Pick<JobTabsProps, 'job' | 'dispatch' | 'knownTags'>) {
+    const tags = job.tags || [];
+    const problem = tagsProblem(tags);
+    const options = cleanTags([...tags, ...knownTags]);
+    return (
+        <ControlGroup
+            label="Tags"
+            labelFor="job-tags"
+            labelPosition="top"
+            help={problem || 'Group jobs by team or system; the Jobs, Runs and Calendar pages filter by tag. Type a new tag and press Enter.'}
+            error={Boolean(problem)}
+        >
+            <Multiselect
+                inputId="job-tags"
+                allowNewValues
+                values={tags}
+                placeholder="No tags"
+                onChange={(_e: unknown, { values }: { values: unknown[] }) => {
+                    const next = cleanTags(values.map(String));
+                    dispatch({ type: 'setJobField', field: 'tags', value: next.length ? next : undefined });
+                }}
+            >
+                {options.map((t) => (
+                    <Multiselect.Option key={t} label={t} value={t} />
+                ))}
+            </Multiselect>
+        </ControlGroup>
+    );
+}
+
+function SettingsTab({ job, dispatch, knownTags }: Pick<JobTabsProps, 'job' | 'dispatch' | 'knownTags'>) {
     const defaults = job.defaults || {};
     const setDefault = (key: keyof Defaults, value: number | null) => {
         const next = { ...defaults };
@@ -74,6 +108,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
                     onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'description', value })}
                 />
             </ControlGroup>
+            <TagsField job={job} dispatch={dispatch} knownTags={knownTags} />
             <Switch
                 appearance="toggle"
                 selected={job.enabled !== false}
@@ -167,7 +202,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
     );
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history }: JobTabsProps) {
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history, knownTags }: JobTabsProps) {
     const counts = issueCounts(issues);
     return (
         <div>
@@ -189,7 +224,7 @@ export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, ow
                         onChange={(value) => dispatch({ type: 'setJobField', field: 'run_roles', value })}
                     />
                 )}
-                {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} />}
+                {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} knownTags={knownTags} />}
                 {tab === 'source' && <SourceTab job={job} dispatch={dispatch} canEdit={canEdit} />}
                 {tab === 'history' && <HistoryTab jobId={history ? history.jobId : null} dirty={!!history?.dirty} canEdit={history ? history.canEdit : false} onRestored={history ? history.onRestored : () => undefined} />}
             </div>

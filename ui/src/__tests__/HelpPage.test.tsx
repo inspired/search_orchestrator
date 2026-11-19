@@ -1,6 +1,7 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
-import HelpPage, { docLink, guideSections, slugify } from '../features/help/HelpPage';
+import { act, fireEvent } from '@testing-library/react';
+import HelpPage, { HELP_TABS, docLink, guideSections, slugify, splitGuide, tabOf } from '../features/help/HelpPage';
 import { FEATURES } from '../features/help/HelpOverview';
 import { ILLUSTRATIONS } from '../features/help/helpIllustrations';
 import LearnMore, { helpHref } from '../components/LearnMore';
@@ -16,8 +17,10 @@ describe('slugify', () => {
 });
 
 describe('HelpPage', () => {
-    it('renders guide headings with anchor ids', () => {
+    it('renders guide headings with anchor ids, a tab at a time', () => {
         renderThemed(<HelpPage />);
+        expect(document.getElementById('tokens')).toBeNull(); // on Build jobs, not Get started
+        fireEvent.click(screen.getByRole('tab', { name: 'Build jobs' }));
         const tokens = document.getElementById('tokens');
         expect(tokens).not.toBeNull();
         expect(tokens!.tagName).toBe('H3'); // the guide's Tokens heading is ###
@@ -64,11 +67,36 @@ describe('HelpPage illustrations', () => {
         Object.keys(ILLUSTRATIONS).forEach((s) => expect(top).toContain(s));
     });
 
-    it('draws them under their headings', () => {
+    it('draws them under their headings, on every tab', () => {
         renderThemed(<HelpPage />);
-        expect(screen.getAllByTestId('help-figure')).toHaveLength(top.length);
+        const { parts } = splitGuide(guide);
+        let total = 0;
+        HELP_TABS.forEach((t) => {
+            fireEvent.click(screen.getByRole('tab', { name: t.label }));
+            const here = parts.filter((p) => p.tab === t.id).reduce((n, p) => n + 1 + p.subs.length, 0);
+            expect(screen.queryAllByTestId('help-figure')).toHaveLength(here);
+            total += here;
+        });
+        expect(total).toBe(top.length);
+        fireEvent.click(screen.getByRole('tab', { name: 'Follow runs' }));
         const calendar = document.getElementById('calendar')!;
         expect(calendar.nextElementSibling!.getAttribute('data-testid')).toBe('help-figure');
+    });
+
+    it('every section belongs to a tab, and a link to another tab opens it', () => {
+        const { parts } = splitGuide(guide);
+        const listed = HELP_TABS.flatMap((t) => t.sections);
+        parts.forEach((p) => expect(listed).toContain(p.slug));
+        expect(tabOf('tokens', parts)).toBe('build');
+        expect(tabOf('app-health-alerts', parts)).toBe('troubleshoot');
+        expect(tabOf('help-overview', parts)).toBe('start');
+        renderThemed(<HelpPage />);
+        act(() => {
+            window.location.hash = '#audit-events';
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+        });
+        expect(document.getElementById('audit-events')).not.toBeNull();
+        window.location.hash = '';
     });
 });
 

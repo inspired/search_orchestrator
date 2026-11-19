@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.37.0 (2026-11-19)
+
+- **Tags:** up to 10 per job (builder Settings tab, with the tags other jobs use offered). The Jobs, Runs and Calendar pages filter by tag; Find jobs searches tags; a job's tags show under its name and filter on click.
+- **Follow a job** (Jobs ⋯ menu): be told when a job fails, is late, is delayed or succeeds, by email to your own Splunk address or (builders) a webhook destination, without editing the job. A bell marks followed jobs. Checked at send time; new collection `so_follows`, routes `GET/PUT/DELETE jobs/<id>/follow`, audit `job_followed` and `job_unfollowed`.
+- **Compare two runs:** a Compare tab on the run page puts a run next to another run of the job (by default the newest finished one before it): per step the state, run time, results and events scanned, and what changed in words; parameters and job changes too.
+- **Events scanned limit:** Settings > Search cost sets a limit and whether going over warns (audit `step_scan_limit`, a note on the step) or stops the search (the step fails); a step can set its own.
+- **Schedule preview:** the next 3 or 10 times, each with the other jobs that start in the same minute (`schedule/next` takes `count` up to 10 and `clashes`).
+- **Action retries:** each action can set its retries (0 to 10) and first wait (10 s to 1 h, doubling); the panel spells out the waits.
+- **Examples:** 18 (7 new: summary index, business hours, search condition, deadline, approval, patient retries, start two jobs), in tabs by group, each drawn as its flow. Add one, or Open in builder, and the examples it starts or follows are added first, so no Start job or After another job link points at a missing job. Every example is tagged `example` and its group.
+- **Help page in tabs** (Get started, Build jobs, Follow runs, Troubleshoot, How it works, Reference), with the contents of every tab beside it; Learn more links open the right tab. Long paragraphs are now lists; Troubleshooting is its own section; audit events are a table; How it works has tabs for the parts, the life of a run and the module table (file names no longer break mid-word). New sections: The Jobs page, Tags, Follow a job, The Runs page, Compare two runs, App health alerts.
+
 ## 1.36.0 (2026-11-19)
 
 - **Jobs page:**

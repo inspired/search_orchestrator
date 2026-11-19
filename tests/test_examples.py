@@ -17,10 +17,10 @@ def load(path):
         return json.load(f)
 
 
-def test_eleven_examples():
-    assert len(EXAMPLES) == 11
+def test_eighteen_examples():
+    assert len(EXAMPLES) == 18
     ids = [load(p)["id"] for p in EXAMPLES]
-    assert len(set(ids)) == 11
+    assert len(set(ids)) == 18
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=os.path.basename)
@@ -47,3 +47,28 @@ def test_examples_save_through_the_api():
         assert status == 201, (path, out)
         assert out["job"]["id"] == job["id"] and out["job"]["enabled"] is False
         assert not [i for i in out["issues"] if i["level"] == "error"]
+
+
+def test_examples_only_start_or_follow_other_examples():
+    """Start job actions and After another job triggers name example ids, so Add (which adds
+    what an example needs) leaves no job warning behind."""
+    ids = {load(p)["id"] for p in EXAMPLES}
+    for path in EXAMPLES:
+        job = load(path)
+        actions = list(job.get("actions") or [])
+        for s in job["steps"]:
+            actions.extend(s.get("actions") or [])
+        refs = [a["job"] for a in actions if a.get("type") == "start_job"]
+        refs += [t["job"] for t in job["triggers"] if t["type"] == "completion"]
+        assert set(refs) <= ids, path
+        assert job.get("tags") and job["tags"][0] == "example", path
+
+
+def test_all_examples_together_have_no_job_warnings():
+    w = World()
+    for path in EXAMPLES:
+        w.call("alice", "POST", "/orchestrator/jobs", load(path))
+    status, out = w.call("alice", "GET", "/orchestrator/jobs")
+    linked = [(j["id"], i["code"]) for j in out["jobs"] for i in j["warnings"]
+              if i["code"] in ("missing_target_job", "missing_upstream_job")]
+    assert linked == []

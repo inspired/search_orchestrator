@@ -8,6 +8,7 @@ import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Dropdown from '@splunk/react-ui/Dropdown';
 import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
+import Bell from '@splunk/react-icons/Bell';
 import Menu from '@splunk/react-ui/Menu';
 import Select from '@splunk/react-ui/Select';
 import Link from '@splunk/react-ui/Link';
@@ -22,17 +23,25 @@ import { formatDuration, formatTime } from '../../format';
 import JobsEmpty from './JobsEmpty';
 import { filterJobs, jobSummary } from './jobSummary';
 import RecentRuns from './RecentRuns';
+import { allTags, hasTag } from './tags';
 import { SHOW_LABEL, SORT_LABEL, inText, lastDuration, showJobs, slowRatio, sortJobs, typicalDuration } from './jobsView';
 import type { Show, Sort } from './jobsView';
 
 const VIEW_KEY = 'so.jobs.view';
 
-function storedView(): { show: Show; sort: Sort } {
+interface View {
+    show: Show;
+    sort: Sort;
+    /** A tag, or '' for every job. */
+    tag: string;
+}
+
+function storedView(): View {
     try {
         const v = JSON.parse(window.localStorage.getItem(VIEW_KEY) || '{}');
-        return { show: v.show in SHOW_LABEL ? v.show : 'all', sort: v.sort in SORT_LABEL ? v.sort : 'name' };
+        return { show: v.show in SHOW_LABEL ? v.show : 'all', sort: v.sort in SORT_LABEL ? v.sort : 'name', tag: typeof v.tag === 'string' ? v.tag : '' };
     } catch (e) {
-        return { show: 'all', sort: 'name' };
+        return { show: 'all', sort: 'name', tag: '' };
     }
 }
 
@@ -51,6 +60,8 @@ export interface JobsTableProps {
     busy?: Record<string, boolean>;
     /** Opens the example jobs (offered on the empty page to builders). */
     onBrowseExamples?: () => void;
+    /** Opens Follow for a job (anyone who can see it). */
+    onFollow?: (job: Job, opener: HTMLElement) => void;
     /** Downloads the jobs shown (after Find and Show) as an export file. */
     onExport?: (shown: Job[]) => void;
     /** Epoch seconds for "in 6 min" and running times; defaults to the clock. */
@@ -93,12 +104,12 @@ function DurationCell({ job, now, theme }: { job: Job; now: number; theme: Recor
     );
 }
 
-export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples, onExport, now }: JobsTableProps) {
+export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples, onExport, onFollow, now }: JobsTableProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const at = now ?? Math.floor(Date.now() / 1000);
     const [query, setQuery] = useState('');
     const [view, setViewState] = useState(storedView);
-    const setView = (patch: Partial<{ show: Show; sort: Sort }>) => {
+    const setView = (patch: Partial<View>) => {
         const next = { ...view, ...patch };
         setViewState(next);
         try {
@@ -114,7 +125,10 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
     jobs.forEach((j) => {
         names[j.id] = j.name;
     });
-    const shown = sortJobs(showJobs(filterJobs(jobs, query), view.show, me), view.sort);
+    const tags = allTags(jobs);
+    // A remembered tag no job has any more filters nothing.
+    const tag = tags.some((t) => t.toLowerCase() === view.tag.toLowerCase()) ? view.tag : '';
+    const shown = sortJobs(showJobs(filterJobs(jobs, query), view.show, me), view.sort).filter((j) => hasTag(j, tag));
     return (
         <>
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -130,6 +144,16 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                         ))}
                     </Select>
                 </ControlGroup>
+                {tags.length > 0 && (
+                    <ControlGroup label="Tag" labelFor="jobs-tag" labelPosition="top">
+                        <Select inputId="jobs-tag" value={tag} onChange={(_e: unknown, { value }: { value: unknown }) => setView({ tag: String(value) })}>
+                            <Select.Option value="" label="All tags" />
+                            {tags.map((t) => (
+                                <Select.Option key={t} value={t} label={t} />
+                            ))}
+                        </Select>
+                    </ControlGroup>
+                )}
                 <ControlGroup label="Sort by" labelFor="jobs-sort" labelPosition="top">
                     <Select inputId="jobs-sort" value={view.sort} onChange={(_e: unknown, { value }: { value: unknown }) => setView({ sort: value as Sort })}>
                         {(Object.keys(SORT_LABEL) as Sort[]).map((s) => (
@@ -148,7 +172,7 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                     </div>
                 )}
             </div>
-            {!shown.length && <p>{query.trim() ? `No jobs match "${query.trim()}".` : `No jobs here: ${SHOW_LABEL[view.show].toLowerCase()}.`}</p>}
+            {!shown.length && <p>{query.trim() ? `No jobs match "${query.trim()}".` : tag ? `No jobs tagged ${tag} here.` : `No jobs here: ${SHOW_LABEL[view.show].toLowerCase()}.`}</p>}
             {shown.length > 0 && (
                 <Table>
                     <Table.Head>
@@ -180,10 +204,25 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                                 ) : (
                                                     job.name
                                                 )}
+                                                {job.following && (
+                                                    <span data-testid="following" title="You follow this job" style={{ marginLeft: '6px', color: theme.contentColorMuted, display: 'inline-flex', verticalAlign: 'middle' }}>
+                                                        <Bell aria-hidden width="14" height="14" />
+                                                        <span style={srOnly}>You follow this job</span>
+                                                    </span>
+                                                )}
                                             </div>
                                             <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
                                                 {jobSummary(job, names)}
                                             </div>
+                                            {(job.tags || []).length > 0 && (
+                                                <div data-testid="job-tags" style={{ fontSize: '12px', color: theme.contentColorMuted, display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                    {(job.tags || []).map((t) => (
+                                                        <Link key={t} onClick={() => setView({ tag: t })} aria-label={`Show jobs tagged ${t}`}>
+                                                            {`#${t}`}
+                                                        </Link>
+                                                    ))}
+                                                </div>
+                                            )}
                                             {(job.warnings || []).map((w, i) => (
                                                 <div key={`${w.code}-${w.step}-${i}`} data-testid="job-warning" style={{ fontSize: '12px', color: theme.statusColorMedium, display: 'flex', alignItems: 'flex-start', gap: '0.35em', marginTop: '2px' }}>
                                                     <ExclamationTriangle aria-hidden width="12" height="12" style={{ flex: 'none', marginTop: '2px' }} />
@@ -239,10 +278,13 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                                     onClick={() => onRunNow(job)}
                                                 />
                                             )}
-                                            {((canRun && onBackfill) || (canEdit && onDelete)) && (
+                                            {((canRun && onBackfill) || (canEdit && onDelete) || onFollow) && (
                                                 <Dropdown toggle={<Button appearance="subtle" label="⋯" aria-label={`More actions for ${job.name}`} />}>
                                                     <Menu>
                                                         {canEdit && <Menu.Item to={pageHref('builder', { job_id: job.id })}>Edit</Menu.Item>}
+                                                        {onFollow && (
+                                                            <Menu.Item onClick={(e: React.MouseEvent) => onFollow(job, e.currentTarget as HTMLElement)}>{job.following ? 'Following…' : 'Follow…'}</Menu.Item>
+                                                        )}
                                                         {canRun && onBackfill && (
                                                             <Menu.Item disabled={!job.enabled} onClick={() => onBackfill(job)} description={job.enabled ? undefined : 'Enable the job first'}>
                                                                 Backfill…

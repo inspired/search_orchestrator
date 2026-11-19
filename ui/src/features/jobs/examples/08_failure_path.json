@@ -3,6 +3,10 @@
   "name": "Example: retries, recovery and clean-up",
   "description": "The export step retries twice before it fails. If it still fails, a recovery step runs (a Fails line); a summary step runs either way (a Finishes either way line) and records the export's status. The whole job emails you@example.com on failure; to post to a webhook instead, ask an admin to add a destination in Settings and swap the Email node for a Webhook node.",
   "enabled": false,
+  "tags": [
+    "example",
+    "reliability"
+  ],
   "triggers": [
     {
       "type": "cron",

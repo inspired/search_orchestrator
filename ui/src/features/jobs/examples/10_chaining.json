@@ -3,6 +3,10 @@
   "name": "Example: chained jobs",
   "description": "Starts after Example: daily, weekly and monthly rollup succeeds, and on its own weekday schedule. It reads splunkd's health with | rest (admins only) and, when it succeeds, starts Example: hourly splunkd errors. Groups keep the triggers, the work and the follow-up apart on the canvas.",
   "enabled": false,
+  "tags": [
+    "example",
+    "chaining"
+  ],
   "triggers": [
     {
       "type": "cron",

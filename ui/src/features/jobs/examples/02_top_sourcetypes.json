@@ -3,6 +3,10 @@
   "name": "Example: top sourcetypes to a lookup",
   "description": "Each night, ranks yesterday's sourcetypes by event count and writes the top 20 to the lookup so_example_top_sourcetypes.csv, replacing it each run.",
   "enabled": false,
+  "tags": [
+    "example",
+    "getting started"
+  ],
   "triggers": [
     {
       "type": "cron",

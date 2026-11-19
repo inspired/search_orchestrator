@@ -3,6 +3,10 @@
   "name": "Example: investigate only when errors were found",
   "description": "Every 30 minutes counts splunkd errors by component. An If… node checks $count_errors.resultCount$ > 0: only then does the investigate step list the latest errors of the busiest component; otherwise it is skipped and the run still succeeds.",
   "enabled": false,
+  "tags": [
+    "example",
+    "branches"
+  ],
   "triggers": [
     {
       "type": "cron",

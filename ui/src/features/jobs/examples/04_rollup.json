@@ -3,6 +3,10 @@
   "name": "Example: daily, weekly and monthly rollup",
   "description": "Every night counts yesterday's _internal events by sourcetype and appends them to so_example_daily_rollup.csv. On Mondays a weekly step sums the last 7 days from that lookup, and on the 1st a monthly step sums the month before. Both work from the run's scheduled time through $run.scheduled_time$.",
   "enabled": false,
+  "tags": [
+    "example",
+    "branches"
+  ],
   "triggers": [
     {
       "type": "cron",

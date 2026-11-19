@@ -18,6 +18,7 @@ function initialFilters(): RunsTableFilters {
     const state = queryParam('state');
     return {
         job_id: queryParam('job_id') || undefined,
+        tag: queryParam('tag') || undefined,
         state:
             state === 'attention' || (state && (RUN_STATES as readonly string[]).includes(state))
                 ? (state as RunState | 'attention')
@@ -28,7 +29,8 @@ function initialFilters(): RunsTableFilters {
 // "Needs attention" is not a server state. Held runs are always failed, so it is the
 // blocked runs, the failed ones and the running or paused runs with a step waiting for
 // approval, merged and newest first like the server's own list.
-async function fetchRuns(filters: RunsTableFilters) {
+async function fetchRuns(all: RunsTableFilters) {
+    const { tag, ...filters } = all; // the tag is filtered in the table
     if (filters.state !== 'attention') {
         return listRuns({ ...filters, state: filters.state });
     }
@@ -48,6 +50,7 @@ function RunsPage() {
     const [fast, setFast] = useState(true);
     const runs = usePoll(() => fetchRuns(filters), fast ? 5000 : 30000, true);
     const [jobNames, setJobNames] = useState<Record<string, string>>({});
+    const [jobTags, setJobTags] = useState<Record<string, string[]>>({});
     const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
     const [canApprove, setCanApprove] = useState(false);
 
@@ -61,10 +64,13 @@ function RunsPage() {
         listJobs()
             .then((jobs) => {
                 const names: Record<string, string> = {};
+                const tags: Record<string, string[]> = {};
                 jobs.forEach((j) => {
                     names[j.id] = j.name;
+                    tags[j.id] = j.tags || [];
                 });
                 setJobNames(names);
+                setJobTags(tags);
             })
             .catch(() => undefined);
     }, []);
@@ -78,7 +84,7 @@ function RunsPage() {
             return;
         }
         const params = new URLSearchParams(window.location.search);
-        ['job_id', 'state'].forEach((key) => {
+        ['job_id', 'state', 'tag'].forEach((key) => {
             const value = filters[key as keyof RunsTableFilters];
             if (value) {
                 params.set(key, value);
@@ -122,6 +128,7 @@ function RunsPage() {
                     onFiltersChange={setFilters}
                     now={now}
                     bulk={bulkRuns}
+                    jobTags={jobTags}
                     canApprove={canApprove}
                     onChanged={runs.refresh}
                 />

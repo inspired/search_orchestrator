@@ -1,0 +1,43 @@
+{
+  "id": "example_business_hours",
+  "name": "Example: every 30 minutes in business hours",
+  "description": "Runs every half hour from 08:00 to 17:30, Monday to Friday, and lists the scheduled searches that were skipped in the last half hour. The schedule preview in the builder shows the next run times and other jobs that start in the same minute.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "getting started"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "*/30 8-17 * * 1-5"
+    }
+  ],
+  "steps": [
+    {
+      "id": "skipped",
+      "name": "Skipped searches, last 30 minutes",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=scheduler status=skipped\n| stats count BY savedsearch_name, reason",
+      "earliest": "-30m@m",
+      "latest": "@m"
+    }
+  ],
+  "edges": [],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 160
+      },
+      "step:skipped": {
+        "x": 320,
+        "y": 20
+      }
+    }
+  }
+}

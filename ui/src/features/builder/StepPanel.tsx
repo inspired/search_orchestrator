@@ -425,6 +425,18 @@ export default function StepPanel({
                     help="Per attempt. Longer counts as a failed attempt."
                     onChange={(v) => set({ max_runtime: v })}
                 />
+                <ControlGroup label="Events scanned limit" labelFor={`${p}-maxscan`} labelPosition="top" help="How many events this step's search may scan. Empty uses the limit in Settings (if any); over it, the search is warned about or stopped, as Settings says.">
+                    <Text
+                        inputId={`${p}-maxscan`}
+                        value={typeof step.max_scan === 'number' ? String(step.max_scan) : ''}
+                        placeholder="Settings default"
+                        onChange={(_e: unknown, { value }: { value: string }) => {
+                            const digits = value.replace(/[^0-9]/g, '');
+                            const n = digits === '' ? null : parseInt(digits, 10);
+                            set({ max_scan: n && n > 0 ? n : null });
+                        }}
+                    />
+                </ControlGroup>
                 <ControlGroup label="Retries" labelFor={`${p}-retries`} labelPosition="top">
                     <Text
                         inputId={`${p}-retries`}

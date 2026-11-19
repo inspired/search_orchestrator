@@ -343,9 +343,11 @@ def parse_alert_actions(body, forms_body=None):
 
 
 def parse_user_access(body):
-    """User JSON -> ``{"roles": [...], "capabilities": [...]}`` (effective, from all roles)."""
+    """User JSON -> ``{"roles": [...], "capabilities": [...], "email"}`` (effective roles and
+    capabilities, from all roles; ``email`` is the account's address or "")."""
     c = json.loads(body)["entry"][0].get("content", {})
-    return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or [])}
+    return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or []),
+            "email": str(c.get("email") or "")}
 
 
 MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,

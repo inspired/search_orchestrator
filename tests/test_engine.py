@@ -858,7 +858,8 @@ def test_engine_loop_survives_unexpected_errors():
 def test_settings_defaults():
     assert enginemod.DEFAULT_SETTINGS == {
         "max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
-        "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO"}
+        "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO",
+        "scan_limit": None, "scan_limit_action": "warn"}
 
 
 # --- review fix round 1 ------------------------------------------------------------
@@ -1602,3 +1603,53 @@ def test_retry_attempt_does_not_keep_the_previous_attempts_perf():
     assert a["attempt"] == 2 and a["state"] in ("starting", "running") and "perf" not in a
     second = [r for r in w.store.list_step_runs(run_id) if r["attempt"] == 2]
     assert second and all("perf" not in r for r in second)
+
+
+# --- events scanned limit ------------------------------------------------------
+
+def _scan_world(action, step_limit=None, settings_limit=1000):
+    w = World()
+    step = {"id": "a"}
+    if step_limit:
+        step["max_scan"] = step_limit
+    j = w.add_job(make_job(steps=[step]), scripts={"a": {"states": ["running"] * 5 + ["done"],
+                                                         "result_count": 3,
+                                                         "perf": {"scan_count": 5000}}})
+    settings = {"_key": "settings"}
+    if settings_limit:
+        settings.update(scan_limit=settings_limit, scan_limit_action=action)
+    w.gw.kv_insert("so_settings", settings)
+    run_id = cron_run(w, j)
+    for job in w.gw.jobs.values():
+        job["perf_while_running"] = True
+    return w, run_id
+
+
+def test_a_search_over_the_scan_limit_is_stopped_and_the_step_fails():
+    w, run_id = _scan_world("stop")
+    for _ in range(3):
+        w.tick(advance=5)
+    st = w.step(run_id, "a")
+    assert st["state"] == "failed"
+    assert "scanned 5000 events, more than its limit of 1000" in (st.get("error") or "")
+    [ev] = w.audit.of("step_scan_limit")
+    assert (ev["action"], ev["scanned"], ev["limit"]) == ("stop", 5000, 1000)
+
+
+def test_warn_says_so_once_and_lets_the_search_finish():
+    w, run_id = _scan_world("warn")
+    for _ in range(10):
+        w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "succeeded"
+    assert len(w.audit.of("step_scan_limit", action="warn")) == 1
+
+
+def test_a_step_limit_overrides_settings_and_no_limit_means_nothing_happens():
+    w, run_id = _scan_world("stop", step_limit=10000)
+    for _ in range(10):
+        w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "succeeded" and not w.audit.of("step_scan_limit")
+    w2, run2 = _scan_world("stop", settings_limit=None)
+    for _ in range(10):
+        w2.tick(advance=5)
+    assert w2.step(run2, "a")["state"] == "succeeded"

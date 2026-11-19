@@ -48,7 +48,9 @@ are never logged or audited: only scheme and host are reported. A PagerDuty dest
 send time; its values are scrubbed from every error text like the URL.
 
 Retries: a failing action is retried 3 times (4 attempts) after ``state.backoff``
-seconds. A non-transient error (https rule, 4xx, unknown destination, no
+seconds (30 s, doubling, at most 15 minutes). An action may set its own ``retries``
+(0 to 10) and ``retry_wait`` (the first wait, 10 to 3600 seconds; it doubles each time, at
+most an hour). A non-transient error (https rule, 4xx, unknown destination, no
 permission) fails at once.
 
 Fallback (spec section 10, decided here, on the job-scope event only): the run
@@ -80,7 +82,7 @@ import logging
 import time
 from urllib.parse import quote, urlsplit
 
-from . import authz, expr as exprmod, hidden, presets, scheduler, tokens
+from . import authz, expr as exprmod, follows, hidden, presets, scheduler, tokens
 from . import deadline as deadlinemod
 from .gateway import DispatchError, GatewayError, check_webhook_url
 from .state import backoff
@@ -90,6 +92,26 @@ log = logging.getLogger(__name__)
 ACTION_RUNS = "so_action_runs"
 SETTINGS = "so_settings"
 MAX_RETRIES = 3
+RETRIES_MAX = 10
+RETRY_WAIT_MIN, RETRY_WAIT_MAX = 10, 3600
+RETRY_WAIT_CAP = 3600
+
+
+def retry_plan(action):
+    """``(retries, first_wait or None)`` for an action: its own settings, else the defaults
+    (None: ``state.backoff``). Out-of-range values (checked at save) fall back too."""
+    action = action or {}
+    retries, wait = action.get("retries"), action.get("retry_wait")
+    ok = lambda v, lo, hi: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+    return (retries if ok(retries, 0, RETRIES_MAX) else MAX_RETRIES,
+            wait if ok(wait, RETRY_WAIT_MIN, RETRY_WAIT_MAX) else None)
+
+
+def retry_delay(attempts, first_wait):
+    """Seconds to wait after the ``attempts``-th failure."""
+    if first_wait is None:
+        return backoff(attempts)
+    return min(first_wait * 2 ** (max(attempts, 1) - 1), RETRY_WAIT_CAP)
 PUMP_BUDGET = 5.0
 CHAIN_LIMIT = 10
 RUNNING_LIMIT = 600  # seconds a hidden action search may run
@@ -271,6 +293,8 @@ class ActionRunner:
                  "on_late": _needs_late_fallback}.get(hook)
         if scope == "job" and needs and needs(run, definition):
             self._ensure_fallback(doc)  # also on replay: the insert is idempotent
+        if scope == "job" and hook in follows.HOOK_EVENT:
+            self._ensure_follows(doc)  # idempotent too: one row per follow and occurrence
         return new and bool(matching)
 
     @staticmethod
@@ -302,6 +326,28 @@ class ActionRunner:
                "actions": [_entry(None, {"type": "fallback"})], "state": "pending",
                "attempts": 0, "error": None, "fallback": True, "created_at": int(self.clock())}
         return self.gw.kv_insert(ACTION_RUNS, doc)
+
+    def _ensure_follows(self, row):
+        """One ``kind="follow"`` row per person following the job about this hook. It never
+        triggers the fallback (``fallback`` is True)."""
+        try:
+            found = follows.for_hook(self.gw, row["job_id"], row["hook"])
+        except GatewayError as err:
+            log.warning("follows of job %s could not be read: %s", row["job_id"], err)
+            return
+        for f in found:
+            fkey = f.get("_key") or follows.follow_key(f.get("job_id"), f.get("user"))
+            doc = {"_key": "%s:follow:%s:%s:%s" % (row["run_id"], fkey[:16], row["hook"],
+                                                    row["occurrence"]),
+                   "kind": "follow", "run_id": row["run_id"], "job_id": row["job_id"],
+                   "owner": row.get("owner"), "scheduled_time": row.get("scheduled_time"),
+                   "scope": "follow", "hook": row["hook"], "step_id": None,
+                   "occurrence": row["occurrence"], "ctx": row["ctx"],
+                   "actions": [_entry(None, {"type": "follow", "user": f.get("user"),
+                                             "notify": f.get("notify") or {"type": "email"}})],
+                   "state": "pending", "attempts": 0, "error": None, "fallback": True,
+                   "created_at": int(self.clock())}
+            self.gw.kv_insert(ACTION_RUNS, doc)
 
     # -- pump -----------------------------------------------------------------
 
@@ -392,13 +438,14 @@ class ActionRunner:
                          "is_fallback": row["kind"] == "fallback"}, **extra), now)
 
     def _failed(self, row, entry, error, transient, now, **extra):
-        final = not transient or entry["attempts"] > MAX_RETRIES
+        retries, first_wait = retry_plan(entry.get("action"))
+        final = not transient or entry["attempts"] > retries
         entry["error"] = error[:500]
         entry["sid"] = None
         if final:
             entry["state"] = "failed"
         else:
-            entry.update(state="pending", next_at=int(now) + backoff(entry["attempts"]))
+            entry.update(state="pending", next_at=int(now) + retry_delay(entry["attempts"], first_wait))
         self._emit(dict({"type": "action_failed" if final else "action_retry",
                          "run_id": row["run_id"], "job_id": row["job_id"], "hook": row["hook"],
                          "scope": row["scope"], "step_id": row["step_id"],
@@ -413,6 +460,8 @@ class ActionRunner:
         ctx = self._links(row["ctx"], settings)
         if row["kind"] == "fallback":
             return self._fallback(row, entry, ctx, settings, now)
+        if row["kind"] == "follow":
+            return self._follow(row, entry, ctx, now)
         action = entry.get("action") or {}
         kind = entry["type"]
         if row.get("tokens"):
@@ -512,6 +561,28 @@ class ActionRunner:
             return self._dispatch(row, entry, hidden.FALLBACK_OWNER, hidden.FALLBACK_EMAIL_SEARCH,
                                   args, now)
         raise _Fail("no fallback notification destination is configured")
+
+    def _follow(self, row, entry, ctx, now):
+        """Tell a follower: checked as them at send time (they may no longer see the job, or
+        have an email address); email goes to their account's address."""
+        action = entry.get("action") or {}
+        user = action.get("user")
+        job = self.store.get_job(row["job_id"])
+        access = self.gw.user_access(user) if user else {"roles": [], "capabilities": []}
+        if job is None or not authz.can_view(user, job, access["roles"], access["capabilities"]):
+            raise _Fail("follower %r may no longer see the job" % (user,))
+        notify = action.get("notify") or {}
+        if notify.get("type") == "webhook":
+            return self._post(row, entry, notify.get("destination"), None, None, ctx, now)
+        to = access.get("email")
+        if not to:
+            raise _Fail("follower %r has no email address in Splunk" % (user,))
+        args = {"to": to, "subject": "Search Orchestrator: %s %s (you follow this job)" % (
+            ctx["job"], presets._VERB.get(ctx["hook"], ctx["hook"])),
+            "message": presets.default_message(ctx) + "\n\nYou get this because you follow "
+                       "the job. To stop, open the Jobs page and choose Unfollow."}
+        return self._dispatch(row, entry, hidden.FALLBACK_OWNER, hidden.FALLBACK_EMAIL_SEARCH,
+                              args, now)
 
     def _search(self, row, entry, action, ctx, now):
         kind = entry["type"]

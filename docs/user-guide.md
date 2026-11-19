@@ -1,6 +1,6 @@
 # Search Orchestrator: user guide
 
-Version 1.18.2. Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
 
 ## Words used
 
@@ -12,19 +12,24 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 ## Example jobs
 
-**Browse examples** on the Jobs page (also offered when there are no jobs) lists eleven ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`). **Open in builder** opens one as a new, unsaved job to look at and save. **Add all examples** saves every example that isn't a job yet, with ids starting `example_`; existing ones are skipped and errors are listed. Every example is scheduled but turned off: turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
+**Browse examples** on the Jobs page (also offered when there are no jobs) shows 18 ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`).
 
-1. **Hourly splunkd errors** (simple): one search step counting splunkd errors each hour.
-2. **Top sourcetypes to a lookup** (simple): yesterday's top 20 sourcetypes written to `so_example_top_sourcetypes.csv` by a Lookup node.
-3. **Daily search activity** (simple): searches per user from `_audit`, with an email when the step fails.
-4. **Daily, weekly and monthly rollup** (intermediate): a daily count appended to a lookup, rolled up on Mondays and on the 1st with Run when and `$run.scheduled_time$`.
-5. **Two branches, one report** (intermediate): errors by component and warnings by host run side by side and merge in a Results of earlier steps step.
-6. **Investigate only when errors were found** (intermediate): an If… node with `$count_errors.resultCount$ > 0` gates the investigate step.
-7. **Parameters for component and threshold** (intermediate): a list and a number parameter used in the SPL and in a condition.
-8. **Retries, recovery and clean-up** (advanced): retries, a Fails line to a recovery step, a Finishes either way summary and a job failure email (swap it for a webhook once your admin adds a destination).
-9. **A slow step and a delay alert** (advanced): a deliberately slow step that is delayed after 30 seconds, emails once and has a 10-minute max runtime; run it to watch the run graph live.
-10. **Chained jobs** (advanced): starts after the rollup example succeeds, starts the hourly errors example when it succeeds, and uses groups to organise the canvas.
-11. **Platform health pipeline (everything)** (advanced): the showcase. Four checks run in parallel (splunkd errors, skipped searches, license usage, search activity), merge into a health score appended to `so_example_platform_health.csv`, with a Monday weekly trend (Run when). It uses all three conditions (simple against the `error_threshold` parameter, Search returns results, SPL expression), an approval gate for admins (one-hour timeout, rejects) that writes an event to `index=main` when approved, a Finishes either way summary, retries and Delayed after on a step, a deadline (07:30 or 90 minutes), late, failure, complete and approval emails, and starts the hourly errors example when it succeeds.
+- **Tabs by group:** Getting started, Branches and conditions, Retries delays and deadlines, Approvals and notifications, and Chaining jobs.
+- **A picture of each job:** every card draws the job's flow, as on the builder's canvas, so you can see its shape before you open it.
+- **Open in builder** opens one as a new, unsaved job to look at and save.
+- **Add as a job** saves one, with its id starting `example_`; **Add all examples** saves every one that isn't a job yet. Existing ones are skipped and errors are listed.
+- **Examples that use other examples** (a Start job action, or After another job) bring those along: Add and Open in builder add them first, so the links point at real jobs. The card says which ("Uses Hourly splunkd errors and Rollup, added with it").
+- Every example is scheduled but **turned off**, and tagged `example` and its group. Turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
+
+| Group | Examples |
+|---|---|
+| Getting started | Hourly splunkd errors · Top sourcetypes to a lookup · Keep a daily summary in an index · Every 30 minutes in business hours |
+| Branches and conditions | Daily, weekly and monthly rollup · Two branches, one report · Investigate only when errors were found · Parameters for component and threshold · Only when a search finds something |
+| Retries, delays and deadlines | Retries, recovery and clean-up · A slow step and a delay alert · Finish by 07:00 |
+| Approvals and notifications | Daily search activity · Approve before recording · Notify with patient retries |
+| Chaining jobs | Chained jobs · Platform health pipeline (everything) · Start two jobs when done |
+
+**Platform health pipeline** is the showcase: four checks in parallel merge into a health score kept in a lookup, with all three kinds of condition, an approval gate, retries, a delay alert, a deadline and a chained job.
 
 ## Build a job
 
@@ -57,7 +62,10 @@ The Flow tab has two views, switched with **Simple** and **Flow** above it; the 
 
 - **Simple** lists the searches top to bottom. Each starts when the one above succeeds. Click a search to change its name, what it searches (its own data, or the results of the search above), the search and the time range, and to preview it, move it or remove it. **+ Add search** adds one at the end.
 - **+ Add…** under a search adds what happens, and when: pick **When this search…** **Succeeds**, **If a condition is true**, **Fails**, **Finishes either way**, **Starts** or **Is delayed** (the same choices as the + in Flow), then **Save to summary index**, **Save to lookup**, **Email**, **Post to Slack**, **Post to Teams**, **Page PagerDuty**, **Open a ServiceNow incident** or **Write an event**. Saves are offered only for **Succeeds** and a condition; the others send messages. The items are listed under a heading for each choice.
-- **Only if it found results** (on **Succeeds**) sends or saves only when the search returned rows. **If a condition is true** has a **Condition** field: a comparison, as on an If… line, such as `$count.resultCount$ > 100`. A failed search stops the run. Slack, Teams, PagerDuty and ServiceNow need a destination your admin has set up. **Settings** on a row opens all its fields: an email's subject and message (with **Insert value** for tokens), a webhook's destination and its PagerDuty or ServiceNow options, an event's payload, a summary index's source and run id marker, or a lookup's append; and **View output** shows what it wrote.
+- **Only if it found results** (on **Succeeds**) sends or saves only when the search returned rows.
+- **If a condition is true** has a **Condition** field: a comparison, as on an If… line, such as `$count.resultCount$ > 100`.
+- A failed search stops the run. Slack, Teams, PagerDuty and ServiceNow need a destination your admin has set up.
+- **Settings** on a row opens all its fields: an email's subject and message (with **Insert value** for tokens), a webhook's destination and its PagerDuty or ServiceNow options, an event's payload, a summary index's source and run id marker, or a lookup's append. **View output** shows what it wrote.
 - **Starts** is the job's schedule, or another job it runs after. **If any step fails** tells someone about any failure in the run. **When done** starts another job, so jobs chain.
 - **Flow** is the node editor, for everything else: conditions, approval steps, steps side by side, retries and delay alerts. Both views edit the same job. A job that uses something Simple can't show opens read only in Simple, with what it is and **Edit in Flow**.
 
@@ -96,18 +104,34 @@ The **Whole job** list has no "If a condition is true"; its lines make job-wide 
 
 **Outcome tabs.** Every outcome a node already uses shows as a small round tab on its right edge: just the symbol (✓ ✗ ∞ ▶ ⏱ ◇) in a ring in the outcome's colour. Point at a tab to see its name, such as "Succeeds" or "Fails"; screen readers read the name too. Its lines leave from that tab, and lines are coloured by outcome. Dragging from a tab draws another line with that outcome, without the When list. The tabs stack in a column centred on the node's middle, with the + to their right.
 
-**Line labels and the line menu.** Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome. The **selected** line shows its label in the middle ("✗ Fails"; a line out of an **If…** node shows its condition, shortened: the expression itself, "◇ where …" for an SPL expression or "◇ search …" for a search). **View** → **Line labels** in the toolbar draws a label on every line, and choosing it again turns them off; the choice is remembered in this browser. With labels on, they hide when you zoom out below 70 %, except on the selected line. On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing. Click a line, or press `Enter` on a focused line, to select it and open its menu:
+**Line labels and the line menu.**
+
+- Lines carry no label by default, so the canvas stays quiet; a line's colour shows its outcome.
+- The **selected** line shows its label in the middle ("✗ Fails"). A line out of an **If…** node shows its condition, shortened: the expression itself, "◇ where …" for an SPL expression or "◇ search …" for a search.
+- **View** → **Line labels** in the toolbar draws a label on every line; choose it again to turn them off (remembered in this browser). Labels hide when you zoom out below 70 %, except on the selected line.
+- On the run page, row counts such as "1 204 rows →" show on data lines while the toggle is on, or while the line is flowing.
+
+Click a line, or press `Enter` on a focused line, to select it and open its menu:
 
 - **Change to …** gives the line another outcome. On a line to an action this changes when the action fires; it stays on the same node. "If a condition is true" turns a line between steps into an **If…** node. On the line into an **If…** node, choosing another outcome turns it back into a plain line and drops the expression. Each change is one undo step.
 - **Insert a node** (lines between two steps) opens the search box and puts the new step on the line.
 - **Move … onto this line** (lines between two steps) puts a step that has no lines yet on the line, where it is; up to five such steps are listed. This is the keyboard way to drag a node onto a line.
 - **Remove line** (lines between steps and **If…** lines). An action's line can't be removed, because an action always belongs to a step or the whole job; change its outcome instead, or move it in the action's panel.
 
-**Put a node on a line.** Drag a step that has no lines yet onto a line between two steps: the line lights up, and when you drop the step, A → B becomes A → new step → B. A → new step keeps the line's outcome; new step → B is Succeeds. A line out of an **If…** node can't be split. Because B now runs after the new step, and reads its results if the line carries data, a message says what changed, for example "Weekly rollup now runs after Filter hosts succeeds. Undo brings back the old line." The message has an **Undo** button and goes away after 10 seconds. **Insert a node** in the line menu does the same.
+**Put a node on a line.** Drag a step that has no lines yet onto a line between two steps; the line lights up.
+
+- When you drop it, A → B becomes A → new step → B. A → new step keeps the line's outcome; new step → B is Succeeds.
+- A line out of an **If…** node can't be split.
+- Because B now runs after the new step, a message says what changed, for example "Weekly rollup now runs after Filter hosts succeeds. Undo brings back the old line." It has an **Undo** button and goes away after 10 seconds.
+- **Insert a node** in the line menu does the same.
 
 **Auto-pan.** While you drag a node or a line near the edge of the canvas, the canvas scrolls toward that edge, faster the closer you are.
 
-**Toolbar and side panel.** The toolbar has **Add node**, **Arrange** (**Tidy up**, **Group selection**) and **View** (**Node types**, **Grid**, **Line labels**, **Compact nodes**, **Side panel**) on the left, and the zoom buttons with the zoom level, **Frame all**, **Reset view** and **Full screen** on the right. Hide the side panel with **›** at its top (or **View** → **Side panel**) and bring it back with **‹**; drag its left edge to make it wider or narrower (260–800 px), or focus the edge and use the arrow keys, `Home` and `End`; double-click the edge for the default width. Both are remembered in this browser.
+**Toolbar and side panel.**
+
+- **Left of the toolbar:** **Add node**, **Arrange** (**Tidy up**, **Group selection**) and **View** (**Node types**, **Grid**, **Line labels**, **Compact nodes**, **Side panel**).
+- **Right of the toolbar:** the zoom buttons with the zoom level, **Frame all**, **Reset view** and **Full screen**.
+- **Side panel:** hide it with **›** at its top (or **View** → **Side panel**) and bring it back with **‹**. Drag its left edge to make it wider or narrower (260–800 px), or focus the edge and use the arrow keys, `Home` and `End`; double-click the edge for the default width. Both are remembered in this browser.
 
 **Full screen.** The canvas fills the window below the page header (at least 480 px tall), and the side panel scrolls beside it. **Full screen** in the toolbar shows the canvas and the side panel over the whole page; **Leave full screen** or `Escape` goes back. `Escape` first closes an open list or menu, or clears the selection.
 
@@ -257,11 +281,16 @@ Good to know:
 - **Search** steps hold SPL. **Saved search** steps run an existing saved search. **Results of earlier steps** steps search the results of the steps before them; see [Results of earlier steps](#results-of-earlier-steps). If a saved search isn't your own private search, its own alerts and summary indexing don't run; add `collect` to the step if you need them. The builder warns you.
 - **A saved search must be shared globally or saved in the Search Orchestrator app** to be used as a step. Steps run in this app's context, where a private search in Search & Reporting, or one shared only with another app, can't be seen. Saving the job then fails with: "saved search '<name>' must be shared globally or saved in the Search Orchestrator app to be used as a step; change its sharing, or save a copy in this app".
 - **Steps run as the job owner**, with the owner's roles and index access.
-- **Time range:** pick a preset (the hour, day, week or month before, or the last 24 hours), **All time** or **Custom**. Under the picker, the builder shows the window searched for a run scheduled at the preview time, for example "For a run scheduled Tue 11 Nov 00:00, this searches Mon 10 Nov 00:00 to Tue 11 Nov 00:00". Custom takes Earliest and Latest as Splunk relative times, such as `-1d@d` and `@d`. They are relative to the run's **scheduled time**, never to when the step actually starts, so a daily summary that starts late after midnight still summarises the right day. **All time searches everything and shows a warning.**
+- **Time range:** pick a preset (the hour, day, week or month before, or the last 24 hours), **All time** or **Custom**.
+  - Under the picker, the builder shows the window searched, for example "For a run scheduled Tue 11 Nov 00:00, this searches Mon 10 Nov 00:00 to Tue 11 Nov 00:00".
+  - Custom takes Earliest and Latest as Splunk relative times, such as `-1d@d` and `@d`.
+  - Times are relative to the run's **scheduled time**, never to when the step starts, so a daily summary that starts late still summarises the right day.
+  - **All time searches everything and shows a warning.**
 - **Run when:** limits a step to some runs, so one job can hold daily, weekly and monthly steps. Presets such as "Mondays" and "1st of month" match the whole day of the scheduled time. A step that doesn't apply shows as *Skipped (run when)* and lets the steps after it go ahead.
 - **Delayed after** (default 1 hour from the scheduled time): fires the delay alert once.
 - **Give up after** (default 24 hours from when the run leaves the queue): the step fails, other searches in the run are cancelled, and unfinished steps are abandoned.
 - **Max runtime** (default 4 hours per attempt).
+- **Events scanned limit:** how many events the step's search may scan. Empty uses the limit your admin set in Settings, if any. Over it, the search is either stopped (the step fails, and retries if it has retries) or left to finish with a warning on the run and in Troubleshooting, as Settings says.
 
 Durations take a unit (minutes, hours or days). A saved value shows in the largest whole unit, so 5400 seconds reads as 90 minutes. A value that isn't whole minutes shows rounded to minutes and keeps its exact seconds until you edit it.
 - **Retries** (default 0). A retry runs the search again, which can write duplicates to a summary index. See [Make steps safe to re-run](#make-steps-safe-to-re-run). Searches that never started are always retried up to 3 times.
@@ -339,7 +368,14 @@ Use these in SPL, expressions and action messages:
 
 **Insert value** next to a search, a condition or an action message (the email subject and message, and the event payload) lists the tokens that exist at that point and puts the one you pick at the cursor. A selection is replaced. With no cursor in the field, the token goes at the end.
 
-**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names. `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there. A token can't sit inside a ```` ``` ```` comment or right after a backslash (put the backslash in the value), and a parameter or result value containing a backtick fails the step. Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice. A step can't call `| orchestrate`; use a start-job action instead. Any other `$` text in SPL, such as `rex "foo$"`, is left alone. A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
+**Tokens are substituted as quoted values**, so they can't be used to inject SPL commands or field names.
+
+- `index=$run.param.idx$` runs as `index="<value>"`; a token you already put inside double quotes stays there.
+- A token can't sit inside a ```` ``` ```` comment or right after a backslash (put the backslash in the value). A parameter or result value containing a backtick fails the step.
+- Pass a step's full results with `| loadjob $daily.sid$`, so nothing runs twice.
+- A step can't call `| orchestrate`; use a start-job action instead.
+- Any other `$` text in SPL, such as `rex "foo$"`, is left alone.
+- A token from a skipped step fails the step that uses it, unless you give a default: `$weekly.sid|none$`.
 
 ### Parameters
 
@@ -356,8 +392,14 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 | REST | `POST /services/orchestrator/jobs/<id>/runs` |
 | Job completion | "After job X succeeds" or "completes". |
 
-- **Schedules** are picked from presets: **Hourly**, **Daily**, **Weekly**, **Monthly** or **Custom** (a cron expression). The editor shows a readable summary, such as "Every day at 01:00", and the next times it will fire. A cron no preset matches opens as Custom and is never rewritten. A job can have more than one schedule.
-- **Which steps a schedule starts.** A Schedule or "after job" node starts only the steps it has a line to, so one job can run some searches hourly and others daily. Click its **+** to add a step it starts, drag from it onto a step with no line into it, or click a line from it and choose **Remove line** (or select the line and press `Delete`). A step not started by the trigger that started the run is skipped ("not started by this trigger"), and so is its branch; a step that merges branches still runs when one of its inputs ran. A new trigger starts nothing until you connect it (the check warns about it, and about a first step no trigger starts). Two schedules firing at the same minute make one run with both sets of steps. **Run now**, `| orchestrate start`, alerts, REST and backfills run every first step. Jobs saved before 1.26.0 keep starting all their first steps until you change a trigger's lines.
+- **Schedules** are picked from presets: **Hourly**, **Daily**, **Weekly**, **Monthly** or **Custom** (a cron expression). A cron no preset matches opens as Custom and is never rewritten. A job can have more than one schedule.
+- **Schedule preview:** the editor shows a readable summary, such as "Every day at 01:00", and the next 3 times it fires; **Show the next 10** lists more. A time when other jobs you can see start in the same minute says so ("same minute as Weekly rollup"): they compete for search slots, so moving one a few minutes spreads the load.
+- **Which steps a schedule starts.** A Schedule or "after job" node starts only the steps it has a line to, so one job can run some searches hourly and others daily.
+  - Click its **+** to add a step it starts, drag from it onto a step with no line into it, or click a line from it and choose **Remove line** (or press `Delete`).
+  - A step not started by the trigger that started the run is skipped ("not started by this trigger"), and so is its branch; a step that merges branches still runs when one of its inputs ran.
+  - A new trigger starts nothing until you connect it; the check warns about it, and about a first step no trigger starts.
+  - Two schedules firing in the same minute make one run with both sets of steps.
+  - **Run now**, `| orchestrate start`, alerts, REST and backfills run every first step. Jobs saved before 1.26.0 keep starting all their first steps until you change a trigger's lines.
 - **Time zone** is on the Settings tab, picked from a list that includes UTC. A stored zone the list lacks stays selected; the server decides if it is valid. Empty uses the server's time zone.
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
@@ -371,6 +413,8 @@ Each action is a node. Drag a line to it from a step's **+** handle, or from the
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
 
 Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
+
+**Retries.** When sending fails for a reason that may pass (a mail server or webhook that is down), an action is tried again: 3 times by default, waiting 30 s, then 1 and 2 minutes. An action's **Retries** (0 to 10) and **First wait** (10 seconds to 1 hour, doubling each time, at most an hour) change that; the panel spells out the waits. Errors that won't go away, such as a 404 or a missing destination, fail at once.
 
 An action failing never changes the run's outcome; it shows on the run's Actions tab. If a job has no failure or delay action, your admin's fallback notification is used.
 
@@ -449,9 +493,16 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 - **Parameters:** one input per job parameter. The input shows the parameter's default, and an empty value uses the default, as a run does. An empty value for a parameter with no default fails the preview with "value is required".
 - **Input from:** where earlier steps' results come from.
   - **Live previews** (default): the previews you made in this editor. If a step before this one has no current preview, it is previewed first, in order. A failed step is treated as a run would treat it: a step reached from it by an `on_success` connection isn't previewed ("... failed, so a run would not reach this step"), and you fix that step first; a step reached by an `on_failure` or `always` connection is previewed. Live previews are kept only in your browser tab; leaving the editor drops them.
-  - **A past run:** the results that run saved for the earlier steps. The list shows the job's 20 most recent runs, and is refreshed when you save and when you open it. A run that ended longer ago than the result retention (24 hours by default) is greyed out and marked "(results expired)". Choosing a run also sets the time and parameters to that run's. If the run's step results have expired or the step isn't in the run, the preview fails and says so. It never falls back to a live preview. If Splunk won't let you read a step's results from that run, the preview fails with "you may not read <step>'s results from that run; only its owner or an admin can".
+  - **A past run:** the results that run saved for the earlier steps.
+    - The list shows the job's 20 most recent runs, refreshed when you save and when you open it. A run that ended longer ago than the result retention (24 hours by default) is greyed out and marked "(results expired)".
+    - Choosing a run also sets the time and parameters to that run's.
+    - If the run's results have expired or the step isn't in the run, the preview fails and says so; it never falls back to a live preview. If you may not read a step's results from that run: "you may not read <step>'s results from that run; only its owner or an admin can".
 - **Result:** a line with the row count, time and input, then a table of the first 100 rows. The input part names every earlier step the preview read, through a connection or a token, as the server used it: "daily preview, 2 min ago" (the time updates each minute), "weekly skipped" for a step a run would skip (even one you previewed anyway), or "daily failed preview" for a failed step an `on_failure` or `always` connection still reads. Search errors and warnings show above the table. An ERROR message fails the preview, as in a run.
-- **Steps that write:** previews never write to an index or a lookup. A **Summary index** or **Lookup** step can't be previewed (preview the step before it), and neither can a step whose search uses a command that writes: `collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail` or `delete`, after a pipe, also inside a subsearch `[ ... ]`. **Preview step** is dimmed and says why, for example "Previews don't write to indexes or lookups; remove collect to preview this step." With **Input from** set to live previews, the same goes for any step that would run first. Previewing from a past run still works when only an earlier step writes, since nothing before the step runs. Saved searches and macros are not expanded, so a writing command inside one is not caught: check them yourself before you preview.
+- **Steps that write:** previews never write to an index or a lookup.
+  - A **Summary index** or **Lookup** step can't be previewed (preview the step before it), and neither can a step whose search uses a command that writes: `collect`, `outputlookup`, `outputcsv`, `tscollect`, `mcollect`, `meventcollect`, `sendemail` or `delete`, after a pipe, also inside a subsearch `[ ... ]`.
+  - **Preview step** is dimmed and says why, for example "Previews don't write to indexes or lookups; remove collect to preview this step." With **Input from** set to live previews, the same goes for any step that would run first.
+  - Previewing from a past run still works when only an earlier step writes, since nothing before the step runs.
+  - Saved searches and macros are not expanded, so a writing command inside one is not caught: check them yourself.
 - **Skipped steps:** if a run at that time would skip the step, you see "Would be skipped" and why. Steps after it treat it as skipped. **Preview anyway** runs it once with its inputs; steps after it still treat it as skipped, as a run would.
 - **Job-wide errors:** a dependency cycle or a malformed job blocks every preview, since the editor can't work out which steps come first. The preview says which, for example "the job has a cycle: a → b → a; fix it before previewing". Other errors block only the previews of steps they touch.
 - **Out of date:** changing a step, the time, the parameters or the input marks that step's preview and the ones after it "Out of date". The old table stays greyed until you preview again.
@@ -459,13 +510,14 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 
 ## Follow runs
 
-- **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run and how soon ("in 6 min"), its last run and its 10 newest runs as status icons (oldest left; hover for the state and time, click to open the run; "N of the last 10 failed" when some did), how long the last run took against the usual time, with **Run now**, an enable switch and a **⋯** menu (Edit, Backfill…, Delete…). **Find jobs** filters by name, id, owner or description; **Show** narrows to jobs whose last run failed, jobs with warnings, disabled, scheduled or your own jobs, and **Sort by** orders by name, next run, last run or failed first (both remembered in this browser). **Export** downloads the jobs shown; see [Export and import many jobs](#export-and-import-many-jobs).
-- **Duration** is the last run's time (or "so far" while it runs) with **usually** the median of the recent runs that succeeded (at least 3). When the last run took at least twice the usual time and 30 seconds more, it is marked with a warning icon: "3.6× the usual 55s".
-- **Warnings** under a job's name, with a warning icon, point at setups that will go wrong: a Start job action to a job that doesn't exist (or that you can't see) or that is disabled, an After another job trigger that follows a job that doesn't exist, and steps a re-save fixes. The builder shows the same warnings when you save. With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
+- **Jobs** lists every job you may see; see [The Jobs page](#the-jobs-page).
+- **Runs** lists the runs, grouped by job; see [The Runs page](#the-runs-page).
 - **Dependencies** and **Calendar** show how jobs start each other and when they run; see [Dependencies](#dependencies) and [Calendar](#calendar).
-- **Runs** lists runs grouped by job: one row per job with its latest run, how many runs are in each state and **⚑ N waiting for approval** when a step waits; click the job to open all its runs, or **Only this job** to filter. **Show: All runs** gives one list, newest first (remembered in this browser). Filterable by job and state. Each run under a job shows its number within the job (**Run #N**, 1 for the oldest kept run), the same in every filter. The **Needs attention** state filter shows blocked and failed runs, runs that hold later runs back, and running or paused runs with a step waiting for approval.
-- **Many runs at once:** tick runs on the Runs page (a job's row ticks all its runs; the box in the header ticks every run listed). A bar above the table offers what applies, with how many: **Cancel** (queued, running, paused or blocked runs), **Re-run** (failed, blocked or cancelled runs: each starts again from its first failed step with the job as it was when the run started), and **Approve** and **Reject** (runs waiting for an approval, if you may approve; Reject needs a comment). A dialog lists the runs before anything happens. Each run is checked as if you changed it on its own, so a message says how many were changed and names each run that wasn't, and why.
-- **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector. The **Performance** tab shows what each step cost; see [Performance](#performance).
+- **Run detail** has a timeline, the graph, logs, actions, performance, parameters and **Compare**.
+  - When a run needs attention, a line under the header says what to do next, such as re-running from the failed step.
+  - When a failed run is holding later runs back, **Dismiss run** lets them start.
+  - A warning message explains a delay, such as which step is late and what waits for it.
+  - Click a step for its attempts, actions and links to its search job and Job Inspector.
 
 **Waiting for approval.** While any step waits for approval, every page of the app shows a banner at the top: how many, the job, the step, its message and how long it has waited, with **Review**, which opens the run with that step's **Approve** and **Reject**.
 
@@ -481,50 +533,59 @@ Statuses are plain text with an icon. **Delayed** is not a state: the work is st
 | Paused | No new steps start; running searches carry on. |
 | Succeeded, Failed, Cancelled | Finished. |
 
+### The Jobs page
+
+Each row shows:
+
+- **Name** with a summary (when it runs, how many steps), its **tags** (click one to show only those jobs), a bell when you follow it, and **warnings**: a Start job action to a job that doesn't exist or is disabled, an After another job trigger that follows a missing job, and steps a re-save fixes. The builder shows the same warnings when you save.
+- **Next run** and how soon ("in 6 min"). More than about 400 days away shows as a dash.
+- **Last runs:** the last run, and the 10 newest as status icons (oldest left; hover for the state and time, click to open). "N of the last 10 failed" when some did.
+- **Duration:** the last run's time (or "so far") and **usually**, the median of the recent runs that succeeded (at least 3). At least twice the usual time and 30 seconds more is marked: "3.6× the usual 55s".
+- **Run now**, an enable switch (it never changes the owner), and **⋯** with Edit, Follow…, Backfill… and Delete… (cancel a job's active or queued runs before deleting it).
+
+Above the table:
+
+- **Find jobs** searches names, ids, owners, descriptions and tags.
+- **Show** narrows to jobs whose last run failed, jobs with warnings, disabled, scheduled or your own; **Tag** to one tag; **Sort by** orders by name, next run, last run or failed first. All are remembered in this browser.
+- **Export** downloads the jobs shown; see [Export and import many jobs](#export-and-import-many-jobs). **Create job**, **Import jobs** and **Browse examples** are at the top of the page.
+
+### Tags
+
+Give a job up to 10 tags (team, system, environment) in the builder's **Settings** tab: type a tag and press `Enter`, or pick one other jobs use. Tags are 1 to 40 letters, digits, spaces, `_`, `.` or `-`, and matching ignores case. The Jobs, Runs and Calendar pages have a **Tag** filter, and a run started before a tag change is still found by its job's tags now.
+
+### Follow a job
+
+Choose **Follow…** in a job's **⋯** menu to be told about it without changing the job; anyone who can see the job may follow it.
+
+- **Tell me when:** it fails, it misses its deadline, a step is delayed, or it succeeds.
+- **How:** an email to the address on your own Splunk account, or (builders) a webhook destination such as Slack.
+- The message names the job, what happened and links to the run; it never carries results.
+- A bell next to the name shows the jobs you follow. **Following…** in the same menu changes what you are told, or **Unfollow** stops it.
+- If you can no longer see the job, or your account has no email address, nothing is sent and the run's Actions tab says why.
+
+### The Runs page
+
+- **Grouped by job:** one row per job with its latest run, how many runs are in each state and **⚑ N waiting for approval** when a step waits. Click the job to open its runs, or **Only this job** to filter. **Show: All runs** gives one list, newest first (remembered in this browser).
+- **Filters:** job, tag and state. **Needs attention** shows blocked and failed runs, runs that hold later runs back, and running or paused runs with a step waiting for approval.
+- **Run #N** is each run's number within its job (1 for the oldest kept run), the same in every filter.
+- **Many runs at once:** tick runs (a job's row ticks all its runs; the header box ticks every run listed). A bar above the table offers what applies, with how many:
+  - **Cancel:** queued, running, paused or blocked runs.
+  - **Re-run:** failed, blocked or cancelled runs, each from its first failed step with the job as it was when the run started.
+  - **Approve** and **Reject:** runs waiting for an approval, if you may approve. Reject needs a comment.
+  - A dialog lists the runs first. Each run is checked as if you changed it on its own, and a message names any run that wasn't changed, and why.
+
+### Compare two runs
+
+The **Compare** tab on a run puts it next to another run of the same job: by default the newest finished run before it, or any of the job's last 50 runs.
+
+- A line says how each run ended and how long it took, whether the job changed between them, and which parameters differ.
+- A table has one row per step: its state, run time, results and events scanned in each run, and **What changed** in words: "succeeded → failed", "2.5× slower", "1 204 → 0 results", "5× the events scanned", "search changed", "new step". Changes for the worse are marked.
+
 ### Performance
 
 The **Performance** tab on the run page has one row per step with **Step**, **Runtime**, **Events scanned**, **Results** and **Disk**, and a **Total** row. The engine stores these numbers on each step and attempt when the search finishes, so runs from before 1.23.0 have none until you load them.
 
 **Peak CPU** and **Peak memory** aren't loaded with the page. **Load CPU and memory** reads them from `_introspection` as you, within 30 seconds and for at most 50 searches. It also fills the other columns for steps from before 1.23.0 from `_audit`, when you may search it. If you can't read `_introspection`, the tab says so and the other columns still show. See also the Performance section of Run health, below.
-
-### Run health dashboard
-
-**Run health** in the navigation bar is a dashboard over the audit index for the chosen time range (last 24 hours by default) and job (**All** by default):
-
-- **Overview:** runs, succeeded, failed, held or blocked, the success rate of finished runs and the median run duration. A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
-- **Runs over time**, stacked by state: succeeded green, failed red, held and blocked amber.
-- **Late runs:** the number of runs that passed their deadline and a list with the deadline, how late each was and its state. Click a row to open the run.
-- **Runs that need attention:** failed, held and blocked runs with the last step error. Click a row to open the run.
-- **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile duration, and how many runs found the step delayed). Durations are measured to within one engine tick.
-- **Performance:** **Runtime per job**, **Events scanned per job**, **Slowest steps by runtime**, and **Peak CPU and memory per job**. They come from the numbers stored on step attempts (none for runs from before 1.23.0); the CPU and memory panel needs read access to `_introspection`.
-- **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
-- **Engine health:** errors, warnings and Python tracebacks from the app's scripts in `_internal`, and how long ago the engine was last seen; that number turns red after 5 minutes. It needs read access to `_internal` and `_introspection`, which admins have.
-
-### Troubleshooting
-
-**Troubleshooting** in the navigation bar explains what the app itself did and why, from its own log lines: the engine (schedules, runs, searches, conditions, actions, approvals, chained jobs, backfills) and the screens and API (every change, failed request and setting).
-
-- **Health:** a row of single values: the engine (running or stopped, and when it last ticked; it also logs a heartbeat every 5 minutes), errors, warnings, failed requests, response time (95% of requests answered within), failed actions, skipped schedules and failed runs. A value is coloured, with an icon, only when it needs attention. Click one to show those lines.
-- **Graphs**, one tab each: **Activity** (lines over time by level; click a colour to filter), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** (the slowest calls to splunkd) and **Events** (what the app did most; click one to filter). Engine ticks and Splunk calls are logged at Debug level only.
-- **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found" or "joernh decided an approval in run …", with the job, run and step by name, who did it and the result ("202 accepted: the engine applies it on its next tick · 168 ms"). Errors and warnings are marked. Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.
-- **Why a job did not start** is always in the lines: a scheduled time skipped because the job is disabled, scheduled times missed while the engine was stopped (how many, for how long, and what the job's **Missed runs** setting ran), a run waiting in the queue (for the run before it, or held by a failed run), a step waiting for a free search slot (with the limits), and a job that waits on another job but was not started (disabled, or the other job's run ended the wrong way). **Skipped schedules** counts the first two.
-- **Problems:** a table of errors and warnings grouped by what went wrong (ids and numbers taken out), the most serious first, with how many times, the area, the jobs and runs affected and when last seen; expand one for why and what to do.
-- **Run story:** pick a run (or click **The story of this run**) to read it as a table from created to finished, with the time since the start and the waits explained: "2m 10s: queued: waiting for its turn", "the search for step Count logins was running", "waiting for someone to approve".
-- **Filters:** time (15 minutes to 7 days), job by name, level, part (engine or screens and API), text and run, plus the event or run you clicked (remove them from the chips under the filters). They are kept in the address, so you can share the view. **Live** refreshes every 10 seconds.
-- Opened from a run (**App logs for this run** on the run page, **App logs** in a step's details), it shows that run or step at every level.
-- **Log level** in Settings decides how much is written: **Errors only**, **Warnings and errors**, **Info** (the default: every change, failed request and warning) or **Debug** (also every read request, each engine tick, each search status check and each call to splunkd, with how long it took). A change applies within 30 seconds, without a restart.
-
-**App health alerts.** The app ships three Splunk alerts, **off** until an admin turns them on (**Settings > Health > Turn the alerts on or off**, or Splunk's **Settings > Searches, reports, and alerts**, then **Edit > Enable**):
-
-| Alert | Fires when | Checks |
-|---|---|---|
-| Search Orchestrator - Engine not running | no engine heartbeat for 15 minutes | every 5 minutes |
-| Search Orchestrator - Missed schedules | scheduled runs never started (`schedule_missed`) | every 15 minutes |
-| Search Orchestrator - Errors | the app logged an error | every 15 minutes |
-
-Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Triggered alerts** in Settings > Health), at most once an hour for the engine and errors. To be told by email, Slack or another way, edit the alert and add an action. They search the app's own log lines in `_internal`.
-
-The lines live in `_internal`, one file per process (`search_orchestrator.engine.log` and `search_orchestrator.rest.log` in `$SPLUNK_HOME/var/log/splunk`), as `key=value` fields (`level`, `process`, `event`, `run_id`, `job_id`, `step_id`, `user`, `ms` and more), so you can search them yourself: `index=_internal source="*search_orchestrator.*.log" run_id="daily:1764547200"` (inside the app, the `orchestrator_logs` macro gives the first part). Reading them needs read access to `_internal`, which admins have. They never hold passwords, tokens, webhook URLs or search results.
 
 ### The run graph
 
@@ -569,7 +630,12 @@ A job you aren't allowed to see appears as **Job you can't see**, so a chain sta
 
 ## Calendar
 
-**Calendar**, after Dependencies, shows when jobs run, by **Day**, **Week** or **Month** (weeks start on Monday). Times are in your browser's time zone, named at the top. **Previous**, **Today** and **Next** move the range; **Job** limits it to one job. Click an item to open it: a run opens its run page, other items open the job in the builder. **Month** shows six weeks; each day lists up to three jobs with how many items they have (×N) and a dot for the most serious state that day (failed, late, blocked or paused, running, succeeded; an open dot for scheduled, dotted for backfill), with a legend below. Click a day's number or **+N more** to open that day.
+**Calendar**, after Dependencies, shows when jobs run, by **Day**, **Week** or **Month** (weeks start on Monday).
+
+- Times are in your browser's time zone, named at the top.
+- **Previous**, **Today** and **Next** move the range; **Job** limits it to one job and **Tag** to the jobs with a tag.
+- Click an item to open it: a run opens its run page, other items open the job in the builder.
+- **Month** shows six weeks. Each day lists up to three jobs with how many items they have (×N) and a dot for the most serious state that day (failed, late, blocked or paused, running, succeeded; an open dot for scheduled, dotted for backfill), with a legend below. Click a day's number or **+N more** to open that day.
 
 - **Scheduled** times have a dashed border and muted text. They are the future times of turned-on jobs' enabled schedules; past times show as runs.
 - **Runs** show the job and its state in text with an icon, with the state's colour on a thick left border. A run that passed its deadline also says **Late**. A run is placed at the time it was scheduled for.
@@ -589,7 +655,11 @@ A backfill runs a job once for each time in a past range, oldest first, for exam
 
 The dialog counts the runs before you start. A backfill can hold up to 100 runs over at most 400 days; narrow the range or lengthen the step if it is too big. Each run's scheduled time is its time in the range, so steps summarise that period's window. Backfill runs have no deadline, and neither do the runs they start through completion triggers or start-job actions.
 
-On the **Runs** page, a backfill shows as a line with its progress ("Backfill of 30 runs: 12 finished, 1 running, 17 to go.") and **Cancel backfill**. Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm. Starting a backfill needs the right to run the job. Cancelling needs you to be its creator, to be allowed to edit the job, or to be an admin. Both are audited as `backfill_created`, `backfill_cancelled` and `backfill_done`. Deleting the job cancels its running backfill (audited `backfill_cancelled` with `reason` `job_deleted`), so a new job with the same ID never picks it up.
+On the **Runs** page, a backfill shows as a line with its progress ("Backfill of 30 runs: 12 finished, 1 running, 17 to go.") and **Cancel backfill**.
+
+- Cancelling stops feeding runs and cancels the ones that have not finished, as a group, after you confirm.
+- Starting a backfill needs the right to run the job. Cancelling needs you to be its creator, to be allowed to edit the job, or to be an admin.
+- Deleting the job cancels its running backfill, so a new job with the same ID never picks it up.
 
 ## Re-run from a step
 
@@ -607,6 +677,64 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 - **De-duplicate when reading.** Summarise per time bucket and read with `dedup _time` or `stats latest(...) by _time`.
 - **Check first.** Have the step look for existing summary data for its window and write only if there is none.
 - Keep **Retries** at 0 for steps that write.
+
+## Troubleshooting
+
+**Troubleshooting** in the navigation bar explains what the app itself did and why, from its own log lines: the engine (schedules, runs, searches, conditions, actions, approvals, chained jobs, backfills) and the screens and API (every change, failed request and setting).
+
+- **Health:** a row of single values. A value is coloured, with an icon, only when it needs attention; click one to show those lines.
+  - The engine: running or stopped, and when it last ticked (it logs a heartbeat every 5 minutes).
+  - Errors, warnings, failed requests and response time (95% of requests answered within).
+  - Failed actions, skipped schedules and failed runs.
+- **Graphs**, one tab each: **Activity** (lines over time by level; click a colour to filter), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** and **Events** (what the app did most). Engine ticks and Splunk calls are logged at Debug level only.
+- **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found", with the job, run and step by name, who did it and the result.
+  - Errors and warnings are marked.
+  - Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.
+- **Why a job did not start** is always in the lines:
+  - a scheduled time skipped because the job is disabled;
+  - scheduled times missed while the engine was stopped (how many, for how long, and what the job's **Missed runs** setting ran);
+  - a run waiting in the queue (for the run before it, or held by a failed run);
+  - a step waiting for a free search slot (with the limits);
+  - a job that waits on another job but was not started (disabled, or the other job's run ended the wrong way).
+  - **Skipped schedules** counts the first two.
+- **Searches over the events scanned limit** show as a warning, or as an error when the search was stopped.
+- **Problems:** a table of errors and warnings grouped by what went wrong (ids and numbers taken out), the most serious first, with how many times, the area, the jobs and runs affected and when last seen; expand one for why and what to do.
+- **Run story:** pick a run (or click **The story of this run**) to read it as a table from created to finished, with the time since the start and the waits explained: "2m 10s: queued: waiting for its turn", "the search for step Count logins was running", "waiting for someone to approve".
+- **Filters:** time (15 minutes to 7 days), job by name, level, part (engine or screens and API), text and run, plus the event or run you clicked (remove them from the chips under the filters). They are kept in the address, so you can share the view. **Live** refreshes every 10 seconds.
+- Opened from a run (**App logs for this run** on the run page, **App logs** in a step's details), it shows that run or step at every level.
+- **Log level** in Settings decides how much is written: **Errors only**, **Warnings and errors**, **Info** (the default: every change, failed request and warning) or **Debug** (also every read request, each engine tick, each search status check and each call to splunkd, with how long it took). A change applies within 30 seconds, without a restart.
+
+### App health alerts
+
+The app ships three Splunk alerts, **off** until an admin turns them on (**Settings > Health > Turn the alerts on or off**, or Splunk's **Settings > Searches, reports, and alerts**, then **Edit > Enable**):
+
+| Alert | Fires when | Checks |
+|---|---|---|
+| Search Orchestrator - Engine not running | no engine heartbeat for 15 minutes | every 5 minutes |
+| Search Orchestrator - Missed schedules | scheduled runs never started (`schedule_missed`) | every 15 minutes |
+| Search Orchestrator - Errors | the app logged an error | every 15 minutes |
+
+Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Triggered alerts** in Settings > Health), at most once an hour for the engine and errors. To be told by email, Slack or another way, edit the alert and add an action. They search the app's own log lines in `_internal`.
+
+**Search the lines yourself.**
+
+- They live in `_internal`, one file per process: `search_orchestrator.engine.log` and `search_orchestrator.rest.log` in `$SPLUNK_HOME/var/log/splunk`.
+- Each is `key=value` fields: `level`, `process`, `event`, `run_id`, `job_id`, `step_id`, `user`, `ms` and more.
+- Example: `index=_internal source="*search_orchestrator.*.log" run_id="daily:1764547200"`. Inside the app, the `orchestrator_logs` macro gives the first part.
+- Reading them needs read access to `_internal`, which admins have. They never hold passwords, tokens, webhook URLs or search results.
+
+### Run health dashboard
+
+**Run health** in the navigation bar is a dashboard over the audit index for the chosen time range (last 24 hours by default) and job (**All** by default):
+
+- **Overview:** runs, succeeded, failed, held or blocked, the success rate of finished runs and the median run duration. A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
+- **Runs over time**, stacked by state: succeeded green, failed red, held and blocked amber.
+- **Late runs:** the number of runs that passed their deadline and a list with the deadline, how late each was and its state. Click a row to open the run.
+- **Runs that need attention:** failed, held and blocked runs with the last step error. Click a row to open the run.
+- **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile duration, and how many runs found the step delayed). Durations are measured to within one engine tick.
+- **Performance:** **Runtime per job**, **Events scanned per job**, **Slowest steps by runtime**, and **Peak CPU and memory per job**. They come from the numbers stored on step attempts (none for runs from before 1.23.0); the CPU and memory panel needs read access to `_introspection`.
+- **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
+- **Engine health:** errors, warnings and Python tracebacks from the app's scripts in `_internal`, and how long ago the engine was last seen; that number turns red after 5 minutes. It needs read access to `_internal` and `_introspection`, which admins have.
 
 ## The `| orchestrate` command
 
@@ -629,7 +757,20 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 ## Audit events
 
-Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`), `job_versions_pruned` and `job_version_failed` (the job was saved but its version could not be stored); **Test condition** adds `condition_tested` and **View output** adds `output_viewed` (with `kind`). Snippets add `snippet_saved` (with `created` true for a new snippet, false for a rename) and `snippet_deleted`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). **Many runs at once** adds `bulk_run_action` (with `action`, `count` and `failed`), beside each run's own `command_requested`. Schedules add `schedule_skipped` (a disabled job's scheduled time passed, with `scheduled_time`) and `schedule_missed` (scheduled times passed while the engine was not checking, with `missed`, `seconds`, `policy` and `caught_up`). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to the `orchestrator` index, one JSON event per change with `type`, `_time`, `user`, `job_id` and `run_id` where they apply. **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+
+| Area | Events | Extra fields |
+|---|---|---|
+| Jobs | `job_saved`, `job_deleted`, `job_followed`, `job_unfollowed` | `created`, `owner`; `on`, `notify` |
+| Version history | `job_version_saved`, `job_restored`, `job_versions_pruned`, `job_version_failed` | `from_version`, `to_version` |
+| Runs | `run_created`, `run_state`, `run_late`, `bulk_run_action` | `from`, `to`; `action`, `count`, `failed` |
+| Steps | `step_dispatched`, `step_attempt`, `step_state`, `step_scan_limit` | result and scan counts; `scanned`, `limit`, `action` |
+| Schedules | `schedule_skipped` (job disabled), `schedule_missed` (engine not checking) | `scheduled_time`; `missed`, `seconds`, `policy`, `caught_up` |
+| Conditions | `condition_dispatched`, `condition_evaluated`, `condition_failed`, `condition_cancelled`, `condition_tested` | `edge` (such as `daily>weekly`), `result`, `error` |
+| Approvals | `approval_requested`, `approval_decided`, `approval_ignored` | `decision`, `comment`, `by_timeout`, `as_starter` |
+| Actions | `action_submitted`, `action_done`, `action_retry`, `action_failed` | `action_type`, `attempts`, `error` |
+| Backfills | `backfill_created`, `backfill_cancelled`, `backfill_done` | `reason` (`job_deleted` when the job went) |
+| Other | `output_viewed`, `snippet_saved`, `snippet_deleted`, `command_requested`, `settings_changed` | `kind`; `created` |
 
 ## How it works
 

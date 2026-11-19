@@ -51,6 +51,7 @@ import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './red
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
 import { templateByKey } from './templates';
+import { allTags } from '../jobs/tags';
 
 export interface BuilderApi extends PreviewApi {
     getJob: (jobId: string) => Promise<Job>;
@@ -144,6 +145,18 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const auto = useAutoValidate(job, checkJob, { enabled: !loading && !loadError && !choosingTemplate });
     const serverIssues = auto.issues;
     const checkedJob = auto.checkedJob;
+
+    // Tags other jobs use, offered in Settings > Tags (a failure just offers none).
+    const [knownTags, setKnownTags] = useState<string[]>([]);
+    useEffect(() => {
+        let live = true;
+        api.listJobs()
+            .then((jobs) => live && setKnownTags(allTags(jobs)))
+            .catch(() => undefined);
+        return () => {
+            live = false;
+        };
+    }, [api]);
 
     // "As if scheduled at" defaults once, when the job is ready, to its latest cron slot.
     const defaultsAsked = useRef(false);
@@ -588,6 +601,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         steps={stepsTab}
                         issues={issues}
                         canEdit={meta.canEdit}
+                        knownTags={knownTags}
                         history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r, n) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), afterSaved(r, client.toDefinition(r.job), `Restored version ${n}.`)) }}
                     />
                 </>

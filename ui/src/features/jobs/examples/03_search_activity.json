@@ -3,6 +3,10 @@
   "name": "Example: daily search activity",
   "description": "Summarises yesterday's completed searches per user from the _audit index. If the step fails, an email goes to you@example.com: change the address before you turn the job on.",
   "enabled": false,
+  "tags": [
+    "example",
+    "notifications"
+  ],
   "triggers": [
     {
       "type": "cron",

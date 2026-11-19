@@ -22,5 +22,5 @@ export function filterJobs(jobs: Job[], query: string): Job[] {
     if (!q) {
         return jobs;
     }
-    return jobs.filter((j) => [j.name, j.id, j.owner, j.description].some((v) => (v || '').toLowerCase().includes(q)));
+    return jobs.filter((j) => [j.name, j.id, j.owner, j.description, ...(j.tags || [])].some((v) => (v || '').toLowerCase().includes(q)));
 }

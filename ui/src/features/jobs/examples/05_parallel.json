@@ -3,6 +3,10 @@
   "name": "Example: two branches, one report",
   "description": "Two searches run side by side: splunkd errors by component and warnings by host, both for yesterday. A Results of earlier steps step then works on the rows of both and builds one table.",
   "enabled": false,
+  "tags": [
+    "example",
+    "branches"
+  ],
   "triggers": [
     {
       "type": "cron",

@@ -62,7 +62,8 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 - **An admin who saves someone else's job becomes its owner.** This is audited, and the builder asks first. It stops anyone changing SPL that runs under another person's identity.
 - **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10.
 - **Secrets.** Webhook URLs and headers are kept in Splunk's credential store (`storage/passwords`). The Settings page never shows them again after saving.
-- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job. `so_backfills` holds one document per backfill (its planned run times and progress). Backfill documents are kept; they are not pruned with run records or removed when the job is deleted. `so_snippets` holds one document per snippet, kept until its owner or an admin deletes it. **Every builder (and admin) can see and insert every snippet, including its searches**, whoever owns it; only the owner or an admin renames or deletes one. A snippet holds no secrets, because actions name a destination and its URL and headers stay in the secret store.
+- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job. `so_backfills` holds one document per backfill (its planned run times and progress). Backfill documents are kept; they are not pruned with run records or removed when the job is deleted. `so_snippets` holds one document per snippet, kept until its owner or an admin deletes it. **Every builder (and admin) can see and insert every snippet, including its searches**, whoever owns it; only the owner or an admin renames or deletes one. A snippet holds no secrets, because actions name a destination and its URL and headers stay in the secret store. `so_follows` holds one document per person following a job (the events and how to tell them), removed with the job.
+- **Following a job.** Anyone who may see a job may follow it. Email goes only to the address on the follower's own Splunk account, read when it is sent (the account's `email`), through the fallback notification's system search, so a follower can't send mail to an address of their choosing; the message carries the job, outcome and run link, never results. Webhook destinations can be picked only by builders and admins. Each message is checked at send time: a follower who can no longer see the job gets nothing.
 - **TLS.** Outbound webhooks always verify TLS. Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
 
 ### Saved-search steps and the `| savedsearch` wrapper
@@ -102,6 +103,8 @@ Only users with `orchestrator_admin` see it.
 | Keep run records | 90 days | 1 to 3650 days |
 | Fallback notification | none | an email address or a webhook destination |
 | Splunk Web address | empty | an http(s) URL; makes links in messages absolute |
+| Events scanned limit | none | a whole number of events (`scan_limit`); a step can set its own (`max_scan`) |
+| When a step goes over | Warn | Warn (audit `step_scan_limit`, the search finishes) or Stop the search (it is cancelled and the step fails, then retries if it has retries) |
 
 **Health** shows whether the engine is running, whether the audit index exists, whether a fallback is set and how many commands are waiting, with a warning message for each problem.
 
@@ -251,13 +254,14 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
 | `runs`, `runs/<id>` | GET |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
+| `jobs/<id>/follow` | GET, PUT (`on`: any of `failure`, `late`, `delayed`, `success`; `notify`: `{"type": "email"}` or `{"type": "webhook", "destination"}`), DELETE: the caller's own follow; `GET jobs` adds `following` |
 | `runs/bulk` | POST (`action` `cancel`, `pause`, `resume`, `dismiss`, `rerun`, `approve` or `reject`, `run_ids` 1 to 100, `comment` required to reject; each run is checked as its own route would, so the answer is 200 with `results`: `run_id`, `ok` and, when not, `code` and `message`. A re-run starts from the run's first failed step with the original definition; approve and reject decide every step the run waits on. Audit event `bulk_run_action`) |
 | `runs/<id>/approve` | POST (`step_id`, `decision` `approve` or `reject`, `comment` up to 1000 characters and required to reject; needs `orchestrator_approve`, or the run's starter on a step with no roles; 409 `not_awaiting_approval` when the step isn't waiting or is already decided) |
 | `settings` | GET, PUT (admin) |
 | `destinations`, `destinations/<name>` | GET, POST, DELETE (admin; builders may list) |
 | `health`, `me` | GET (`me` includes `can_approve`) |
 | `selftest` | POST (admin) |
-| `schedule/next` | POST (builders: `cron`, optional `timezone` and `count`; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`) |
+| `schedule/next` | POST (builders: `cron`, optional `timezone` and `count` 1 to 10; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`; with `clashes: true` (and `job_id` to leave out), per slot the other enabled jobs you may see that fire in the same minute) |
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |
 | `jobs/<id>/restore` | POST (`version`: saves that version as a new version; needs the right to edit the job) |
 | `preview/condition` | POST (builders: tests one condition line now, as the caller like a preview; see [Test condition](user-guide.md#test-condition)) |

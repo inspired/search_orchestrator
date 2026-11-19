@@ -3,6 +3,10 @@
   "name": "Example: parameters for component and threshold",
   "description": "Declares two parameters: component (one of a list) and threshold (a number). The first step counts the component's warnings and errors; the report step runs only when the count reaches the threshold. Scheduled runs use the defaults; Run now lets you pick other values.",
   "enabled": false,
+  "tags": [
+    "example",
+    "branches"
+  ],
   "triggers": [
     {
       "type": "cron",

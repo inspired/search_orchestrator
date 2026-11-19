@@ -15,8 +15,25 @@ import failurePath from './08_failure_path.json';
 import slowStep from './09_slow_step.json';
 import chaining from './10_chaining.json';
 import platformHealth from './11_platform_health.json';
+import approvalGate from './12_approval.json';
+import deadline from './13_deadline.json';
+import searchCondition from './14_search_condition.json';
+import summaryIndex from './15_summary_index.json';
+import fanOut from './16_fan_out.json';
+import businessHours from './17_business_hours.json';
+import patientRetries from './18_patient_retries.json';
 
 export type ExampleLevel = 'Simple' | 'Intermediate' | 'Advanced';
+
+/** The tabs of Browse examples; each example's second tag is its group. */
+export type ExampleGroup = 'getting started' | 'branches' | 'reliability' | 'notifications' | 'chaining';
+export const GROUPS: Array<{ id: ExampleGroup; label: string }> = [
+    { id: 'getting started', label: 'Getting started' },
+    { id: 'branches', label: 'Branches and conditions' },
+    { id: 'reliability', label: 'Retries, delays and deadlines' },
+    { id: 'notifications', label: 'Approvals and notifications' },
+    { id: 'chaining', label: 'Chaining jobs' },
+];
 
 export interface ExampleJob {
     title: string;
@@ -24,12 +41,15 @@ export interface ExampleJob {
     summary: string;
     level: ExampleLevel;
     features: string[];
+    group: ExampleGroup;
     job: JobDefinition & { id: string };
 }
 
 const def = (json: unknown) => json as JobDefinition & { id: string };
 
-export const EXAMPLE_JOBS: ExampleJob[] = [
+type Entry = Omit<ExampleJob, 'group'>;
+
+const ENTRIES: Entry[] = [
     {
         title: 'Hourly splunkd errors',
         summary: 'Counts the errors splunkd logged in the hour before each run.',
@@ -107,7 +127,83 @@ export const EXAMPLE_JOBS: ExampleJob[] = [
         features: ['Parallel steps', 'Parameters', 'Simple, SPL and search conditions', 'Approval', 'Deadline', 'Run when', 'Lookup', 'Retries', 'Delayed after', 'Event action', 'Start another job', 'Groups'],
         job: def(platformHealth),
     },
+    {
+        title: 'Keep a daily summary in an index',
+        summary: "Writes yesterday's event counts by host and sourcetype to the summary index, marked with the run id.",
+        level: 'Simple',
+        features: ['Summary index node', '| collect', '$run.id$'],
+        job: def(summaryIndex),
+    },
+    {
+        title: 'Every 30 minutes in business hours',
+        summary: 'A weekday schedule from 08:00 to 17:30 that lists searches the scheduler skipped.',
+        level: 'Simple',
+        features: ['Custom schedule', 'Schedule preview'],
+        job: def(businessHours),
+    },
+    {
+        title: 'Only when a search finds something',
+        summary: 'A search returns results line checks for failed logins; only then does the detail step run.',
+        level: 'Intermediate',
+        features: ['Search returns results', 'Skipped branch', '_audit'],
+        job: def(searchCondition),
+    },
+    {
+        title: 'Finish by 07:00',
+        summary: 'Starts at 06:00 with a deadline of 07:00 and emails when the run is late.',
+        level: 'Intermediate',
+        features: ['Deadline', 'Is late email'],
+        job: def(deadline),
+    },
+    {
+        title: 'Approve before recording',
+        summary: 'Finds the top license-using index, asks an admin to approve, then records it as an event.',
+        level: 'Intermediate',
+        features: ['Approval step', 'Asks for approval email', 'Event action', '$step.first.field$'],
+        job: def(approvalGate),
+    },
+    {
+        title: 'Notify with patient retries',
+        summary: 'A failure email that retries 5 times, from 2 minutes, when the mail server is down.',
+        level: 'Simple',
+        features: ['Job failure action', 'Action retries'],
+        job: def(patientRetries),
+    },
+    {
+        title: 'Start two jobs when done',
+        summary: 'A morning check that starts the hourly errors and top sourcetypes examples when it succeeds.',
+        level: 'Intermediate',
+        features: ['Start another job', 'Two actions on one line'],
+        job: def(fanOut),
+    },
 ];
+
+/** Every example with its group (from its tags), in the order above. */
+export const EXAMPLE_JOBS: ExampleJob[] = ENTRIES.map((e) => ({ ...e, group: ((e.job.tags || [])[1] || 'getting started') as ExampleGroup }));
+
+/** The ids of the examples a job starts or waits for, and theirs in turn (not the job itself). */
+export function examplesNeeded(example: ExampleJob): ExampleJob[] {
+    const byId = new Map(EXAMPLE_JOBS.map((e) => [e.job.id, e] as const));
+    const out: ExampleJob[] = [];
+    const seen = new Set<string>([example.job.id]);
+    const walk = (job: JobDefinition) => {
+        const actions = [...(job.actions || []), ...(job.steps || []).flatMap((s) => s.actions || [])];
+        const refs = [
+            ...actions.filter((a) => a.type === 'start_job' && typeof a.job === 'string').map((a) => a.job as string),
+            ...(job.triggers || []).filter((t) => t.type === 'completion' && t.job).map((t) => t.job as string),
+        ];
+        refs.forEach((id) => {
+            const dep = byId.get(id);
+            if (dep && !seen.has(id)) {
+                seen.add(id);
+                out.push(dep);
+                walk(dep.job);
+            }
+        });
+    };
+    walk(example.job);
+    return out;
+}
 
 export interface AddExamplesResult {
     added: ExampleJob[];
@@ -127,11 +223,24 @@ function failureText(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
 }
 
-/** Saves, one after another and turned off, every example whose id is not a job yet. */
-export async function addExamples(existingIds: Iterable<string>, createJob: (job: JobDefinition) => Promise<SaveResponse>): Promise<AddExamplesResult> {
+/** Saves, one after another and turned off, every example (or only `which`, with the examples
+ * they start or wait for) whose id is not a job yet. Needed ones go first. */
+export async function addExamples(
+    existingIds: Iterable<string>,
+    createJob: (job: JobDefinition) => Promise<SaveResponse>,
+    which: ExampleJob[] = EXAMPLE_JOBS
+): Promise<AddExamplesResult> {
     const existing = new Set(existingIds);
     const out: AddExamplesResult = { added: [], skipped: [], failed: [] };
-    for (const example of EXAMPLE_JOBS) {
+    const queue: ExampleJob[] = [];
+    which.forEach((e) => {
+        [...examplesNeeded(e).reverse(), e].forEach((x) => {
+            if (!queue.includes(x)) {
+                queue.push(x);
+            }
+        });
+    });
+    for (const example of queue) {
         if (existing.has(example.job.id)) {
             out.skipped.push(example);
             continue;

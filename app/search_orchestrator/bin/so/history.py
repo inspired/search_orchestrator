@@ -18,7 +18,7 @@ _SERVER_FIELDS = ("_key", "_user", "owner", "hidden_searches", "created_at", "cr
                   "updated_at", "updated_by",
                   # Screen fields that 1.35.0-1.35.2 could store with a save.
                   "permissions", "next_run", "next_run_beyond", "last_run", "recent_runs",
-                  "warnings")
+                  "warnings", "following")
 _HIDDEN_FIELDS = ("hidden_search", "hidden_search_empty", "mode")
 _LIST_FIELDS = ("steps", "edges", "triggers", "actions", "layout")
 _FIELD_LABELS = {"spl": "the search", "earliest": "the time range", "latest": "the time range"}

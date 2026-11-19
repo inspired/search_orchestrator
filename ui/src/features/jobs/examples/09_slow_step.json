@@ -3,6 +3,10 @@
   "name": "Example: a slow step and a delay alert",
   "description": "A deliberately slow makeresults step (three million rows hashed) counts as delayed 30 seconds after the scheduled time, which emails you@example.com once, and is stopped after 10 minutes (max runtime). Run it now and watch the run graph update live.",
   "enabled": false,
+  "tags": [
+    "example",
+    "reliability"
+  ],
   "triggers": [
     {
       "type": "cron",

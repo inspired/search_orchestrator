@@ -51,7 +51,7 @@ from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
 from . import authz, backfill, hidden, history, model, presets, preview, scheduler, selftest
-from . import approval, tokens
+from . import approval, follows, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -83,12 +83,12 @@ LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "en
                    "delay_alerted", "held", "gave_up")
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
 _META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
-         "hidden_searches", "enabled")
+         "hidden_searches", "enabled", "tags")
 _SERVER_FIELDS = ("owner", "hidden_searches", "created_at", "created_by", "updated_at",
                   "updated_by",
                   # Added by GET jobs for the screens; never part of a saved job.
                   "permissions", "next_run", "next_run_beyond", "last_run", "recent_runs",
-                  "warnings")
+                  "warnings", "following")
 
 
 class ApiError(Exception):
@@ -154,13 +154,15 @@ class _Ctx:
 def _routes():
     from . import condition_test as ct, history_api as hv, output_view as ov, preview_api as pv  # these import this module: no cycle
     from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
-    from . import logs_api as lg
+    from . import follows as fw, logs_api as lg
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
         (r"jobs/(?P<job_id>[^/]+)", {"GET": get_job, "PUT": update_job, "DELETE": delete_job}),
         (r"jobs/(?P<job_id>[^/]+)/runs", {"POST": start_run}),
         (r"jobs/(?P<job_id>[^/]+)/enabled", {"POST": set_enabled}),
+        (r"jobs/(?P<job_id>[^/]+)/follow", {"GET": fw.get_follow, "PUT": fw.put_follow,
+                                            "DELETE": fw.delete_follow}),
         (r"jobs/(?P<job_id>[^/]+)/versions", {"GET": hv.versions}),
         (r"jobs/(?P<job_id>[^/]+)/restore", {"POST": hv.restore}),
         (r"jobs/(?P<job_id>[^/]+)/backfills", {"POST": bf.create_backfill}),
@@ -353,7 +355,11 @@ def list_jobs(ctx, body):
     # ``brief``: without the next and last run, which cost a KV Store query per job.
     if str(body.get("brief")) == "1":
         return 200, {"jobs": [_public_job(ctx, j) for j in jobs]}
-    return 200, {"jobs": [_listed_job(ctx, j, known) for j in jobs]}
+    mine = follows.followed_by(ctx.sys_gw, ctx.user)
+    listed = [_listed_job(ctx, j, known) for j in jobs]
+    for job in listed:
+        job["following"] = job.get("id") in mine
+    return 200, {"jobs": listed}
 
 
 def get_job(ctx, body, job_id):
@@ -438,6 +444,12 @@ def _job_issues(ctx, job):
         elif action["hook"] == "on_approval_requested" and step_id not in approvals:
             issues.append(_issue("error", "bad_action", "Asks for approval only exists on "
                                  "approval steps", step_id))
+        for key, lo, hi, what in (("retries", 0, 10, "Retries must be a whole number from 0 to 10"),
+                                  ("retry_wait", 10, 3600, "Wait before retrying must be from 10 seconds to 1 hour")):
+            value = action.get(key)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)
+                                      or not lo <= value <= hi):
+                issues.append(_issue("error", "bad_action", what, step_id))
         required = {"email": "to", "event": "index", "start_job": "job",
                     "alert_action": "action", "webhook": "destination"}[kind]
         if not isinstance(action.get(required), str) or not action[required]:
@@ -690,6 +702,7 @@ def delete_job(ctx, body, job_id):
         ctx.user_gw.delete_saved_search(entry["owner"], entry["name"])
     ctx.store.delete_job(job_id)
     history.delete_all(ctx.sys_gw, job_id)
+    follows.delete_for_job(ctx.sys_gw, job_id)
     ctx.emit({"type": "job_deleted", "job_id": job_id, "owner": job.get("owner")})
     return 200, {"deleted": job_id}
 
@@ -1073,6 +1086,17 @@ def put_settings(ctx, body):
             if not isinstance(value, str) or value.upper() not in LEVELS:
                 raise _bad_setting("log_level must be one of %s" % ", ".join(LEVELS))
             current[key] = value.upper()
+        elif key == "scan_limit":
+            if value in (None, 0, ""):
+                current[key] = None
+            elif isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10 ** 13:
+                raise _bad_setting("scan_limit must be a whole number of events, or empty for none")
+            else:
+                current[key] = value
+        elif key == "scan_limit_action":
+            if value not in ("warn", "stop"):
+                raise _bad_setting("scan_limit_action must be \"warn\" or \"stop\"")
+            current[key] = value
         elif key == "base_url":
             if value not in (None, "") and not (isinstance(value, str)
                                                 and re.match(r"^https?://[^/\s]+", value)):
@@ -1238,7 +1262,7 @@ def _may_build(ctx, action):
 def schedule_next(ctx, body):
     """The next ``count`` run times of a cron in a zone, for the builder's schedule readout."""
     _may_build(ctx, "preview_schedule")
-    count = _bounded_int(body, "count", 3, 5)
+    count = _bounded_int(body, "count", 3, 10)
     timezone = body.get("timezone") or None
     try:
         spec = cronmod.parse(body.get("cron"))
@@ -1254,10 +1278,35 @@ def schedule_next(ctx, body):
         slots.append(slot)
         after = slot + 1
     offsets = [int(datetime.fromtimestamp(slot, tz).utcoffset().total_seconds()) for slot in slots]
-    return 200, {"slots": slots,
+    out = {}
+    if body.get("clashes") is True:
+        out["clashes"] = _schedule_clashes(ctx, slots, body.get("job_id"))
+    return 200, dict(out, **{"slots": slots,
                  "utc_offsets": offsets,
                  "timezone": timezone if timezone and not isinstance(tz, cronmod.LocalTZ) else None,
-                 "timezone_status": cronmod.tz_status(timezone) if timezone else "ok"}
+                 "timezone_status": cronmod.tz_status(timezone) if timezone else "ok"})
+
+
+def _schedule_clashes(ctx, slots, own_id):
+    """For each slot, the other enabled jobs the user may see whose schedule fires in the
+    same minute (``[{"id", "name"}]``, by name), so the builder can show where runs pile up.
+    Each check is a one-day cron match, so it costs no walk through every minute."""
+    others = [j for j in _visible_jobs(ctx).values()
+              if (j.get("id") or j.get("_key")) != own_id and j.get("enabled") is not False]
+    specs = []
+    for job in others:
+        for spec in scheduler.cron_specs(job):
+            specs.append((job, spec, cronmod.resolve_tz(job.get("timezone"))))
+    out = []
+    for slot in slots:
+        minute = slot - slot % 60
+        hits = {}
+        for job, spec, tz in specs:
+            if cronmod.next_slot(spec, minute, tz, 1) == minute:
+                jid = job.get("id") or job.get("_key")
+                hits[jid] = {"id": jid, "name": job.get("name") or jid}
+        out.append(sorted(hits.values(), key=lambda h: (str(h["name"]).lower(), h["id"])))
+    return out
 
 
 def resolve_timerange(ctx, body):

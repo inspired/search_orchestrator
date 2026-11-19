@@ -32,7 +32,7 @@ describe('TriggerPanel schedule', () => {
         const { dispatch, next } = setup(jobWith([{ type: 'cron', cron: '0 1 * * 1-5' }]));
         expect(screen.getByRole('radio', { name: 'Custom' })).toBeChecked();
         expect(screen.getByLabelText('Cron')).toHaveValue('0 1 * * 1-5');
-        await waitFor(() => expect(next).toHaveBeenCalledWith('0 1 * * 1-5', null, 3));
+        await waitFor(() => expect(next).toHaveBeenCalledWith('0 1 * * 1-5', null, 3, { clashes: true, jobId: undefined }));
         expect(dispatch).not.toHaveBeenCalled();
     });
 
@@ -153,5 +153,27 @@ describe('next-run formatting', () => {
         expect(zoneLabel(null, -16200)).toBe("in the server's time zone (UTC-04:30)");
         expect(zoneLabel(null, 0)).toBe("in the server's time zone (UTC+00:00)");
         expect(zoneLabel(null, null)).toBe("in the server's time zone");
+    });
+});
+
+describe('Schedule preview: more times and other jobs in the same minute', () => {
+    test('shows clashes and switches between 3 and 10 times', async () => {
+        const { default: ScheduleEditor } = jest.requireActual('../features/builder/ScheduleEditor');
+        const { renderThemed } = jest.requireActual('./fixtures');
+        const { screen: s, fireEvent: fe, waitFor: wf } = jest.requireActual('@testing-library/react');
+        const next = jest.fn(async (_c: string, _t: string | null, count = 3) => ({
+            slots: Array.from({ length: count }, (_, i) => 1762477200 + i * 3600),
+            utc_offsets: Array.from({ length: count }, () => 0),
+            timezone: 'UTC',
+            timezone_status: 'ok',
+            clashes: Array.from({ length: count }, (_, i) => (i === 0 ? [{ id: 'q', name: 'Quarter' }] : [])),
+        }));
+        renderThemed(<ScheduleEditor id="t" cron="0 * * * *" timezone="UTC" jobId="daily" nextSlots={next} onChange={jest.fn()} />);
+        await wf(() => expect(s.getAllByTestId('next-slot')).toHaveLength(3));
+        expect(next).toHaveBeenLastCalledWith('0 * * * *', 'UTC', 3, { clashes: true, jobId: 'daily' });
+        expect(s.getByTestId('slot-clash')).toHaveTextContent('same minute as Quarter');
+        fe.click(s.getByText('Show the next 10'));
+        await wf(() => expect(s.getAllByTestId('next-slot')).toHaveLength(10));
+        expect(s.getByText('Show the next 3')).toBeInTheDocument();
     });
 });

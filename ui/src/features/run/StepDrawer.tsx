@@ -102,6 +102,12 @@ export default function StepDrawer({ run, stepId, now, onClose, me = null, onDec
                         <dd>{st.result_count}</dd>
                     </>
                 )}
+                {st.scan_warned !== undefined && st.scan_warned !== null && st.scan_warned === st.attempt && (
+                    <>
+                        <dt>Events scanned</dt>
+                        <dd data-testid="scan-warned">{`Over the step's events scanned limit${st.perf && typeof st.perf.scan_count === 'number' ? ` (${st.perf.scan_count.toLocaleString()} scanned)` : ''}; the search was left to finish.`}</dd>
+                    </>
+                )}
                 {st.error && !decidedText(def, st) && (
                     <>
                         <dt>Error</dt>

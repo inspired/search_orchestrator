@@ -407,3 +407,15 @@ def test_approval_step_no_retry_warning_from_defaults():
     j = _approval_job()
     j["defaults"]["retries"] = 2
     assert not [i for i in validate_job(j) if i["step"] == "gate"]
+
+
+def test_tags_are_a_short_list_of_simple_words():
+    from so import model as m
+    base = {"name": "j", "enabled": True, "steps": [{"id": "a", "type": "inline", "spl": "| makeresults"}]}
+    ok = m.validate_job(dict(base, tags=["Team A", "billing", "nightly-etl"]))
+    assert not [i for i in ok if i["level"] == "error"]
+    for tags, text in ((["x"] * 2, "listed twice"), (["X", "x"], "listed twice"), ("a,b", "list of words"),
+                       ([" lead"], "isn't valid"), (["a" * 41], "isn't valid"),
+                       (["t%d" % i for i in range(11)], "at most 10")):
+        issues = m.validate_job(dict(base, tags=tags))
+        assert any(text in i["message"] for i in issues if i["level"] == "error"), tags

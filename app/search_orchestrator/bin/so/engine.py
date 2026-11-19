@@ -94,7 +94,8 @@ from .store import ACTIVE_RUN_STATES, TERMINAL_RUN_STATES
 log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS = {"max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
-                    "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO"}
+                    "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO",
+                    "scan_limit": None, "scan_limit_action": "warn"}
 TOUCH_EVERY = 300
 MISSED_AFTER = 120  # a schedule not checked for longer than this may have missed slots
 HEARTBEAT_EVERY = 300  # seconds between the engine's heartbeat log lines
@@ -740,7 +741,7 @@ class Engine:
             for sid in list(defs):
                 st = run["steps"][sid]
                 if st.get("state") in IN_FLIGHT and st.get("sid") and not st.get("outcome"):
-                    self._poll(run, sid, defs[sid], now, pending)
+                    self._poll(run, sid, defs[sid], now, pending, settings)
         cond_redispatch = []
         if run.get("state") != "cancelled":
             cond_redispatch = self._conditions_before(run, now, pending)
@@ -1027,7 +1028,40 @@ class Engine:
             row["perf"] = dict(st["perf"])
         return row
 
-    def _poll(self, run, sid, sdef, now, pending):
+    @staticmethod
+    def scan_limit(sdef, settings):
+        """``(events, action)``: the step's own Events scanned limit, else the Settings one
+        (None when neither is set); action is "warn" or "stop" (Settings)."""
+        settings = settings or {}
+        own = sdef.get("max_scan")
+        limit = own if isinstance(own, int) and own > 0 else settings.get("scan_limit")
+        limit = limit if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0 else None
+        action = "stop" if settings.get("scan_limit_action") == "stop" else "warn"
+        return limit, action
+
+    def _scan_check(self, run, sid, sdef, st, status, settings, now, pending, can_stop=True):
+        """True when the search must stop for scanning more events than its limit; with
+        "warn" (or a search that already finished), the step says so once per attempt
+        (audit ``step_scan_limit``) and goes on."""
+        limit, action = self.scan_limit(sdef, settings)
+        if not can_stop:
+            action = "warn"
+        scanned = (status.get("perf") or {}).get("scan_count")
+        if limit is None or not isinstance(scanned, int) or scanned <= limit:
+            return False
+        if action == "stop":
+            pending.events.append(self._event(run, "step_scan_limit", now, step_id=sid,
+                                              sid=st.get("sid"), scanned=scanned, limit=limit,
+                                              action="stop"))
+            return True
+        if st.get("scan_warned") != st.get("attempt"):
+            st["scan_warned"] = st.get("attempt")
+            pending.events.append(self._event(run, "step_scan_limit", now, step_id=sid,
+                                              sid=st.get("sid"), scanned=scanned, limit=limit,
+                                              action="warn"))
+        return False
+
+    def _poll(self, run, sid, sdef, now, pending, settings=None):
         st = run["steps"][sid]
         try:
             status = self.gw.job_status(st["sid"])
@@ -1038,7 +1072,12 @@ class Engine:
         state = status.get("state")
         logs.event(log, logging.DEBUG, "search_status", run_id=_run_id(run), job_id=run.get("job_id"),
                    step_id=sid, sid=st["sid"], state=state, result_count=status.get("result_count"))
-        if state == "running":
+        if state in ("running", "done") and self._scan_check(run, sid, sdef, st, status,
+                                                             settings, now, pending,
+                                                             can_stop=state == "running"):
+            self._control(st["sid"], "cancel")
+            state = "scan_limit"
+        elif state == "running":
             return
         finished = state == "done" and not status.get("finalized")
         # A From previous steps search whose appended input was truncated.
@@ -1066,6 +1105,11 @@ class Engine:
                          "its results may be incomplete" % st["sid"])
             elif state == "failed":
                 error = "search %s failed: %s" % (st["sid"], status.get("error") or "unknown error")
+            elif state == "scan_limit":
+                limit, _ = self.scan_limit(sdef, settings)
+                error = ("stopped: the search scanned %s events, more than its limit of %s "
+                         "(Events scanned limit)" % ((status.get("perf") or {}).get("scan_count"),
+                                                     limit))
             else:
                 error = ("search %s no longer exists: it expired, was deleted or was reaped "
                          "outside the orchestrator" % st["sid"])

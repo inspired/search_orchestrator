@@ -67,7 +67,7 @@ export default function TriggerPanel({ job, index, jobs, nextSlots, dispatch, on
                 </>
             ) : (
                 <>
-                    <ScheduleEditor id={id} cron={trigger.cron || ''} timezone={job.timezone} nextSlots={nextSlots} onChange={(cron) => update({ cron })} />
+                    <ScheduleEditor id={id} cron={trigger.cron || ''} timezone={job.timezone} nextSlots={nextSlots} jobId={job.id} onChange={(cron) => update({ cron })} />
                     <p>
                         Times are in {job.timezone || "the server's time zone"}.{' '}
                         <Button appearance="subtle" label="Change time zone" onClick={onOpenSettings} />
