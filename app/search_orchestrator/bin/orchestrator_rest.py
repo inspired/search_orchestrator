@@ -147,6 +147,7 @@ def _log_to_stderr():
         handler = logging.StreamHandler(sys.stderr)
         handler._so_rest = True
         handler.setLevel(logging.WARNING)
+        handler.addFilter(logs.NotAudit())
         handler.setFormatter(logging.Formatter(
             AUDIT_SOURCE + ": %(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)

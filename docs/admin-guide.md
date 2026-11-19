@@ -155,11 +155,11 @@ Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involve
 | Level | Adds |
 |---|---|
 | ERROR | Failed ticks, failed requests and lost audit events, with the Python traceback |
-| WARNING | Retries and skipped work: searches whose status could not be read, cancel failures, lease lost, server errors from requests |
+| WARNING | Retries and skipped work: searches whose status could not be read, cancel failures, lease lost, server errors from requests; and the audit events that report a failure (failed or retried actions, failed steps and runs, searches that could not start, failed conditions, rejected runs and commands, delayed and late runs, held runs, denied permissions) |
 | INFO | A copy of every audit event (job saved, run created, step dispatched, approval decided, action done …), changing requests (method, path, user, status, ms), engine start, stop, lease taken and standby |
 | DEBUG | Each engine tick (ms, active runs, jobs), each search status check, every read request and every splunkd call (method, path, owner, status, ms) |
 
-Lines never hold passwords, session keys, tokens, headers, request bodies, webhook URLs or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too, as before, so the Run health dashboard's **Engine health** keeps working.
+Lines never hold passwords, session keys, tokens, headers, request bodies, webhook URLs or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too, as before, so the Run health dashboard's **Engine health** keeps working; the copies of audit events do not (they are in the audit index already).
 
 The **Troubleshooting** page (`logs` view) uses four routes, all searching these lines as the caller, so the caller needs read access to `_internal`. Filters: `run_id`, `job_id`, `step_id`, `event`, `process`, `level`, `text`, `range` (15m, 1h, 24h or 7d) and, for lines, `limit` (up to 1000) and `sort` (`newest` or `oldest`).
 

@@ -26,7 +26,7 @@ from collections import OrderedDict
 from . import authz, queue_info
 from .api import ApiError
 from .gateway import APP, GatewayError, oneshot_search
-from .logs import DEFAULT_LEVEL, LEVELS
+from .logs import DEFAULT_LEVEL, FAILURE_EVENTS, LEVELS
 
 ID_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,200}$")
 EVENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
@@ -155,10 +155,13 @@ def calls_query(filters):
 
 
 def problems_query(filters):
-    level_filters = dict(filters, level=filters.get("level") or "WARNING")
-    if level_filters["level"] not in ("ERROR", "WARNING"):
-        level_filters["level"] = "WARNING"
-    return "%s | head %d | fields _time _raw" % (base_terms(level_filters), PROBLEM_LINES)
+    """Errors and warnings, and failure events of any level (lines from before 1.33.2
+    logged them at INFO)."""
+    levels = "ERROR" if filters.get("level") == "ERROR" else "ERROR, WARNING"
+    failures = ", ".join(sorted(FAILURE_EVENTS))
+    return ("%s (level IN (%s) OR event IN (%s) OR (event IN (run_state, step_state) to=\"failed\")"
+            " OR (event=step_attempt outcome=\"failed\")) | head %d | fields _time _raw"
+            % (base_terms(dict(filters, level="")), levels, failures, PROBLEM_LINES))
 
 
 def _filters(body):
@@ -436,6 +439,8 @@ def problems(ctx, body):
         g["first"] = line.get("time")
         if line.get("level") == "ERROR":
             g["level"] = "ERROR"
+        elif g["level"] not in ("ERROR", "WARNING"):
+            g["level"] = "WARNING"
         if line.get("job_id") and line["job_id"] not in g["jobs"]:
             g["jobs"].append(line["job_id"])
         if line.get("run_id"):

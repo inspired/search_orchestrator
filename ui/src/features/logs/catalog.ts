@@ -83,6 +83,8 @@ const HOOK_WORD: Record<string, string> = {
     on_delayed: 'when it is delayed',
     on_late: 'when it misses its deadline',
     on_start: 'when it starts',
+    on_approval_requested: 'when it asks for approval',
+    on_approval_decided: 'when an approval is decided',
 };
 
 const ACTION_WORD: Record<string, string> = {
@@ -137,6 +139,7 @@ export function explainError(error?: string, context: 'action' | 'search' | 'any
         return {};
     }
     const rules: Array<[RegExp, string, string]> = [
+        [/sendemail|smtp|while sending mail/i, 'Splunk could not send the email: its mail server is not set up or not reachable.', 'Set the mail host in Splunk (Settings → Server settings → Email settings) and check that Splunk can reach it.'],
         [/HTTP 401|unauthori[sz]ed/i, 'The other side rejected the credentials.', 'Check the destination’s URL token or headers in Settings → Webhook destinations.'],
         [/HTTP 403|forbidden|not allowed|permission/i, 'The account used is not allowed to do this.', 'Check the job owner’s roles and capabilities, or the target’s permissions.'],
         [/HTTP 404|not found|does not exist|unknown index/i, 'The target does not exist (a URL, saved search, lookup or index).', context === 'action' ? 'Check the action’s target: the destination URL, lookup name or index.' : 'Check the name in the step or action; it may have been renamed or deleted.'],
@@ -150,7 +153,6 @@ export function explainError(error?: string, context: 'action' | 'search' | 'any
         [/finalized/i, 'Someone stopped the search early outside the app, so its results may be incomplete.', 'Re-run the step.'],
         [/chain depth/i, 'Jobs starting jobs went deeper than the chain limit (a loop is likely).', 'Check the Start job actions and completion triggers for a loop.'],
         [/cut short|truncated/i, 'A subsearch hit its limit, so the input was cut short.', 'Narrow the earlier step, or raise the subsearch limits.'],
-        [/sendemail|smtp|mail/i, 'Splunk could not send the email.', 'Check Splunk’s email settings (Settings → Server settings → Email settings).'],
     ];
     for (const [re, why, fix] of rules) {
         if (re.test(e)) {
@@ -353,7 +355,17 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'command': {
             const ok = f.result !== 'rejected';
             const what = COMMAND_WORD[f.command || ''] || f.command || 'act on';
-            return d('run', ok ? 'ok' : 'warning', ok ? `Engine did it: ${what} the run${user ? ` (asked by ${user})` : ''}` : `Engine refused to ${what} the run${f.detail ? `: ${f.detail}` : ''}`, {
+            const done: Record<string, string> = {
+                approve: `Engine applied ${user ? `${user}\u2019s` : 'the'} approval decision${step ? ` for step ${step}` : ''}`,
+                pause: 'Engine paused the run',
+                resume: 'Engine resumed the run',
+                cancel: 'Engine cancelled the run',
+                dismiss: 'Engine dismissed the run',
+                rerun: `Engine started the re-run${step ? ` from step ${step}` : ''}`,
+                cancel_backfill: 'Engine cancelled the backfill',
+            };
+            const okTitle = (done[f.command || ''] || `Engine applied ${f.command || 'the command'}`) + (user && f.command !== 'approve' ? ` (asked by ${user})` : '');
+            return d('run', ok ? 'ok' : 'warning', ok ? okTitle : `Engine refused to ${what} the run${f.detail ? `: ${f.detail}` : ''}`, {
                 result: f.result,
                 who: engine,
                 ...(ok ? {} : { why: f.detail ? `The run’s state did not allow it: ${f.detail}.` : 'The run’s state did not allow it.', fix: 'Reload the run to see its current state.' }),

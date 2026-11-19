@@ -272,4 +272,35 @@ def test_problems_group_the_same_failure_with_different_ids(w):
     assert first["count"] == 2 and first["level"] == "WARNING"
     assert "<sid>" in first["signature"] and "<n>" in first["signature"]
     assert out["problems"][1]["event"] == "action_failed" and out["problems"][1]["jobs"] == ["daily"]
-    assert "level IN (ERROR, WARNING)" in w.gw.search_log[-1][1]
+    assert "(level IN (ERROR, WARNING) OR event IN" in w.gw.search_log[-1][1]
+
+
+# -- failures are warnings (found in a live instance: failed actions were logged at INFO) --
+
+def test_failure_audit_events_are_logged_at_warning(caplog):
+    caplog.set_level(logging.INFO, logger="so")
+    logs.audit_line({"type": "action_failed", "action_type": "email", "error": "Connection refused"})
+    logs.audit_line({"type": "run_state", "from": "running", "to": "failed"})
+    logs.audit_line({"type": "run_state", "from": "running", "to": "succeeded"})
+    logs.audit_line({"type": "command", "command": "pause", "result": "rejected"})
+    levels = [r.levelno for r in caplog.records if r.name == "so.audit"]
+    assert levels == [logging.WARNING, logging.WARNING, logging.INFO, logging.WARNING]
+
+
+def test_audit_copies_stay_out_of_splunkd_log():
+    f = logs.NotAudit()
+    assert not f.filter(logging.LogRecord("so.audit", logging.WARNING, "", 0, "x", None, None))
+    assert f.filter(logging.LogRecord("so.engine", logging.WARNING, "", 0, "x", None, None))
+
+
+def test_problems_find_failure_events_logged_at_info_by_older_versions(w):
+    w.gw.search_handler = lambda owner, query: [
+        {"_time": "2026-11-19T13:19:40Z", "_raw": "2026-11-19 13:19:40,000 +0000 level=INFO process=engine "
+         'logger=so.audit event=action_failed action_type="email" attempts=4 error="action search failed: '
+         'command=\\"sendemail\\", [Errno 111] Connection refused while sending mail to: you@example.com" '
+         'job_id="daily" run_id="daily:manual:1"'}]
+    out = w.call("alice", "GET", "/orchestrator/logs/problems")[1]
+    query = w.gw.search_log[-1][1]
+    assert "event IN (action_failed, action_retry," in query and 'to="failed"' in query
+    assert "level IN (ERROR, WARNING)" in query
+    assert out["problems"][0]["level"] == "WARNING" and out["problems"][0]["event"] == "action_failed"

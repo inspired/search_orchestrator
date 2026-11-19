@@ -78,3 +78,29 @@ describe('log catalog', () => {
         expect(stopped[0]).toMatchObject({ value: 'Stopped', tone: 'error', sub: 'last tick 5m ago' });
     });
 });
+
+describe('lines from a live instance', () => {
+    const real = (raw: Record<string, string>): LogLine => ({ event: raw.event, level: 'WARNING', process: 'engine', job_id: raw.job_id, run_id: raw.run_id, step_id: raw.step_id, fields: raw });
+
+    test('an email that cannot reach a mail server points at Splunk email settings', () => {
+        const d = describeLine(
+            real({ event: 'action_failed', action_type: 'email', attempts: '4', hook: 'on_approval_requested', error: 'action search failed: command="sendemail", [Errno 111] Connection refused while sending mail to: you@example.com' }),
+            names
+        );
+        expect(d.title).toMatch(/^Email failed after 4 tries: action search failed/);
+        expect(d.why).toMatch(/mail server/);
+        expect(d.fix).toMatch(/Email settings/);
+    });
+
+    test('a Start job action whose job is gone, a retry and an applied approval', () => {
+        const gone = describeLine(real({ event: 'action_failed', action_type: 'start_job', attempts: '1', error: "job 'example_hourly_errors' does not exist" }), names);
+        expect(gone.title).toBe("Start job failed after 1 tries: job 'example_hourly_errors' does not exist");
+        expect(gone.why).toMatch(/does not exist/);
+        const retry = describeLine(real({ event: 'action_retry', action_type: 'email', attempts: '2', hook: 'on_complete', error: 'x' }), names);
+        expect(retry.tone).toBe('warning');
+        expect(describeLine(real({ event: 'action_submitted', hook: 'on_approval_requested', scope: 'job' }), names).title).toBe('Actions queued to run when it asks for approval');
+        const applied = describeLine({ ...real({ event: 'command', command: 'approve', result: 'ok', user: 'admin', step_id: 'a', job_id: 'daily' }), level: 'INFO', job_id: 'daily', step_id: 'a' }, names);
+        expect(applied.title).toBe('Engine applied admin’s approval decision for step Count logins');
+        expect(applied.tone).toBe('ok');
+    });
+});

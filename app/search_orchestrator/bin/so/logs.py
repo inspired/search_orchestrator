@@ -10,8 +10,9 @@ A line looks like::
 
     2026-11-19 10:00:00,123 +0000 level=INFO process=engine logger=so.engine event=step_dispatched run_id="daily:1764547200" step_id="a" sid="scheduler__..."
 
-Every audit event is also written here (``audit_line``), so each feature that changes
-state shows up without its own logging; modules add debug detail with ``event``. Lines
+Every audit event is also written here (``audit_line``; at WARNING when it reports a
+failure, such as a failed action or step), so each feature that changes state shows up
+without its own logging; modules add debug detail with ``event``. Lines
 never carry secrets: values of keys that look like secrets are dropped, long values are
 cut, and SPL results are never logged.
 
@@ -79,15 +80,45 @@ def event(logger, level, name, **fields):
 
 _audit_log = logging.getLogger(ROOT + ".audit")
 
+# Audit events that report something going wrong: logged at WARNING so the level filter,
+# the Errors and Warnings counts and Problems find them (the app handled them, so not ERROR).
+FAILURE_EVENTS = frozenset((
+    "action_failed", "action_retry", "step_dispatch_error", "condition_failed", "run_rejected",
+    "chain_depth_exceeded", "possible_orphan_search", "run_held", "hold_alert", "run_late",
+    "step_delayed", "hidden_search_delete_failed", "job_version_failed",
+    "destination_secret_delete_failed", "permission_denied", "approval_ignored"))
+
+
+def audit_level(doc):
+    """WARNING for an audit event that reports a failure, else INFO."""
+    kind = doc.get("type")
+    if kind in FAILURE_EVENTS:
+        return logging.WARNING
+    if kind in ("run_state", "step_state") and doc.get("to") == "failed":
+        return logging.WARNING
+    if kind == "step_attempt" and doc.get("outcome") == "failed":
+        return logging.WARNING
+    if kind == "command" and doc.get("result") == "rejected":
+        return logging.WARNING
+    return logging.INFO
+
+
+class NotAudit(logging.Filter):
+    """Keeps the audit copies out of splunkd.log: they are already in the audit index."""
+
+    def filter(self, record):
+        return record.name != _audit_log.name
+
 
 def audit_line(doc):
-    """Mirror an audit event into the log at INFO (never raises)."""
+    """Mirror an audit event into the log (never raises)."""
     try:
-        if not _audit_log.isEnabledFor(logging.INFO):
+        doc = dict(doc)
+        level = audit_level(doc)
+        if not _audit_log.isEnabledFor(level):
             return
-        fields = {k: v for k, v in dict(doc).items()
-                  if k not in ("type", "_time") and k not in BULKY}
-        event(_audit_log, logging.INFO, str(doc.get("type") or "audit"), **fields)
+        fields = {k: v for k, v in doc.items() if k not in ("type", "_time") and k not in BULKY}
+        event(_audit_log, level, str(doc.get("type") or "audit"), **fields)
     except Exception:
         pass
 

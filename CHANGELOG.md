@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.33.2 (2026-11-19)
+
+Found by testing against a live instance:
+
+- **Failures are warnings:** audit events that report a failure (failed or retried actions, failed steps and runs, searches that could not start, failed conditions, rejected runs and commands, delayed and late runs, held runs, denied permissions) are logged at WARNING instead of INFO, so the Warnings count, the level filter and Problems find them. Problems also finds those events in lines logged at INFO by 1.32–1.33.1. The audit copies stay out of `splunkd.log`.
+- **Troubleshooting wording:** an email that cannot reach a mail server (`sendemail … Connection refused`) now points at Splunk's email settings instead of a host name; actions queued "when it asks for approval"; an applied approval reads "Engine applied admin's approval decision for step …".
+
 ## 1.33.1 (2026-11-19)
 
 - **Troubleshooting follows Splunk's design:** the health tiles are a row of single values (no cards, stripes or sparklines; colour and an icon only on a value that needs attention); the lines, problems and run story are Splunk tables with expandable rows; why and what to do is a Splunk message; filter chips are Splunk chips; graphs use neutral grey with colour kept for warnings and errors.

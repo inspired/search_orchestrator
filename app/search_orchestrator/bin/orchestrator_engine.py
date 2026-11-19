@@ -94,8 +94,10 @@ class _EventWriterHandler(logging.Handler):
     def __init__(self, ew):
         logging.Handler.__init__(self)
         self.ew = ew
-        # Warnings and errors only: the rest goes to the app's own log file (so.logs).
+        # Warnings and errors only, and not the audit copies: the rest goes to the app's own
+        # log file (so.logs).
         self.setLevel(logging.WARNING)
+        self.addFilter(logs.NotAudit())
 
     def emit(self, record):
         severity = {logging.DEBUG: EventWriter.DEBUG, logging.INFO: EventWriter.INFO,
