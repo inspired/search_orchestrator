@@ -17,14 +17,15 @@ export default function RecentRuns({ job }: { job: Job }) {
     const n = failedCount(job);
     return (
         <div>
-            <div role="list" aria-label={`Last ${runs.length} runs of ${job.name}`} style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
+            {/* Icons start at the same left edge as the text above and below (no padding on the first). */}
+            <div role="list" aria-label={`Last ${runs.length} runs of ${job.name}`} style={{ display: 'flex', gap: '6px', alignItems: 'center', margin: '4px 0 2px' }}>
                 {runs.map((r) => {
                     const delayed = isRunDelayed(r);
                     const Icon = statusIcon(r.state, delayed);
                     const label = `${statusLabel(r.state, delayed)} · ${formatTime(r.scheduled_time)}`;
                     const color = r.state === 'failed' ? theme.statusColorHigh : delayed ? theme.statusColorMedium : theme.contentColorMuted;
                     return (
-                        <a key={r.id} role="listitem" href={pageHref('run', { run_id: r.id })} title={label} aria-label={label} data-testid="recent-run" data-state={r.state} style={{ color, display: 'inline-flex', padding: '2px' }}>
+                        <a key={r.id} role="listitem" href={pageHref('run', { run_id: r.id })} title={label} aria-label={label} data-testid="recent-run" data-state={r.state} style={{ color, display: 'inline-flex', lineHeight: 0 }}>
                             <Icon aria-hidden width="16" height="16" />
                         </a>
                     );

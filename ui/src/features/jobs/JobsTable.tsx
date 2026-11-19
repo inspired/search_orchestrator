@@ -155,9 +155,9 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                     <Table.Cell>
                                         <div>
                                             {last && (
-                                                <Link to={pageHref('run', { run_id: last.id })}>
+                                                <Link to={pageHref('run', { run_id: last.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5em', lineHeight: '20px' }}>
                                                     <StatusText state={last.state} delayed={isRunDelayed(last)} />
-                                                    <span style={{ marginLeft: '0.5em' }}>{formatTime(last.scheduled_time)}</span>
+                                                    <span>{formatTime(last.scheduled_time)}</span>
                                                 </Link>
                                             )}
                                             <RecentRuns job={job} />

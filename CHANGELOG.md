@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.35.1 (2026-11-19)
+
+- **Jobs, Last runs:** the last run's state and date sit on one line, and the run icons and "N of the last 10 failed" start at the same left edge as the text above.
+
 ## 1.35.0 (2026-11-19)
 
 - **Jobs page:**
