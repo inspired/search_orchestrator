@@ -261,6 +261,7 @@ class Engine:
         self._tick_runs = 0
         self._said = {}
         self._said_now = set()
+        self._skip = None
 
     # -- the tick -------------------------------------------------------------
 
@@ -284,12 +285,34 @@ class Engine:
             self._tick(now)
             logs.event(log, logging.DEBUG, "tick", ms=int((time.time() - started) * 1000),
                        active_runs=self._tick_runs, jobs=len(self._jobs))
+            self._skipped_ok(now)
         except LeaseLost:
             self._leader = False
             log.warning("lease lost during the tick; stopping it")
         except GatewayError as err:
             _check_auth(err)
+            self._skipped(err, now)
+
+    def _skipped(self, err, now):
+        """A tick Splunk could not serve: warn once per reason, then count quietly (KV Store
+        starting after a restart answers 503 for a minute; that is said once, at INFO)."""
+        reason = "%s: %s" % (type(err).__name__, err)
+        prev = self._skip
+        if prev and prev["reason"] == reason:
+            prev["count"] += 1
+            log.debug("tick skipped again (%s)", reason)
+            return
+        self._skip = {"reason": reason, "count": 1, "since": now}
+        if "initializing" in str(err).lower():
+            logs.event(log, logging.INFO, "waiting_for_kvstore", error=str(err)[:200])
+        else:
             log.warning("tick skipped (%s): %s", type(err).__name__, err)
+
+    def _skipped_ok(self, now):
+        if self._skip:
+            logs.event(log, logging.INFO, "ticks_resumed", skipped=self._skip["count"],
+                       seconds=int(now - self._skip["since"]), reason=self._skip["reason"][:200])
+            self._skip = None
 
     def _keep_lease(self, force=False):
         """Renew the lease during a long tick (every LEASE_RENEW_EVERY seconds, or now if

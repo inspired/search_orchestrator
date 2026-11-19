@@ -30,6 +30,7 @@ from so import logs  # noqa: E402
 from so.actions import ActionRunner  # noqa: E402
 from so.audit import Audit  # noqa: E402
 from so.engine import AuthExpired, Engine  # noqa: E402
+from so.lease import LEASE_SECONDS  # noqa: E402
 from so.gateway import APP, ENGINE_CALL_TIMEOUT, SplunkGateway  # noqa: E402
 from so.store import Store  # noqa: E402
 
@@ -88,6 +89,17 @@ class EngineLoop:
     def run_forever(self):
         while not self.stopping and self.run_once():
             self.sleep(self.tick)
+
+
+def close_quietly(ew):
+    """End the event stream now, ignoring a pipe splunkd already closed while stopping, and
+    make splunklib's own close afterwards a no-op (it would log a BrokenPipeError traceback
+    as an ERROR in splunkd.log on every restart)."""
+    try:
+        ew.close()
+    except (OSError, ValueError):
+        pass
+    ew.close = lambda: None
 
 
 class _EventWriterHandler(logging.Handler):
@@ -155,17 +167,19 @@ class OrchestratorEngine(Script):
             loop.stopping = True
 
         signal.signal(signal.SIGTERM, stop)
-        ew.log(EventWriter.INFO, "engine starting as {} (tick {}s)".format(holder, loop.tick))
+        # Start and stop go to the app's log only: splunkd records everything a modular input
+        # writes to stderr as ERROR, so stderr is kept for real warnings and errors.
         logs.event(log, logging.INFO, "engine_started", holder=holder, tick_seconds=loop.tick,
                    pid=os.getpid())
         loop.run_forever()
         if loop.stopping and loop.engine is not None:
             try:
                 loop.engine.lease.release(holder)
-            except Exception as err:
-                ew.log(EventWriter.WARN, "could not release the lease: {}".format(err))
-        ew.log(EventWriter.INFO, "engine stopped")
+            except Exception as err:  # splunkd is usually stopping too; the lease expires
+                logs.event(log, logging.INFO, "lease_not_released", holder=holder,
+                           error=str(err)[:200], expires_in=LEASE_SECONDS)
         logs.event(log, logging.INFO, "engine_stopped", holder=holder)
+        close_quietly(ew)
 
 
 if __name__ == "__main__":

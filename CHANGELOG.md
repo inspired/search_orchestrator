@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.34.1 (2026-11-19)
+
+Found by restarting a live instance:
+
+- **No more false ERRORs in splunkd.log:** splunkd records everything the engine writes to stderr as ERROR, so "engine starting" and "engine stopped" (41 in a week) now go to the app's log only; a lease that cannot be handed back while splunkd stops is logged there at INFO (`lease_not_released`).
+- **No BrokenPipeError traceback on every restart:** the engine ends its event stream itself and ignores a pipe splunkd already closed (39 tracebacks in a week).
+- **Quiet start:** while KV Store is starting the engine says so once (`waiting_for_kvstore`) instead of warning every 5 seconds; any other reason a tick is skipped warns once, and `ticks_resumed` says how many ticks were skipped and for how long.
+
 ## 1.34.0 (2026-11-19)
 
 - **Why a job did not start is always logged.** Before, a schedule could be skipped without a word.

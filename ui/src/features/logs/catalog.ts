@@ -253,6 +253,12 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
             return d('engine', 'info', 'This engine is on standby: another one holds the lease', { why: 'Only one engine works at a time (on a cluster, the lease holder).' });
         case 'lease_acquired':
             return d('engine', 'ok', `Engine took the lease on ${f.holder || 'this server'} and is now working`);
+        case 'waiting_for_kvstore':
+            return d('engine', 'info', 'Engine waits for KV Store to finish starting', { why: 'Right after Splunk starts, KV Store answers \u201cinitializing\u201d for a minute or so; the engine tries again every tick.' });
+        case 'ticks_resumed':
+            return d('engine', 'ok', `Engine is working again after ${num(f.skipped)} skipped tick${f.skipped === '1' ? '' : 's'} (${spanText(Number(f.seconds) || 0)})`, { result: f.reason });
+        case 'lease_not_released':
+            return d('engine', 'muted', `Engine could not hand back its lease while stopping; it expires in ${f.expires_in || 90} s`, { why: 'splunkd was already shutting down. The next engine takes over when the lease expires (at once if it is the same server).' });
         case 'tick_failed':
             return d('engine', 'error', 'An engine tick failed', { why: 'An unexpected error stopped this tick (see the traceback). The next tick runs as usual.', fix: 'Report the traceback if it repeats.' });
         case 'request_failed':

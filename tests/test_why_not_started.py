@@ -90,3 +90,53 @@ def test_a_downstream_job_not_started_says_why(caplog):
     msgs = lines(caplog, "completion_not_fired")
     assert any('target_job="down"' in m and 'reason="outcome"' in m and 'on="failure"' in m for m in msgs)
     assert any('target_job="off"' in m and 'reason="disabled"' in m for m in msgs)
+
+
+# -- found on a live instance: a restart floods logs and splunkd.log --------------------
+
+def test_kvstore_starting_is_said_once_and_the_recovery_counted(caplog):
+    from so.gateway import KvError
+    caplog.set_level(logging.DEBUG, logger="so")
+    w = World(T0)
+    real = w.engine.lease.acquire
+
+    def initializing(*a, **k):
+        raise KvError('KV Store error: HTTP 503 -- "KV Store is initializing. Please try again later."', status=503)
+    w.engine.lease.acquire = initializing
+    for _ in range(4):
+        w.tick(advance=5)
+    w.engine.lease.acquire = real
+    w.tick(advance=5)
+    msgs = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+    assert len([m for m in msgs if "waiting_for_kvstore" in m]) == 1
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING and "tick skipped" in r.getMessage()]
+    [resumed] = [m for m in msgs if m.startswith("event=ticks_resumed")]
+    assert "skipped=4" in resumed and "seconds=20" in resumed  # first skip to the tick that worked
+
+
+def test_other_skips_warn_once_per_reason(caplog):
+    from so.gateway import KvError
+    caplog.set_level(logging.WARNING, logger="so")
+    w = World(T0)
+
+    def down(*a, **k):
+        raise KvError("KV Store error: connection refused", status=None)
+    w.engine.lease.acquire = down
+    for _ in range(3):
+        w.tick(advance=5)
+    assert len([r for r in caplog.records if "tick skipped" in r.getMessage()]) == 1
+
+
+def test_the_event_stream_closes_quietly_when_splunkd_already_closed_the_pipe():
+    import orchestrator_engine
+
+    class Closed:
+        calls = 0
+
+        def close(self):
+            Closed.calls += 1
+            raise BrokenPipeError(32, "Broken pipe")
+    ew = Closed()
+    orchestrator_engine.close_quietly(ew)
+    ew.close()  # splunklib's own close afterwards does nothing
+    assert Closed.calls == 1
