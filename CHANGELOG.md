@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.37.3 (2026-11-19)
+
+- **Jobs page says when it is filtered:** the Show and Tag choices are remembered in the browser, so a filter from an earlier visit could hide jobs and look like they were gone. While anything hides jobs, a line says "Showing 3 of 12 jobs: tagged billing" with **Show all jobs**.
+
 ## 1.37.2 (2026-11-19)
 
 - **Action rows are pruned:** run-record retention now removes a run's `so_action_runs` rows with the run; they were never pruned before and grew without end.

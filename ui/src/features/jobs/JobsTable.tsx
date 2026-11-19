@@ -128,6 +128,7 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
     const tags = allTags(jobs);
     // A remembered tag no job has any more filters nothing.
     const tag = tags.some((t) => t.toLowerCase() === view.tag.toLowerCase()) ? view.tag : '';
+    const filtersOn = [query.trim() ? `matching "${query.trim()}"` : '', view.show !== 'all' ? SHOW_LABEL[view.show].toLowerCase() : '', tag ? `tagged ${tag}` : ''].filter(Boolean);
     const shown = sortJobs(showJobs(filterJobs(jobs, query), view.show, me), view.sort).filter((j) => hasTag(j, tag));
     return (
         <>
@@ -172,6 +173,21 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                     </div>
                 )}
             </div>
+            {(shown.length < jobs.length) && (
+                <div data-testid="jobs-filtered" style={{ display: 'flex', gap: '12px', alignItems: 'center', margin: '4px 0 8px', color: theme.contentColorMuted }}>
+                    <span>
+                        {`Showing ${shown.length} of ${jobs.length} jobs${filtersOn.length ? `: ${filtersOn.join(', ')}` : ''}`}
+                    </span>
+                    <Link
+                        onClick={() => {
+                            setQuery('');
+                            setView({ show: 'all', tag: '' });
+                        }}
+                    >
+                        Show all jobs
+                    </Link>
+                </div>
+            )}
             {!shown.length && <p>{query.trim() ? `No jobs match "${query.trim()}".` : tag ? `No jobs tagged ${tag} here.` : `No jobs here: ${SHOW_LABEL[view.show].toLowerCase()}.`}</p>}
             {shown.length > 0 && (
                 <Table>

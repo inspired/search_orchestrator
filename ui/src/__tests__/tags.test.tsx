@@ -48,3 +48,19 @@ describe('job tags', () => {
         expect(screen.getByText(/Group jobs by team or system/)).toBeInTheDocument();
     });
 });
+
+describe('filtered Jobs list', () => {
+    beforeEach(() => window.localStorage.setItem('so.jobs.view', JSON.stringify({ tag: 'billing' })));
+    afterEach(() => window.localStorage.removeItem('so.jobs.view'));
+
+    test('a remembered filter says how many jobs it hides, and Show all jobs clears it', () => {
+        const a = job({ id: 'a', name: 'Alpha', tags: ['billing'] });
+        const b = job({ id: 'b', name: 'Bravo' });
+        renderThemed(<JobsTable jobs={[a, b]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByTestId('jobs-filtered')).toHaveTextContent('Showing 1 of 2 jobs: tagged billing');
+        expect(screen.queryByText('Bravo')).toBeNull();
+        fireEvent.click(screen.getByText('Show all jobs'));
+        expect(screen.getByText('Bravo')).toBeInTheDocument();
+        expect(screen.queryByTestId('jobs-filtered')).toBeNull();
+    });
+});
