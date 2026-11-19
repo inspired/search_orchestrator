@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.32.1 (2026-11-19)
+
+- **Log sourcetype:** the app's log files get the sourcetype `orchestrator:log` (`orchestrator:log_<suffix>` in the side-by-side copy) instead of the per-file `…-too_small` sourcetype Splunk guessed, with one event per line, a Python traceback kept with its line and the timestamp read from the line.
+- **How it works** drawing redone to fit the help column without sideways scrolling: parts grouped in areas (the browser, what runs when you use the app, the engine on its own, the gateway to storage and Splunk) with only the 7 hand-offs drawn as arrows; clicking a part lights up the parts it talks to instead of drawing every line. The life of a run and the module table fit the column too.
+
 ## 1.32.0 (2026-11-19)
 
 - **Troubleshooting logs:** the engine and the REST handler (every screen, the alert action and `| orchestrate`) write their own `key=value` log files, `search_orchestrator.<process>.log` in `$SPLUNK_HOME/var/log/splunk`, indexed into `_internal`. Every audit event, request (method, path, user, status, ms), engine start, stop and lease change, error (with traceback) and, at debug level, each tick, search status check and splunkd call. No secrets, bodies or search results. New `orchestrator_logs` macro.

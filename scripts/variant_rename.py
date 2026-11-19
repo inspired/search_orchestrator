@@ -64,6 +64,11 @@ def rules(s, label):
         ("default/data/ui/views/run_health.xml", r"/app/search_orchestrator/run\?",
          "/app/search_orchestrator%s/run?" % s, 3),
         ("default/props.conf", r"^\[orchestrator:audit\]$", "[orchestrator:audit%s]" % s, 1),
+        # The log files' sourcetype: this copy's files and its own sourcetype.
+        ("default/props.conf", r"^\[source::\.\.\./var/log/splunk/search_orchestrator\.",
+         "[source::.../var/log/splunk/search_orchestrator%s." % s, 2),
+        ("default/props.conf", r"^sourcetype = orchestrator:log$", "sourcetype = orchestrator:log" + s, 2),
+        ("default/props.conf", r"^\[orchestrator:log\]$", "[orchestrator:log%s]" % s, 1),
         ("bin/so/audit.py", r'^SOURCETYPE = "orchestrator:audit"$', 'SOURCETYPE = "orchestrator:audit%s"' % s, 1),
         ("bin/so/audit.py", r'^SOURCE = "orchestrator_engine"$', 'SOURCE = "orchestrator_engine%s"' % s, 1),
         ("bin/so/api.py", r'^AUDIT_INDEX = "orchestrator"$', 'AUDIT_INDEX = "orchestrator%s"' % s, 1),

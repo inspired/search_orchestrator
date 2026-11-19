@@ -148,7 +148,7 @@ Viewers need read access to the audit index, `_internal` and `_introspection` (a
 
 ## Logs and troubleshooting
 
-The app writes its own log files to `$SPLUNK_HOME/var/log/splunk`, one per process: `search_orchestrator.engine.log` (the engine) and `search_orchestrator.rest.log` (the REST handler behind every screen, the alert action and `| orchestrate`). splunkd indexes that folder into `_internal` by itself; nothing needs configuring. Each file rotates at 10 MB and keeps 5 old files. The side-by-side test copy writes `search_orchestrator_<suffix>.<process>.log`, so the two never mix.
+The app writes its own log files to `$SPLUNK_HOME/var/log/splunk`, one per process: `search_orchestrator.engine.log` (the engine) and `search_orchestrator.rest.log` (the REST handler behind every screen, the alert action and `| orchestrate`). splunkd indexes that folder into `_internal` by itself; nothing needs configuring. Each file rotates at 10 MB and keeps 5 old files. The app's `props.conf` gives them the sourcetype `orchestrator:log` (one event per line, a Python traceback kept with its line, `key=value` fields); lines indexed before 1.32.1 keep the sourcetype Splunk guessed (`search_orchestrator.<process>-too_small`). The side-by-side test copy writes `search_orchestrator_<suffix>.<process>.log`, so the two never mix.
 
 Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involved (`run_id`, `job_id`, `step_id`, `sid`, `user`), plus `ms` for anything timed. What gets written depends on **Log level** in Settings (`log_level` in `PUT settings`; `ERROR`, `WARNING`, `INFO` or `DEBUG`, default `INFO`), read within 30 seconds without a restart:
 
