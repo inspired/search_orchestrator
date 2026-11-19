@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.34.4 (2026-11-19)
+
+- **Navigation icons:** Dependencies, Calendar and Troubleshooting showed a letter in a grey circle: Splunk's app bar only draws a fixed set of icon names, and `nodeconnection` and `calendar` are not in it. They now use `nodetopology`, `chartgantt` and `filemagnifier`; a test checks every view's icon against Splunk's list.
+
 ## 1.34.3 (2026-11-19)
 
 - **Troubleshooting uses the job editor's words:** a missed schedule names the job's **Missed runs** setting and its option ("Run only the latest missed time"), not "catch-up", and says where to change it. `schedule_missed` and `schedule_skipped` were checked on a live instance (Splunk stopped for 11 minutes: 4 missed, 7 caught up; a disabled job: one line per minute).

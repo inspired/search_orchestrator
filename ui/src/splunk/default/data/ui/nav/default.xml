@@ -2,10 +2,10 @@
 <nav search_view="search">
     <view name="jobs" default="true" icon="layerstriple" />
     <view name="runs" icon="pulse" />
-    <view name="dependencies" icon="nodeconnection" />
-    <view name="calendar" icon="calendar" />
+    <view name="dependencies" icon="nodetopology" />
+    <view name="calendar" icon="chartgantt" />
     <view name="run_health" icon="chartgauge" />
     <view name="settings" icon="cog" />
-    <view name="logs" />
+    <view name="logs" icon="filemagnifier" />
     <view name="help" icon="organizernotebook" />
 </nav>

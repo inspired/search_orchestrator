@@ -169,3 +169,24 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "/app/search_orchestrator_t1/run?run_id=" in dash and "/app/search_orchestrator/" not in dash
     assert not re.search(r"`orchestrator_(index|internal|engine_process)`", dash)
     os.remove(path)
+
+
+# Splunk's app bar draws only these icon names (layout-modern-nav.js, Splunk 10.x); any other
+# name shows the view's first letter in a grey circle (seen on a live instance).
+NAV_ICONS = set("""actions aicanvas alerts bell bookmark bookshelf chartcolumnpanel chartgantt chartgauge
+chartline chartpanels circlesfour cog cylinder cylinderindex dashboards datasets disabled filechart
+filemagnifier filenode forwarderuniversal house layerstriple layout layoutoverview magnifier modules
+monitor networkconnector nodetopology organizernotebook pulse reports search shieldkeyhole star tag""".split())
+
+
+def test_every_nav_view_has_an_icon_splunk_draws():
+    import os
+    import re
+    nav = open(os.path.join(os.path.dirname(__file__), "..", "ui", "src", "splunk", "default", "data",
+                            "ui", "nav", "default.xml")).read()
+    views = re.findall(r"<view ([^>]*)/>", nav)
+    assert views
+    for attrs in views:
+        icon = re.search(r'icon="([^"]*)"', attrs)
+        assert icon, "no icon: %s" % attrs
+        assert icon.group(1) in NAV_ICONS, "Splunk does not draw icon %r" % icon.group(1)
