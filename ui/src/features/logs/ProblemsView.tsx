@@ -31,7 +31,7 @@ export default function ProblemsView({ problems, names, onFilter, nowEpoch }: { 
         );
     }
     return (
-        <Table stripeRows rowExpansion="single">
+        <Table rowExpansion="single">
             <Table.Head>
                 <Table.HeadCell width={70}>Times</Table.HeadCell>
                 <Table.HeadCell width={100}>Level</Table.HeadCell>

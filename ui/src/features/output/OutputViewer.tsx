@@ -183,7 +183,7 @@ export default function OutputViewer({ target, name, runId, job, label = 'View o
                                             : `${view.results.total} row${view.results.total === 1 ? '' : 's'}.`}
                                     </p>
                                     <div data-testid="output-table" style={{ overflow: 'auto', maxHeight: '55vh' }}>
-                                        <Table stripeRows>
+                                        <Table>
                                             <Table.Head>
                                                 {view.results.fields.map((f) => (
                                                     <Table.HeadCell key={f}>{f}</Table.HeadCell>

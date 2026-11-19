@@ -48,7 +48,7 @@ export default function SnippetsDialog({ snippets, error, me, onRename, onDelete
                     {!snippets && !error && <WaitSpinner size="medium" />}
                     {snippets && !snippets.length && <p>No snippets yet. Select nodes on the canvas and choose Save as snippet.</p>}
                     {snippets && snippets.length > 0 && (
-                        <Table stripeRows>
+                        <Table>
                             <Table.Head>
                                 <Table.HeadCell>Name</Table.HeadCell>
                                 <Table.HeadCell>Owner</Table.HeadCell>

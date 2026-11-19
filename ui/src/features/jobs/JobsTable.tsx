@@ -65,7 +65,7 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
             </ControlGroup>
             {!shown.length && <p>{`No jobs match "${query.trim()}".`}</p>}
             {shown.length > 0 && (
-                <Table stripeRows>
+                <Table>
                     <Table.Head>
                         <Table.HeadCell>Name</Table.HeadCell>
                         <Table.HeadCell>Owner</Table.HeadCell>
@@ -86,19 +86,24 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                             return (
                                 <Table.Row key={job.id}>
                                     <Table.Cell>
-                                        {canEdit ? (
-                                            <Link to={pageHref('builder', { job_id: job.id })}>{job.name}</Link>
-                                        ) : (
-                                            job.name
-                                        )}
-                                        <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
-                                            {jobSummary(job, names)}
-                                        </div>
-                                        {(job.warnings || []).map((w) => (
-                                            <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
-                                                {w.step ? `Step ${w.step}: ${w.message}` : w.message}
+                                        {/* One block, so the name and its summary stack instead of running together. */}
+                                        <div>
+                                            <div>
+                                                {canEdit ? (
+                                                    <Link to={pageHref('builder', { job_id: job.id })}>{job.name}</Link>
+                                                ) : (
+                                                    job.name
+                                                )}
                                             </div>
-                                        ))}
+                                            <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
+                                                {jobSummary(job, names)}
+                                            </div>
+                                            {(job.warnings || []).map((w) => (
+                                                <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
+                                                    {w.step ? `Step ${w.step}: ${w.message}` : w.message}
+                                                </div>
+                                            ))}
+                                        </div>
                                     </Table.Cell>
                                     <Table.Cell>{job.owner}</Table.Cell>
                                     <Table.Cell>

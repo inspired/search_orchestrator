@@ -28,7 +28,7 @@ const words = (list: string[]) => (list.length ? list.join(', ') : '—');
 export default function DependencyList({ graph }: { graph: JobGraph }) {
     const nodes = [...graph.nodes].sort((a, b) => a.name.localeCompare(b.name));
     return (
-        <Table stripeRows>
+        <Table>
             <Table.Head>
                 <Table.HeadCell>Job</Table.HeadCell>
                 <Table.HeadCell>Started by</Table.HeadCell>

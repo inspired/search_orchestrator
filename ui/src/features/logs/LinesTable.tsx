@@ -118,7 +118,7 @@ function Details({ line, d, names, base, onFilter }: { line: LogLine; d: Describ
 export default function LinesTable({ lines, names, base, onFilter }: { lines: LogLine[]; names: LogNames; base: SearchLink | null; onFilter: (f: Partial<LogFilters>, story?: boolean) => void }) {
     const t = useTheme();
     return (
-        <Table stripeRows rowExpansion="single">
+        <Table rowExpansion="single">
             <Table.Head>
                 <Table.HeadCell width={100}>Time</Table.HeadCell>
                 <Table.HeadCell width={100}>Level</Table.HeadCell>

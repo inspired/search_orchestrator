@@ -182,7 +182,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
             {rows.length === 0 ? (
                 <p>{runs.length ? 'No runs match these filters.' : 'No runs yet.'}</p>
             ) : (
-                <Table stripeRows>
+                <Table>
                     <Table.Head>
                         <Table.HeadCell>Job</Table.HeadCell>
                         <Table.HeadCell>{showGroups ? 'Latest run' : 'Scheduled time'}</Table.HeadCell>

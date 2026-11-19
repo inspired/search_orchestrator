@@ -147,7 +147,7 @@ export default function RunStory({ runId, lines, names }: { runId: string; lines
                 {' · '}
                 <Link to={pageHref('run', { run_id: runId })}>Open the run</Link>
             </p>
-            <Table stripeRows data-testid="run-story">
+            <Table data-testid="run-story">
                 <Table.Head>
                     <Table.HeadCell width={90}>Since start</Table.HeadCell>
                     <Table.HeadCell width={100}>Level</Table.HeadCell>

@@ -10,7 +10,7 @@ export default function ActionsTab({ actions }: { actions: ActionRun[] }) {
         return <p>No actions have fired for this run.</p>;
     }
     return (
-        <Table stripeRows>
+        <Table>
             <Table.Head>
                 <Table.HeadCell>When</Table.HeadCell>
                 <Table.HeadCell>Step</Table.HeadCell>

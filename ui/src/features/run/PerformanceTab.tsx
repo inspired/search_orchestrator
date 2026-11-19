@@ -93,7 +93,7 @@ export default function PerformanceTab({ run, now }: { run: RunDetail; now: numb
                     {notes.join(' ')}
                 </Message>
             )}
-            <Table stripeRows>
+            <Table>
                 <Table.Head>
                     <Table.HeadCell>Step</Table.HeadCell>
                     <Table.HeadCell>Runtime</Table.HeadCell>

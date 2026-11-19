@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.34.5 (2026-11-19)
+
+- **No striped rows:** in Splunk's dark theme every other table row came out reddish-brown, which read as an error. All tables are plain now.
+- **Jobs:** a job's name and its summary (schedule and steps) are on two lines instead of running together.
+
 ## 1.34.4 (2026-11-19)
 
 - **Navigation icons:** Dependencies, Calendar and Troubleshooting showed a letter in a grey circle: Splunk's app bar only draws a fixed set of icon names, and `nodeconnection` and `calendar` are not in it. They now use `nodetopology`, `chartgantt` and `filemagnifier`; a test checks every view's icon against Splunk's list.
