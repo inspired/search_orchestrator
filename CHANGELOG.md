@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.33.1 (2026-11-19)
+
+- **Troubleshooting follows Splunk's design:** the health tiles are a row of single values (no cards, stripes or sparklines; colour and an icon only on a value that needs attention); the lines, problems and run story are Splunk tables with expandable rows; why and what to do is a Splunk message; filter chips are Splunk chips; graphs use neutral grey with colour kept for warnings and errors.
+
 ## 1.33.0 (2026-11-19)
 
 - **Troubleshooting, rebuilt:**

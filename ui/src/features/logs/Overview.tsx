@@ -8,7 +8,7 @@ import { createURL } from '@splunk/splunk-utils/url';
 import type { LogBreakdown, LogFilters, LogSummary, SearchLink } from '../../api/logs';
 import { eventLabel } from './catalog';
 import type { Tone } from './catalog';
-import { BarList, LineChart, Sparkline, StackedColumns, useTheme } from './charts';
+import { BarList, LineChart, StackedColumns, useTheme } from './charts';
 import type { Point } from './charts';
 import { ToneIcon, ago, toneColor } from './look';
 
@@ -23,7 +23,6 @@ interface Tile {
     value: string;
     sub: string;
     tone: Tone;
-    spark?: Array<number | null>;
     pick?: Pick;
     help: string;
 }
@@ -37,7 +36,6 @@ function ms(v: number | null | undefined): string {
 
 export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null, nowEpoch: number): Tile[] {
     const t = summary ? summary.totals : null;
-    const b = summary ? summary.buckets : [];
     const engine = summary ? summary.engine : null;
     const seen = engine && engine.last_seen ? nowEpoch - engine.last_seen : null;
     const failedReq = t ? t.req_4xx + t.req_5xx : 0;
@@ -51,7 +49,6 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
             value: engine ? (engine.running ? 'Running' : 'Stopped') : '—',
             sub: seen !== null ? `last tick ${ago(seen)}` : 'never seen',
             tone: !engine ? 'muted' : engine.running ? 'ok' : 'error',
-            spark: b.map((x) => x.ticks),
             pick: { filters: { process: 'engine', event: '', level: '' }, graph: 'engine' },
             help: 'From the engine lease: the engine renews it every tick. Stopped means no tick for 90 seconds.',
         },
@@ -61,7 +58,6 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
             value: t ? String(t.error) : '—',
             sub: 'lines at level ERROR',
             tone: t && t.error ? 'error' : 'ok',
-            spark: b.map((x) => x.error),
             pick: { filters: { level: 'ERROR', event: '', process: '' }, graph: 'activity' },
             help: 'Failures the app could not handle: failed ticks or requests, with a traceback.',
         },
@@ -71,7 +67,6 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
             value: t ? String(t.warning) : '—',
             sub: 'retries and skipped work',
             tone: t && t.warning ? 'warning' : 'ok',
-            spark: b.map((x) => x.warning),
             pick: { filters: { level: 'WARNING', event: '', process: '' }, graph: 'activity' },
             help: 'Things that went wrong but were retried or skipped, such as a search status that could not be read.',
         },
@@ -81,7 +76,6 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
             value: t ? String(failedReq) : '—',
             sub: t ? `of ${t.requests}${t.req_5xx ? ` · ${t.req_5xx} server error${t.req_5xx === 1 ? '' : 's'}` : ''}` : '',
             tone: t && t.req_5xx ? 'error' : failedReq ? 'warning' : 'ok',
-            spark: b.map((x) => (x.req_4xx || 0) + (x.req_5xx || 0)),
             pick: { filters: { event: 'request', level: 'DEBUG', process: '' }, graph: 'requests' },
             help: 'Requests from the screens, the alert action and | orchestrate that answered 400 or more.',
         },
@@ -91,7 +85,6 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
             value: ms(p95),
             sub: '95% answered within',
             tone: p95 === null ? 'muted' : p95 >= 5000 ? 'error' : p95 >= 2000 ? 'warning' : 'ok',
-            spark: b.map((x) => x.req_p95),
             pick: { filters: { event: 'request', level: 'DEBUG', process: '' }, graph: 'requests' },
             help: 'How long the slowest 5% of requests took. Previews and searches are slower by nature.',
         },
@@ -116,12 +109,15 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
     ];
 }
 
+/** Single values in one row, as in a Splunk dashboard: a label, the number and a line under
+ * it. Colour only on a value that needs attention (warning or error), never on the rest. */
 export function HealthStrip({ summary, breakdown, onPick, nowEpoch }: { summary: LogSummary | null; breakdown: LogBreakdown | null; onPick: (p: Pick) => void; nowEpoch: number }) {
     const t = useTheme();
+    const items = tiles(summary, breakdown, nowEpoch);
     return (
-        <div role="list" aria-label="Health" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', margin: '12px 0' }}>
-            {tiles(summary, breakdown, nowEpoch).map((x) => {
-                const color = toneColor(t, x.tone);
+        <div role="list" aria-label="Health" style={{ display: 'flex', flexWrap: 'wrap', margin: '16px 0 20px', borderTop: `1px solid ${t.borderColorWeak || t.borderColor}`, borderBottom: `1px solid ${t.borderColorWeak || t.borderColor}` }}>
+            {items.map((x, i) => {
+                const attention = x.tone === 'error' || x.tone === 'warning';
                 return (
                     <button
                         key={x.id}
@@ -131,27 +127,24 @@ export function HealthStrip({ summary, breakdown, onPick, nowEpoch }: { summary:
                         title={`${x.help} Click to show these lines.`}
                         onClick={() => x.pick && onPick(x.pick)}
                         style={{
+                            flex: '1 1 140px',
                             textAlign: 'left',
                             font: 'inherit',
                             color: t.contentColorDefault,
-                            background: t.backgroundColorPopup || t.backgroundColor,
-                            border: `1px solid ${t.borderColorWeak || t.borderColor}`,
-                            borderLeft: `4px solid ${color}`,
-                            borderRadius: '8px',
-                            padding: '10px 12px 6px',
+                            background: 'none',
+                            border: 0,
+                            borderLeft: i ? `1px solid ${t.borderColorWeak || t.borderColor}` : 0,
+                            padding: '12px 16px',
                             cursor: 'pointer',
                             minWidth: 0,
                         }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: t.contentColorMuted }}>
-                            <span style={{ color }}>
-                                <ToneIcon tone={x.tone} size={14} />
-                            </span>
-                            {x.label}
+                        <div style={{ fontSize: '12px', color: t.contentColorMuted }}>{x.label}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '28px', lineHeight: 1.25, fontWeight: 400, color: attention ? toneColor(t, x.tone) : undefined }}>
+                            {attention && <ToneIcon tone={x.tone} size={18} />}
+                            {x.value}
                         </div>
-                        <div style={{ fontSize: '22px', fontWeight: 600, lineHeight: 1.3 }}>{x.value}</div>
-                        <div style={{ fontSize: '11.5px', color: t.contentColorMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.sub}</div>
-                        {x.spark && <Sparkline values={x.spark} color={color} />}
+                        <div style={{ fontSize: '12px', color: t.contentColorMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.sub}</div>
                     </button>
                 );
             })}
@@ -189,13 +182,7 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
             onPick({ filters: { level: level as LogFilters['level'], event: '' } });
         }
     };
-    const box: React.CSSProperties = {
-        background: t.backgroundColorPopup || t.backgroundColor,
-        border: `1px solid ${t.borderColorWeak || t.borderColor}`,
-        borderRadius: '8px',
-        padding: '4px 14px 12px',
-        margin: '0 0 14px',
-    };
+    const box: React.CSSProperties = { margin: '0 0 24px' };
     return (
         <section aria-label="Graphs" style={box}>
             <TabBar activeTabId={graph} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onGraph((selectedTabId as GraphId) || 'activity')}>
@@ -217,8 +204,8 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                             series={[
                                 { key: 'error', label: 'Errors', color: t.statusColorHigh },
                                 { key: 'warning', label: 'Warnings', color: t.statusColorMedium },
-                                { key: 'info', label: 'Info', color: t.statusColorInfo || t.contentColorActive },
-                                { key: 'debug', label: 'Debug', color: t.borderColor },
+                                { key: 'info', label: 'Info', color: t.contentColorMuted },
+                                { key: 'debug', label: 'Debug', color: t.contentColorDisabled || t.borderColorWeak || t.borderColor },
                             ]}
                         />
                         <Hint>
@@ -236,12 +223,12 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                             series={[
                                 { key: 'req_5xx', label: 'Server errors (5xx)', color: t.statusColorHigh },
                                 { key: 'req_4xx', label: 'Refused (4xx)', color: t.statusColorMedium },
-                                { key: 'req_ok', label: 'OK', color: t.statusColorInfo || t.contentColorActive },
+                                { key: 'req_ok', label: 'OK', color: t.contentColorMuted },
                             ]}
                             height={140}
                         />
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Response time, 95th percentile</div>
-                        <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={[{ key: 'req_p95', label: '95th percentile', color: t.statusColorInfo || t.contentColorActive }]} />
+                        <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={[{ key: 'req_p95', label: '95th percentile', color: t.contentColorDefault }]} />
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '12px 0 6px' }}>Slowest routes (95th percentile)</div>
                         <BarList
                             unit="ms"
@@ -270,12 +257,12 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                             unit="ms"
                             height={130}
                             series={[
-                                { key: 'tick_avg', label: 'Average', color: t.statusColorInfo || t.contentColorActive },
+                                { key: 'tick_avg', label: 'Average', color: t.contentColorDefault },
                                 { key: 'tick_max', label: 'Slowest', color: muted, dashed: true },
                             ]}
                         />
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Active runs</div>
-                        <LineChart label="Active runs over time" points={points} long={long} height={110} series={[{ key: 'active_runs', label: 'Active runs', color: t.statusColorInfo || t.contentColorActive }]} />
+                        <LineChart label="Active runs over time" points={points} long={long} height={110} series={[{ key: 'active_runs', label: 'Active runs', color: t.contentColorDefault }]} />
                         <Hint>
                             {debugOff
                                 ? 'Ticks are logged at Debug level only: set Log level to Debug in Settings to fill these graphs. '

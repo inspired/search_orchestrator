@@ -1,40 +1,58 @@
-/* The log lines in words: time, what happened (with its category and tone), the job, run
- * and step by name, who did it and the result. A row opens to why it happened and what to
- * do (for known failures), every field, the traceback and the raw line, with links to the
- * run, its story, lines like it and Search. */
-import React, { useState } from 'react';
+/* The log lines in words, as a Splunk table: time, level, what happened, the area of the app,
+ * the job, run and step by name, who did it and the result. A row expands to why it
+ * happened and what to do (for known failures), every field, the traceback and the line as
+ * written, with links to the run, its story, lines like it and Search. Colour only on
+ * errors and warnings, with an icon and a word. */
+import React from 'react';
 import Link from '@splunk/react-ui/Link';
+import Message from '@splunk/react-ui/Message';
+import Table from '@splunk/react-ui/Table';
 import { createURL } from '@splunk/splunk-utils/url';
 import type { LogFilters, LogLine, LogNames, SearchLink } from '../../api/logs';
 import { pageHref } from '../../components/PageShell';
 import { CATEGORY_LABEL, describe, jobName, stepName } from './catalog';
-import type { Described } from './catalog';
+import type { Described, Tone } from './catalog';
 import { useTheme } from './charts';
-import { CategoryIcon, ToneIcon, lineTime, toneColor } from './look';
+import { ToneIcon, lineTime, toneColor } from './look';
 
 const HIDDEN_FIELDS = new Set(['level', 'process', 'logger']);
 
+/** Why it happened and what to do, as a Splunk message. */
 export function WhyFix({ d }: { d: Described }) {
-    const t = useTheme();
     if (!d.why && !d.fix) {
         return null;
     }
-    const color = toneColor(t, d.tone === 'muted' || d.tone === 'info' || d.tone === 'ok' ? 'info' : d.tone);
     return (
-        <div data-testid="why-fix" style={{ borderLeft: `3px solid ${color}`, padding: '4px 10px', margin: '0 0 10px', background: t.backgroundColorSection || t.backgroundColor, borderRadius: '0 6px 6px 0' }}>
-            {d.why && (
-                <div>
-                    <strong>Why: </strong>
-                    {d.why}
-                </div>
-            )}
-            {d.fix && (
-                <div>
-                    <strong>What to do: </strong>
-                    {d.fix}
-                </div>
-            )}
+        <div data-testid="why-fix" style={{ margin: '0 0 10px' }}>
+            <Message type={d.tone === 'error' ? 'error' : d.tone === 'warning' ? 'warning' : 'info'} appearance="default">
+                {d.why && (
+                    <div>
+                        <strong>Why: </strong>
+                        {d.why}
+                    </div>
+                )}
+                {d.fix && (
+                    <div>
+                        <strong>What to do: </strong>
+                        {d.fix}
+                    </div>
+                )}
+            </Message>
         </div>
+    );
+}
+
+const LEVEL_WORD: Record<Tone, string> = { error: 'Error', warning: 'Warning', ok: 'OK', info: 'Info', muted: 'Detail' };
+
+/** The level as plain text with an icon; colour only for errors and warnings. */
+export function LevelText({ tone }: { tone: Tone }) {
+    const t = useTheme();
+    const attention = tone === 'error' || tone === 'warning';
+    return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35em', color: attention ? toneColor(t, tone) : undefined }}>
+            <ToneIcon tone={tone} size={14} />
+            {LEVEL_WORD[tone]}
+        </span>
     );
 }
 
@@ -59,10 +77,10 @@ function Details({ line, d, names, base, onFilter }: { line: LogLine; d: Describ
     const mono: React.CSSProperties = { fontFamily: t.fontFamilyMono || 'monospace', fontSize: '12px' };
     const href = searchFor(line, base);
     return (
-        <div data-testid="line-details" style={{ padding: '8px 4px 12px 30px' }}>
+        <div data-testid="line-details" style={{ padding: '4px 0 8px' }}>
             <WhyFix d={d} />
             {fields.length > 0 && (
-                <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 14px', margin: '0 0 10px', fontSize: '12.5px' }}>
+                <dl style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '2px 16px', margin: '0 0 10px' }}>
                     {fields.map(([k, v]) => (
                         <React.Fragment key={k}>
                             <dt style={{ color: t.contentColorMuted }}>{k}</dt>
@@ -76,13 +94,13 @@ function Details({ line, d, names, base, onFilter }: { line: LogLine; d: Describ
             )}
             {line.traceback && (
                 <>
-                    <div style={{ color: t.contentColorMuted, fontSize: '12px' }}>Traceback</div>
-                    <pre style={{ ...mono, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '2px 0 10px', padding: '8px', background: t.backgroundColorSection || t.backgroundColor, borderRadius: '6px' }}>{line.traceback}</pre>
+                    <div style={{ color: t.contentColorMuted }}>Traceback</div>
+                    <pre style={{ ...mono, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '2px 0 10px' }}>{line.traceback}</pre>
                 </>
             )}
-            <div style={{ color: t.contentColorMuted, fontSize: '12px' }}>The line as written</div>
+            <div style={{ color: t.contentColorMuted }}>The line as written</div>
             <pre style={{ ...mono, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '2px 0 10px' }}>{(line.raw || '').split('\n')[0]}</pre>
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px' }}>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                 {line.run_id && <Link to={pageHref('run', line.step_id ? { run_id: line.run_id, step: line.step_id } : { run_id: line.run_id })}>Open the run</Link>}
                 {line.run_id && <Link onClick={() => onFilter({ run_id: line.run_id }, true)}>The story of this run</Link>}
                 {line.event && <Link onClick={() => onFilter({ event: line.event, level: 'DEBUG' })}>{`Only lines like this (${line.event})`}</Link>}
@@ -99,93 +117,61 @@ function Details({ line, d, names, base, onFilter }: { line: LogLine; d: Describ
 
 export default function LinesTable({ lines, names, base, onFilter }: { lines: LogLine[]; names: LogNames; base: SearchLink | null; onFilter: (f: Partial<LogFilters>, story?: boolean) => void }) {
     const t = useTheme();
-    const [open, setOpen] = useState<number | null>(null);
-    const cell: React.CSSProperties = { padding: '7px 8px', verticalAlign: 'top', borderTop: `1px solid ${t.borderColorWeak || t.borderColor}` };
-    const head: React.CSSProperties = { ...cell, borderTop: 0, textAlign: 'left', fontSize: '12px', color: t.contentColorMuted, fontWeight: 600, background: t.backgroundColorSection || t.backgroundColor };
     return (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', tableLayout: 'fixed' }}>
-            <colgroup>
-                <col style={{ width: '92px' }} />
-                <col />
-                <col style={{ width: '22%' }} />
-                <col style={{ width: '96px' }} />
-                <col style={{ width: '17%' }} />
-            </colgroup>
-            <thead>
-                <tr>
-                    <th style={head}>Time</th>
-                    <th style={head}>What happened</th>
-                    <th style={head}>Job · run · step</th>
-                    <th style={head}>By</th>
-                    <th style={head}>Result</th>
-                </tr>
-            </thead>
-            <tbody>
+        <Table stripeRows rowExpansion="single">
+            <Table.Head>
+                <Table.HeadCell width={100}>Time</Table.HeadCell>
+                <Table.HeadCell width={100}>Level</Table.HeadCell>
+                <Table.HeadCell>What happened</Table.HeadCell>
+                <Table.HeadCell width={130}>Area</Table.HeadCell>
+                <Table.HeadCell width={220}>Job · run · step</Table.HeadCell>
+                <Table.HeadCell width={100}>By</Table.HeadCell>
+                <Table.HeadCell width={200}>Result</Table.HeadCell>
+            </Table.Head>
+            <Table.Body>
                 {lines.map((line, i) => {
                     const d = describe(line, names);
-                    const color = toneColor(t, d.tone);
-                    const isOpen = open === i;
                     const job = jobName(names, line.job_id);
                     const step = stepName(names, line.job_id, line.step_id);
+                    const key = `${line.time}-${i}`;
                     return (
-                        <React.Fragment key={`${line.time}-${i}`}>
-                            <tr
-                                data-testid={`log-line-${i}`}
-                                data-tone={d.tone}
-                                onClick={() => setOpen(isOpen ? null : i)}
-                                style={{ cursor: 'pointer', background: isOpen ? t.backgroundColorHover || t.backgroundColorSection : undefined, boxShadow: d.tone === 'error' || d.tone === 'warning' ? `inset 3px 0 0 ${color}` : undefined }}
-                            >
-                                <td style={{ ...cell, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: t.contentColorMuted }}>{lineTime(line.time)}</td>
-                                <td style={cell}>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                                        <span style={{ color, flex: 'none', marginTop: '1px' }}>
-                                            <ToneIcon tone={d.tone} size={15} />
-                                        </span>
-                                        <div style={{ minWidth: 0 }}>
-                                            <button
-                                                type="button"
-                                                aria-expanded={isOpen}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setOpen(isOpen ? null : i);
-                                                }}
-                                                style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: t.contentColorDefault, textAlign: 'left', cursor: 'pointer', fontWeight: d.tone === 'error' ? 600 : 400, overflowWrap: 'anywhere' }}
-                                            >
-                                                {d.title}
-                                            </button>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: t.contentColorMuted, marginTop: '2px' }}>
-                                                <CategoryIcon category={d.category} size={12} />
-                                                {CATEGORY_LABEL[d.category]}
-                                                {d.why && <span style={{ color }}>{' · why and what to do inside'}</span>}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td style={{ ...cell, overflowWrap: 'anywhere' }}>
-                                    {job && <div style={{ fontWeight: 500 }}>{job}</div>}
+                        <Table.Row
+                            key={key}
+                            data-testid={`log-line-${i}`}
+                            data-tone={d.tone}
+                            expansionRow={
+                                <Table.Row key={`${key}-x`}>
+                                    <Table.Cell colSpan={7}>
+                                        <Details line={line} d={d} names={names} base={base} onFilter={onFilter} />
+                                    </Table.Cell>
+                                </Table.Row>
+                            }
+                        >
+                            <Table.Cell style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{lineTime(line.time)}</Table.Cell>
+                            <Table.Cell>
+                                <LevelText tone={d.tone} />
+                            </Table.Cell>
+                            <Table.Cell style={{ overflowWrap: 'anywhere' }}>{d.title}</Table.Cell>
+                            <Table.Cell>{CATEGORY_LABEL[d.category]}</Table.Cell>
+                            <Table.Cell style={{ overflowWrap: 'anywhere' }}>
+                                <div>
+                                    {job && <div>{job}</div>}
                                     {line.run_id && (
-                                        <div style={{ fontSize: '12px' }}>
-                                            <Link to={pageHref('run', line.step_id ? { run_id: line.run_id, step: line.step_id } : { run_id: line.run_id })} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                                        <div>
+                                            <Link to={pageHref('run', line.step_id ? { run_id: line.run_id, step: line.step_id } : { run_id: line.run_id })}>
                                                 {`run ${line.run_id.split(':').slice(1).join(':') || line.run_id}`}
                                             </Link>
                                         </div>
                                     )}
-                                    {step && <div style={{ fontSize: '12px', color: t.contentColorMuted }}>{`step ${step}`}</div>}
-                                </td>
-                                <td style={{ ...cell, overflowWrap: 'anywhere' }}>{d.who}</td>
-                                <td style={{ ...cell, fontSize: '12px', color: t.contentColorMuted, overflowWrap: 'anywhere' }}>{d.result || ''}</td>
-                            </tr>
-                            {isOpen && (
-                                <tr>
-                                    <td colSpan={5} style={{ padding: 0, background: t.backgroundColorHover || t.backgroundColorSection }}>
-                                        <Details line={line} d={d} names={names} base={base} onFilter={onFilter} />
-                                    </td>
-                                </tr>
-                            )}
-                        </React.Fragment>
+                                    {step && <div style={{ color: t.contentColorMuted }}>{`step ${step}`}</div>}
+                                </div>
+                            </Table.Cell>
+                            <Table.Cell style={{ overflowWrap: 'anywhere' }}>{d.who}</Table.Cell>
+                            <Table.Cell style={{ color: t.contentColorMuted, overflowWrap: 'anywhere' }}>{d.result || ''}</Table.Cell>
+                        </Table.Row>
                     );
                 })}
-            </tbody>
-        </table>
+            </Table.Body>
+        </Table>
     );
 }

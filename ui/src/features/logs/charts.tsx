@@ -306,7 +306,7 @@ export function BarList({ rows, unit, onPick, empty }: { rows: BarRow[]; unit?: 
                         {r.label}
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                        <span style={{ height: 10, width: `${Math.max((r.value / max) * 70, 1)}%`, background: r.color || t.statusColorInfo, borderRadius: '0 4px 4px 0', flex: 'none' }} />
+                        <span style={{ height: 10, width: `${Math.max((r.value / max) * 70, 1)}%`, background: r.color || t.contentColorMuted, borderRadius: '0 2px 2px 0', flex: 'none' }} />
                         <span style={{ fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             <strong>{fmt(r.value, unit)}</strong>
                             {r.note && <span style={{ color: t.contentColorMuted }}>{` · ${r.note}`}</span>}
@@ -315,20 +315,5 @@ export function BarList({ rows, unit, onPick, empty }: { rows: BarRow[]; unit?: 
                 </button>
             ))}
         </div>
-    );
-}
-
-/** A tiny line for a tile, no axes. */
-export function Sparkline({ values, color }: { values: Array<number | null>; color: string }) {
-    const nums = values.map((v) => (typeof v === 'number' ? v : 0));
-    if (nums.length < 2) {
-        return null;
-    }
-    const max = Math.max(...nums, 1);
-    const d = nums.map((v, i) => `${i ? 'L' : 'M'}${(i / (nums.length - 1)) * 100},${28 - (v / max) * 26}`).join(' ');
-    return (
-        <svg aria-hidden viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: '100%', height: 22, display: 'block' }}>
-            <path d={d} fill="none" stroke={color} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-        </svg>
     );
 }

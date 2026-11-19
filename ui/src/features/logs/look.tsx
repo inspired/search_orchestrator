@@ -2,10 +2,10 @@
  * and a word, never colour alone), category icons and time formats. */
 import React from 'react';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
+import CrossCircle from '@splunk/react-icons/CrossCircle';
 import Clock from '@splunk/react-icons/Clock';
 import Cog from '@splunk/react-icons/Cog';
 import Cylinder from '@splunk/react-icons/Cylinder';
-import ExclamationCircle from '@splunk/react-icons/ExclamationCircle';
 import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
 import Filter from '@splunk/react-icons/Filter';
 import LayersTriple from '@splunk/react-icons/LayersTriple';
@@ -37,9 +37,9 @@ export function toneColor(t: Theme, tone: Tone): string {
 export const TONE_WORD: Record<Tone, string> = { error: 'Error', warning: 'Warning', ok: 'OK', info: 'Info', muted: 'Detail' };
 
 export function ToneIcon({ tone, size = 16 }: { tone: Tone; size?: number }) {
-    const Icon = tone === 'error' ? ExclamationCircle : tone === 'warning' ? ExclamationTriangle : tone === 'ok' ? CheckCircle : null;
+    const Icon = tone === 'error' ? CrossCircle : tone === 'warning' ? ExclamationTriangle : tone === 'ok' ? CheckCircle : null;
     if (!Icon) {
-        return <span aria-hidden style={{ display: 'inline-block', width: size, textAlign: 'center' }}>•</span>;
+        return null;
     }
     return (
         <span role="img" aria-label={TONE_WORD[tone]} style={{ display: 'inline-flex' }}>

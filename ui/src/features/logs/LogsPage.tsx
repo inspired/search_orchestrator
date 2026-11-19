@@ -14,6 +14,7 @@
  * drawer link here with run_id and step_id filled in. */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
+import Chip from '@splunk/react-ui/Chip';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
 import Message from '@splunk/react-ui/Message';
@@ -244,7 +245,7 @@ export default function LogsPage({ api = defaultApi }: { api?: LogsApi }) {
                     </>
                 )}
             </p>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <ControlGroup label="Time" labelPosition="top">
                     <RadioBar aria-label="Time" value={draft.range} onChange={(_e: unknown, { value }: { value: unknown }) => apply({ range: value as LogRange })}>
                         {RANGES.map((r) => (
@@ -279,23 +280,19 @@ export default function LogsPage({ api = defaultApi }: { api?: LogsApi }) {
                 </ControlGroup>
                 {text('text', 'Text', '180px')}
                 {text('run_id', 'Run ID', '200px')}
-                <Button appearance="primary" label={busy ? 'Searching…' : 'Search'} disabled={busy} onClick={() => apply()} />
-                <Switch value="live" selected={live} appearance="toggle" onClick={() => setLive((v) => !v)}>
-                    {live ? `Live (every ${LIVE_MS / 1000} s)` : 'Live'}
-                </Switch>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', paddingTop: '22px' }}>
+                    <Button appearance="primary" label={busy ? 'Searching…' : 'Search'} disabled={busy} onClick={() => apply()} />
+                    <Switch value="live" selected={live} appearance="toggle" onClick={() => setLive((v) => !v)}>
+                        {live ? `Live (every ${LIVE_MS / 1000} s)` : 'Live'}
+                    </Switch>
+                </div>
             </div>
             {chips.length > 0 && (
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0 0' }}>
                     {chips.map((c) => (
-                        <button
-                            key={c.key}
-                            type="button"
-                            aria-label={`Remove filter ${c.label}`}
-                            onClick={() => apply({ [c.key]: '' } as Partial<LogFilters>)}
-                            style={{ font: 'inherit', fontSize: '12.5px', padding: '2px 10px', borderRadius: '12px', border: `1px solid ${t.borderColor}`, background: t.backgroundColorSection || t.backgroundColor, color: t.contentColorDefault, cursor: 'pointer' }}
-                        >
-                            {`${c.label}  ×`}
-                        </button>
+                        <Chip key={c.key} value={c.key} onRequestRemove={() => apply({ [c.key]: '' } as Partial<LogFilters>)}>
+                            {c.label}
+                        </Chip>
                     ))}
                     <Link onClick={() => apply({ event: '', run_id: '', step_id: '', text: '', level: '', process: '', job_id: '' })}>Clear all filters</Link>
                 </div>

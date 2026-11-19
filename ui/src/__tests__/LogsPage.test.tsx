@@ -116,7 +116,7 @@ describe('Troubleshooting page', () => {
         });
         await waitFor(() => expect(a.searchLogs).toHaveBeenLastCalledWith(expect.objectContaining({ event: 'action_failed' })));
         expect(window.location.search).toContain('event=action_failed');
-        expect(screen.getByRole('button', { name: /Remove filter Event: Actions failed/ })).toBeInTheDocument();
+        expect(screen.getByText('Event: Actions failed')).toBeInTheDocument();
     });
 
     test('graph tabs switch; the requests graph lists the slowest routes', async () => {
@@ -137,10 +137,12 @@ describe('Troubleshooting page', () => {
             fireEvent.click(screen.getByRole('tab', { name: /Problems/ }));
         });
         const p = await screen.findByTestId('problem');
-        expect(p).toHaveTextContent('×3');
-        expect(p).toHaveTextContent('jobs: Daily logins');
-        expect(p).toHaveTextContent('2 runs');
-        expect(within(p).getByTestId('why-fix')).toHaveTextContent('What to do');
+        expect(p).toHaveTextContent('3');
+        expect(p).toHaveTextContent('Webhook failed after 3 tries');
+        expect(p).toHaveTextContent('Daily logins');
+        expect(p).toHaveTextContent('Error');
+        fireEvent.click(within(p).getByRole('button', { expanded: false }));
+        expect(screen.getByTestId('why-fix')).toHaveTextContent('What to do');
     });
 
     test('run story: pick a run, read its events oldest first', async () => {
