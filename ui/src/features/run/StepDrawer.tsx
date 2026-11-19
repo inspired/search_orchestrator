@@ -9,6 +9,7 @@ import { formatDuration, formatTime } from '../../format';
 import ApprovalBox, { decidedText } from './ApprovalBox';
 import { stepReasonText } from '../../components/WaitReason';
 import OutputViewer from '../output/OutputViewer';
+import { logsHref } from '../logs/logsHref';
 
 /** Links to a search job. `createURL` adds the locale and encodes the sid. */
 export function searchJobUrl(sid: string): string {
@@ -140,6 +141,12 @@ export default function StepDrawer({ run, stepId, now, onClose, me = null, onDec
                         </dd>
                     </>
                 )}
+                <dt>App logs</dt>
+                <dd>
+                    <Link to={logsHref(run.id, stepId)} openInNewContext>
+                        What the app logged for this step
+                    </Link>
+                </dd>
             </dl>
             {(def.output || (def.actions || []).some((a) => a.type === 'email' || a.type === 'event')) && (
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>

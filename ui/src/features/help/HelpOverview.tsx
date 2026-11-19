@@ -50,6 +50,8 @@ export const FEATURES: FeatureCard[] = [
     { title: 'Performance', text: 'Runtime, events scanned, disk, CPU and memory per step.', anchor: 'performance', Icon: Stopwatch },
     { title: 'Run health', text: 'A dashboard from the audit index and _internal.', anchor: 'run-health-dashboard', Icon: ChartGauge },
     { title: '| orchestrate', text: 'Start, check and test jobs from a search.', anchor: 'the--orchestrate-command', Icon: Magnifier },
+    { title: 'Troubleshooting', text: 'What the app logged, by run, step and level; the log level is in Settings.', anchor: 'troubleshooting', Icon: Filter },
+    { title: 'How it works', text: 'A drawing of every part of the app and how they call each other.', anchor: 'how-it-works', Icon: NodeConnection },
 ];
 
 const STEPS = [

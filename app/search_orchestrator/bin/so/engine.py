@@ -83,7 +83,7 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import approval, authz, backfill, hidden, model, scheduler, tokens
+from . import approval, authz, backfill, hidden, logs, model, scheduler, tokens
 from . import deadline as deadlinemod
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
@@ -94,7 +94,7 @@ from .store import ACTIVE_RUN_STATES, TERMINAL_RUN_STATES
 log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS = {"max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
-                    "result_retention": 86400, "run_retention_days": 90}
+                    "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO"}
 TOUCH_EVERY = 300
 PRUNE_EVERY = 3600
 STATE_SAVE_EVERY = 60
@@ -251,12 +251,13 @@ class Engine:
         self.clock = clock
         self.holder = holder
         self.lease = Lease(gateway)
-        self._leader = False
+        self._leader = None  # None until the first tick (so a standby engine says so once)
         self._lease_at = 0
         self._estate = None
         self._estate_saved = None
         self._estate_urgent = False
         self._jobs = {}
+        self._tick_runs = 0
 
     # -- the tick -------------------------------------------------------------
 
@@ -264,14 +265,22 @@ class Engine:
         now = int(self.clock())
         try:
             if not self.lease.acquire(self.holder, now):
+                if self._leader is not False:
+                    logs.event(log, logging.INFO, "standby", holder=self.holder,
+                               reason="another engine holds the lease")
                 self._leader = False
                 return
+            if not self._leader:
+                logs.event(log, logging.INFO, "lease_acquired", holder=self.holder)
             self._lease_at = now
             if not self._leader or self._estate is None:
                 self._estate = self.store.get_engine_state()
                 self._estate_saved = now
                 self._leader = True
+            started = time.time()
             self._tick(now)
+            logs.event(log, logging.DEBUG, "tick", ms=int((time.time() - started) * 1000),
+                       active_runs=self._tick_runs, jobs=len(self._jobs))
         except LeaseLost:
             self._leader = False
             log.warning("lease lost during the tick; stopping it")
@@ -292,6 +301,7 @@ class Engine:
 
     def _tick(self, now):
         settings = self._settings()
+        logs.set_level(settings.get("log_level"))
         jobs = {}
         for job in self.store.list_jobs():
             jobs[job.get("id") or job.get("_key")] = job
@@ -303,6 +313,7 @@ class Engine:
         backfill.feed(self, jobs, settings, now)
         self._keep_lease()
         runs = self.store.list_active_runs()
+        self._tick_runs = len(runs)
         held = [r for r in self.store.list_runs({"held": True}) if r.get("state") == "failed"]
         self._hold_alerts(held, jobs, now)
         self._promote(runs, held, jobs, now)
@@ -915,6 +926,8 @@ class Engine:
             log.warning("status of search %s failed: %s", st["sid"], err)
             return
         state = status.get("state")
+        logs.event(log, logging.DEBUG, "search_status", run_id=_run_id(run), job_id=run.get("job_id"),
+                   step_id=sid, sid=st["sid"], state=state, result_count=status.get("result_count"))
         if state == "running":
             return
         finished = state == "done" and not status.get("finalized")

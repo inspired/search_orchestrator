@@ -1,6 +1,7 @@
 /* One illustration for each ## and ### heading of the user guide, by the heading's anchor
  * (HelpPage's slugify). The help page draws it right under its heading. */
 import React from 'react';
+import Architecture from './Architecture';
 import { Bars, Chips, Code, Figure, Flow, MiniCalendar, MiniTable, Notes, Panel } from './illustrationKit';
 
 const n = (id: string, f: Parameters<typeof Flow>[0]['nodes'][number]['f'], label: string, x: number, y: number, extra: Partial<Parameters<typeof Flow>[0]['nodes'][number]> = {}) => ({
@@ -425,6 +426,19 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
+    troubleshooting: () => (
+        <Figure caption="Troubleshooting shows the app's own log lines: filter by run, step, level and time; errors stand out.">
+            <MiniTable
+                head={['Time', 'Level', 'Part', 'Event', 'Run and step']}
+                rows={[
+                    ['10:00:05', 'ERROR', 'Engine', 'step_dispatch_error', 'daily:42 · score'],
+                    ['10:00:00', 'INFO', 'Engine', 'step_dispatched', 'daily:42 · count'],
+                    ['09:59:58', 'INFO', 'Screens and API', 'request POST jobs/daily/runs 201', ''],
+                ]}
+            />
+        </Figure>
+    ),
+    'how-it-works': Architecture,
     'help-in-the-app': () => (
         <Figure caption="Learn more links beside fields open the matching section of this page.">
             <Panel title="Conditions" rows={[['Check', 'SPL expression ▾'], ['', '[Learn more about conditions]']]} />

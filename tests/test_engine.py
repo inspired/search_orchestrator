@@ -858,7 +858,7 @@ def test_engine_loop_survives_unexpected_errors():
 def test_settings_defaults():
     assert enginemod.DEFAULT_SETTINGS == {
         "max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
-        "result_retention": 86400, "run_retention_days": 90}
+        "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO"}
 
 
 # --- review fix round 1 ------------------------------------------------------------

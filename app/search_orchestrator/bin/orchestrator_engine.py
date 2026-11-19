@@ -26,15 +26,18 @@ sys.path.insert(0, _BIN)
 
 from splunklib.modularinput import Argument, EventWriter, Scheme, Script  # noqa: E402
 
+from so import logs  # noqa: E402
 from so.actions import ActionRunner  # noqa: E402
 from so.audit import Audit  # noqa: E402
 from so.engine import AuthExpired, Engine  # noqa: E402
-from so.gateway import ENGINE_CALL_TIMEOUT, SplunkGateway  # noqa: E402
+from so.gateway import APP, ENGINE_CALL_TIMEOUT, SplunkGateway  # noqa: E402
 from so.store import Store  # noqa: E402
 
 MAIN_STANZA = "orchestrator_engine://main"
 DEFAULT_TICK = 5
 DEFAULT_INDEX = "orchestrator"
+
+log = logging.getLogger("so.engine.loop")
 
 
 def make_gateway(server_uri, session_key):
@@ -79,6 +82,7 @@ class EngineLoop:
             return False
         except Exception as err:  # never let one bad tick stop the engine
             self.log(EventWriter.ERROR, "tick failed: {}: {}".format(type(err).__name__, err))
+            log.exception("event=tick_failed error=%s", type(err).__name__)
         return True
 
     def run_forever(self):
@@ -90,6 +94,8 @@ class _EventWriterHandler(logging.Handler):
     def __init__(self, ew):
         logging.Handler.__init__(self)
         self.ew = ew
+        # Warnings and errors only: the rest goes to the app's own log file (so.logs).
+        self.setLevel(logging.WARNING)
 
     def emit(self, record):
         severity = {logging.DEBUG: EventWriter.DEBUG, logging.INFO: EventWriter.INFO,
@@ -120,6 +126,7 @@ class OrchestratorEngine(Script):
         logger = logging.getLogger("so")
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
+        logs.setup(APP, "engine")
         stanza = MAIN_STANZA if MAIN_STANZA in inputs.inputs else next(iter(inputs.inputs), None)
         if stanza != MAIN_STANZA:
             ew.log(EventWriter.WARN, "only {} runs the engine; {} stays idle".format(
@@ -147,6 +154,8 @@ class OrchestratorEngine(Script):
 
         signal.signal(signal.SIGTERM, stop)
         ew.log(EventWriter.INFO, "engine starting as {} (tick {}s)".format(holder, loop.tick))
+        logs.event(log, logging.INFO, "engine_started", holder=holder, tick_seconds=loop.tick,
+                   pid=os.getpid())
         loop.run_forever()
         if loop.stopping and loop.engine is not None:
             try:
@@ -154,6 +163,7 @@ class OrchestratorEngine(Script):
             except Exception as err:
                 ew.log(EventWriter.WARN, "could not release the lease: {}".format(err))
         ew.log(EventWriter.INFO, "engine stopped")
+        logs.event(log, logging.INFO, "engine_stopped", holder=holder)
 
 
 if __name__ == "__main__":

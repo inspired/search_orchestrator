@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.32.0 (2026-11-19)
+
+- **Troubleshooting logs:** the engine and the REST handler (every screen, the alert action and `| orchestrate`) write their own `key=value` log files, `search_orchestrator.<process>.log` in `$SPLUNK_HOME/var/log/splunk`, indexed into `_internal`. Every audit event, request (method, path, user, status, ms), engine start, stop and lease change, error (with traceback) and, at debug level, each tick, search status check and splunkd call. No secrets, bodies or search results. New `orchestrator_logs` macro.
+- **Log level** in Settings (`log_level`: ERROR, WARNING, INFO, DEBUG; default INFO), applied within 30 seconds without a restart.
+- **Troubleshooting page** in the navigation bar: the app's log lines with quick views (errors and warnings, the engine, screens and API), filters for run, job, step, level, part, text and time, the full line on click and Open in Search. **App logs for this run** on the run page and **App logs** in a step's details open it filtered. `GET logs` searches the lines as the caller.
+- **How it works** on the help page: a clickable drawing of every part of the app (pages, REST handler, alert action, search command, engine, API modules, scheduler, evaluator, actions, gateway, KV Store, hidden saved searches, secrets, indexes) and the calls between them, the life of a run as a sequence diagram, and a table of every Python module.
+
 ## 1.31.2 (2026-11-19)
 
 Fixes from a code review of 1.29.1–1.31.1:

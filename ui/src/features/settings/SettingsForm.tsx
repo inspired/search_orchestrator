@@ -76,7 +76,16 @@ export interface Draft {
     /** A webhook fallback's body preset; the page doesn't edit it, but keeps it. */
     preset: string;
     baseUrl: string;
+    logLevel: LogLevel;
 }
+
+export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG';
+export const LOG_LEVELS: { value: LogLevel; label: string }[] = [
+    { value: 'ERROR', label: 'Errors only' },
+    { value: 'WARNING', label: 'Warnings and errors' },
+    { value: 'INFO', label: 'Info (default): every change, request and warning' },
+    { value: 'DEBUG', label: 'Debug: also each tick, search status and Splunk call' },
+];
 
 function toDraft(s: Settings): Draft {
     const ints: Record<string, string> = {};
@@ -92,6 +101,7 @@ function toDraft(s: Settings): Draft {
         destination: fb && fb.type === 'webhook' ? fb.destination : '',
         preset: (fb && fb.type === 'webhook' && fb.preset) || '',
         baseUrl: s.base_url || '',
+        logLevel: ((s.log_level as string) || 'INFO').toUpperCase() as LogLevel,
     };
 }
 
@@ -134,6 +144,9 @@ export function changes(original: Settings, d: Draft): Partial<Settings> {
     }
     if (d.baseUrl.trim() !== base.baseUrl) {
         out.base_url = d.baseUrl.trim() || null;
+    }
+    if (d.logLevel !== base.logLevel) {
+        out.log_level = d.logLevel;
     }
     return out as Partial<Settings>;
 }
@@ -218,6 +231,24 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                     </ControlGroup>
                 );
             })}
+
+            <Heading level={2}>Logs</Heading>
+            <ControlGroup
+                label="Log level"
+                labelFor="settings-log-level"
+                labelPosition="top"
+                help="What the app writes to its log files (search_orchestrator.<process>.log in _internal). Applies within 30 seconds, no restart. See Troubleshooting."
+            >
+                <Select
+                    inputId="settings-log-level"
+                    value={draft.logLevel}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => set({ logLevel: value as LogLevel })}
+                >
+                    {LOG_LEVELS.map((l) => (
+                        <Select.Option key={l.value} value={l.value} label={l.label} />
+                    ))}
+                </Select>
+            </ControlGroup>
 
             <Heading level={2}>Fallback notification</Heading>
             <p>

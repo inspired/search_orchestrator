@@ -11,6 +11,8 @@ import json
 import logging
 import time
 
+from . import logs
+
 SOURCETYPE = "orchestrator:audit"
 SOURCE = "orchestrator_engine"
 
@@ -30,6 +32,7 @@ class Audit:
 
         doc = {k: v for k, v in dict(event).items() if v is not None}
         doc["_time"] = int(doc.get("_time") if doc.get("_time") is not None else self.clock())
+        logs.audit_line(doc)
         try:
             data = json.dumps(doc, sort_keys=True, default=str)
             self.writer.write_event(Event(data=data, time="%d" % doc["_time"], index=self.index,

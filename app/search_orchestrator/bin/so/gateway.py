@@ -27,16 +27,18 @@ Rulings proven on the real server (docs/m1-procedure.md):
   (the self-test reads its audit event back with it).
 """
 import json
+import logging
 import re
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol
 from urllib.parse import quote, urlsplit
 
-from . import alert_forms
+from . import alert_forms, logs
 
 APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
@@ -440,6 +442,17 @@ class Gateway(Protocol):
     def preview_results(self, sid: str, count: int) -> Dict[str, Any]: ...
 
 
+_call_log = logging.getLogger("so.splunkd")
+
+
+def _log_call(method, path, owner, started, status=None, error=None):
+    """DEBUG: each splunkd call (method, path, owner, status, time; never its parameters,
+    which can hold SPL or message text). A failed call is logged by the caller that
+    handles it, so it stays DEBUG here too."""
+    logs.event(_call_log, logging.DEBUG, "splunkd_call", method=method.upper(), path=path,
+               owner=owner, status=status, ms=int((time.time() - started) * 1000), error=error)
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -472,10 +485,17 @@ class SplunkGateway:
 
     def _call(self, method, path, owner="nobody", app=APP, **params):
         func = getattr(self.service, method)
+        started = time.time()
         try:
             response = func(path, owner=owner, app=app, output_mode="json", **params)
         except (socket.error, ssl.SSLError) as err:
+            _log_call(method, path, owner, started, error="connection error: %s" % err)
             raise GatewayError("connection error: {}".format(err), transient=True)
+        except Exception as err:
+            _log_call(method, path, owner, started, status=getattr(err, "status", None),
+                      error=type(err).__name__)
+            raise
+        _log_call(method, path, owner, started, status=getattr(response, "status", 200))
         return response.body.read().decode("utf-8")
 
     @staticmethod

@@ -6,5 +6,6 @@
     <view name="calendar" icon="calendar" />
     <view name="run_health" icon="chartgauge" />
     <view name="settings" icon="cog" />
+    <view name="logs" />
     <view name="help" icon="organizernotebook" />
 </nav>

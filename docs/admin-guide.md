@@ -146,6 +146,23 @@ The **Run health** dashboard (Dashboard Studio, view `run_health`) reads only th
 
 Viewers need read access to the audit index, `_internal` and `_introspection` (admin and sc_admin have it). The run page's **Performance** tab runs two searches as the viewer (CPU and memory from `_introspection`, and for steps from before 1.23.0 run time and counts from `_audit`); without access to either, the tab shows a note instead. The side-by-side test copy (`scripts/package_variant.sh`) suffixes all four macros and the script names they match, so each copy's dashboard shows only its own engine.
 
+## Logs and troubleshooting
+
+The app writes its own log files to `$SPLUNK_HOME/var/log/splunk`, one per process: `search_orchestrator.engine.log` (the engine) and `search_orchestrator.rest.log` (the REST handler behind every screen, the alert action and `| orchestrate`). splunkd indexes that folder into `_internal` by itself; nothing needs configuring. Each file rotates at 10 MB and keeps 5 old files. The side-by-side test copy writes `search_orchestrator_<suffix>.<process>.log`, so the two never mix.
+
+Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involved (`run_id`, `job_id`, `step_id`, `sid`, `user`), plus `ms` for anything timed. What gets written depends on **Log level** in Settings (`log_level` in `PUT settings`; `ERROR`, `WARNING`, `INFO` or `DEBUG`, default `INFO`), read within 30 seconds without a restart:
+
+| Level | Adds |
+|---|---|
+| ERROR | Failed ticks, failed requests and lost audit events, with the Python traceback |
+| WARNING | Retries and skipped work: searches whose status could not be read, cancel failures, lease lost, server errors from requests |
+| INFO | A copy of every audit event (job saved, run created, step dispatched, approval decided, action done …), changing requests (method, path, user, status, ms), engine start, stop, lease taken and standby |
+| DEBUG | Each engine tick (ms, active runs, jobs), each search status check, every read request and every splunkd call (method, path, owner, status, ms) |
+
+Lines never hold passwords, session keys, tokens, headers, request bodies, webhook URLs or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too, as before, so the Run health dashboard's **Engine health** keeps working.
+
+The **Troubleshooting** page (`logs` view) and `GET logs` (filters `run_id`, `job_id`, `step_id`, `process`, `level`, `text`, `range` of 15m, 1h, 24h or 7d, `limit` up to 1000) search these lines as the caller, so the caller needs read access to `_internal`. Search them yourself with the `orchestrator_logs` macro (`index=_internal source="*search_orchestrator.*.log"`).
+
 ## Step previews
 
 The job editor can run a step and show its rows. See [Previewing steps](user-guide.md#previewing-steps).

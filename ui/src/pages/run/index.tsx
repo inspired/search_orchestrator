@@ -1,6 +1,7 @@
 /* Run detail: header with controls, why-it-needs-attention banner, and tabs for the
  * timeline, graph (live while the run is active, under a progress strip), logs, actions and parameters. */
 import React, { useEffect, useState } from 'react';
+import Link from '@splunk/react-ui/Link';
 import Message from '@splunk/react-ui/Message';
 import TabBar from '@splunk/react-ui/TabBar';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
@@ -32,6 +33,7 @@ import RunProgress from '../../features/run/RunProgress';
 import StepDrawer from '../../features/run/StepDrawer';
 import Timeline from '../../features/run/Timeline';
 import { formatDuration, formatTime } from '../../format';
+import { logsHref } from '../../features/logs/logsHref';
 
 const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
 
@@ -121,6 +123,9 @@ function RunPage() {
                         )}
                         <span>{`Scheduled: ${formatTime(run.scheduled_time)}`}</span>
                         {run.rerun_count > 0 && <span>{`Re-runs: ${run.rerun_count}`}</span>}
+                        <Link to={logsHref(run.id)} openInNewContext>
+                            App logs for this run
+                        </Link>
                     </div>
                     {tab === 'timeline' && (
                         <Timeline run={run} now={now} selected={selected} onSelect={setSelected} />

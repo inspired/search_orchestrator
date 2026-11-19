@@ -151,6 +151,7 @@ class _Ctx:
 def _routes():
     from . import condition_test as ct, history_api as hv, output_view as ov, preview_api as pv  # these import this module: no cycle
     from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
+    from . import logs_api as lg
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -174,6 +175,7 @@ def _routes():
         (r"runs/(?P<run_id>[^/]+)/approve", {"POST": ap.approve}),
         (r"runs/(?P<run_id>[^/]+)/performance", {"GET": pf.performance}),
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
+        (r"logs", {"GET": lg.search_logs}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
         (r"alert_actions", {"GET": list_alert_actions}),
@@ -939,6 +941,11 @@ def put_settings(ctx, body):
             current[key] = value
         elif key == "fallback":
             current[key] = _check_fallback(ctx, value)
+        elif key == "log_level":
+            from .logs import LEVELS
+            if not isinstance(value, str) or value.upper() not in LEVELS:
+                raise _bad_setting("log_level must be one of %s" % ", ".join(LEVELS))
+            current[key] = value.upper()
         elif key == "base_url":
             if value not in (None, "") and not (isinstance(value, str)
                                                 and re.match(r"^https?://[^/\s]+", value)):

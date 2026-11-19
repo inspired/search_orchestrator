@@ -367,6 +367,8 @@ export interface Settings {
     run_retention_days: number;
     fallback: { type: 'email'; to: string } | { type: 'webhook'; destination: string; preset?: string } | null;
     base_url: string | null;
+    /** ERROR, WARNING, INFO (default) or DEBUG: what the app writes to its log files. */
+    log_level?: string;
     [key: string]: unknown;
 }
 

@@ -222,6 +222,23 @@ describe('Settings', () => {
         );
     });
 
+    test('the log level shows in Settings and is sent only when it changes', async () => {
+        renderThemed(<SettingsPage api={fakeApi()} />);
+        expect(await screen.findByText('Log level')).toBeInTheDocument();
+        const draft: Draft = {
+            ints: { max_searches: '10', max_searches_per_job: '4', queue_cap: '20', result_retention: '24', run_retention_days: '90' },
+            fallbackType: 'email',
+            email: 'ops@example.com',
+            destination: '',
+            preset: '',
+            baseUrl: '',
+            logLevel: 'INFO',
+        };
+        expect(changes(SETTINGS, draft)).toEqual({});
+        expect(changes(SETTINGS, { ...draft, logLevel: 'DEBUG' })).toEqual({ log_level: 'DEBUG' });
+        expect(changes({ ...SETTINGS, log_level: 'DEBUG' }, { ...draft, logLevel: 'DEBUG' })).toEqual({});
+    });
+
     test('a webhook fallback keeps its preset when the destination changes', () => {
         const original: Settings = { ...SETTINGS, fallback: { type: 'webhook', destination: 'slack_ops', preset: 'slack' } };
         const draft: Draft = {
@@ -231,6 +248,7 @@ describe('Settings', () => {
             destination: 'pager',
             preset: 'slack',
             baseUrl: '',
+            logLevel: 'INFO',
         };
         expect(changes(original, draft)).toEqual({ fallback: { type: 'webhook', destination: 'pager', preset: 'slack' } });
         // Unchanged, the preset is not dropped either.

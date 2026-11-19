@@ -484,6 +484,16 @@ The **Performance** tab on the run page has one row per step with **Step**, **Ru
 - **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
 - **Engine health:** errors, warnings and Python tracebacks from the app's scripts in `_internal`, and how long ago the engine was last seen; that number turns red after 5 minutes. It needs read access to `_internal` and `_introspection`, which admins have.
 
+### Troubleshooting
+
+**Troubleshooting** in the navigation bar shows what the app itself logged: the engine (schedules, runs, steps, searches, conditions, actions, approvals, chained jobs, backfills) and the screens and API (every request, preview and setting change, with its status and how long it took). Every change that writes an audit event is logged too, and errors come with their Python traceback.
+
+- **Quick views:** **Errors and warnings**, **The engine** and **Screens and API calls**. Opened from a run (**App logs for this run** on the run page, **App logs** in a step's details), it shows that run or step at every level.
+- **Filters:** run, job and step id, level, part (engine or screens and API), a phrase and the time (15 minutes to 7 days). Click a line to see all of it; **Open this search in Search** opens the same search.
+- **Log level** in Settings decides how much is written: **Errors only**, **Warnings and errors**, **Info** (the default: every change, request and warning) or **Debug** (also each engine tick, each search status check and each call to splunkd, with how long it took). A change applies within 30 seconds, without a restart.
+
+The lines live in `_internal`, one file per process (`search_orchestrator.engine.log` and `search_orchestrator.rest.log` in `$SPLUNK_HOME/var/log/splunk`), as `key=value` fields (`level`, `process`, `event`, `run_id`, `job_id`, `step_id`, `user`, `ms` and more), so you can search them yourself: `index=_internal source="*search_orchestrator.*.log" run_id="daily:1764547200"` (inside the app, the `orchestrator_logs` macro gives the first part). Reading them needs read access to `_internal`, which admins have. They never hold passwords, tokens, webhook URLs or search results.
+
 ### The run graph
 
 The **Graph** tab on a run shows the job as the same flow you built, with each step's state and each action's result. Groups are always drawn expanded here, so no step is hidden. Click a step to open its details.
@@ -588,6 +598,12 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 ## Audit events
 
 Every change is written to the `orchestrator` index. Version history adds `job_version_saved`, `job_restored` (with `from_version` and `to_version`), `job_versions_pruned` and `job_version_failed` (the job was saved but its version could not be stored); **Test condition** adds `condition_tested` and **View output** adds `output_viewed` (with `kind`). Snippets add `snippet_saved` (with `created` true for a new snippet, false for a rename) and `snippet_deleted`. Approval steps add `approval_requested`, `approval_decided` (with `decision`, `user`, `comment`, `by_timeout` and `as_starter`) and `approval_ignored` (a decision for a step that was not waiting or was already decided). Deadlines add `run_late`, and backfills add `backfill_created`, `backfill_cancelled` and `backfill_done`. SPL conditions add `condition_dispatched`, `condition_evaluated` (with `edge` such as `daily>weekly` and `result` true or false), `condition_failed` (with `error`) and `condition_cancelled` (a run that ended while its condition was still being checked). **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+
+## How it works
+
+A technical drawing of the app: every part, which files hold it and how the parts call each other. Click a part in the first drawing to see what it does and what it talks to. The second drawing follows one run from saving the job to its last action; the table lists every Python module.
+
+In short: the pages in your browser call one REST endpoint (`/orchestrator`), which checks who you are and saves jobs in KV Store and each step as a hidden saved search. A separate engine process ticks every 5 seconds: it creates runs when a schedule is due, starts each step's saved search, checks it until it finishes, decides from the lines and conditions what runs next, and sends the actions. The pages follow along by reading the same KV Store records. Every change is an audit event in `index=orchestrator` and a line in the app's log in `_internal`.
 
 ## Help in the app
 
