@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.35.2 (2026-11-19)
+
+- **Help brought up to date:** How it works describes the Troubleshooting page and routes, the engine logging why a job did not start (skipped and missed schedules, queue and search-slot waits) and the log file's sourcetype and warning levels; the life of a run ends with "anything that did not start says why". The Troubleshooting illustration shows the health values and the new lines; Follow runs shows the Jobs page's run icons.
+
 ## 1.35.1 (2026-11-19)
 
 - **Jobs, Last runs:** the last run's state and date sit on one line, and the run icons and "N of the last 10 failed" start at the same left edge as the text above.

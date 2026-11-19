@@ -301,6 +301,13 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     { from: 'b', to: 'c' },
                 ]}
             />
+            <MiniTable
+                head={['Job', 'Next run', 'Last runs']}
+                rows={[
+                    ['Daily logins', 'in 6 min', '✓ ✓ ✗ ✓ ✓  · 1 of the last 5 failed'],
+                    ['Weekly rollup', 'Mon 06:00', '✓ ✓ ✓ ✓ ✓'],
+                ]}
+            />
         </Figure>
     ),
     performance: () => (
@@ -427,13 +434,22 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     troubleshooting: () => (
-        <Figure caption="Troubleshooting tells what the app did in words, with why and what to do for failures, health tiles and graphs above.">
+        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start.">
+            <Chips
+                items={[
+                    { text: 'Engine: Running', tone: 'muted' },
+                    { text: 'Errors 0', tone: 'muted' },
+                    { text: 'Skipped schedules 4', tone: 'warn' },
+                    { text: 'Failed actions 1', tone: 'bad' },
+                ]}
+            />
             <MiniTable
-                head={['Time', 'What happened', 'Job · step', 'Result']}
+                head={['Time', 'Level', 'What happened', 'Job']}
                 rows={[
-                    ['10:00:05', '✗ Webhook failed after 3 tries: HTTP 404', 'Daily logins', 'why and what to do inside'],
-                    ['10:00:00', '✓ Search for step Count finished: 1 204 results', 'Daily logins · Count', '3.2 s'],
-                    ['09:59:58', 'alice started Daily logins now', 'Daily logins', '201 created · 90 ms'],
+                    ['10:02:01', 'Warning', 'Daily logins missed 4 scheduled runs: nothing checked the schedule for 11 min', 'Daily logins'],
+                    ['10:01:00', 'Warning', 'Scheduled run at 10:01 skipped: the job is disabled', 'Weekly rollup'],
+                    ['10:00:05', 'Error', 'Webhook failed after 3 tries: HTTP 404', 'Daily logins'],
+                    ['10:00:00', 'Info', 'Run waits for run daily:cron:1 to finish (running)', 'Daily logins'],
                 ]}
             />
         </Figure>
