@@ -86,7 +86,8 @@ FAILURE_EVENTS = frozenset((
     "action_failed", "action_retry", "step_dispatch_error", "condition_failed", "run_rejected",
     "chain_depth_exceeded", "possible_orphan_search", "run_held", "hold_alert", "run_late",
     "step_delayed", "hidden_search_delete_failed", "job_version_failed",
-    "destination_secret_delete_failed", "permission_denied", "approval_ignored"))
+    "destination_secret_delete_failed", "permission_denied", "approval_ignored",
+    "schedule_missed"))
 
 
 def audit_level(doc):

@@ -104,3 +104,27 @@ describe('lines from a live instance', () => {
         expect(applied.tone).toBe('ok');
     });
 });
+
+describe('why a job did not start', () => {
+    const ev = (event: string, fields: Record<string, string>): LogLine => ({ event, level: 'INFO', process: 'engine', job_id: 'daily', fields: { event, ...fields } });
+
+    test('skipped and missed schedules say why and what to do', () => {
+        const skipped = describeLine(ev('schedule_skipped', { reason: 'disabled', scheduled_time: '1763542800' }), names);
+        expect(skipped.title).toMatch(/^Scheduled run of Daily logins at .* skipped: the job is disabled$/);
+        expect(skipped.fix).toMatch(/Backfill/);
+        const missed = describeLine(ev('schedule_missed', { missed: '30', at_least: 'false', seconds: '2595600', since: '1763542800', policy: 'latest', caught_up: '1', catchup_cap: '7' }), names);
+        expect(missed.title).toBe('Daily logins missed 30 scheduled runs: nothing checked the schedule for 30 days');
+        expect(missed.why).toMatch(/ran only the latest slot/);
+        expect(missed.result).toBe('1 caught up');
+    });
+
+    test('waits in the queue, for a search slot, and downstream jobs', () => {
+        expect(describeLine(ev('run_waiting', { reason: 'held', by_run: 'daily:cron:1' }), names).fix).toMatch(/Re-run or Dismiss/);
+        expect(describeLine(ev('run_waiting', { reason: 'waiting_for_run', by_run: 'daily:cron:1', by_state: 'running' }), names).title).toBe('Run of Daily logins waits for run daily:cron:1 to finish (running)');
+        const slot = describeLine({ ...ev('step_waiting', { reason: 'search_slots', running: '10', max_searches: '10', running_for_job: '2', max_searches_per_job: '4' }), step_id: 'a' }, names);
+        expect(slot.title).toBe('Step Count logins is ready but waits for a free search slot');
+        expect(slot.result).toBe('2/4 for the job · 10/10 in all');
+        expect(describeLine(ev('completion_not_fired', { target_job: 'daily', reason: 'outcome', on: 'failure', outcome: 'succeeded' }), names).title).toBe('Daily logins was not started: it starts when this job fails, and this run succeeded');
+        expect(eventLabel('schedule_skipped,schedule_missed')).toBe('Schedules skipped (job disabled) or Schedules missed (engine not checking)');
+    });
+});

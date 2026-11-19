@@ -96,6 +96,7 @@ log = logging.getLogger(__name__)
 DEFAULT_SETTINGS = {"max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
                     "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO"}
 TOUCH_EVERY = 300
+MISSED_AFTER = 120  # a schedule not checked for longer than this may have missed slots
 PRUNE_EVERY = 3600
 STATE_SAVE_EVERY = 60
 HOLD_ALERT_EVERY = 86400
@@ -258,6 +259,8 @@ class Engine:
         self._estate_urgent = False
         self._jobs = {}
         self._tick_runs = 0
+        self._said = {}
+        self._said_now = set()
 
     # -- the tick -------------------------------------------------------------
 
@@ -302,6 +305,7 @@ class Engine:
     def _tick(self, now):
         settings = self._settings()
         logs.set_level(settings.get("log_level"))
+        self._said_now = set()
         jobs = {}
         for job in self.store.list_jobs():
             jobs[job.get("id") or job.get("_key")] = job
@@ -325,6 +329,8 @@ class Engine:
         self._keep_lease()
         self._prune(settings, now)
         self._save_estate(now)
+        # A wait that ended is said again if it comes back.
+        self._said = {k: v for k, v in self._said.items() if k in self._said_now}
 
     def _settings(self):
         out = dict(DEFAULT_SETTINGS)
@@ -357,14 +363,47 @@ class Engine:
                 self._estate_urgent = True
             elif job.get("enabled") is not False:
                 slots = scheduler.due_runs(job, last, now)
+                self._report_missed(job_id, job, last, now, slots)
                 for slot in slots:
                     self._create_cron_run(job, slot, settings, now)
                 if slots:
                     self._estate_urgent = True
+            else:
+                self._report_disabled(job_id, job, last, now)
             checked[job_id] = now  # a disabled job does not catch up later
         for job_id in [j for j in checked if j not in jobs]:
             del checked[job_id]
             self._estate_urgent = True
+
+    def _report_disabled(self, job_id, job, last, now):
+        """A disabled job's slots pass without a run: say so, once per slot."""
+        for slot in scheduler.slots_in(job, last, now, cap=scheduler.CATCHUP_CAP):
+            self._emit({"type": "schedule_skipped", "reason": "disabled", "job_id": job_id,
+                        "scheduled_time": int(slot)}, now)
+
+    def _report_missed(self, job_id, job, last, now, slots):
+        """Slots that passed while nothing checked the schedule (the engine was stopped, or
+        on standby) and that the catch-up policy does not run: say how many and why."""
+        if now - int(last) <= MISSED_AFTER:
+            return
+        every = scheduler.slots_in(job, last, now)
+        missed = len(every) - len([s for s in slots if s in set(every)])
+        if missed <= 0:
+            return
+        self._emit({"type": "schedule_missed", "job_id": job_id, "missed": missed,
+                    "at_least": len(every) >= scheduler.SLOT_COUNT_CAP,
+                    "since": int(last), "seconds": int(now - int(last)),
+                    "policy": job.get("catchup") or "all", "caught_up": len(slots),
+                    "catchup_cap": scheduler.CATCHUP_CAP}, now)
+
+    def _say(self, key, said, name, **fields):
+        """Log why something waits, once until ``said`` (what is in the way) changes (a log
+        line, not an audit event: it repeats while the wait lasts)."""
+        self._said_now.add(key)
+        if self._said.get(key) == said:
+            return
+        self._said[key] = said
+        logs.event(log, logging.INFO, name, **fields)
 
     def _create_cron_run(self, job, slot, settings, now):
         try:
@@ -555,13 +594,26 @@ class Engine:
             by_job.setdefault(run.get("job_id"), []).append(run)
         held_jobs = {r.get("job_id") for r in held
                      if self._policy(jobs.get(r.get("job_id")), r) == "hold"}
+        holder = {r.get("job_id"): _run_id(r) for r in held}
         for job_id, job_runs in by_job.items():
-            if any(r.get("state") in LIVE for r in job_runs) or job_id in held_jobs:
-                continue
-            queued = [r for r in job_runs if r.get("state") == "queued"]
+            queued = sorted((r for r in job_runs if r.get("state") == "queued"), key=promotion_order)
             if not queued:
                 continue
-            run = min(queued, key=promotion_order)
+            live = [r for r in job_runs if r.get("state") in LIVE]
+            if job_id in held_jobs or live:
+                for q in queued:
+                    if job_id in held_jobs:
+                        self._say(_run_id(q), "held", "run_waiting", job_id=job_id, run_id=_run_id(q),
+                                  reason="held", by_run=holder.get(job_id))
+                    else:
+                        self._say(_run_id(q), "live:" + _run_id(live[0]), "run_waiting", job_id=job_id,
+                                  run_id=_run_id(q), reason="waiting_for_run", by_run=_run_id(live[0]),
+                                  by_state=live[0].get("state"))
+                continue
+            run = queued[0]
+            for q in queued[1:]:
+                self._say(_run_id(q), "behind:" + _run_id(run), "run_waiting", job_id=job_id,
+                          run_id=_run_id(q), reason="behind", by_run=_run_id(run))
             on_time = (run.get("trigger") == "cron" and not run.get("catchup")
                        and not run.get("rerun_count"))
             pending = _Pending()
@@ -708,6 +760,12 @@ class Engine:
                 budget.adjust(run.get("job_id"), len(new_conds))
                 cond_dispatch.extend(new_conds)
             chosen = starts[:budget.room(run.get("job_id"))]
+            for sid in starts[len(chosen):]:
+                self._say("%s|%s" % (_run_id(run), sid), "slots", "step_waiting",
+                          job_id=run.get("job_id"), run_id=_run_id(run), step_id=sid,
+                          reason="search_slots", running=budget.total, max_searches=budget.max_global,
+                          running_for_job=budget.jobs.get(run.get("job_id"), 0),
+                          max_searches_per_job=budget.max_job)
             if chosen or cond_dispatch:
                 for sid in chosen:
                     st = run["steps"][sid]
@@ -732,17 +790,27 @@ class Engine:
             self._control(sid, "setttl", ttl=ttl)
 
     def _completion_targets(self, run):
+        """The jobs this run's end starts; for a job that waits on it but is not started
+        (disabled, or the run ended the wrong way), a log line says why."""
         state = run.get("state")
         out = []
         for job_id, job in sorted(self._jobs.items()):
-            if job.get("enabled") is False:
+            mine = [t for t in job.get("triggers") or []
+                    if isinstance(t, dict) and t.get("type") == "completion"
+                    and t.get("enabled") is not False and t.get("job") == run.get("job_id")]
+            if not mine:
                 continue
-            fired = [t for t in job.get("triggers") or []
-                     if isinstance(t, dict) and t.get("type") == "completion"
-                     and t.get("enabled") is not False and t.get("job") == run.get("job_id")
-                     and state in COMPLETION_STATES.get(t.get("on") or "success", ())]
+            if job.get("enabled") is False:
+                logs.event(log, logging.INFO, "completion_not_fired", job_id=run.get("job_id"),
+                           run_id=_run_id(run), target_job=job_id, reason="disabled", outcome=state)
+                continue
+            fired = [t for t in mine if state in COMPLETION_STATES.get(t.get("on") or "success", ())]
             if fired:
                 out.append((job_id, job, scheduler.entry_of(fired)))
+            else:
+                logs.event(log, logging.INFO, "completion_not_fired", job_id=run.get("job_id"),
+                           run_id=_run_id(run), target_job=job_id, reason="outcome", outcome=state,
+                           on=",".join(sorted({t.get("on") or "success" for t in mine})))
         return out
 
     def _fire_completions(self, run, settings, now, pending):

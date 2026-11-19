@@ -38,6 +38,7 @@ from .store import ACTIVE_RUN_STATES
 log = logging.getLogger(__name__)
 
 CATCHUP_CAP = 7
+SLOT_COUNT_CAP = 1000  # missed slots counted after a long stop; more is reported as "at least"
 ONTIME_GRACE = 300
 WINDOW = 86400
 DAY = 86400
@@ -97,14 +98,27 @@ def due_runs(job, last_checked, now):
     """Slots in (last_checked, now] to create runs for, oldest first."""
     if last_checked is None or job.get("enabled") is False:
         return []
-    specs = cron_specs(job)
-    if not specs:
-        return []
     now = int(now)
-    lo, hi = int(last_checked) + 1, now + 1
+    lo = int(last_checked) + 1
     policy = job.get("catchup") or "all"
     want = 1 if policy == "latest" else CATCHUP_CAP
     floor = max(lo, now - ONTIME_GRACE) if policy == "none" else lo
+    return _newest_slots(job, floor, now, want)
+
+
+def slots_in(job, last_checked, now, cap=SLOT_COUNT_CAP):
+    """Up to ``cap`` (newest) slots in (last_checked, now], whatever the job's catch-up
+    policy and whether it is enabled: what ``due_runs`` leaves out is what was missed."""
+    if last_checked is None:
+        return []
+    return _newest_slots(job, int(last_checked) + 1, int(now), cap)
+
+
+def _newest_slots(job, floor, now, want):
+    specs = cron_specs(job)
+    if not specs:
+        return []
+    hi = now + 1
     tz = job.get("timezone")
     found = []
     end = hi

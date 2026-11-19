@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.34.0 (2026-11-19)
+
+- **Why a job did not start is always logged.** Before, a schedule could be skipped without a word.
+  - New audit events: `schedule_skipped` (a disabled job's scheduled time passed) and `schedule_missed` (scheduled times passed while the engine was stopped or on standby and the catch-up setting left them out: how many, for how long, the policy and how many were caught up; a warning).
+  - New log lines, once until the reason changes: `run_waiting` (held by a failed run, waiting for the run before it, or behind other queued runs), `step_waiting` (search limits full, with the numbers) and `completion_not_fired` (a downstream job disabled, or the run ended the wrong way for its trigger).
+- **Troubleshooting:** a **Skipped schedules** value (disabled · missed) that filters to those lines; each new event in plain words with why and what to do (Backfill runs missed times). The `event` filter takes up to 10 events separated by commas.
+
 ## 1.33.2 (2026-11-19)
 
 Found by testing against a live instance:

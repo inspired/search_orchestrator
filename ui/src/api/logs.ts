@@ -81,6 +81,9 @@ export interface LogTotals {
     steps_failed: number;
     engine: number;
     rest: number;
+    /** Slots of a disabled job, and reports of slots missed while the engine was not checking. */
+    schedules_skipped?: number;
+    schedules_missed?: number;
 }
 
 export interface LogSummary {

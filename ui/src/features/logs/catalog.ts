@@ -132,6 +132,27 @@ function num(v?: string): string {
     return v === undefined || Number.isNaN(n) ? '' : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
+function slotTime(epoch?: string): string {
+    const n = Number(epoch);
+    if (!epoch || Number.isNaN(n)) {
+        return '?';
+    }
+    return new Date(n * 1000).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function spanText(seconds: number): string {
+    const s = Math.round(seconds);
+    if (s < 3600) {
+        return `${Math.round(s / 60)} min`;
+    }
+    if (s < 2 * 86400) {
+        const h = Math.floor(s / 3600);
+        const m = Math.round((s % 3600) / 60);
+        return `${h}h${m ? ` ${m}m` : ''}`;
+    }
+    return `${Math.round(s / 86400)} days`;
+}
+
 /** Why a failure happened and what to do, from its error text. */
 export function explainError(error?: string, context: 'action' | 'search' | 'any' = 'any'): { why?: string; fix?: string } {
     const e = error || '';
@@ -239,6 +260,46 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
 
         case 'run_created':
             return d('run', 'info', `New run queued ${TRIGGER_WORD[f.trigger || ''] || `(${f.trigger || 'unknown trigger'})`}${f.catchup === 'true' ? ', catching up a missed slot' : ''}${job ? ` for ${job}` : ''}`);
+        case 'schedule_skipped':
+            return d('run', 'warning', `Scheduled run of ${job} at ${slotTime(f.scheduled_time)} skipped: the job is disabled`, {
+                why: 'A disabled job does not run its schedule, and does not catch the slot up when enabled again.',
+                fix: 'Enable the job on the Jobs page. To run the skipped time, use Backfill.',
+            });
+        case 'schedule_missed': {
+            const n = `${f.at_least === 'true' ? 'at least ' : ''}${num(f.missed)}`;
+            const gap = f.seconds ? spanText(Number(f.seconds)) : 'a while';
+            return d('run', 'warning', `${job} missed ${n} scheduled run${f.missed === '1' ? '' : 's'}: nothing checked the schedule for ${gap}`, {
+                result: f.caught_up && f.caught_up !== '0' ? `${f.caught_up} caught up` : 'none caught up',
+                why: `The engine was stopped or on standby from ${slotTime(f.since)}. When it came back, the job’s catch-up setting (${f.policy || 'all'}) ran ${f.policy === 'latest' ? 'only the latest slot' : f.policy === 'none' ? 'no missed slots' : `at most the latest ${f.catchup_cap || 7}`}.`,
+                fix: 'Check why the engine stopped (Engine tile and graph). Use Backfill to run the missed times.',
+            });
+        }
+        case 'run_waiting': {
+            const by = f.by_run ? ` ${f.by_run}` : '';
+            if (f.reason === 'held') {
+                return d('run', 'warning', `Run of ${job} waits: a failed run${by} is holding the job`, {
+                    why: 'The job holds its later runs after a run gives up, so nothing runs out of order.',
+                    fix: 'Open the failed run and Re-run or Dismiss it.',
+                });
+            }
+            if (f.reason === 'waiting_for_run') {
+                return d('run', 'info', `Run of ${job} waits for run${by} to finish (${STATE_WORD[f.by_state || ''] || f.by_state || 'running'})`, {
+                    why: 'A job runs one run at a time; the next one starts when this one ends.',
+                });
+            }
+            return d('run', 'info', `Run of ${job} waits its turn behind run${by}`, { why: 'Queued runs of a job start one after another, oldest scheduled time first.' });
+        }
+        case 'step_waiting':
+            return d('step', 'warning', `Step ${step} is ready but waits for a free search slot`, {
+                result: `${f.running_for_job || '?'}/${f.max_searches_per_job || '?'} for the job · ${f.running || '?'}/${f.max_searches || '?'} in all`,
+                why: 'The search limits in Settings are full: Searches at once, or Searches at once per job.',
+                fix: 'It starts when a search ends. If this happens often, raise the limits in Settings.',
+            });
+        case 'completion_not_fired':
+            if (f.reason === 'disabled') {
+                return d('run', 'warning', `${jobName(names, f.target_job)} was not started after this run: it is disabled`, { fix: 'Enable it on the Jobs page if it should follow this job.' });
+            }
+            return d('run', 'info', `${jobName(names, f.target_job)} was not started: it starts when this job ${f.on === 'failure' ? 'fails' : f.on === 'complete' ? 'finishes' : 'succeeds'}, and this run ${f.outcome || 'ended'}`);
         case 'run_requested':
             return d('run', 'info', `${user || 'Someone'} started ${job || 'a job'} by hand`);
         case 'run_rejected':
@@ -435,6 +496,9 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
 
 /** A short, plain name for an event, for the Events graph and the filter. */
 export function eventLabel(event: string): string {
+    if (event.includes(',')) {
+        return event.split(',').map(eventLabel).join(' or ');
+    }
     const labels: Record<string, string> = {
         request: 'Screen and API requests',
         tick: 'Engine ticks',
@@ -457,6 +521,11 @@ export function eventLabel(event: string): string {
         command: 'Commands applied',
         job_saved: 'Jobs saved',
         preview_dispatched: 'Previews',
+        schedule_skipped: 'Schedules skipped (job disabled)',
+        schedule_missed: 'Schedules missed (engine not checking)',
+        run_waiting: 'Runs waiting in the queue',
+        step_waiting: 'Steps waiting for a search slot',
+        completion_not_fired: 'Downstream jobs not started',
         '(no event)': 'Free-text warnings and errors',
     };
     return labels[event] || event.replace(/_/g, ' ');

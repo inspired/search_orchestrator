@@ -29,7 +29,7 @@ from .gateway import APP, GatewayError, oneshot_search
 from .logs import DEFAULT_LEVEL, FAILURE_EVENTS, LEVELS
 
 ID_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,200}$")
-EVENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
+EVENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,60}(,[a-z][a-z0-9_]{0,60}){0,9}$")
 PROCESSES = ("engine", "rest")
 RANGES = {"15m": "-15m", "1h": "-1h", "24h": "-24h", "7d": "-7d"}
 SPANS = {"15m": "30s", "1h": "1m", "24h": "30m", "7d": "4h"}
@@ -79,7 +79,8 @@ def base_terms(filters, levels=True):
         if filters.get(key):
             terms.append("%s=%s" % (key, _quoted(filters[key])))
     if filters.get("event"):
-        terms.append("event=%s" % filters["event"])
+        events = filters["event"].split(",")
+        terms.append("event=%s" % events[0] if len(events) == 1 else "event IN (%s)" % ", ".join(events))
     if filters.get("text"):
         terms.append(_quoted(filters["text"]))
     return " ".join(terms)
@@ -175,7 +176,7 @@ def _filters(body):
     event = body.get("event")
     if event not in (None, ""):
         if not isinstance(event, str) or not EVENT_RE.fullmatch(event):
-            raise _bad("event must be an event name")
+            raise _bad("event must be an event name, or up to 10 separated by commas")
         out["event"] = event
     process = body.get("process")
     if process not in (None, ""):
@@ -332,7 +333,8 @@ def summary(ctx, body):
         buckets.append(b)
     totals = {"error": 0, "warning": 0, "info": 0, "debug": 0, "requests": 0, "req_4xx": 0,
               "req_5xx": 0, "actions_failed": 0, "actions_done": 0, "runs_failed": 0,
-              "runs_succeeded": 0, "steps_failed": 0, "engine": 0, "rest": 0}
+              "runs_succeeded": 0, "steps_failed": 0, "engine": 0, "rest": 0,
+              "schedules_skipped": 0, "schedules_missed": 0}
     events = {}
     for row in _search(ctx, counts_query(filters), filters, 5000, notes, seconds=15):
         n = int(_num(row.get("count")) or 0)
@@ -356,6 +358,10 @@ def summary(ctx, body):
             totals["runs_succeeded"] += n
         elif event == "step_state" and to == "failed":
             totals["steps_failed"] += n
+        elif event == "schedule_skipped":
+            totals["schedules_skipped"] += n
+        elif event == "schedule_missed":
+            totals["schedules_missed"] += n
         name = event if event and event != "-" else "(no event)"
         e = events.setdefault(name, {"event": name, "count": 0, "levels": {}})
         e["count"] += n

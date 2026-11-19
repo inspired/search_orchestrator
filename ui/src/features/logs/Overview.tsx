@@ -98,6 +98,15 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
             help: 'Emails, webhooks, lookups and other actions that failed after all their retries.',
         },
         {
+            id: 'schedules',
+            label: 'Skipped schedules',
+            value: t ? String((t.schedules_skipped || 0) + (t.schedules_missed || 0)) : '—',
+            sub: t ? `${t.schedules_skipped || 0} disabled · ${t.schedules_missed || 0} missed` : '',
+            tone: t && (t.schedules_skipped || t.schedules_missed) ? 'warning' : 'ok',
+            pick: { filters: { event: 'schedule_skipped,schedule_missed', level: '', process: '' } },
+            help: 'Scheduled times that did not get a run: the job was disabled, or nothing checked the schedule (the engine was stopped) and the catch-up setting left them out.',
+        },
+        {
             id: 'runs',
             label: 'Failed runs',
             value: t ? String(t.runs_failed) : '—',

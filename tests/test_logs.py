@@ -304,3 +304,14 @@ def test_problems_find_failure_events_logged_at_info_by_older_versions(w):
     assert "event IN (action_failed, action_retry," in query and 'to="failed"' in query
     assert "level IN (ERROR, WARNING)" in query
     assert out["problems"][0]["level"] == "WARNING" and out["problems"][0]["event"] == "action_failed"
+
+
+def test_event_filter_takes_a_list_and_summary_counts_skipped_schedules(w):
+    get_logs(w, {"event": "schedule_skipped,schedule_missed"})
+    assert "event IN (schedule_skipped, schedule_missed)" in w.gw.search_log[-1][1]
+    assert get_logs(w, {"event": "a,B"})[0] == 400
+    w.gw.search_handler = lambda owner, query: [] if "timechart" in query else [
+        {"event": "schedule_skipped", "level": "INFO", "process": "engine", "sc": "-", "to": "-", "count": "2"},
+        {"event": "schedule_missed", "level": "WARNING", "process": "engine", "sc": "-", "to": "-", "count": "1"}]
+    t = w.call("alice", "GET", "/orchestrator/logs/summary")[1]["totals"]
+    assert (t["schedules_skipped"], t["schedules_missed"]) == (2, 1)
