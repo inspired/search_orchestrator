@@ -136,7 +136,13 @@ def test_the_event_stream_closes_quietly_when_splunkd_already_closed_the_pipe():
         def close(self):
             Closed.calls += 1
             raise BrokenPipeError(32, "Broken pipe")
+    import os
+    import tempfile
     ew = Closed()
-    orchestrator_engine.close_quietly(ew)
+    with tempfile.TemporaryFile("w") as out:
+        orchestrator_engine.close_quietly(ew, stdout=out)
+        out.write("</stream>")
+        out.flush()  # goes to /dev/null now: nothing left to fail at exit
+        assert os.fstat(out.fileno()).st_size == 0
     ew.close()  # splunklib's own close afterwards does nothing
     assert Closed.calls == 1

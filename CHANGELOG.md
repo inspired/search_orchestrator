@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.34.2 (2026-11-19)
+
+- **Clean engine stop:** after ending the event stream the engine points stdout at /dev/null, so Python's own flush at exit no longer reports the pipe splunkd closed ("Exception ignored on flushing sys.stdout: BrokenPipeError", an ERROR in splunkd.log on every restart). Checked by restarting a live instance.
+
 ## 1.34.1 (2026-11-19)
 
 Found by restarting a live instance:

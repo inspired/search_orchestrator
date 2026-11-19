@@ -91,15 +91,23 @@ class EngineLoop:
             self.sleep(self.tick)
 
 
-def close_quietly(ew):
+def close_quietly(ew, stdout=None):
     """End the event stream now, ignoring a pipe splunkd already closed while stopping, and
     make splunklib's own close afterwards a no-op (it would log a BrokenPipeError traceback
-    as an ERROR in splunkd.log on every restart)."""
+    as an ERROR in splunkd.log on every restart). Then point stdout at /dev/null, so Python's
+    own flush at exit does not report the closed pipe either."""
     try:
         ew.close()
     except (OSError, ValueError):
         pass
     ew.close = lambda: None
+    stdout = stdout or sys.stdout
+    try:
+        null = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null, stdout.fileno())
+        os.close(null)
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 class _EventWriterHandler(logging.Handler):
