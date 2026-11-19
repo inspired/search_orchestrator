@@ -8,7 +8,7 @@ import { RUN_STATES } from '../../api/types';
 import type { RunState, RunSummary } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
 import BackfillLines from '../../features/runs/BackfillLines';
-import RunsTable, { RunsTableFilters } from '../../features/runs/RunsTable';
+import RunsTable, { RunsTableFilters, awaitsApproval } from '../../features/runs/RunsTable';
 import usePoll from '../../hooks/usePoll';
 
 const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
@@ -25,17 +25,20 @@ function initialFilters(): RunsTableFilters {
 }
 
 // "Needs attention" is not a server state. Held runs are always failed, so it is the
-// blocked runs plus the failed ones, merged and newest first like the server's own list.
+// blocked runs, the failed ones and the running or paused runs with a step waiting for
+// approval, merged and newest first like the server's own list.
 async function fetchRuns(filters: RunsTableFilters) {
     if (filters.state !== 'attention') {
         return listRuns({ ...filters, state: filters.state });
     }
-    const [blocked, failed] = await Promise.all([
+    const [blocked, failed, running, paused] = await Promise.all([
         listRuns({ ...filters, state: 'blocked' }),
         listRuns({ ...filters, state: 'failed' }),
+        listRuns({ ...filters, state: 'running' }),
+        listRuns({ ...filters, state: 'paused' }),
     ]);
     const byId = new Map<string, RunSummary>();
-    [...blocked, ...failed].forEach((r) => byId.set(r.id, r));
+    [...blocked, ...failed, ...[...running, ...paused].filter(awaitsApproval)].forEach((r) => byId.set(r.id, r));
     return Array.from(byId.values()).sort((a, b) => b.created_at - a.created_at);
 }
 

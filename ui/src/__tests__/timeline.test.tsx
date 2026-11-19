@@ -31,6 +31,23 @@ describe('Timeline', () => {
         expect(screen.queryByTestId('time-monthly')).toBeNull();
     });
 
+    test('near the right edge, a narrow bar gets its time on its left, not inside', () => {
+        const narrow = rollupRun({
+            state: 'succeeded',
+            started_at: NOW - 1000,
+            ended_at: NOW,
+            steps: {
+                daily: { state: 'succeeded', started_at: NOW - 1000, ended_at: NOW - 150 },
+                weekly: { state: 'succeeded', started_at: NOW - 150, ended_at: NOW - 130 },
+                monthly: { state: 'succeeded', started_at: NOW - 500, ended_at: NOW },
+            } as never,
+        });
+        renderThemed(<Timeline run={narrow} now={NOW} onSelect={jest.fn()} />);
+        const small = screen.getByTestId('time-weekly');
+        expect(small.style.right).toBe('calc(15% + 6px)'); // ends at the bar's start (85%)
+        expect(screen.getByTestId('time-monthly').style.right).toBe('calc(0% + 6px)');
+    });
+
     test('running bar is neutral, not a status or positive colour', () => {
         let t: Record<string, string> = {};
         function Probe() {
@@ -91,6 +108,19 @@ describe('timeline.bars', () => {
         expect(out[0].widthPct).toBeCloseTo(50);
         expect(out[1]).toMatchObject({ kind: 'waiting', statusText: 'Waiting' });
         expect(out[1].widthPct).toBeGreaterThan(0);
+    });
+
+    test('a step waiting for approval is a hatched waiting bar from when it asked, not failed', () => {
+        const out = bars(
+            withSteps({
+                daily: { state: 'succeeded', started_at: NOW - 6000, ended_at: NOW - 3000 },
+                weekly: { state: 'awaiting_approval', started_at: NOW - 1500 },
+                monthly: { state: 'waiting' },
+            }),
+            NOW
+        );
+        expect(out[1]).toMatchObject({ kind: 'waiting', statusText: 'Waiting for approval' });
+        expect(out[1].startPct).toBeCloseTo(75);
     });
 
     test('skipped has no bar', () => {

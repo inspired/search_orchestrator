@@ -3,13 +3,16 @@
 ``GET runs/<id>/performance``: the numbers the engine stored on each step (``perf``), plus
 CPU and memory from ``_introspection`` and, for steps from before 1.23.0, run time and
 counts from ``_audit``. Both searches run read-only as the caller, so a caller without
-access to an index gets a note instead of an error. ``searches`` lists them (label, SPL,
-time range) so the page can open them in Search.
+access to an index gets a note instead of an error. Splunk answers a search of an index
+the caller may not read with no rows rather than an error, so when the CPU and memory search
+finds nothing a count of ``_introspection`` tells "no access" from "no samples".
+``searches`` lists the searches that ran (label, runnable SPL, time range) so the page can
+open them in Search.
 """
 import re
 
 from .api import _visible_run
-from .gateway import GatewayError
+from .gateway import GatewayError, oneshot_search
 
 SID_RE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 MAX_SIDS = 50
@@ -47,6 +50,11 @@ def audit_query(sids):
             % quoted)
 
 
+# Any events at all in _introspection the last day: Splunk writes some (disk objects,
+# scripted inputs) even while resource usage sampling is off, so none means no access.
+ACCESS_PROBE = "| tstats count where index=_introspection"
+
+
 def _numbers(rows, fields):
     out = {}
     for row in rows or []:
@@ -63,9 +71,11 @@ def _numbers(rows, fields):
 
 
 def _search(ctx, query, earliest, latest, notes, note):
+    """``(rows, ok)``: ``ok`` is False when Splunk refused or failed the search, which adds
+    ``note`` (no access) or the failure to ``notes``."""
     try:
         return ctx.user_gw.search_oneshot(ctx.user, query, earliest, latest, count=MAX_SIDS,
-                                    max_time=SEARCH_SECONDS)
+                                          max_time=SEARCH_SECONDS), True
     except GatewayError as err:
         if err.status not in (401, 403):  # a failing search is not a failing request either
             detail = str(err).strip()
@@ -74,7 +84,22 @@ def _search(ctx, query, earliest, latest, notes, note):
                     "Splunk could not run the search for CPU, memory or audit numbers; try again.")
         if note and note not in notes:
             notes.append(note)
-        return []
+        return [], False
+
+
+def _can_read_introspection(ctx, notes):
+    """True or False, or None when the probe itself failed (its note is already added)."""
+    rows, ok = _search(ctx, ACCESS_PROBE, "-24h", "now", notes, NOTE_INTROSPECTION)
+    if not ok:
+        return None
+    try:
+        return any(float(r.get("count") or 0) > 0 for r in rows)
+    except (TypeError, ValueError):
+        return True
+
+
+def _listed(label, spl, earliest, latest):
+    return {"label": label, "spl": oneshot_search(spl), "earliest": earliest, "latest": latest}
 
 
 def performance(ctx, body, run_id):
@@ -96,18 +121,21 @@ def performance(ctx, body, run_id):
     if searched:
         earliest = str(int(run.get("started_at") or ctx.now) - 60)
         latest = str(int(run.get("ended_at") or ctx.now) + 300)
-        searches = [{"label": "CPU and memory", "spl": introspection_query(searched),
-                     "earliest": earliest, "latest": latest},
-                    {"label": "Audit", "spl": audit_query(searched),
-                     "earliest": earliest, "latest": latest}]
-        before = len(notes)
-        intro = _numbers(_search(ctx, introspection_query(searched), earliest, latest, notes,
-                                 NOTE_INTROSPECTION), INTRO_FIELDS)
-        if not intro and len(notes) == before:  # the search ran and found no samples
-            notes.append(NOTE_NO_SAMPLES)
+        spl = introspection_query(searched)
+        searches.append(_listed("CPU and memory", spl, earliest, latest))
+        rows, ok = _search(ctx, spl, earliest, latest, notes, NOTE_INTROSPECTION)
+        intro = _numbers(rows, INTRO_FIELDS)
+        if ok and not intro:  # no rows: no samples, or no access (Splunk gives no error)
+            readable = _can_read_introspection(ctx, notes)
+            if readable is False:
+                notes.append(NOTE_INTROSPECTION)
+            elif readable:
+                notes.append(NOTE_NO_SAMPLES)
         if any(not perf for _, perf in steps.values()):
-            audit = _numbers(_search(ctx, audit_query(searched), earliest, latest, notes, None),
-                             AUDIT_FIELDS)
+            spl = audit_query(searched)
+            searches.append(_listed("Audit", spl, earliest, latest))
+            rows, _ = _search(ctx, spl, earliest, latest, notes, None)
+            audit = _numbers(rows, AUDIT_FIELDS)
     out = {}
     for step_id, (sid, perf) in steps.items():
         entry = dict(perf, source="engine") if perf else {}

@@ -708,13 +708,29 @@ def list_runs(ctx, body):
     runs = _visible_runs(ctx, filters, limit)
     engine = queue_info.engine_status(ctx)
     reasons = queue_info.queue_reasons(ctx, runs, engine)
+    numbers = _run_numbers(ctx, runs)
     out = []
     for r in runs:
         s = _summary(r)
-        if (r.get("_key") or r.get("id")) in reasons:
-            s["queue_reason"] = reasons[r.get("_key") or r.get("id")]
+        key = r.get("_key") or r.get("id")
+        if key in reasons:
+            s["queue_reason"] = reasons[key]
+        if key in numbers:
+            s["number"] = numbers[key]
         out.append(s)
     return 200, {"runs": out, "engine": engine}
+
+
+def _run_numbers(ctx, runs):
+    """Each listed run's number within its job: 1 for the job's oldest kept run, counted over
+    all its runs (not the filtered or limited list), so a run keeps its number as new runs
+    arrive and in every filter. Only retention removing old runs shifts it."""
+    out = {}
+    for job_id in sorted({r.get("job_id") for r in runs if r.get("job_id")}):
+        rows = ctx.store.list_runs({"job_id": job_id}, fields="_key,created_at")
+        for i, row in enumerate(rows):
+            out[row.get("_key")] = len(rows) - i
+    return out
 
 
 def _visible_runs(ctx, query, limit):

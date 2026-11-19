@@ -45,6 +45,14 @@ describe('Runs grouped by job', () => {
         expect(onFiltersChange).toHaveBeenCalledWith({ job_id: 'daily' });
     });
 
+    test("an opened job's runs show the number the server gave them", () => {
+        const numbered = runs.map((r, i) => (r.job_id === 'daily' ? { ...r, number: 10 - i } : r));
+        renderThemed(<RunsTable runs={numbered} jobNames={{ daily: 'Daily' }} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
+        fireEvent.click(within(screen.getByTestId('job-group-daily')).getByRole('button', { name: /Daily/ }));
+        expect(screen.getByText('Run #9')).toBeInTheDocument();
+        expect(screen.getByText('Run #7')).toBeInTheDocument();
+    });
+
     test('All runs shows the flat list, and is remembered', () => {
         renderThemed(<RunsTable runs={runs} jobNames={{}} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
         fireEvent.click(screen.getByRole('radio', { name: 'All runs' }));
@@ -68,6 +76,21 @@ describe('Approval alert', () => {
         expect(alert).toHaveTextContent('⚑ 2 steps are waiting for approval');
         expect(alert).toHaveTextContent('“Open an incident?”');
         expect(within(alert).getAllByRole('link', { name: 'Review' })[0].getAttribute('href')).toBe('run?run_id=health%3A3&step=gate');
+    });
+
+    test('waits while the tab is hidden and checks when it is shown again', async () => {
+        const load = jest.fn(() => Promise.resolve([waiting()]));
+        const state = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        renderThemed(<ApprovalAlert load={load} />);
+        expect(load).not.toHaveBeenCalled();
+        state.mockReturnValue('visible');
+        await act(async () => {
+            document.dispatchEvent(new Event('visibilitychange'));
+            await Promise.resolve();
+        });
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('approval-alert')).toBeInTheDocument();
+        state.mockRestore();
     });
 
     test('shows nothing when nothing waits', async () => {

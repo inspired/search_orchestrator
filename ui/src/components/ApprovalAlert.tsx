@@ -1,7 +1,9 @@
 /* A banner at the top of every app page while any step waits for approval: how many,
  * the first few (job, step, message, how long it has waited) and Review, which opens the run
- * page with that step's drawer (Approve and Reject are there). Checks every 30 seconds;
- * errors leave it hidden. */
+ * page with that step's drawer (Approve and Reject are there). Looks at running and paused
+ * runs (a paused run's approval can be decided now and applies on resume). Checks every 30
+ * seconds while the tab is visible, and at once when it becomes visible again; errors leave
+ * it hidden. */
 import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -45,22 +47,31 @@ export function reviewHref(p: PendingApproval): string {
 }
 
 // One function for every render: the effect below depends on it.
-const runningRuns = () => listRuns({ state: 'running' });
+const runningRuns = () =>
+    Promise.all([listRuns({ state: 'running' }), listRuns({ state: 'paused' })]).then(([a, b]) => [...a, ...b]);
+
+const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 
 export default function ApprovalAlert({ load = runningRuns }: { load?: () => Promise<RunSummary[]> }) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [pending, setPending] = useState<PendingApproval[]>([]);
     useEffect(() => {
         let live = true;
-        const check = () =>
+        const check = () => {
+            if (hidden()) {
+                return;
+            }
             load()
                 .then((runs) => live && setPending(pendingApprovals(runs)))
                 .catch(() => undefined);
+        };
         check();
         const timer = setInterval(check, APPROVAL_POLL_MS);
+        document.addEventListener('visibilitychange', check);
         return () => {
             live = false;
             clearInterval(timer);
+            document.removeEventListener('visibilitychange', check);
         };
     }, [load]);
     if (!pending.length) {

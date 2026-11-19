@@ -121,11 +121,11 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
             {run.state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
         </>
     );
-    const runRow = (run: RunSummary, nested: boolean, runNumber = 0) => (
+    const runRow = (run: RunSummary, nested: boolean) => (
         <Table.Row key={run.id} style={nested ? { boxShadow: `inset 3px 0 0 ${theme.borderColorStrong || theme.borderColor}` } : undefined}>
             <Table.Cell>
                 {nested ? (
-                    <span style={{ paddingLeft: '22px', color: theme.contentColorMuted, fontVariantNumeric: 'tabular-nums' }}>{`Run #${runNumber}`}</span>
+                    <span style={{ paddingLeft: '22px', color: theme.contentColorMuted, fontVariantNumeric: 'tabular-nums' }}>{run.number ? `Run #${run.number}` : 'Run'}</span>
                 ) : (
                     jobNames[run.job_id] || run.job_id
                 )}
@@ -237,8 +237,9 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                           </Table.Cell>
                                       </Table.Row>
                                   );
-                                  // Numbered oldest first, so a run keeps its number as new ones arrive.
-                                  return isOpen ? [head, ...g.runs.map((run, i) => runRow(run, true, g.runs.length - i))] : [head];
+                                  // The server numbers each run within its job (oldest first, over all
+                                  // its runs), so a run keeps its number in every filter.
+                                  return isOpen ? [head, ...g.runs.map((run) => runRow(run, true))] : [head];
                               })
                             : rows.map((run) => runRow(run, false))}
                     </Table.Body>

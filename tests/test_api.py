@@ -944,6 +944,23 @@ def test_list_runs_newest_first(w):
     assert [r["id"] for r in out["runs"]] == [second, first]
 
 
+def test_list_runs_numbers_each_run_within_its_job_whatever_the_filter(w):
+    saved(w)
+    ids = []
+    for i in range(4):
+        w.now = T0 + i
+        ids.append(start(w, body={"params": {}, "scheduled_time": T0 + i}))
+    run = w.store.get_run(ids[1])
+    run["state"] = "failed"
+    w.store.save_run(run)
+    out = w.call("alice", "GET", "/orchestrator/runs")[1]
+    assert {r["id"]: r["number"] for r in out["runs"]} == {ids[0]: 1, ids[1]: 2, ids[2]: 3, ids[3]: 4}
+    out = w.call("alice", "GET", "/orchestrator/runs", {"state": "failed"})[1]
+    assert [(r["id"], r["number"]) for r in out["runs"]] == [(ids[1], 2)]
+    out = w.call("alice", "GET", "/orchestrator/runs", {"limit": "1"})[1]
+    assert [(r["id"], r["number"]) for r in out["runs"]] == [(ids[3], 4)]
+
+
 # Final review M9: enable or disable a job without taking it over.
 
 def test_enabled_route_keeps_owner_and_audits(w):

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.31.2 (2026-11-19)
+
+Fixes from a code review of 1.29.1–1.31.1:
+
+- **Needs attention** also lists running and paused runs with a step waiting for approval, so the approval banner's "and N more" link finds them.
+- **Timeline:** a step waiting for approval is a hatched waiting bar from when it asked, not a red failed bar. Near the right edge a narrow bar's time goes on its left instead of spilling unreadably out of it.
+- **Approval banner** also shows approvals in paused runs (a decision applies on resume), skips its 30-second check while the tab is hidden and checks at once when it is shown again.
+- **Run #N** comes from the server (`number` in `GET runs`): counted over all the job's runs, so a run has the same number in every filter and past the 200-run list limit.
+- **Performance tab:** a role without read access to `_introspection` is told to ask an admin instead of being told samples are missing (Splunk returns no rows, not an error, so the route counts `_introspection` events to tell the two apart). The searches listed for Open in Search are only those that ran, with runnable SPL from the server. Live runtimes use the run page's clock, so they match the timeline.
+
 ## 1.31.1 (2026-11-18)
 
 - **Performance tab:** when Splunk has no CPU or memory samples for a run's searches, a note says why (samples are taken about every 10 seconds, and none while resource usage introspection is off) instead of leaving the columns blank without a word. Checked against a live instance: the engine's stored numbers match `_audit` (run time, events scanned, events, results), the `_audit` search finds step searches by their quoted search id, and the `_introspection` field names are right.

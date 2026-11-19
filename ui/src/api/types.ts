@@ -251,6 +251,8 @@ export interface EngineStatus {
 
 export interface RunSummary {
     id: string;
+    /** The run's number within its job, 1 for the oldest kept run (GET runs). */
+    number?: number;
     /** Queued runs: why they haven't started. */
     queue_reason?: QueueReason;
     job_id: string;

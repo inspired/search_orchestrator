@@ -24,8 +24,13 @@ def get(w, run_id, user="alice"):
     return w.call(user, "GET", "/orchestrator/runs/%s/performance" % run_id)
 
 
-def handler(w, intro=None, audit=None):
+def handler(w, intro=None, audit=None, probe=None):
+    """``probe``: rows of the _introspection access count (default: some events)."""
     def run(owner, query):
+        if query == perf.ACCESS_PROBE:
+            if isinstance(probe, Exception):
+                raise probe
+            return [{"count": "42"}] if probe is None else probe
         if "_introspection" in query:
             if isinstance(intro, Exception):
                 raise intro
@@ -71,7 +76,7 @@ def test_sid_with_space_is_left_out_of_the_queries(w):
                           "b": {"state": "succeeded", "sid": "bad sid | delete"}})
     handler(w)
     assert get(w, run_id)[0] == 200
-    queries = [q for _, q, _, _ in w.gw.search_log]
+    queries = [q for _, q, _, _ in w.gw.search_log if q != perf.ACCESS_PROBE]
     assert len(queries) == 2 and all("s1" in q and "bad" not in q for q in queries)
 
 
@@ -82,7 +87,7 @@ def test_sid_with_a_trailing_newline_is_left_out(w):
     handler(w)
     status, out = get(w, run_id)
     assert status == 200 and "b" not in out["steps"]
-    queries = [q for _, q, _, _ in w.gw.search_log]
+    queries = [q for _, q, _, _ in w.gw.search_log if q != perf.ACCESS_PROBE]
     assert queries and all("s2" not in q for q in queries)
 
 
@@ -100,9 +105,9 @@ def test_searches_run_as_the_caller_in_the_run_window(w):
     run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1"}})
     handler(w)
     assert get(w, run_id)[0] == 200
-    assert [c for c in w.calls if c[1] == "search_oneshot"] == [("user:alice", "search_oneshot")] * 2
-    assert {(o, e, l) for o, _, e, l in w.gw.search_log} == {("alice", str(T0 + 10 - 60),
-                                                              str(T0 + 100 + 300))}
+    assert [c for c in w.calls if c[1] == "search_oneshot"] == [("user:alice", "search_oneshot")] * 3
+    assert {(o, e, l) for o, q, e, l in w.gw.search_log if q != perf.ACCESS_PROBE} == {
+        ("alice", str(T0 + 10 - 60), str(T0 + 100 + 300))}
 
 
 def test_no_search_when_there_are_no_sids(w):
@@ -126,7 +131,7 @@ def test_searches_get_a_30_second_limit(w):
     run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1"}})
     handler(w)
     assert get(w, run_id)[0] == 200
-    assert w.gw.search_max_times == [30, 30]
+    assert w.gw.search_max_times == [30, 30, 30]
 
 
 def test_audit_rows_with_quoted_search_id_map_back_to_the_step(w):
@@ -141,8 +146,9 @@ def test_the_searches_are_listed_for_open_in_search(w):
     w.gw.search_rows = []
     status, out = get(w, run_id)
     assert status == 200
-    assert [s["label"] for s in out["searches"]] == ["CPU and memory", "Audit"]
-    assert out["searches"][0]["spl"] == perf.introspection_query(["s1"])
+    # The audit search did not run (every step has engine numbers), so it is not offered.
+    assert [s["label"] for s in out["searches"]] == ["CPU and memory"]
+    assert out["searches"][0]["spl"] == "search " + perf.introspection_query(["s1"])
     assert out["searches"][0]["earliest"] == str(T0 + 10 - 60)
 
 
@@ -154,3 +160,28 @@ def test_no_cpu_samples_say_why(w):
     handler(w, intro=[{"sid": "s1", "cpu_peak": "12.5", "cpu_avg": "4", "mem_peak_mb": "80"}])
     status, out = get(w, run_id)
     assert perf.NOTE_NO_SAMPLES not in out["notes"] and out["steps"]["a"]["cpu_peak"] == 12.5
+
+
+def test_audit_search_is_listed_when_it_ran(w):
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1"}})
+    handler(w)
+    status, out = get(w, run_id)
+    assert [s["label"] for s in out["searches"]] == ["CPU and memory", "Audit"]
+    assert out["searches"][1]["spl"].startswith("search index=_audit")
+
+
+def test_no_rows_without_introspection_access_says_ask_an_admin(w):
+    # Splunk returns no rows (not 403) for an index the role may not read.
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1", "perf": PERF}})
+    handler(w, intro=[], probe=[{"count": "0"}])
+    status, out = get(w, run_id)
+    assert status == 200 and out["notes"] == [NOTE_INTRO]
+    handler(w, intro=[], probe=[])
+    assert get(w, run_id)[1]["notes"] == [NOTE_INTRO]
+
+
+def test_a_failing_access_probe_gives_only_its_error(w):
+    run_id = run_with(w, {"a": {"state": "succeeded", "sid": "s1", "perf": PERF}})
+    handler(w, intro=[], probe=GatewayError("boom", status=500))
+    notes = get(w, run_id)[1]["notes"]
+    assert len(notes) == 1 and "boom" in notes[0]

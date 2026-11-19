@@ -15,6 +15,9 @@ export interface TimelineProps {
     onSelect: (stepId: string) => void;
 }
 
+// Near the right edge the time goes inside the bar when it fits, else to the bar's left.
+const WIDE_ENOUGH = 12;
+
 export default function Timeline({ run, now, selected, onSelect }: TimelineProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const rows = bars(run, now);
@@ -107,9 +110,11 @@ export default function Timeline({ run, now, selected, onSelect }: TimelineProps
                                         fontVariantNumeric: 'tabular-nums',
                                         whiteSpace: 'nowrap',
                                         pointerEvents: 'none',
-                                        ...(end > 85
-                                            ? { right: `calc(${100 - end}% + 6px)`, color: theme.contentColorInverted || theme.backgroundColor }
-                                            : { left: `calc(${end}% + 6px)`, color: theme.contentColorMuted }),
+                                        ...(end <= 85
+                                            ? { left: `calc(${end}% + 6px)`, color: theme.contentColorMuted }
+                                            : bar.widthPct >= WIDE_ENOUGH
+                                              ? { right: `calc(${100 - end}% + 6px)`, color: theme.contentColorInverted || theme.backgroundColor }
+                                              : { right: `calc(${100 - bar.startPct}% + 6px)`, color: theme.contentColorMuted }),
                                     }}
                                 >
                                     {spent}

@@ -25,6 +25,13 @@ const runsByState: Record<string, ReturnType<typeof runSummary>[]> = {
         runSummary({ id: 'daily:new', state: 'failed', created_at: NOW - 60, scheduled_time: NOW - 60 }),
         runSummary({ id: 'daily:held', state: 'failed', held: true, created_at: NOW - 3600, scheduled_time: NOW - 3600 }),
     ],
+    running: [
+        runSummary({ id: 'daily:approve', state: 'running', created_at: NOW - 600, scheduled_time: NOW - 600, steps: { a: { state: 'awaiting_approval' } } as never }),
+        runSummary({ id: 'daily:busy', state: 'running', created_at: NOW - 30, scheduled_time: NOW - 30, steps: { a: { state: 'running' } } as never }),
+    ],
+    paused: [
+        runSummary({ id: 'daily:paused', state: 'paused', created_at: NOW - 7200, scheduled_time: NOW - 7200, steps: { a: { state: 'awaiting_approval' } } as never }),
+    ],
 };
 
 describe('Runs page', () => {
@@ -34,20 +41,18 @@ describe('Runs page', () => {
         (listRuns as jest.Mock).mockImplementation((f: { state?: string }) => Promise.resolve(runsByState[f.state || ''] || []));
     });
 
-    it('asks the server for blocked and failed runs for Needs attention, newest first', async () => {
+    it('Needs attention: blocked, failed, and running or paused runs waiting for approval, newest first', async () => {
         await import('../pages/runs/index');
         const element = (renderPage as jest.Mock).mock.calls[0][0];
         renderThemed(element);
-        await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(4));
+        await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(6));
         const states = (listRuns as jest.Mock).mock.calls.map((c) => c[0].state);
-        expect(states.length).toBeGreaterThanOrEqual(2);
-        expect(states.every((s) => s === 'blocked' || s === 'failed')).toBe(true);
-        expect(states).toEqual(expect.arrayContaining(['blocked', 'failed']));
+        expect(states).toEqual(expect.arrayContaining(['blocked', 'failed', 'running', 'paused']));
         const ids = screen
             .getAllByRole('link')
             .map((a) => decodeURIComponent(a.getAttribute('href') || ''))
             .filter((h) => h.includes('run_id='))
             .map((h) => h.split('run_id=')[1]);
-        expect(ids).toEqual(['daily:new', 'daily:held', 'daily:old']);
+        expect(ids).toEqual(['daily:new', 'daily:approve', 'daily:held', 'daily:paused', 'daily:old']);
     });
 });

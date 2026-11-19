@@ -142,7 +142,7 @@ function RunPage() {
                     )}
                     {tab === 'logs' && <LogsTab attempts={detail.attempts || []} />}
                     {tab === 'actions' && <ActionsTab actions={detail.actions || []} />}
-                    {tab === 'performance' && <PerformanceTab run={run} />}
+                    {tab === 'performance' && <PerformanceTab run={run} now={now} />}
                     {tab === 'params' && <ParamsTab run={run} />}
                     {selected && (tab === 'timeline' || tab === 'graph') && (
                         <StepDrawer run={run} stepId={selected} now={now} onClose={() => setSelected(null)} me={who} onDecided={poll.refresh} />

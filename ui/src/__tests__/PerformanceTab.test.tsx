@@ -21,6 +21,8 @@ const run = (): RunSummary & { definition: { steps: { id: string; name?: string 
         definition: { steps: [{ id: 'a', name: 'Count logins' }, { id: 'b' }, { id: 'c' }] },
     } as never);
 
+const NOW = 1764547200 + 3600;
+
 const rowOf = (name: string) => screen.getByText(name).closest('tr') as HTMLElement;
 
 beforeEach(() => {
@@ -29,7 +31,7 @@ beforeEach(() => {
 
 describe('PerformanceTab', () => {
     test('rows show formatted numbers and empty cells show a dash', () => {
-        renderThemed(<PerformanceTab run={run() as never} />);
+        renderThemed(<PerformanceTab run={run() as never} now={NOW} />);
         const a = within(rowOf('Count logins'));
         expect(a.getByText('3.2 s')).toBeInTheDocument();
         expect(a.getByText('1 204')).toBeInTheDocument();
@@ -39,7 +41,7 @@ describe('PerformanceTab', () => {
     });
 
     test('the Total row sums the steps', () => {
-        renderThemed(<PerformanceTab run={run() as never} />);
+        renderThemed(<PerformanceTab run={run() as never} now={NOW} />);
         const total = within(rowOf('Total'));
         expect(total.getByText('5.0 s')).toBeInTheDocument();
         expect(total.getByText('1 300')).toBeInTheDocument();
@@ -51,7 +53,7 @@ describe('PerformanceTab', () => {
             steps: { a: { cpu_peak: 88.5, mem_peak_mb: 512 } },
             notes: ['CPU and memory need read access to _introspection; ask an admin.'],
         });
-        renderThemed(<PerformanceTab run={run() as never} />);
+        renderThemed(<PerformanceTab run={run() as never} now={NOW} />);
         expect(api.getPerformance).not.toHaveBeenCalled();
         await userEvent.click(screen.getByRole('button', { name: 'Load CPU and memory' }));
         expect(await screen.findByText('88.5%')).toBeInTheDocument();
@@ -63,7 +65,7 @@ describe('PerformanceTab', () => {
 
     test('a failed load says what went wrong', async () => {
         api.getPerformance.mockRejectedValue(new Error('boom'));
-        renderThemed(<PerformanceTab run={run() as never} />);
+        renderThemed(<PerformanceTab run={run() as never} now={NOW} />);
         await userEvent.click(screen.getByRole('button', { name: 'Load CPU and memory' }));
         expect(await screen.findByText(/CPU and memory could not be loaded: boom/)).toBeInTheDocument();
     });
@@ -71,13 +73,13 @@ describe('PerformanceTab', () => {
     test('a running step counts up; a step with a search opens in Search; loaded searches open too', async () => {
         const r = run() as never as { steps: Record<string, unknown> };
         r.steps.a = { ...(r.steps.a as object), sid: 'scheduler__a_1' };
-        r.steps.c = { state: 'running', started_at: Math.floor(Date.now() / 1000) - 75, sid: 'scheduler__c_1' };
+        r.steps.c = { state: 'running', started_at: NOW - 75, sid: 'scheduler__c_1' };
         api.getPerformance.mockResolvedValue({
             steps: {},
             notes: [],
-            searches: [{ label: 'CPU and memory', spl: 'index=_introspection x', earliest: '100', latest: '200' }],
+            searches: [{ label: 'CPU and memory', spl: 'search index=_introspection x', earliest: '100', latest: '200' }],
         });
-        renderThemed(<PerformanceTab run={r as never} />);
+        renderThemed(<PerformanceTab run={r as never} now={NOW} />);
         expect(screen.getByTestId('live-c')).toHaveTextContent('1m 15s (running)');
         expect(within(rowOf('Count logins')).getByRole('link', { name: /Open in Search/ }).getAttribute('href')).toContain('sid=scheduler__a_1');
         await userEvent.click(screen.getByRole('button', { name: 'Load CPU and memory' }));

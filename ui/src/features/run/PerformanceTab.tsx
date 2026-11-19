@@ -32,7 +32,8 @@ const sum = (rows: StepPerf[], key: keyof StepPerf): number | undefined => {
     return values.length ? values.reduce((a, b) => a + b, 0) : undefined;
 };
 
-export default function PerformanceTab({ run }: { run: RunDetail }) {
+/** `now`: the run page's clock, so live runtimes match the timeline. */
+export default function PerformanceTab({ run, now }: { run: RunDetail; now: number }) {
     const [loaded, setLoaded] = useState<Record<string, StepPerf>>({});
     const [notes, setNotes] = useState<string[]>([]);
     const [error, setError] = useState<Error | null>(null);
@@ -40,8 +41,8 @@ export default function PerformanceTab({ run }: { run: RunDetail }) {
     const [done, setDone] = useState(false);
     const [searches, setSearches] = useState<PerfSearch[]>([]);
     const [startedAt, setStartedAt] = useState(0);
-    const running = Object.values(run.steps || {}).some((s) => s && (s.state === 'running' || s.state === 'starting'));
-    const now = useNow(running || busy);
+    // Ticks only while the CPU and memory search runs, for the button's seconds.
+    const clock = useNow(busy);
 
     const load = async () => {
         setBusy(true);
@@ -71,13 +72,13 @@ export default function PerformanceTab({ run }: { run: RunDetail }) {
         <div>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
                 <Button
-                    label={busy ? `Searching… ${Math.max(0, now - startedAt)}s` : done ? 'Load CPU and memory again' : 'Load CPU and memory'}
+                    label={busy ? `Searching… ${Math.max(0, clock - startedAt)}s` : done ? 'Load CPU and memory again' : 'Load CPU and memory'}
                     appearance="secondary"
                     disabled={busy}
                     onClick={load}
                 />
                 {searches.map((s) => (
-                    <Link key={s.label} to={createURL('/app/search/search', { q: `search ${s.spl}`, earliest: s.earliest, latest: s.latest })} openInNewContext>
+                    <Link key={s.label} to={createURL('/app/search/search', { q: s.spl, earliest: s.earliest, latest: s.latest })} openInNewContext>
                         {`Open the ${s.label.toLowerCase()} search in Search`}
                     </Link>
                 ))}
