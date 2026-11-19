@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.37.2 (2026-11-19)
+
+- **Action rows are pruned:** run-record retention now removes a run's `so_action_runs` rows with the run; they were never pruned before and grew without end.
+- Deleting a job is unchanged: it removes the job, its hidden searches, saved versions and follows, and cancels a running backfill, so nothing runs again; its runs stay in the run list until retention prunes them.
+
 ## 1.37.1 (2026-11-19)
 
 - **Calendar navigation:** the buttons say what they move ("‹ Previous week", "Next month ›"), the range shown sits beside them, **Go to date** jumps to any day, and `←`, `→` and `T` (today) work from the keyboard.

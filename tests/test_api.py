@@ -2086,3 +2086,24 @@ def test_scan_limit_settings(w):
     body = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults", "max_scan": 0}])
     status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", body)
     assert not out["valid"]
+
+
+def test_pruning_old_runs_also_removes_their_action_rows():
+    from so.store import ACTION_RUNS, RUNS, Store
+    from fakes import FakeGateway
+    gw = FakeGateway()
+    store = Store(gw)
+    gw.kv_insert(RUNS, {"_key": "j:1", "job_id": "j", "state": "succeeded", "ended_at": 10})
+    gw.kv_insert(ACTION_RUNS, {"_key": "j:1:job:on_success", "run_id": "j:1", "job_id": "j"})
+    gw.kv_insert(ACTION_RUNS, {"_key": "j:2:job:on_success", "run_id": "j:2", "job_id": "j"})
+    assert store.prune_runs(100) == 1
+    assert [r["run_id"] for r in gw.kv_query(ACTION_RUNS)] == ["j:2"]
+
+
+def test_delete_keeps_the_jobs_run_history(w):
+    saved(w)
+    run_id = start(w)
+    fail_run(w, run_id)
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    assert w.store.get_job("daily") is None
+    assert w.store.get_run(run_id) is not None  # kept until run retention prunes it

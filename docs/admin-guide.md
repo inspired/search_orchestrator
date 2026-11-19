@@ -134,7 +134,7 @@ The engine writes every state change as JSON to the `orchestrator` index (source
 - **Splunk Cloud:** create an event index named `orchestrator` yourself (**Settings > Indexes**). The app keeps working without it, because the screens read from KV Store, but audit events are lost and Settings shows a warning.
 - Inside the app, search with the `orchestrator_index` macro. The macro isn't shared outside the app, so **outside the app, and on Cloud, search `index=orchestrator` directly.**
 
-Run records are pruned from KV Store after the retention period; audit events stay for the index's own retention.
+Run records (each run with its step attempts and action rows) are pruned from KV Store after the retention period; audit events stay for the index's own retention.
 
 ## Run health dashboard
 
@@ -199,7 +199,7 @@ The engine runs on every member, and a KV Store lease (90 seconds, renewed about
 
 ## Deleting jobs
 
-The Jobs page shows **Delete** to users who may edit the job: its owner (with `orchestrator_build`) and admins. It asks for confirmation, naming the job, then deletes the job and its hidden saved searches. A job with active or queued runs can't be deleted until those runs are cancelled; the dialog says so. Past runs stay in the Runs list until run-record retention prunes them.
+The Jobs page shows **Delete** to users who may edit the job: its owner (with `orchestrator_build`) and admins. It asks for confirmation, naming the job, then deletes the job, its hidden saved searches, saved versions and follows, and cancels a running backfill, so nothing of it runs again. A job with active or queued runs can't be deleted until those runs are cancelled; the dialog says so. Past runs stay in the Runs list until run-record retention prunes them.
 
 ## Orphaned owners
 
