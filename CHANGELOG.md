@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.34.3 (2026-11-19)
+
+- **Troubleshooting uses the job editor's words:** a missed schedule names the job's **Missed runs** setting and its option ("Run only the latest missed time"), not "catch-up", and says where to change it. `schedule_missed` and `schedule_skipped` were checked on a live instance (Splunk stopped for 11 minutes: 4 missed, 7 caught up; a disabled job: one line per minute).
+
 ## 1.34.2 (2026-11-19)
 
 - **Clean engine stop:** after ending the event stream the engine points stdout at /dev/null, so Python's own flush at exit no longer reports the pipe splunkd closed ("Exception ignored on flushing sys.stdout: BrokenPipeError", an ERROR in splunkd.log on every restart). Checked by restarting a live instance.

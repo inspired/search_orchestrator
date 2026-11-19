@@ -132,6 +132,13 @@ function num(v?: string): string {
     return v === undefined || Number.isNaN(n) ? '' : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
+/** The job editor's names for the Missed runs setting (catchup). */
+const MISSED_RUNS: Record<string, string> = {
+    all: 'Run each missed time (up to 7)',
+    latest: 'Run only the latest missed time',
+    none: 'Skip missed times',
+};
+
 function slotTime(epoch?: string): string {
     const n = Number(epoch);
     if (!epoch || Number.isNaN(n)) {
@@ -276,8 +283,8 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
             const gap = f.seconds ? spanText(Number(f.seconds)) : 'a while';
             return d('run', 'warning', `${job} missed ${n} scheduled run${f.missed === '1' ? '' : 's'}: nothing checked the schedule for ${gap}`, {
                 result: f.caught_up && f.caught_up !== '0' ? `${f.caught_up} caught up` : 'none caught up',
-                why: `The engine was stopped or on standby from ${slotTime(f.since)}. When it came back, the job’s catch-up setting (${f.policy || 'all'}) ran ${f.policy === 'latest' ? 'only the latest slot' : f.policy === 'none' ? 'no missed slots' : `at most the latest ${f.catchup_cap || 7}`}.`,
-                fix: 'Check why the engine stopped (Engine tile and graph). Use Backfill to run the missed times.',
+                why: `The engine was stopped or on standby from ${slotTime(f.since)}. When it came back, the job’s Missed runs setting (${MISSED_RUNS[f.policy || 'all'] || f.policy}) ran ${f.policy === 'latest' ? 'only the latest one' : f.policy === 'none' ? 'none of them' : `the latest ${f.catchup_cap || 7}`}.`,
+                fix: 'Check why the engine stopped (Engine value and graph). Use Backfill to run the missed times, or change Missed runs on the job’s Settings tab.',
             });
         }
         case 'run_waiting': {

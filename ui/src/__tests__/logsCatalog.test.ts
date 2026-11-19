@@ -114,7 +114,7 @@ describe('why a job did not start', () => {
         expect(skipped.fix).toMatch(/Backfill/);
         const missed = describeLine(ev('schedule_missed', { missed: '30', at_least: 'false', seconds: '2595600', since: '1763542800', policy: 'latest', caught_up: '1', catchup_cap: '7' }), names);
         expect(missed.title).toBe('Daily logins missed 30 scheduled runs: nothing checked the schedule for 30 days');
-        expect(missed.why).toMatch(/ran only the latest slot/);
+        expect(missed.why).toMatch(/Missed runs setting \(Run only the latest missed time\) ran only the latest one/);
         expect(missed.result).toBe('1 caught up');
     });
 
