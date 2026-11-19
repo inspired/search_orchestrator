@@ -1991,3 +1991,14 @@ def test_approval_requested_only_on_approval_steps(w):
     body["edges"].append({"from": "b", "to": "gate"})
     job = saved(w, body=body)
     assert "hidden_search" not in job["steps"][2]
+
+
+def test_list_jobs_has_the_ten_newest_runs_newest_first(w):
+    saved(w)
+    ids = []
+    for i in range(12):
+        w.now = T0 + i
+        ids.append(start(w, body={"params": {}, "scheduled_time": T0 + i}))
+    job = w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]
+    assert [r["id"] for r in job["recent_runs"]] == list(reversed(ids))[:10]
+    assert job["last_run"]["id"] == ids[-1] and "definition" not in job["recent_runs"][0]

@@ -206,6 +206,8 @@ export interface Job extends JobDefinition {
     /** True when no cron slot was found within the server's 400-day walk. */
     next_run_beyond?: boolean;
     last_run?: LastRun | null;
+    /** The newest runs, newest first (at most 10; GET jobs). */
+    recent_runs?: LastRun[];
     /** Problems a re-save fixes, such as previous_old_time_range. */
     warnings?: Issue[];
 }

@@ -1,8 +1,13 @@
-/* The Jobs table: name, owner, next run, last run outcome, enabled switch, Run now and
- * Backfill… (for users who may run the job) and Delete (only for users who may edit it). */
+/* The Jobs table: name, owner, next run, the last run and the newest runs as status icons,
+ * enabled switch, Run now (for users who may run the job) and a ⋯ menu with Backfill… and
+ * Delete (only for users who may edit it). Above it: search, a Show filter (all, last run
+ * failed, disabled, scheduled, mine) and the sort order, both remembered in this browser. */
 import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
+import Dropdown from '@splunk/react-ui/Dropdown';
+import Menu from '@splunk/react-ui/Menu';
+import Select from '@splunk/react-ui/Select';
 import Link from '@splunk/react-ui/Link';
 import Search from '@splunk/react-ui/Search';
 import Switch from '@splunk/react-ui/Switch';
@@ -14,6 +19,20 @@ import { pageHref } from '../../components/PageShell';
 import { formatTime } from '../../format';
 import JobsEmpty from './JobsEmpty';
 import { filterJobs, jobSummary } from './jobSummary';
+import RecentRuns from './RecentRuns';
+import { SHOW_LABEL, SORT_LABEL, showJobs, sortJobs } from './jobsView';
+import type { Show, Sort } from './jobsView';
+
+const VIEW_KEY = 'so.jobs.view';
+
+function storedView(): { show: Show; sort: Sort } {
+    try {
+        const v = JSON.parse(window.localStorage.getItem(VIEW_KEY) || '{}');
+        return { show: v.show in SHOW_LABEL ? v.show : 'all', sort: v.sort in SORT_LABEL ? v.sort : 'name' };
+    } catch (e) {
+        return { show: 'all', sort: 'name' };
+    }
+}
 
 export interface JobsTableProps {
     jobs: Job[];
@@ -46,6 +65,16 @@ function nextRunText(job: Job): string {
 export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples }: JobsTableProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [query, setQuery] = useState('');
+    const [view, setViewState] = useState(storedView);
+    const setView = (patch: Partial<{ show: Show; sort: Sort }>) => {
+        const next = { ...view, ...patch };
+        setViewState(next);
+        try {
+            window.localStorage.setItem(VIEW_KEY, JSON.stringify(next));
+        } catch (e) {
+            // not remembered; it still applies on this page
+        }
+    };
     if (!jobs.length) {
         return loadFailed ? null : <JobsEmpty me={me} onBrowseExamples={onBrowseExamples} />;
     }
@@ -53,24 +82,38 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
     jobs.forEach((j) => {
         names[j.id] = j.name;
     });
-    const shown = filterJobs(jobs, query);
+    const shown = sortJobs(showJobs(filterJobs(jobs, query), view.show, me), view.sort);
     return (
         <>
-            <ControlGroup label="Find jobs" labelPosition="top">
-                <Search
-                    inline
-                    value={query}
-                    onChange={(_e: unknown, { value }: { value: string }) => setQuery(value)}
-                />
-            </ControlGroup>
-            {!shown.length && <p>{`No jobs match "${query.trim()}".`}</p>}
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div style={{ flex: '1 1 320px', maxWidth: '480px' }}>
+                    <ControlGroup label="Find jobs" labelPosition="top">
+                        <Search inline value={query} onChange={(_e: unknown, { value }: { value: string }) => setQuery(value)} />
+                    </ControlGroup>
+                </div>
+                <ControlGroup label="Show" labelFor="jobs-show" labelPosition="top">
+                    <Select inputId="jobs-show" value={view.show} onChange={(_e: unknown, { value }: { value: unknown }) => setView({ show: value as Show })}>
+                        {(Object.keys(SHOW_LABEL) as Show[]).map((s) => (
+                            <Select.Option key={s} value={s} label={SHOW_LABEL[s]} />
+                        ))}
+                    </Select>
+                </ControlGroup>
+                <ControlGroup label="Sort by" labelFor="jobs-sort" labelPosition="top">
+                    <Select inputId="jobs-sort" value={view.sort} onChange={(_e: unknown, { value }: { value: unknown }) => setView({ sort: value as Sort })}>
+                        {(Object.keys(SORT_LABEL) as Sort[]).map((s) => (
+                            <Select.Option key={s} value={s} label={SORT_LABEL[s]} />
+                        ))}
+                    </Select>
+                </ControlGroup>
+            </div>
+            {!shown.length && <p>{query.trim() ? `No jobs match "${query.trim()}".` : `No jobs here: ${SHOW_LABEL[view.show].toLowerCase()}.`}</p>}
             {shown.length > 0 && (
                 <Table>
                     <Table.Head>
                         <Table.HeadCell>Name</Table.HeadCell>
                         <Table.HeadCell>Owner</Table.HeadCell>
                         <Table.HeadCell>Next run</Table.HeadCell>
-                        <Table.HeadCell>Last run</Table.HeadCell>
+                        <Table.HeadCell>Last runs</Table.HeadCell>
                         <Table.HeadCell>Enabled</Table.HeadCell>
                         <Table.HeadCell>
                             <span style={{ position: 'relative' }}>
@@ -110,14 +153,15 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                         {nextRunText(job)}
                                     </Table.Cell>
                                     <Table.Cell>
-                                        {last ? (
-                                            <Link to={pageHref('run', { run_id: last.id })}>
-                                                <StatusText state={last.state} delayed={isRunDelayed(last)} />
-                                                <span style={{ marginLeft: '0.5em' }}>{formatTime(last.scheduled_time)}</span>
-                                            </Link>
-                                        ) : (
-                                            'Never run'
-                                        )}
+                                        <div>
+                                            {last && (
+                                                <Link to={pageHref('run', { run_id: last.id })}>
+                                                    <StatusText state={last.state} delayed={isRunDelayed(last)} />
+                                                    <span style={{ marginLeft: '0.5em' }}>{formatTime(last.scheduled_time)}</span>
+                                                </Link>
+                                            )}
+                                            <RecentRuns job={job} />
+                                        </div>
                                     </Table.Cell>
                                     <Table.Cell>
                                         <Switch
@@ -142,23 +186,22 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                                     onClick={() => onRunNow(job)}
                                                 />
                                             )}
-                                            {canRun && onBackfill && (
-                                                <Button
-                                                    appearance="secondary"
-                                                    label="Backfill…"
-                                                    aria-label={`Backfill ${job.name}`}
-                                                    disabled={!job.enabled}
-                                                    onClick={() => onBackfill(job)}
-                                                />
-                                            )}
-                                            {canEdit && onDelete && (
-                                                <Button
-                                                    appearance="secondary"
-                                                    label="Delete"
-                                                    aria-label={`Delete ${job.name}`}
-                                                    disabled={Boolean(busy[job.id])}
-                                                    onClick={(e: React.MouseEvent) => onDelete(job, e.currentTarget as HTMLElement)}
-                                                />
+                                            {((canRun && onBackfill) || (canEdit && onDelete)) && (
+                                                <Dropdown toggle={<Button appearance="subtle" label="⋯" aria-label={`More actions for ${job.name}`} />}>
+                                                    <Menu>
+                                                        {canEdit && <Menu.Item to={pageHref('builder', { job_id: job.id })}>Edit</Menu.Item>}
+                                                        {canRun && onBackfill && (
+                                                            <Menu.Item disabled={!job.enabled} onClick={() => onBackfill(job)} description={job.enabled ? undefined : 'Enable the job first'}>
+                                                                Backfill…
+                                                            </Menu.Item>
+                                                        )}
+                                                        {canEdit && onDelete && (
+                                                            <Menu.Item disabled={Boolean(busy[job.id])} onClick={(e: React.MouseEvent) => onDelete(job, e.currentTarget as HTMLElement)}>
+                                                                Delete…
+                                                            </Menu.Item>
+                                                        )}
+                                                    </Menu>
+                                                </Dropdown>
                                             )}
                                         </div>
                                     </Table.Cell>

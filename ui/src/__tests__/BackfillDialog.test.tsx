@@ -104,13 +104,14 @@ describe('BackfillDialog', () => {
         expect(props.onClose).toHaveBeenCalled();
     });
 
-    test('Backfill… sits next to Run now, only for users who may run the job', () => {
+    test('Backfill… is in the ⋯ menu, only for users who may run the job', () => {
         const onBackfill = jest.fn();
         const runnable = job();
         const viewOnly = job({ id: 'v', name: 'View only', permissions: { can_edit: false, can_run: false } });
         renderThemed(<JobsTable jobs={[runnable, viewOnly]} me={me} onRunNow={jest.fn()} onBackfill={onBackfill} onToggleEnabled={jest.fn()} />);
-        expect(screen.queryByRole('button', { name: 'Backfill View only' })).toBeNull();
-        fireEvent.click(screen.getByRole('button', { name: 'Backfill Daily summary' }));
+        expect(screen.queryByRole('button', { name: 'More actions for View only' })).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'More actions for Daily summary' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /Backfill…/ }));
         expect(onBackfill).toHaveBeenCalledWith(expect.objectContaining({ id: 'daily' }));
     });
 });

@@ -446,7 +446,7 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 
 ## Follow runs
 
-- **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run and last outcome, with Run now and an enable switch. **Find jobs** filters by name, id, owner or description. With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
+- **Jobs** shows each job with a summary line (when it runs and how many steps it has), its next run, its last run and its 10 newest runs as status icons (oldest left; hover for the state and time, click to open the run; "N of the last 10 failed" when some did), with **Run now**, an enable switch and a **⋯** menu (Edit, Backfill…, Delete…). **Find jobs** filters by name, id, owner or description; **Show** narrows to jobs whose last run failed, disabled, scheduled or your own jobs, and **Sort by** orders by name, next run, last run or failed first (both remembered in this browser). With no jobs yet, the page offers the templates to start from. **Create job** starts a new one. The switch never changes the job's owner. A next run more than about 400 days away shows as a dash. If you may edit a job, **Delete** removes it after you confirm. Cancel its active or queued runs first.
 - **Dependencies** and **Calendar** show how jobs start each other and when they run; see [Dependencies](#dependencies) and [Calendar](#calendar).
 - **Runs** lists runs grouped by job: one row per job with its latest run, how many runs are in each state and **⚑ N waiting for approval** when a step waits; click the job to open all its runs, or **Only this job** to filter. **Show: All runs** gives one list, newest first (remembered in this browser). Filterable by job and state. Each run under a job shows its number within the job (**Run #N**, 1 for the oldest kept run), the same in every filter. The **Needs attention** state filter shows blocked and failed runs, runs that hold later runs back, and running or paused runs with a step waiting for approval.
 - **Run detail** has a timeline, the graph, logs, actions and parameters. When a run needs attention, a line under the header says what to do next, such as re-running from the failed step. When a failed run is holding later runs back, **Dismiss run** lets them start. A warning message explains a delay, such as which step is late and what waits for it. Click a step for its attempts, actions and links to its search job and Job Inspector. The **Performance** tab shows what each step cost; see [Performance](#performance).
@@ -554,7 +554,7 @@ A range shows at most 300 scheduled times per job and 2,000 items in all. If the
 
 ## Backfill
 
-A backfill runs a job once for each time in a past range, oldest first, for example to fill in a month of a daily rollup. Choose **Backfill…** on a job's row on the Jobs page, or in the builder toolbar.
+A backfill runs a job once for each time in a past range, oldest first, for example to fill in a month of a daily rollup. Choose **Backfill…** in a job's **⋯** menu on the Jobs page, or in the builder toolbar.
 
 - **From** and **To** (your browser's time zone; To is not included).
 - **Runs at**: **The job's schedule** (each time its enabled schedules would have fired) or **Every …** with a step from 1 minute to 31 days, counted from the start of the range.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.35.0 (2026-11-19)
+
+- **Jobs page:**
+  - **Last runs:** the last run and the 10 newest runs as status icons (oldest left; colour only on failed and delayed), each linking to its run, with "N of the last 10 failed".
+  - **Calmer actions:** Run now stays a button; Edit, Backfill… and Delete… move to a ⋯ menu.
+  - **Show** (all, last run failed, disabled, scheduled, my jobs) and **Sort by** (name, next run, last run, failed first), remembered in this browser.
+- `GET jobs` adds `recent_runs` (the 10 newest runs, from the same KV Store query as `last_run`).
+
 ## 1.34.5 (2026-11-19)
 
 - **No striped rows:** in Splunk's dark theme every other table row came out reddish-brown, which read as an error. All tables are plain now.

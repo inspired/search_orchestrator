@@ -275,18 +275,24 @@ def _next_run(job, now):
     return (min(slots), False) if slots else (None, True)
 
 
-def _last_run(ctx, job_id):
-    rows = ctx.sys_gw.kv_query(RUNS, {"job_id": job_id}, sort="created_at:-1", limit=1)
-    if not rows:
-        return None
-    return {k: rows[0].get(k) for k in LAST_RUN_FIELDS}
+RECENT_RUNS = 10
+
+
+def _recent_runs(ctx, job_id):
+    """The job's newest runs (at most RECENT_RUNS, newest first), in one KV query."""
+    rows = ctx.sys_gw.kv_query(RUNS, {"job_id": job_id}, sort="created_at:-1", limit=RECENT_RUNS,
+                               fields=",".join(("_key",) + LAST_RUN_FIELDS))
+    return [{k: r.get(k) for k in LAST_RUN_FIELDS} for r in rows or []]
 
 
 def _listed_job(ctx, job):
-    """A job for the Jobs screen: the public job plus its next and last run."""
+    """A job for the Jobs screen: the public job plus its next run, its last run and its
+    newest runs (``recent``, for the run history dots)."""
     out = _public_job(ctx, job)
     out["next_run"], out["next_run_beyond"] = _next_run(job, ctx.now)
-    out["last_run"] = _last_run(ctx, job.get("id") or job.get("_key"))
+    recent = _recent_runs(ctx, job.get("id") or job.get("_key"))
+    out["last_run"] = recent[0] if recent else None
+    out["recent_runs"] = recent
     out["warnings"] = model.old_time_range_issues(job)  # fixed by a re-save
     return out
 

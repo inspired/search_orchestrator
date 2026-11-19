@@ -161,15 +161,17 @@ describe('Delete job', () => {
         ];
         renderThemed(<JobsTable jobs={jobs} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onDelete={jest.fn()} />);
         const daily = screen.getByText('Daily summary').closest('tr') as HTMLElement;
-        expect(within(daily).getByRole('button', { name: 'Delete Daily summary' })).toBeInTheDocument();
+        fireEvent.click(within(daily).getByRole('button', { name: 'More actions for Daily summary' }));
+        expect(screen.getByRole('menuitem', { name: /Delete…/ })).toBeInTheDocument();
         const weekly = screen.getByText('Weekly rollup').closest('tr') as HTMLElement;
-        expect(within(weekly).queryByRole('button', { name: /Delete/ })).toBeNull();
+        expect(within(weekly).queryByRole('button', { name: /More actions/ })).toBeNull();
     });
 
     test('confirm then delete then the table refreshes', async () => {
         const api = jobsApi([job(), job({ id: 'weekly', name: 'Weekly rollup' })]);
         renderThemed(<JobsPage api={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Delete Daily summary' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'More actions for Daily summary' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /Delete…/ }));
         // The confirmation names the job; nothing is deleted yet.
         expect(screen.getByText('Delete Daily summary?')).toBeInTheDocument();
         expect(api.deleteJob).not.toHaveBeenCalled();
@@ -189,7 +191,8 @@ describe('Delete job', () => {
             ),
         });
         renderThemed(<JobsPage api={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Delete Daily summary' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'More actions for Daily summary' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /Delete…/ }));
         fireEvent.click(screen.getByRole('button', { name: 'Delete job' }));
         expect(
             await screen.findByText(/Daily summary has active or queued runs\. Cancel them on the Runs page, then delete it\./)
@@ -300,5 +303,32 @@ describe('JobsTable empty state and access', () => {
         renderThemed(<JobsTable jobs={[]} me={null} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
         expect(screen.getByText('No jobs yet.')).toBeInTheDocument();
         expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+    });
+});
+
+describe('Jobs page: recent runs, show and sort', () => {
+    const run = (id: string, state: string, t: number) => ({ id, state, trigger: 'cron', scheduled_time: t, started_at: t, ended_at: t + 5, delay_alerted: false, held: false, gave_up: false });
+    beforeEach(() => window.localStorage.removeItem('so.jobs.view'));
+
+    test('the newest runs show as icons, oldest first, with how many failed', () => {
+        const j = job({ recent_runs: [run('r3', 'failed', 300), run('r2', 'succeeded', 200), run('r1', 'failed', 100)] as never, last_run: run('r3', 'failed', 300) as never });
+        renderThemed(<JobsTable jobs={[j]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const icons = screen.getAllByTestId('recent-run');
+        expect(icons.map((i) => i.getAttribute('data-state'))).toEqual(['failed', 'succeeded', 'failed']);
+        expect(icons[2].getAttribute('href')).toBe('run?run_id=r3');
+        expect(screen.getByText('2 of the last 3 failed')).toBeInTheDocument();
+    });
+
+    test('show and sort filter the rows and are remembered', () => {
+        const ok = job({ id: 'a', name: 'Alpha', last_run: run('a1', 'succeeded', 100) as never });
+        const bad = job({ id: 'b', name: 'Bravo', last_run: run('b1', 'failed', 50) as never });
+        const off = job({ id: 'c', name: 'Charlie', enabled: false });
+        const { showJobs, sortJobs } = jest.requireActual('../features/jobs/jobsView');
+        expect(showJobs([ok, bad, off], 'failing', me).map((x: { id: string }) => x.id)).toEqual(['b']);
+        expect(showJobs([ok, bad, off], 'disabled', me).map((x: { id: string }) => x.id)).toEqual(['c']);
+        expect(sortJobs([ok, bad, off], 'failing').map((x: { id: string }) => x.id)).toEqual(['b', 'a', 'c']);
+        expect(sortJobs([ok, bad, off], 'last').map((x: { id: string }) => x.id)).toEqual(['a', 'b', 'c']);
+        renderThemed(<JobsTable jobs={[ok, bad, off]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('Alpha')).toBeInTheDocument();
     });
 });
