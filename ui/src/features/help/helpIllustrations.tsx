@@ -427,13 +427,13 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     troubleshooting: () => (
-        <Figure caption="Troubleshooting shows the app's own log lines: filter by run, step, level and time; errors stand out.">
+        <Figure caption="Troubleshooting tells what the app did in words, with why and what to do for failures, health tiles and graphs above.">
             <MiniTable
-                head={['Time', 'Level', 'Part', 'Event', 'Run and step']}
+                head={['Time', 'What happened', 'Job · step', 'Result']}
                 rows={[
-                    ['10:00:05', 'ERROR', 'Engine', 'step_dispatch_error', 'daily:42 · score'],
-                    ['10:00:00', 'INFO', 'Engine', 'step_dispatched', 'daily:42 · count'],
-                    ['09:59:58', 'INFO', 'Screens and API', 'request POST jobs/daily/runs 201', ''],
+                    ['10:00:05', '✗ Webhook failed after 3 tries: HTTP 404', 'Daily logins', 'why and what to do inside'],
+                    ['10:00:00', '✓ Search for step Count finished: 1 204 results', 'Daily logins · Count', '3.2 s'],
+                    ['09:59:58', 'alice started Daily logins now', 'Daily logins', '201 created · 90 ms'],
                 ]}
             />
         </Figure>

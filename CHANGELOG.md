@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.33.0 (2026-11-19)
+
+- **Troubleshooting, rebuilt:**
+  - Health tiles (engine, errors, warnings, failed requests, response time, failed actions, failed runs), each with a trend and a click-to-filter.
+  - Graphs to switch between: activity by level, requests and response time with the slowest routes, engine tick time and active runs, the slowest splunkd calls and the most frequent events.
+  - **What happened:** every line in plain words (each audit event, request and engine line), with job, run and step names, who did it, the result and the meaning of the status. Known failures say why and what to do. Details show every field, the traceback and the raw line.
+  - **Problems:** errors grouped by cause with counts, first and last seen, the jobs and runs affected.
+  - **Run story:** one run from created to finished, with the waits explained.
+  - Filters in the address, chips to remove them, a job picker by name and **Live** refresh.
+- New routes `GET logs/summary`, `GET logs/breakdown` and `GET logs/problems`; `GET logs` adds parsed `fields`, `message`, `traceback`, `names`, and the `event` and `sort` filters.
+
 ## 1.32.1 (2026-11-19)
 
 - **Log sourcetype:** the app's log files get the sourcetype `orchestrator:log` (`orchestrator:log_<suffix>` in the side-by-side copy) instead of the per-file `…-too_small` sourcetype Splunk guessed, with one event per line, a Python traceback kept with its line and the timestamp read from the line.

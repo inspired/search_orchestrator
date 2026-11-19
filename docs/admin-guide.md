@@ -161,7 +161,12 @@ Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involve
 
 Lines never hold passwords, session keys, tokens, headers, request bodies, webhook URLs or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too, as before, so the Run health dashboard's **Engine health** keeps working.
 
-The **Troubleshooting** page (`logs` view) and `GET logs` (filters `run_id`, `job_id`, `step_id`, `process`, `level`, `text`, `range` of 15m, 1h, 24h or 7d, `limit` up to 1000) search these lines as the caller, so the caller needs read access to `_internal`. Search them yourself with the `orchestrator_logs` macro (`index=_internal source="*search_orchestrator.*.log"`).
+The **Troubleshooting** page (`logs` view) uses four routes, all searching these lines as the caller, so the caller needs read access to `_internal`. Filters: `run_id`, `job_id`, `step_id`, `event`, `process`, `level`, `text`, `range` (15m, 1h, 24h or 7d) and, for lines, `limit` (up to 1000) and `sort` (`newest` or `oldest`).
+
+- `GET logs`: the lines, each with its parsed `fields`, free-text `message` and `traceback`, plus `names` (job and step names for jobs the caller may see).
+- `GET logs/summary`: per-bucket counts for the graphs (`timechart`: lines per level, requests per status class and their 95th percentile, tick time and active runs), the totals for the health tiles, the 15 most frequent events, the engine lease status and the log level.
+- `GET logs/breakdown`: the 15 slowest API routes and splunkd endpoints (ids taken out) by 95th percentile.
+- `GET logs/problems`: up to 2000 errors and warnings grouped by event, error code and error text with ids and numbers taken out. Search them yourself with the `orchestrator_logs` macro (`index=_internal source="*search_orchestrator.*.log"`).
 
 ## Step previews
 

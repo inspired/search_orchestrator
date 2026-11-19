@@ -178,4 +178,98 @@ def test_no_lines_and_no_access_say_so(w):
 def test_a_full_page_says_there_are_more(w):
     w.gw.search_handler = lambda owner, query: [{"_raw": "x"}] * 3
     out = get_logs(w, {"limit": "3"})[1]
-    assert out["notes"] == [logs_api.NOTE_LIMIT % 3]
+    assert out["notes"] == [logs_api.NOTE_LIMIT % ("newest", 3)]
+
+
+# -- parsing, names, summary, breakdown, problems ----------------------------------
+
+RAW = ('2026-11-19 13:46:17,374 +0100 level=INFO process=rest logger=so.rest event=request '
+       'method="POST" ms=168 path="/orchestrator/runs/daily%3Amanual%3Aab/approve" status=202 '
+       'user="joernh" error="say \\"no\\""')
+
+
+def test_parse_line_reads_fields_messages_and_tracebacks():
+    fields, message, trace = logs_api.parse_line(RAW)
+    assert fields["event"] == "request" and fields["status"] == "202" and fields["ms"] == "168"
+    assert fields["user"] == "joernh" and fields["error"] == 'say "no"' and message is None
+    raw = ("2026-11-19 13:00:00,001 +0000 level=WARNING process=engine logger=so.engine "
+           "status of search s1 failed: boom\nTraceback (most recent call last):\n  x")
+    fields, message, trace = logs_api.parse_line(raw)
+    assert fields == {"level": "WARNING", "process": "engine", "logger": "so.engine"}
+    assert message == "status of search s1 failed: boom" and trace.startswith("Traceback")
+
+
+def test_lines_carry_fields_and_the_names_of_jobs_the_caller_may_see(w):
+    saved(w)
+    w.gw.search_handler = lambda owner, query: [
+        {"_time": "t", "_raw": "2026-11-19 13:00:00,001 +0000 level=INFO process=engine "
+                               'logger=so.audit event=step_dispatched job_id="daily" step_id="a"'},
+        {"_time": "t", "_raw": RAW.replace("runs/daily%3Amanual%3Aab/approve", "jobs/daily")}]
+    out = get_logs(w)[1]
+    assert out["lines"][0]["fields"]["step_id"] == "a" and out["lines"][0]["job_id"] == "daily"
+    assert out["names"]["daily"]["name"] and "a" in out["names"]["daily"]["steps"]
+    assert get_logs(w, user="dave")[1]["names"] == {}
+
+
+def test_oldest_first_and_event_filter(w):
+    get_logs(w, {"sort": "oldest", "event": "step_state", "run_id": "daily:1"})
+    query = w.gw.search_log[-1][1]
+    assert 'run_id="daily:1" event=step_state' in query and "| reverse |" in query
+    assert get_logs(w, {"event": "Bad Event"})[0] == 400
+    assert get_logs(w, {"sort": "sideways"})[0] == 400
+
+
+def test_summary_buckets_totals_top_events_and_engine(w):
+    def handler(owner, query):
+        if "timechart" in query:
+            return [{"_time": "2026-11-19T13:00:00", "error": "1", "warning": "2", "info": "5",
+                     "debug": "0", "req_ok": "3", "req_4xx": "1", "req_5xx": "0", "req_p95": "120",
+                     "ticks": "12", "tick_avg": "40", "tick_max": "90", "active_runs": "2"}]
+        return [{"event": "request", "level": "INFO", "process": "rest", "sc": "ok", "to": "-", "count": "3"},
+                {"event": "request", "level": "WARNING", "process": "rest", "sc": "4xx", "to": "-", "count": "1"},
+                {"event": "action_failed", "level": "INFO", "process": "engine", "sc": "-", "to": "-", "count": "2"},
+                {"event": "run_state", "level": "INFO", "process": "engine", "sc": "-", "to": "failed", "count": "1"},
+                {"event": "-", "level": "ERROR", "process": "engine", "sc": "-", "to": "-", "count": "1"}]
+    w.gw.search_handler = handler
+    status, out = w.call("alice", "GET", "/orchestrator/logs/summary", {"range": "1h"})
+    assert status == 200, out
+    assert out["span"] == "1m" and out["buckets"][0]["tick_max"] == 90.0
+    t = out["totals"]
+    assert (t["requests"], t["req_4xx"], t["actions_failed"], t["runs_failed"], t["error"]) == (4, 1, 2, 1, 1)
+    assert [e["event"] for e in out["events"]][:2] == ["request", "action_failed"]
+    assert "(no event)" in [e["event"] for e in out["events"]]
+    assert set(out["engine"]) == {"running", "last_seen"} and out["log_level"] == "INFO"
+    assert "timechart span=1m" in w.gw.search_log[0][1]
+
+
+def test_breakdown_routes_and_splunkd_calls(w):
+    def handler(owner, query):
+        if "event=request" in query:
+            assert 'route=replace(route, "^(jobs|runs|backfills|snippets|destinations)/[^/]+"' in query
+            return [{"method": "POST", "route": "runs/<id>/approve", "count": "4", "p95": "300",
+                     "avg": "150", "max": "320", "failed": "1", "all_p95": "210", "all_count": "40"}]
+        return [{"method": "GET", "ep": "search/jobs/<sid>", "count": "90", "p95": "45", "avg": "20",
+                 "max": "80", "errors": "0"}]
+    w.gw.search_handler = handler
+    out = w.call("alice", "GET", "/orchestrator/logs/breakdown")[1]
+    assert out["routes"][0]["route"] == "runs/<id>/approve" and out["requests_p95"] == 210.0
+    assert out["requests"] == 40 and out["calls"][0]["endpoint"] == "search/jobs/<sid>"
+
+
+def test_problems_group_the_same_failure_with_different_ids(w):
+    def line(sid, run):
+        return {"_time": "2026-11-19T13:0%s:00" % sid[-1],
+                "_raw": "2026-11-19 13:00:00,001 +0000 level=WARNING process=engine logger=so.engine "
+                        "status of search scheduler__alice_%s failed: HTTP 503 for run %s" % (sid, run)}
+    w.gw.search_handler = lambda owner, query: [
+        line("x1", "daily:cron:1"), line("x2", "daily:cron:2"),
+        {"_time": "2026-11-19T12:00:00", "_raw": "2026-11-19 12:00:00,001 +0000 level=INFO "
+         'process=engine logger=so.audit event=action_failed job_id="daily" run_id="daily:cron:1" '
+         'action_type="webhook" error="HTTP 404 Not Found"'}]
+    status, out = w.call("alice", "GET", "/orchestrator/logs/problems")
+    assert status == 200, out
+    first = out["problems"][0]
+    assert first["count"] == 2 and first["level"] == "WARNING"
+    assert "<sid>" in first["signature"] and "<n>" in first["signature"]
+    assert out["problems"][1]["event"] == "action_failed" and out["problems"][1]["jobs"] == ["daily"]
+    assert "level IN (ERROR, WARNING)" in w.gw.search_log[-1][1]
