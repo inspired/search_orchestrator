@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
+import DateInput from '@splunk/react-ui/Date';
 import Message from '@splunk/react-ui/Message';
 import RadioBar from '@splunk/react-ui/RadioBar';
 import Select from '@splunk/react-ui/Select';
@@ -97,16 +98,54 @@ function CalendarPage() {
     const shift = (n: number) => setAnchor((a) => addDays(a, n));
     const move = (dir: number) => (view === 'month' ? setAnchor((a) => addMonths(a, dir)) : shift(dir * step));
     const title = view === 'month' ? anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : rangeTitle(days);
+    const unit = view === 'month' ? 'month' : view;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const isoDay = `${anchor.getFullYear()}-${pad(anchor.getMonth() + 1)}-${pad(anchor.getDate())}`;
+    const moveRef = useRef(move);
+    moveRef.current = move;
+
+    // ← and → move a day, week or month, T goes to today, when no field or control has focus.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const el = document.activeElement;
+            if (e.altKey || e.ctrlKey || e.metaKey || (el && el !== document.body)) {
+                return;
+            }
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                moveRef.current(e.key === 'ArrowLeft' ? -1 : 1);
+            } else if (e.key === 't' || e.key === 'T') {
+                setAnchor(new Date());
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     return (
         <PageShell title="Calendar">
             <p style={{ marginTop: 0 }}>{`Times are in your browser's time zone (${timeZone()}).`}</p>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                    <Button appearance="secondary" label="Previous" onClick={() => move(-1)} />
-                    <Button appearance="secondary" label="Today" onClick={() => setAnchor(new Date())} />
-                    <Button appearance="secondary" label="Next" onClick={() => move(1)} />
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} role="group" aria-label="Move through the calendar">
+                    <Button appearance="secondary" label={`‹ Previous ${unit}`} aria-label={`Previous ${unit}`} title="Previous (←)" onClick={() => move(-1)} />
+                    <Button appearance="secondary" label="Today" title="Today (T)" onClick={() => setAnchor(new Date())} />
+                    <Button appearance="secondary" label={`Next ${unit} ›`} aria-label={`Next ${unit}`} title="Next (→)" onClick={() => move(1)} />
+                    <strong data-testid="calendar-title" style={{ fontSize: '16px', minWidth: '180px', marginLeft: '8px' }} aria-live="polite">
+                        {title}
+                    </strong>
                 </div>
+                <ControlGroup label="Go to date" labelFor="calendar-go-to" labelPosition="top">
+                    <DateInput
+                        inputId="calendar-go-to"
+                        value={isoDay}
+                        onChange={(_e: unknown, { value }: { value: string }) => {
+                            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+                            if (m) {
+                                setAnchor(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+                            }
+                        }}
+                    />
+                </ControlGroup>
                 <RadioBar aria-label="Show" value={view} onChange={(_e: unknown, { value }: { value: unknown }) => setView(value as View)}>
                     <RadioBar.Option label="Day" value="day" />
                     <RadioBar.Option label="Week" value="week" />
@@ -130,7 +169,6 @@ function CalendarPage() {
                         </Select>
                     </ControlGroup>
                 )}
-                <div style={{ paddingBottom: '6px' }}>{title}</div>
             </div>
             {calendar.error && (
                 <Message type="error" appearance="default">

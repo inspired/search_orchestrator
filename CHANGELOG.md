@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.37.1 (2026-11-19)
+
+- **Calendar navigation:** the buttons say what they move ("‹ Previous week", "Next month ›"), the range shown sits beside them, **Go to date** jumps to any day, and `←`, `→` and `T` (today) work from the keyboard.
+
+- **View output of an Event action** no longer searches the whole index: it shows only the events that action wrote (its search is the events' `source`), and from a run only that run's events. Event actions now mark each event `so_run=<run id>` (re-save a job to pick it up; older events are matched by the run id in the event). The table shows the time and the event's own fields (JSON spread out) instead of Splunk's internal `_bkt`, `_cd`, `_si` and the like; summary index views too.
+
 ## 1.37.0 (2026-11-19)
 
 - **Tags:** up to 10 per job (builder Settings tab, with the tags other jobs use offered). The Jobs, Runs and Calendar pages filter by tag; Find jobs searches tags; a job's tags show under its name and filter on click.

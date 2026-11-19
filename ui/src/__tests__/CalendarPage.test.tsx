@@ -148,16 +148,23 @@ describe('Calendar page', () => {
         expect(await screen.findByText('Showing the first 2,000 items; pick one job to see all.')).toBeInTheDocument();
     });
 
-    it('moves the range by seven days with Previous and Next', async () => {
+    it('moves the range by seven days with Previous week and Next week, and with the arrow keys', async () => {
         renderThemed(page);
         await screen.findByRole('button', { name: /^Daily summary, Failed/ });
         const first = (getCalendar as jest.Mock).mock.calls[0][0];
-        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
         await waitFor(() => expect((getCalendar as jest.Mock).mock.calls.length).toBe(2));
         expect((getCalendar as jest.Mock).mock.calls[1][0]).toBe(first + 7 * 86400);
-        fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
         await waitFor(() => expect(lastCall()[0]).toBe(first - 7 * 86400));
+        (document.activeElement as HTMLElement).blur();
+        fireEvent.keyDown(window, { key: 'ArrowRight' });
+        await waitFor(() => expect(lastCall()[0]).toBe(first));
+        fireEvent.keyDown(window, { key: 'ArrowLeft' });
+        await waitFor(() => expect(lastCall()[0]).toBe(first - 7 * 86400));
+        fireEvent.keyDown(window, { key: 't' });
+        await waitFor(() => expect(lastCall()[0]).toBe(first));
     });
 
     it('shows one day in the Day view', async () => {
@@ -249,7 +256,10 @@ describe('Calendar page', () => {
         await screen.findByRole('button', { name: /^Daily summary, Failed/ });
         fireEvent.click(screen.getByRole('radio', { name: 'Month' }));
         await screen.findByText('November 2026');
-        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
         expect(await screen.findByText('December 2026')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+        expect(await screen.findByText('October 2026')).toBeInTheDocument();
     });
 });

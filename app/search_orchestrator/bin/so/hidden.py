@@ -156,7 +156,7 @@ def action_spl(action):
                 'message="$args.message$"')
     if kind == "event":
         return ('| makeresults | eval _raw="$args.payload$" | fields _raw _time '
-                '| collect index="$args.index$"')
+                '| collect index="$args.index$" marker="so_run=$args.run_id$"')
     params = "".join(' param.%s="$args.param.%s$"' % (k, k)
                      for k in sorted((action.get("params") or {}).keys()))
     return "| makeresults | sendalert $args.action$%s" % params

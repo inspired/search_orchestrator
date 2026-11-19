@@ -15,7 +15,9 @@ they may read):
 * lookup: ``| inputlookup <name>`` (a lookup has no time);
 * summary index: ``index=<index>`` with ``source="<source>"`` when set and, for a run
   whose step adds the run id, ``so_run="<run id>"``;
-* event action: ``index=<index>``;
+* event action: ``index=<index>`` and ``source`` the action's hidden search (what ``collect``
+  names the events by), and for a run ``so_run="<run id>"`` (the marker the action adds since
+  1.37.1) or the run id in the event (older events);
 * email action: splunkd's sendemail lines in ``_internal`` (``source=*python.log*``).
 
 201 ``{"status": "started", "sid", "spl", "earliest", "latest", "kind"}``; poll and read
@@ -62,6 +64,26 @@ def _action(job, ref):
     return actions[ref["index"]]
 
 
+# Readable columns: the time, the event's own fields (JSON events are spread out) and where it
+# came from, without Splunk's internal bookkeeping fields.
+TIDY = ("\n| spath\n| table _time *\n| fields - linecount punct splunk_server splunk_server_group "
+        "timestartpos timeendpos date_* eventtype tag* index sourcetype host")
+
+
+def _action_source(job, ref, action):
+    """The hidden search an event action runs (the events' source): its saved name, or, for a
+    job not saved with it, every version of this action's search."""
+    name = action.get("hidden_search")
+    if isinstance(name, str) and NAME_RE.fullmatch(name):
+        return name
+    from .actions import indexed_actions
+    scope = "job" if ref.get("scope") == "job" else "step"
+    sid = None if scope == "job" else ref.get("scope")
+    mine = [i for i, s, step_id, a in indexed_actions(job) if s == scope and step_id == sid]
+    index = mine[ref["index"]] if ref["index"] < len(mine) else ref["index"]
+    return "_so_%s_action_%s_*" % (job.get("id") or "*", index)
+
+
 def output_spl(job, target, run_id=None):
     """``(kind, spl, sid_step)`` for ``target`` of ``job``; raises 400 when it has no output."""
     if not isinstance(target, dict):
@@ -84,7 +106,7 @@ def output_spl(job, target, run_id=None):
             parts.append("source=%s" % _quote(out["source"]))
         if run_id and out.get("add_run_id") is not False:
             parts.append("so_run=%s" % _quote(run_id))
-        return "summary_index", " ".join(parts), step["id"]
+        return "summary_index", " ".join(parts) + TIDY, step["id"]
     action = _action(job, target.get("action"))
     scope = target["action"]["scope"]
     sid_step = "job" if scope == "job" else scope
@@ -92,7 +114,10 @@ def output_spl(job, target, run_id=None):
         index = action.get("index") or ""
         if not NAME_RE.fullmatch(index):
             raise _bad("the event index name isn't valid")
-        return "event", "index=%s" % index, sid_step
+        parts = ["index=%s" % index, "source=%s" % _quote(_action_source(job, target["action"], action))]
+        if run_id:
+            parts.append("(so_run=%s OR %s)" % (_quote(run_id), _quote(run_id)))
+        return "event", " ".join(parts) + TIDY, sid_step
     if action.get("type") == "email":
         spl = "index=_internal source=*python.log* sendemail"
         to = action.get("to") or ""

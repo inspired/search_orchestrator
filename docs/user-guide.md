@@ -232,7 +232,14 @@ With the canvas focused:
 - **Summary index** has **Summary index** (the index to write to), an optional **Source**, and **Add the run id**, which is on by default. The step's search is generated from these settings, for example `| collect index=summary source="daily" marker="so_run=$run.id$"`. The marker lets you tell which run wrote each event.
 - **Lookup** has **Lookup name** (a lookup file such as `hosts.csv`, or a lookup definition) and **Append instead of replace**. The generated search is `| outputlookup hosts.csv`, or `| outputlookup append=true hosts.csv` when append is on. Without append, each run replaces the lookup's contents.
 - Index and lookup names use letters, numbers, `_`, `.`, `:` and `-`. The panel says what to fix if a name is empty or has other characters.
-- **View output** shows what the node wrote: for a lookup, its contents now; for a summary index, its events (from the node's source) in the last 24 hours, 7 days or 30 days. The dialog shows up to 100 rows, the total, the search it ran and **Open in Search** for the rest. An **Email** action has **View sent emails** (splunkd's sendemail lines in `_internal`) and an **Event** action has **View output** (the events in its index). On the run page, a step's details have the same buttons under **Output**, searching only that run's time window (and, for a summary index with **Add the run id**, only that run's events). The search runs as you, like a preview, so you see only what you may search.
+- **View output** shows what the node wrote:
+  - a **lookup**: its contents now;
+  - a **summary index**: its events (from the node's source) in the last 24 hours, 7 days or 30 days;
+  - an **Event** action: only the events this action wrote (by the search that wrote them, not everything in the index);
+  - an **Email** action has **View sent emails** instead: splunkd's sendemail lines in `_internal`.
+- The dialog shows up to 100 rows with readable columns (the time and the event's own fields, JSON spread out, without Splunk's internal fields), the total, the search it ran and **Open in Search** for the rest.
+- On the run page, a step's details have the same buttons under **Output**, searching only that run's time window and only that run's events (a summary index with **Add the run id**, and every event action: each event is marked `so_run=<run id>`).
+- The search runs as you, like a preview, so you see only what you may search.
 - The **Search** field shows the generated search and can't be edited. **Edit as search** turns the node into a plain **Results of earlier steps** step with that search, so you can change it; the node then no longer has the summary index or lookup settings.
 
 ### Slack
@@ -633,7 +640,8 @@ A job you aren't allowed to see appears as **Job you can't see**, so a chain sta
 **Calendar**, after Dependencies, shows when jobs run, by **Day**, **Week** or **Month** (weeks start on Monday).
 
 - Times are in your browser's time zone, named at the top.
-- **Previous**, **Today** and **Next** move the range; **Job** limits it to one job and **Tag** to the jobs with a tag.
+- **‹ Previous** and **Next ›** move a day, a week or a month, as the view shows (the buttons name it: "Next week ›"); **Today** comes back. The keys `←`, `→` and `T` do the same when nothing else has focus. **Go to date** jumps to any day; the range shown is named beside the buttons.
+- **Job** limits it to one job and **Tag** to the jobs with a tag.
 - Click an item to open it: a run opens its run page, other items open the job in the builder.
 - **Month** shows six weeks. Each day lists up to three jobs with how many items they have (×N) and a dot for the most serious state that day (failed, late, blocked or paused, running, succeeded; an open dot for scheduled, dotted for backfill), with a legend below. Click a day's number or **+N more** to open that day.
 
