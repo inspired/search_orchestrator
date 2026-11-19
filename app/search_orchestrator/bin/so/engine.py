@@ -97,6 +97,7 @@ DEFAULT_SETTINGS = {"max_searches": 10, "max_searches_per_job": 4, "queue_cap": 
                     "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO"}
 TOUCH_EVERY = 300
 MISSED_AFTER = 120  # a schedule not checked for longer than this may have missed slots
+HEARTBEAT_EVERY = 300  # seconds between the engine's heartbeat log lines
 PRUNE_EVERY = 3600
 STATE_SAVE_EVERY = 60
 HOLD_ALERT_EVERY = 86400
@@ -262,6 +263,7 @@ class Engine:
         self._said = {}
         self._said_now = set()
         self._skip = None
+        self._beat = {"at": None, "ticks": 0, "slowest": 0}
 
     # -- the tick -------------------------------------------------------------
 
@@ -283,8 +285,10 @@ class Engine:
                 self._leader = True
             started = time.time()
             self._tick(now)
-            logs.event(log, logging.DEBUG, "tick", ms=int((time.time() - started) * 1000),
+            ms = int((time.time() - started) * 1000)
+            logs.event(log, logging.DEBUG, "tick", ms=ms,
                        active_runs=self._tick_runs, jobs=len(self._jobs))
+            self._heartbeat(now, ms)
             self._skipped_ok(now)
         except LeaseLost:
             self._leader = False
@@ -292,6 +296,21 @@ class Engine:
         except GatewayError as err:
             _check_auth(err)
             self._skipped(err, now)
+
+    def _heartbeat(self, now, ms):
+        """Every HEARTBEAT_EVERY seconds the engine holding the lease says it is alive, at
+        INFO, with how many ticks it ran and the slowest: the app's Engine not running alert
+        fires when these stop."""
+        beat = self._beat
+        beat["ticks"] += 1
+        beat["slowest"] = max(beat["slowest"], ms)
+        if beat["at"] is not None and now - beat["at"] < HEARTBEAT_EVERY:
+            return
+        if beat["at"] is not None:
+            logs.event(log, logging.INFO, "heartbeat", holder=self.holder, ticks=beat["ticks"],
+                       slowest_ms=beat["slowest"], active_runs=self._tick_runs,
+                       jobs=len(self._jobs))
+        self._beat = {"at": now, "ticks": 0, "slowest": 0}
 
     def _skipped(self, err, now):
         """A tick Splunk could not serve: warn once per reason, then count quietly (KV Store

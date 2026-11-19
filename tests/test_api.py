@@ -2002,3 +2002,39 @@ def test_list_jobs_has_the_ten_newest_runs_newest_first(w):
     job = w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]
     assert [r["id"] for r in job["recent_runs"]] == list(reversed(ids))[:10]
     assert job["last_run"]["id"] == ids[-1] and "definition" not in job["recent_runs"][0]
+
+
+def test_jobs_list_warns_about_missing_and_disabled_jobs_it_starts_or_follows(w):
+    saved(w, body=job_body("target", name="Target", enabled=False))
+    body = job_body(actions=[{"hook": "on_success", "type": "start_job", "job": "gone"},
+                             {"hook": "on_success", "type": "start_job", "job": "target"}],
+                    triggers=[{"type": "completion", "job": "nowhere", "on": "success"}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", dict(body))
+    codes = [i["code"] for i in out["issues"]]
+    assert {"missing_target_job", "disabled_target_job", "missing_upstream_job"} <= set(codes)
+    assert out["valid"] is True  # warnings, not errors
+    saved(w, body=body)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs")
+    daily = [j for j in out["jobs"] if j["id"] == "daily"][0]
+    assert sorted(i["code"] for i in daily["warnings"]) == [
+        "disabled_target_job", "missing_target_job", "missing_upstream_job"]
+    assert "'gone'" in [i for i in daily["warnings"] if i["code"] == "missing_target_job"][0]["message"]
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    assert len(out["job"]["warnings"]) == 3
+
+
+def test_a_job_that_starts_itself_is_not_missing(w):
+    body = job_body(actions=[{"hook": "on_failure", "type": "start_job", "job": "daily"}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", dict(body))
+    assert "missing_target_job" not in [i["code"] for i in out["issues"]]
+
+
+def test_screen_fields_sent_back_with_a_save_are_not_stored(w):
+    saved(w)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    body = dict(out["job"], recent_runs=[{"id": "x"}], warnings=[{"code": "y"}])
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", body)
+    assert status == 200, out
+    stored = w.store.get_job("daily")
+    for key in ("recent_runs", "warnings", "last_run", "next_run", "permissions"):
+        assert key not in stored

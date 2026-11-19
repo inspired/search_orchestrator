@@ -1,5 +1,5 @@
 /* Job source: a job as pretty JSON text, and the checks on text pasted back in. Used by the
- * Source tab and by Import job on the Jobs page. */
+ * Source tab and by Import jobs on the Jobs page. */
 import { toDefinition } from '../../api/client';
 import type { JobDefinition } from '../../api/types';
 import { blankJob } from './reducer';
@@ -182,7 +182,7 @@ export function parseJobSource(text: string): ParsedSource {
     return { job: { ...blankJob(), ...toDefinition(obj as unknown as JobDefinition) } as unknown as Record<string, unknown> };
 }
 
-/** The job a new unsaved builder starts from after Import job (read once). */
+/** The job a new unsaved builder starts from after Import jobs (read once). */
 export function takeImportedJob(): JobDefinition | null {
     try {
         const raw = window.sessionStorage.getItem(IMPORT_KEY);

@@ -1,7 +1,10 @@
 /* Health: the engine, the audit index and the fallback, each as plain text with an icon,
- * and the server's health messages as Splunk warning messages. */
+ * the server's health messages as Splunk warning messages, and where to turn on the app health
+ * alerts (shipped off) and see what they found. */
 import React from 'react';
 import Heading from '@splunk/react-ui/Heading';
+import Link from '@splunk/react-ui/Link';
+import { createURL } from '@splunk/splunk-utils/url';
 import Message from '@splunk/react-ui/Message';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
 import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
@@ -36,6 +39,14 @@ function HealthLine({ ok, label, value, testId }: LineProps) {
         </li>
     );
 }
+
+/** This app's id from the page URL (/app/<id>/...), so the test copy links to its own alerts. */
+export function appId(path: string = window.location.pathname): string {
+    const m = /\/app\/([^/]+)\//.exec(path);
+    return m ? m[1] : 'search_orchestrator';
+}
+
+export const HEALTH_ALERTS = ['Engine not running', 'Missed schedules', 'Errors'];
 
 export interface HealthPanelProps {
     health: Health | undefined;
@@ -91,6 +102,19 @@ export default function HealthPanel({ health, error }: HealthPanelProps) {
                     />
                 </ul>
             )}
+            <div data-testid="health-alerts" style={{ marginTop: '12px' }}>
+                <p style={{ margin: '0 0 4px' }}>
+                    {`App health alerts (off until an admin turns them on): ${HEALTH_ALERTS.join(', ')}. Once on, each adds a Triggered Alert when the app needs attention; edit one to add an email.`}
+                </p>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <Link to={createURL(`/manager/${appId()}/saved/searches`, { app: appId(), search: 'Search Orchestrator -', count: '25' })} openInNewContext>
+                        Turn the alerts on or off
+                    </Link>
+                    <Link to={createURL('/alerts', { app: appId() })} openInNewContext>
+                        Triggered alerts
+                    </Link>
+                </div>
+            </div>
         </section>
     );
 }

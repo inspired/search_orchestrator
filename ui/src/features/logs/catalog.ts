@@ -119,6 +119,8 @@ const COMMAND_WORD: Record<string, string> = {
     cancel_backfill: 'cancel the backfill of',
 };
 
+const BULK_WORD: Record<string, string> = { cancel: 'Cancel', rerun: 'Re-run', approve: 'Approve', reject: 'Reject', pause: 'Pause', resume: 'Resume', dismiss: 'Dismiss' };
+
 function secs(ms?: string): string {
     const n = Number(ms);
     if (!ms || Number.isNaN(n)) {
@@ -260,6 +262,8 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
             return d('engine', 'info', 'This engine is on standby: another one holds the lease', { why: 'Only one engine works at a time (on a cluster, the lease holder).' });
         case 'lease_acquired':
             return d('engine', 'ok', `Engine took the lease on ${f.holder || 'this server'} and is now working`);
+        case 'heartbeat':
+            return d('engine', 'muted', `Engine is alive: ${num(f.ticks)} ticks in the last 5 minutes, the slowest ${num(f.slowest_ms)} ms`, { result: `${num(f.active_runs)} active runs`, why: 'The engine says this every 5 minutes. The app health alert Search Orchestrator - Engine not running fires when it stops.' });
         case 'waiting_for_kvstore':
             return d('engine', 'info', 'Engine waits for KV Store to finish starting', { why: 'Right after Splunk starts, KV Store answers \u201cinitializing\u201d for a minute or so; the engine tries again every tick.' });
         case 'ticks_resumed':
@@ -424,6 +428,10 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'completion_fired':
             return d('run', 'info', `Started ${jobName(names, f.target_job)} because this run ${f.outcome || 'finished'}`);
 
+        case 'bulk_run_action': {
+            const failed = Number(f.failed) || 0;
+            return d('run', failed ? 'warning' : 'info', `${user || 'Someone'} chose ${BULK_WORD[f.action || ''] || f.action} for ${num(f.count)} runs at once on the Runs page${failed ? `; ${failed} could not be changed` : ''}`, failed ? { why: 'Each run is checked as if changed on its own: a run in the wrong state, or one the user may not run, is left as it is.' } : {});
+        }
         case 'command_requested':
             return d('run', 'info', `${user || 'Someone'} asked the engine to ${COMMAND_WORD[f.command || ''] || f.command || 'act on'} the run${step ? ` (step ${step})` : ''}`, { result: 'applied on the next tick' });
         case 'command': {
@@ -531,6 +539,8 @@ export function eventLabel(event: string): string {
         approval_requested: 'Approvals requested',
         approval_decided: 'Approvals decided',
         command_requested: 'Commands from the screens',
+        bulk_run_action: 'Actions on many runs',
+        heartbeat: 'Engine heartbeats',
         command: 'Commands applied',
         job_saved: 'Jobs saved',
         preview_dispatched: 'Previews',

@@ -330,3 +330,26 @@ def test_plan_writes_nothing_for_approval_steps():
     gate = planned["steps"][1]
     assert "hidden_search" not in gate and "mode" not in gate and not issues
     assert hidden.used(planned, "alice") == {("alice", planned["steps"][0]["hidden_search"])}
+
+
+HEALTH_ALERTS = ("Search Orchestrator - Engine not running", "Search Orchestrator - Missed schedules",
+                 "Search Orchestrator - Errors")
+
+
+def test_app_health_alerts_shipped_off_scheduled_and_tracked():
+    conf = configparser.RawConfigParser(strict=True, interpolation=None)
+    conf.optionxform = str
+    conf.read(APP / "default" / "savedsearches.conf")
+    meta = (APP / "metadata" / "default.meta").read_text()
+    for name in HEALTH_ALERTS:
+        st = conf[name]
+        assert st["disabled"] == "1"  # an admin turns each on
+        assert st["enableSched"] == "1" and st["alert.track"] == "1"
+        assert st["search"].startswith("`orchestrator_logs`")
+        assert (st["counttype"], st["relation"], st["quantity"]) == \
+            ("number of events", "greater than", "0")
+        assert "| where " in st["search"]  # results only when something is wrong
+        assert st["dispatch.earliest_time"] == "-15m"
+        assert "[savedsearches/%s]" % name.replace(" ", "%20") in meta
+    # The engine alert looks for the heartbeat the engine logs every 5 minutes.
+    assert "event=heartbeat" in conf[HEALTH_ALERTS[0]]["search"]

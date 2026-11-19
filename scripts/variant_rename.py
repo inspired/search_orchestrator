@@ -58,6 +58,8 @@ def rules(s, label):
         ("default/macros.conf", r"^\[orchestrator_logs\]$", "[orchestrator_logs%s]" % s, 1),
         ("default/macros.conf", r'source="\*search_orchestrator\.\*\.log"',
          'source="*search_orchestrator%s.*.log"' % s, 1),
+        # The app health alerts search the copy's own log lines.
+        ("default/savedsearches.conf", r"`orchestrator_logs`", "`orchestrator_logs%s`" % s, 3),
         # The dashboard: its macros, and its links to the Run page (the app id).
         ("default/data/ui/views/run_health.xml", r"`orchestrator_(index|internal|engine_process|search_process)`",
          r"`orchestrator_\1%s`" % s, 17),

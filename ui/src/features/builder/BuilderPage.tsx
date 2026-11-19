@@ -91,7 +91,7 @@ export interface BuilderPageProps {
     jobId?: string | null;
     /** From ?template=; a known key skips the picker. */
     template?: string | null;
-    /** From Import job: a new, unsaved job to start from. */
+    /** From Import jobs: a new, unsaved job to start from. */
     imported?: JobDefinition | null;
     api?: BuilderApi;
 }

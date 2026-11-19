@@ -156,7 +156,7 @@ Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involve
 |---|---|
 | ERROR | Failed ticks, failed requests and lost audit events, with the Python traceback |
 | WARNING | Retries and skipped work: searches whose status could not be read, cancel failures, lease lost, server errors from requests; and the audit events that report a failure (failed or retried actions, failed steps and runs, searches that could not start, failed conditions, rejected runs and commands, delayed and late runs, held runs, denied permissions) |
-| INFO | A copy of every audit event (job saved, run created, step dispatched, approval decided, action done …), changing requests (method, path, user, status, ms), engine start, stop, lease taken and standby; why something waits, once until the reason changes: `run_waiting` (`reason` held, waiting_for_run or behind, with `by_run`), `step_waiting` (search slots full, with the limits) and `completion_not_fired` (a downstream job disabled, or the run ended the wrong way) |
+| INFO | A copy of every audit event (job saved, run created, step dispatched, approval decided, action done …), changing requests (method, path, user, status, ms), engine start, stop, lease taken and standby, a `heartbeat` every 5 minutes from the engine holding the lease (`ticks`, `slowest_ms`, `active_runs`, `jobs`); why something waits, once until the reason changes: `run_waiting` (`reason` held, waiting_for_run or behind, with `by_run`), `step_waiting` (search slots full, with the limits) and `completion_not_fired` (a downstream job disabled, or the run ended the wrong way) |
 | DEBUG | Each engine tick (ms, active runs, jobs), each search status check, every read request and every splunkd call (method, path, owner, status, ms) |
 
 Lines never hold passwords, session keys, tokens, headers, request bodies, webhook URLs or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too (start and stop messages no longer do: splunkd records a modular input's stderr as ERROR), so the Run health dashboard's **Engine health** keeps working; the copies of audit events do not (they are in the audit index already).
@@ -228,17 +228,30 @@ To remove them, use **Delete** on the Jobs page for each `so_selftest*` job. Del
 
 Run records are pruned with the normal retention.
 
+### App health alerts
+
+`default/savedsearches.conf` ships three alerts, all **disabled** (`disabled = 1`), readable and writable by `admin` and `sc_admin` only. Turn one on in **Settings > Searches, reports, and alerts** (app Search Orchestrator, **Edit > Enable**), or from the app's **Settings > Health**. Each searches the `orchestrator_logs` macro over the last 15 minutes, returns rows only when something is wrong and tracks a Triggered Alert (digest mode); add an email or other action to be told. They run as the alert's owner (nobody, so splunk-system-user), which can read `_internal`.
+
+| Alert | Search | Schedule | Suppressed |
+|---|---|---|---|
+| Search Orchestrator - Engine not running | no `heartbeat`, `lease_acquired` or `ticks_resumed` line from the engine | `*/5 * * * *` | 1 hour |
+| Search Orchestrator - Missed schedules | `schedule_missed` lines: missed runs, jobs, longest gap | `*/15 * * * *` | no |
+| Search Orchestrator - Errors | `level=ERROR` lines: how many, which events and processes | `*/15 * * * *` | 1 hour |
+
+On a search head cluster the engine heartbeat comes from the member holding the lease, so the engine alert fires only when no member runs the engine. Turning an alert on is a local change (`local/savedsearches.conf`) and survives upgrades.
+
 ## REST API
 
 All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchestrator/orchestrator/`) and return JSON. Each checks the caller's capabilities.
 
 | Route | Methods |
 |---|---|
-| `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE |
+| `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE (GET adds `next_run`, `last_run`, `recent_runs` and `warnings`, such as `missing_target_job`, `disabled_target_job` and `missing_upstream_job`; these and `permissions` are ignored when sent back with a save) |
 | `jobs/validate` | POST |
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
 | `runs`, `runs/<id>` | GET |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
+| `runs/bulk` | POST (`action` `cancel`, `pause`, `resume`, `dismiss`, `rerun`, `approve` or `reject`, `run_ids` 1 to 100, `comment` required to reject; each run is checked as its own route would, so the answer is 200 with `results`: `run_id`, `ok` and, when not, `code` and `message`. A re-run starts from the run's first failed step with the original definition; approve and reject decide every step the run waits on. Audit event `bulk_run_action`) |
 | `runs/<id>/approve` | POST (`step_id`, `decision` `approve` or `reject`, `comment` up to 1000 characters and required to reject; needs `orchestrator_approve`, or the run's starter on a step with no roles; 409 `not_awaiting_approval` when the step isn't waiting or is already decided) |
 | `settings` | GET, PUT (admin) |
 | `destinations`, `destinations/<name>` | GET, POST, DELETE (admin; builders may list) |

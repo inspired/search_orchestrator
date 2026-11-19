@@ -1,5 +1,5 @@
 /* Browse examples: the example jobs shipped with the app. Open one in the builder as a new,
- * unsaved job (like Import job), or add every missing one as a job, turned off. */
+ * unsaved job (like Import jobs), or add every missing one as a job, turned off. */
 import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';

@@ -1,11 +1,13 @@
-/* The Jobs table: name, owner, next run, the last run and the newest runs as status icons,
- * enabled switch, Run now (for users who may run the job) and a ⋯ menu with Backfill… and
+/* The Jobs table: name (with warnings), owner, next run (and how soon), the last run and the
+ * newest runs as status icons, how long the last run took against the usual time, enabled switch, Run now (for users who may run the job) and a ⋯ menu with Backfill… and
  * Delete (only for users who may edit it). Above it: search, a Show filter (all, last run
- * failed, disabled, scheduled, mine) and the sort order, both remembered in this browser. */
+ * failed, disabled, scheduled, mine) and the sort order, both remembered in this browser. Colour only on warnings,
+ * failures and runs much slower than usual. */
 import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Dropdown from '@splunk/react-ui/Dropdown';
+import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
 import Menu from '@splunk/react-ui/Menu';
 import Select from '@splunk/react-ui/Select';
 import Link from '@splunk/react-ui/Link';
@@ -16,11 +18,11 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Job, Me } from '../../api/types';
 import StatusText, { isRunDelayed, srOnly } from '../../components/StatusText';
 import { pageHref } from '../../components/PageShell';
-import { formatTime } from '../../format';
+import { formatDuration, formatTime } from '../../format';
 import JobsEmpty from './JobsEmpty';
 import { filterJobs, jobSummary } from './jobSummary';
 import RecentRuns from './RecentRuns';
-import { SHOW_LABEL, SORT_LABEL, showJobs, sortJobs } from './jobsView';
+import { SHOW_LABEL, SORT_LABEL, inText, lastDuration, showJobs, slowRatio, sortJobs, typicalDuration } from './jobsView';
 import type { Show, Sort } from './jobsView';
 
 const VIEW_KEY = 'so.jobs.view';
@@ -49,6 +51,10 @@ export interface JobsTableProps {
     busy?: Record<string, boolean>;
     /** Opens the example jobs (offered on the empty page to builders). */
     onBrowseExamples?: () => void;
+    /** Downloads the jobs shown (after Find and Show) as an export file. */
+    onExport?: (shown: Job[]) => void;
+    /** Epoch seconds for "in 6 min" and running times; defaults to the clock. */
+    now?: number;
 }
 
 function nextRunText(job: Job): string {
@@ -62,8 +68,34 @@ function nextRunText(job: Job): string {
     return job.next_run_beyond ? '\u2014' : 'Not scheduled';
 }
 
-export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples }: JobsTableProps) {
+function DurationCell({ job, now, theme }: { job: Job; now: number; theme: Record<string, string> }) {
+    const last = lastDuration(job, now);
+    const usual = typicalDuration(job);
+    const slow = slowRatio(job, now);
+    const running = Boolean(job.last_run && !job.last_run.ended_at);
+    if (last === null && usual === null) {
+        return null;
+    }
+    return (
+        <div>
+            {last !== null && (
+                <div style={{ fontVariantNumeric: 'tabular-nums', color: slow ? theme.statusColorMedium : undefined, display: 'flex', alignItems: 'center', gap: '0.35em' }}>
+                    {slow && <ExclamationTriangle aria-hidden width="14" height="14" />}
+                    {running ? `${formatDuration(last)} so far` : formatDuration(last)}
+                </div>
+            )}
+            {usual !== null && (
+                <div style={{ fontSize: '12px', color: slow ? theme.statusColorMedium : theme.contentColorMuted }}>
+                    {slow ? `${slow.toFixed(1).replace(/\.0$/, '')}× the usual ${formatDuration(usual)}` : `usually ${formatDuration(usual)}`}
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples, onExport, now }: JobsTableProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
+    const at = now ?? Math.floor(Date.now() / 1000);
     const [query, setQuery] = useState('');
     const [view, setViewState] = useState(storedView);
     const setView = (patch: Partial<{ show: Show; sort: Sort }>) => {
@@ -105,6 +137,16 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                         ))}
                     </Select>
                 </ControlGroup>
+                {onExport && (
+                    <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: '8px' }}>
+                        <Button
+                            appearance="secondary"
+                            label={`Export ${shown.length === jobs.length ? 'all jobs' : `${shown.length} shown`}`}
+                            disabled={!shown.length}
+                            onClick={() => onExport(shown)}
+                        />
+                    </div>
+                )}
             </div>
             {!shown.length && <p>{query.trim() ? `No jobs match "${query.trim()}".` : `No jobs here: ${SHOW_LABEL[view.show].toLowerCase()}.`}</p>}
             {shown.length > 0 && (
@@ -114,6 +156,7 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                         <Table.HeadCell>Owner</Table.HeadCell>
                         <Table.HeadCell>Next run</Table.HeadCell>
                         <Table.HeadCell>Last runs</Table.HeadCell>
+                        <Table.HeadCell>Duration</Table.HeadCell>
                         <Table.HeadCell>Enabled</Table.HeadCell>
                         <Table.HeadCell>
                             <span style={{ position: 'relative' }}>
@@ -141,16 +184,23 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                             <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>
                                                 {jobSummary(job, names)}
                                             </div>
-                                            {(job.warnings || []).map((w) => (
-                                                <div key={`${w.code}-${w.step}`} style={{ fontSize: '12px' }}>
-                                                    {w.step ? `Step ${w.step}: ${w.message}` : w.message}
+                                            {(job.warnings || []).map((w, i) => (
+                                                <div key={`${w.code}-${w.step}-${i}`} data-testid="job-warning" style={{ fontSize: '12px', color: theme.statusColorMedium, display: 'flex', alignItems: 'flex-start', gap: '0.35em', marginTop: '2px' }}>
+                                                    <ExclamationTriangle aria-hidden width="12" height="12" style={{ flex: 'none', marginTop: '2px' }} />
+                                                    <span>
+                                                        <span style={srOnly}>Warning: </span>
+                                                        {w.step ? `Step ${w.step}: ${w.message}` : w.message}
+                                                    </span>
                                                 </div>
                                             ))}
                                         </div>
                                     </Table.Cell>
                                     <Table.Cell>{job.owner}</Table.Cell>
                                     <Table.Cell>
-                                        {nextRunText(job)}
+                                        <div>
+                                            <div>{nextRunText(job)}</div>
+                                            {job.next_run ? <div style={{ fontSize: '12px', color: theme.contentColorMuted }}>{inText(job.next_run - at)}</div> : null}
+                                        </div>
                                     </Table.Cell>
                                     <Table.Cell>
                                         <div>
@@ -162,6 +212,9 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                             )}
                                             <RecentRuns job={job} />
                                         </div>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <DurationCell job={job} now={at} theme={theme} />
                                     </Table.Cell>
                                     <Table.Cell>
                                         <Switch

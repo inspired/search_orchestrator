@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.36.0 (2026-11-19)
+
+- **Jobs page:**
+  - **Next run** also says how soon ("in 6 min").
+  - **Duration:** the last run's time (or "so far") against the usual time (median of the recent succeeded runs, at least 3); marked with a warning icon when it took at least twice as long and 30 s more ("3.6× the usual 55s").
+  - **Job warnings** with an icon under the name, and **Show: Has warnings**: a Start job action to a job that doesn't exist (or you can't see) or is disabled, and an After another job trigger that follows a missing job. The builder shows them on save too. Codes `missing_target_job`, `disabled_target_job`, `missing_upstream_job`.
+  - **Export** the jobs shown to one file (`search_orchestrator_jobs_<date>.json`); **Import jobs** saves every job in such a file at once, keeping ids, skipping ids already taken (nothing is replaced) and turning the jobs off by default. One job still opens in the builder.
+- **Runs page, many runs at once:** tick runs (or a job's row, or all) for **Cancel**, **Re-run** (from each run's first failed step, with its original definition), **Approve** and **Reject** (comment required). A dialog lists the runs first; a message names any run that couldn't be changed and why. New route `POST runs/bulk` and audit event `bulk_run_action`.
+- **App health alerts**, shipped **off**: *Engine not running* (no heartbeat for 15 minutes), *Missed schedules* and *Errors*, each a tracked Splunk alert over the app's own log lines. Turn them on from Settings > Health or Splunk's alert list; add an email there to be told. The engine now logs a `heartbeat` every 5 minutes (ticks, slowest tick, active runs).
+- **Fix:** since 1.35.0 a save from the builder could store the Jobs screen's `recent_runs` and `warnings` in the job. They (and the other screen fields) are now dropped on save and left out of version history.
+- Help: the guide, illustrations and How it works cover all of the above.
+
 ## 1.35.2 (2026-11-19)
 
 - **Help brought up to date:** How it works describes the Troubleshooting page and routes, the engine logging why a job did not start (skipped and missed schedules, queue and search-slot waits) and the log file's sourcetype and warning levels; the life of a run ends with "anything that did not start says why". The Troubleshooting illustration shows the health values and the new lines; Follow runs shows the Jobs page's run icons.

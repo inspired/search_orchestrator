@@ -265,6 +265,11 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             <Code spl={'{\n  "id": "daily",\n  "steps": [{ "id": "count", "type": "inline", "spl": "index=_internal | stats count" }],\n  "edges": []\n}'} />
         </Figure>
     ),
+    'export-and-import-many-jobs': () => (
+        <Figure caption="Export the jobs shown to one file; Import jobs saves them all, keeps their ids, skips ids already taken and turns them off.">
+            <Panel title="Import jobs" rows={[['File', '3 jobs: Daily logins, Weekly rollup and Cleanup'], ['', '1 id already taken: skipped'], ['', '☑ Turn the imported jobs off'], ['', '[Import 2 jobs]']]} width={320} />
+        </Figure>
+    ),
     history: () => (
         <Figure caption="Every save is a version: compare any two and restore an older one.">
             <MiniTable
@@ -302,10 +307,18 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                 ]}
             />
             <MiniTable
-                head={['Job', 'Next run', 'Last runs']}
+                head={['Job', 'Next run', 'Last runs', 'Duration']}
                 rows={[
-                    ['Daily logins', 'in 6 min', '✓ ✓ ✗ ✓ ✓  · 1 of the last 5 failed'],
-                    ['Weekly rollup', 'Mon 06:00', '✓ ✓ ✓ ✓ ✓'],
+                    ['Daily logins', '10:30 · in 6 min', '✓ ✓ ✗ ✓ ✓  · 1 of the last 5 failed', '⚠ 3m 20s · 3.6× the usual 55s'],
+                    ['Weekly rollup ⚠ starts job “gone”, which doesn’t exist', 'Mon 06:00 · in 4 days', '✓ ✓ ✓ ✓ ✓', '1m 2s · usually 58s'],
+                ]}
+            />
+            <Chips
+                items={[
+                    { text: '3 runs selected', tone: 'muted' },
+                    { text: 'Cancel 2', tone: 'muted' },
+                    { text: 'Re-run 1', tone: 'muted' },
+                    { text: 'Approve 1', tone: 'muted' },
                 ]}
             />
         </Figure>
@@ -434,7 +447,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     troubleshooting: () => (
-        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start.">
+        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start. Three app health alerts (off until an admin turns them on) watch the same lines.">
             <Chips
                 items={[
                     { text: 'Engine: Running', tone: 'muted' },
@@ -450,6 +463,14 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     ['10:01:00', 'Warning', 'Scheduled run at 10:01 skipped: the job is disabled', 'Weekly rollup'],
                     ['10:00:05', 'Error', 'Webhook failed after 3 tries: HTTP 404', 'Daily logins'],
                     ['10:00:00', 'Info', 'Run waits for run daily:cron:1 to finish (running)', 'Daily logins'],
+                    ['09:58:00', 'Detail', 'Engine is alive: 60 ticks in the last 5 minutes, the slowest 42 ms', ''],
+                ]}
+            />
+            <Chips
+                items={[
+                    { text: 'Alert: Engine not running (off)', tone: 'muted' },
+                    { text: 'Alert: Missed schedules (off)', tone: 'muted' },
+                    { text: 'Alert: Errors (off)', tone: 'muted' },
                 ]}
             />
         </Figure>

@@ -1,5 +1,5 @@
 /* Jobs: every job the user may see, with Run now, Backfill…, enable/disable, Delete, Create job,
- * Import job and Browse examples. */
+ * Import jobs, Export (the jobs shown) and Browse examples. */
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
@@ -11,6 +11,7 @@ import PageShell, { pageHref } from '../../components/PageShell';
 import DeleteJobDialog from './DeleteJobDialog';
 import ExamplesDialog from './ExamplesDialog';
 import ImportJobDialog from './ImportJobDialog';
+import { download, exportFileName, exportJobs } from './jobsFile';
 import JobsTable from './JobsTable';
 import RunNowDialog from './RunNowDialog';
 import usePoll from '../../hooks/usePoll';
@@ -88,7 +89,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                 <Button appearance="secondary" label="Browse examples" onClick={browseExamples} />
                 <Button
                     appearance="secondary"
-                    label="Import job"
+                    label="Import jobs"
                     onClick={() => {
                         importOpener.current = document.activeElement as HTMLElement | null;
                         setImporting(true);
@@ -125,13 +126,26 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     }}
                     onToggleEnabled={onToggle}
                     onBrowseExamples={browseExamples}
+                    onExport={(shown) => {
+                        if (!download(exportJobs(shown), exportFileName())) {
+                            setError('The browser blocked the download. Allow downloads for this page and try again.');
+                        }
+                    }}
                     onDelete={(job, opener) => {
                         deleteOpener.current = opener;
                         setDeleting(job);
                     }}
                 />
             )}
-            {importing && <ImportJobDialog onClose={() => setImporting(false)} returnFocus={importOpener} />}
+            {importing && (
+                <ImportJobDialog
+                    onClose={() => setImporting(false)}
+                    returnFocus={importOpener}
+                    existingIds={(jobs.data || []).map((j) => j.id)}
+                    createJob={api.createJob}
+                    onImported={jobs.refresh}
+                />
+            )}
             {browsing && (
                 <ExamplesDialog
                     onClose={() => setBrowsing(false)}

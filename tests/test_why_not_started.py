@@ -146,3 +146,14 @@ def test_the_event_stream_closes_quietly_when_splunkd_already_closed_the_pipe():
         assert os.fstat(out.fileno()).st_size == 0
     ew.close()  # splunklib's own close afterwards does nothing
     assert Closed.calls == 1
+
+
+def test_the_lease_holder_logs_a_heartbeat_every_five_minutes(caplog):
+    from so import engine as eng
+    caplog.set_level(logging.INFO, logger="so")
+    w = World(T0)
+    for _ in range(int(eng.HEARTBEAT_EVERY * 2 / 5) + 1):
+        w.tick(advance=5)
+    beats = lines(caplog, "heartbeat")
+    assert len(beats) == 2
+    assert "ticks=60" in beats[0] and "slowest_ms=" in beats[0] and "holder=" in beats[0]

@@ -128,3 +128,27 @@ describe('why a job did not start', () => {
         expect(eventLabel('schedule_skipped,schedule_missed')).toBe('Schedules skipped (job disabled) or Schedules missed (engine not checking)');
     });
 });
+
+describe('heartbeats and actions on many runs', () => {
+    const ev = (event: string, fields: Record<string, string>, user?: string): LogLine => ({ event, level: 'INFO', process: user ? 'rest' : 'engine', fields: { event, ...fields, ...(user ? { user } : {}) } });
+
+    test('the heartbeat reads as alive and is quiet', () => {
+        const beat = describeLine(ev('heartbeat', { ticks: '60', slowest_ms: '42', active_runs: '2', jobs: '5' }), names);
+        expect([beat.title, beat.tone, beat.result]).toEqual(['Engine is alive: 60 ticks in the last 5 minutes, the slowest 42 ms', 'muted', '2 active runs']);
+        expect(eventLabel('heartbeat')).toBe('Engine heartbeats');
+    });
+
+    test('bulk actions say how many and whether some were left', () => {
+        expect(describeLine(ev('bulk_run_action', { action: 'rerun', count: '4', failed: '0' }, 'alice'), names).title).toBe('alice chose Re-run for 4 runs at once on the Runs page');
+        const partly = describeLine(ev('bulk_run_action', { action: 'cancel', count: '3', failed: '1' }, 'alice'), names);
+        expect([partly.tone, partly.title]).toEqual(['warning', 'alice chose Cancel for 3 runs at once on the Runs page; 1 could not be changed']);
+    });
+});
+
+describe('app health alerts in Settings', () => {
+    test('the app id comes from the page URL, so the test copy links to its own alerts', () => {
+        const { appId } = jest.requireActual('../features/settings/HealthPanel');
+        expect(appId('/en-US/app/search_orchestrator_jlh/settings')).toBe('search_orchestrator_jlh');
+        expect(appId('/')).toBe('search_orchestrator');
+    });
+});

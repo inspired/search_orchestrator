@@ -46,6 +46,19 @@ access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 export = none
 
+# The app health alerts (savedsearches.conf): admins see them and their Triggered Alerts.
+[savedsearches/Search%20Orchestrator%20-%20Engine%20not%20running]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
+
+[savedsearches/Search%20Orchestrator%20-%20Missed%20schedules]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
+
+[savedsearches/Search%20Orchestrator%20-%20Errors]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
+
 # | orchestrate and the "Start orchestrator job" alert action are usable from any app.
 [commands/orchestrate]
 export = system

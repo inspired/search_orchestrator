@@ -85,7 +85,10 @@ LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "en
 _META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
          "hidden_searches", "enabled")
 _SERVER_FIELDS = ("owner", "hidden_searches", "created_at", "created_by", "updated_at",
-                  "updated_by")
+                  "updated_by",
+                  # Added by GET jobs for the screens; never part of a saved job.
+                  "permissions", "next_run", "next_run_beyond", "last_run", "recent_runs",
+                  "warnings")
 
 
 class ApiError(Exception):
@@ -169,6 +172,7 @@ def _routes():
         (r"snippets/(?P<snippet_id>[^/]+)", {"GET": sn.get_snippet, "PUT": sn.update_snippet,
                                              "DELETE": sn.delete_snippet}),
         (r"runs", {"GET": list_runs}),
+        (r"runs/bulk", {"POST": bulk_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
         (r"runs/(?P<run_id>[^/]+)/rerun", {"POST": rerun}),
@@ -285,24 +289,71 @@ def _recent_runs(ctx, job_id):
     return [{k: r.get(k) for k in LAST_RUN_FIELDS} for r in rows or []]
 
 
-def _listed_job(ctx, job):
+def _visible_jobs(ctx):
+    """``{id: job}`` of the jobs the user may see."""
+    return {j.get("id") or j.get("_key"): j for j in ctx.store.list_jobs()
+            if ctx.allowed(authz.can_view, j)}
+
+
+def _link_issues(job, known):
+    """Warnings for the jobs this job starts (start-job actions) or follows (completion
+    triggers) that don't exist, or that the user may not see (``known``: ``{id: job}`` of
+    the jobs they may see, so a hidden job reads as missing and its id is never confirmed),
+    and for start-job targets that are disabled."""
+    issues = []
+    scoped = [(None, a) for a in job.get("actions") or []]
+    for step in job.get("steps") or []:
+        if isinstance(step, dict):
+            scoped.extend((step.get("id"), a) for a in step.get("actions") or [])
+    for step_id, action in scoped:
+        if not isinstance(action, dict) or action.get("type") != "start_job":
+            continue
+        target = action.get("job")
+        if not isinstance(target, str) or not target:
+            continue
+        if target not in known:
+            issues.append(_issue("warning", "missing_target_job",
+                                 "a Start job action starts job %r, which doesn't exist or you "
+                                 "can't see; the action fails each time; pick another job" % target,
+                                 step_id))
+        elif known[target].get("enabled") is False:
+            issues.append(_issue("warning", "disabled_target_job",
+                                 "a Start job action starts %r, which is disabled; its runs still "
+                                 "start, but enable it if it should also run on its schedule"
+                                 % (known[target].get("name") or target), step_id))
+    for t in job.get("triggers") or []:
+        if not isinstance(t, dict) or t.get("type") != "completion" or t.get("enabled") is False:
+            continue
+        upstream = t.get("job")
+        if isinstance(upstream, str) and upstream and upstream not in known:
+            issues.append(_issue("warning", "missing_upstream_job",
+                                 "the trigger follows job %r, which doesn't exist or you can't "
+                                 "see, so it never starts this job; pick another job" % upstream))
+    return issues
+
+
+def _listed_job(ctx, job, known=None):
     """A job for the Jobs screen: the public job plus its next run, its last run and its
-    newest runs (``recent``, for the run history dots)."""
+    newest runs (``recent``, for the run history dots), and warnings: steps a re-save fixes
+    and jobs it starts or follows that are missing."""
     out = _public_job(ctx, job)
     out["next_run"], out["next_run_beyond"] = _next_run(job, ctx.now)
     recent = _recent_runs(ctx, job.get("id") or job.get("_key"))
     out["last_run"] = recent[0] if recent else None
     out["recent_runs"] = recent
-    out["warnings"] = model.old_time_range_issues(job)  # fixed by a re-save
+    if known is None:
+        known = _visible_jobs(ctx)
+    out["warnings"] = model.old_time_range_issues(job) + _link_issues(job, known)
     return out
 
 
 def list_jobs(ctx, body):
-    jobs = [j for j in ctx.store.list_jobs() if ctx.allowed(authz.can_view, j)]
-    jobs.sort(key=lambda j: (str(j.get("name") or ""), str(j.get("id"))))
+    known = _visible_jobs(ctx)
+    jobs = sorted(known.values(), key=lambda j: (str(j.get("name") or ""), str(j.get("id"))))
     # ``brief``: without the next and last run, which cost a KV Store query per job.
-    listed = _public_job if str(body.get("brief")) == "1" else _listed_job
-    return 200, {"jobs": [listed(ctx, j) for j in jobs]}
+    if str(body.get("brief")) == "1":
+        return 200, {"jobs": [_public_job(ctx, j) for j in jobs]}
+    return 200, {"jobs": [_listed_job(ctx, j, known) for j in jobs]}
 
 
 def get_job(ctx, body, job_id):
@@ -406,6 +457,9 @@ def _job_issues(ctx, job):
             elif not action.get("body"):  # a body template ignores options
                 issues.extend(_issue("error", "bad_action", m, step_id)
                               for m in presets.option_issues(preset, action.get("options")))
+    known = _visible_jobs(ctx)
+    known.setdefault(job.get("id"), job)  # a job may start itself
+    issues.extend(_link_issues(job, known))
     cycle = _chain_cycle(ctx, job)
     if cycle:
         cycle = _redact_cycle(ctx, cycle, job["id"])
@@ -888,6 +942,70 @@ def rerun(ctx, body, run_id):
     key = _enqueue(ctx, {"type": "rerun", "run_id": run.get("id") or run_id, "step_id": step_id,
                          "definition": choice, "restart_downstream_jobs": restart})
     return 202, {"command_id": key, "definition": choice}
+
+
+BULK_ACTIONS = ("cancel", "pause", "resume", "dismiss", "rerun", "approve", "reject")
+BULK_MAX = 100
+
+
+def _rerun_step(run):
+    """The step a bulk re-run starts from: the first failed step in the definition's order,
+    else the first that did not succeed or get skipped (a blocked or cancelled run)."""
+    steps = [s.get("id") for s in (run.get("definition") or {}).get("steps") or []]
+    states = {k: (v or {}).get("state") for k, v in (run.get("steps") or {}).items()}
+    for wanted in (("failed",), ("blocked", "cancelled", "pending", "waiting", None)):
+        for sid in steps:
+            if states.get(sid) in wanted:
+                return sid
+    return steps[0] if steps else None
+
+
+def _bulk_one(ctx, action, run_id, comment):
+    from . import approval_api as ap, approval as appr
+    if action in ("cancel", "pause", "resume", "dismiss"):
+        return control_run(ctx, {}, run_id, action)
+    if action == "rerun":
+        run = _visible_run(ctx, run_id)
+        step = _rerun_step(run)
+        if step is None:
+            raise ApiError(409, "invalid_state", "the run has no step to re-run from")
+        return rerun(ctx, {"step": step, "definition": "original"}, run_id)
+    run = _visible_run(ctx, run_id)
+    waiting = [sid for sid, st in (run.get("steps") or {}).items()
+               if (st or {}).get("state") == appr.AWAITING
+               and not ((st or {}).get("approval_state") or {}).get("decision")]
+    if not waiting:
+        raise ApiError(409, "not_awaiting_approval", "the run isn't waiting for an approval")
+    for sid in waiting:
+        ap.approve(ctx, {"step_id": sid, "decision": action, "comment": comment}, run_id)
+    return 202, {"steps": waiting}
+
+
+def bulk_runs(ctx, body):
+    """``POST runs/bulk {"action", "run_ids", "comment"}``: the same action on many runs,
+    each checked as if done on its own. A re-run starts from the run's first failed step with
+    the definition the run used; approve and reject decide every step the run waits on.
+    Answers 200 ``{"results": [{"run_id", "ok", "code", "message"}]}``."""
+    action = body.get("action")
+    if action not in BULK_ACTIONS:
+        raise ApiError(400, "bad_request", "action must be one of %s" % ", ".join(BULK_ACTIONS))
+    ids = body.get("run_ids")
+    if (not isinstance(ids, list) or not ids or len(ids) > BULK_MAX
+            or not all(isinstance(i, str) and scheduler.is_run_id(i) for i in ids)):
+        raise ApiError(400, "bad_request", "run_ids must be a list of 1-%d run ids" % BULK_MAX)
+    comment = body.get("comment")
+    if action == "reject" and not (isinstance(comment, str) and comment.strip()):
+        raise ApiError(400, "bad_request", "Add a comment saying why you reject")
+    results = []
+    for run_id in dict.fromkeys(ids):
+        try:
+            _bulk_one(ctx, action, run_id, comment)
+            results.append({"run_id": run_id, "ok": True})
+        except ApiError as err:
+            results.append({"run_id": run_id, "ok": False, "code": err.code, "message": err.message})
+    ctx.emit({"type": "bulk_run_action", "action": action, "count": len(results),
+              "failed": sum(1 for r in results if not r["ok"])})
+    return 200, {"results": results}
 
 
 # Settings and destinations.

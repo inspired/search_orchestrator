@@ -128,6 +128,8 @@ const SERVER_FIELDS = [
     'next_run',
     'next_run_beyond',
     'last_run',
+    'recent_runs',
+    'warnings',
     'hidden_searches',
     'created_at',
     'created_by',
@@ -206,6 +208,26 @@ export const pauseRun = (runId: string) => control(runId, 'pause');
 export const resumeRun = (runId: string) => control(runId, 'resume');
 export const cancelRun = (runId: string) => control(runId, 'cancel');
 export const dismissRun = (runId: string) => control(runId, 'dismiss');
+
+export type BulkAction = 'cancel' | 'pause' | 'resume' | 'dismiss' | 'rerun' | 'approve' | 'reject';
+
+export interface BulkResult {
+    run_id: string;
+    ok: boolean;
+    code?: string;
+    message?: string;
+}
+
+/** The same action on many runs (at most 100), each checked as if done on its own. A re-run
+ * starts from the run's first failed step with the definition it used; approve and reject
+ * decide every step the run waits on (reject needs a comment). */
+export async function bulkRuns(action: BulkAction, runIds: string[], comment?: string): Promise<BulkResult[]> {
+    const body: Record<string, unknown> = { action, run_ids: runIds };
+    if (comment) {
+        body.comment = comment;
+    }
+    return (await request<{ results: BulkResult[] }>('POST', 'runs/bulk', { body })).results;
+}
 
 /** Throws ApiError `definition_choice_required` (with `choices`) if the job changed and no
  * definition was chosen. */

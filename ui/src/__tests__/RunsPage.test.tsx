@@ -7,6 +7,8 @@ import { NOW, renderThemed, runSummary } from './fixtures';
 jest.mock('../api/client', () => ({
     listJobs: jest.fn(),
     listRuns: jest.fn(),
+    bulkRuns: jest.fn(),
+    me: jest.fn(() => Promise.resolve({ can_approve: true, can_admin: false })),
 }));
 jest.mock('../components/PageShell', () => ({
     __esModule: true,

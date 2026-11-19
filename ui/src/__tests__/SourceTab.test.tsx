@@ -113,16 +113,16 @@ describe('Import job', () => {
     it('opens from the Jobs page', async () => {
         const api = { me: jest.fn().mockResolvedValue(me), listJobs: jest.fn().mockResolvedValue([baseJob()]), setJobEnabled: jest.fn(), deleteJob: jest.fn() } as unknown as JobsApi;
         renderThemed(<JobsPage api={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Import job' }));
-        expect(screen.getByText('Import a job')).toBeInTheDocument();
-        expect(screen.getByLabelText("Paste the job's JSON")).toBeInTheDocument();
+        fireEvent.click(await screen.findByRole('button', { name: 'Import jobs' }));
+        expect(screen.getByRole('heading', { name: 'Import jobs' })).toBeInTheDocument();
+        expect(screen.getByLabelText('Paste one job, or a jobs export file')).toBeInTheDocument();
         expect(screen.getByLabelText('Or choose a .json file')).toBeInTheDocument();
     });
 
     it('opens the builder with the pasted job as new and unsaved', async () => {
         const navigate = jest.fn();
         renderThemed(<ImportJobDialog onClose={jest.fn()} navigate={navigate} returnFocus={{ current: null }} />);
-        fireEvent.change(screen.getByLabelText("Paste the job's JSON"), { target: { value: pasted } });
+        fireEvent.change(screen.getByLabelText('Paste one job, or a jobs export file'), { target: { value: pasted } });
         fireEvent.click(screen.getByRole('button', { name: 'Open in builder' }));
         expect(navigate).toHaveBeenCalledWith(expect.stringContaining('import=1'));
         const imported = takeImportedJob();
@@ -138,10 +138,10 @@ describe('Import job', () => {
     it('shows the error and stays open for invalid JSON', () => {
         const navigate = jest.fn();
         renderThemed(<ImportJobDialog onClose={jest.fn()} navigate={navigate} returnFocus={{ current: null }} />);
-        fireEvent.change(screen.getByLabelText("Paste the job's JSON"), { target: { value: '{"name": ' } });
+        fireEvent.change(screen.getByLabelText('Paste one job, or a jobs export file'), { target: { value: '{"name": ' } });
         fireEvent.click(screen.getByRole('button', { name: 'Open in builder' }));
         expect(screen.getByText(/The source isn't valid JSON: .*\(line 1, column \d+\)/)).toBeInTheDocument();
-        expect(screen.getByText('Import a job')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Import jobs' })).toBeInTheDocument();
         expect(navigate).not.toHaveBeenCalled();
     });
 });

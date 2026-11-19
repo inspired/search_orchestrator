@@ -2,12 +2,14 @@
  * runs are grouped by job: one row per job (its latest run, how many runs are in each state,
  * and a mark when a step waits for approval) that opens to list all its runs. "All runs" shows
  * them in one list, newest first; picking one job shows its runs. The choice is remembered in
- * this browser (`so.runs.grouped`). */
+ * this browser (`so.runs.grouped`). With `bulk`, runs can be ticked (a job row ticks all its
+ * runs) for Cancel, Re-run, Approve and Reject on all of them at once. */
 import React, { useState } from 'react';
 import RadioBar from '@splunk/react-ui/RadioBar';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
+import Message from '@splunk/react-ui/Message';
 import Select from '@splunk/react-ui/Select';
 import Table from '@splunk/react-ui/Table';
 import { RUN_STATES } from '../../api/types';
@@ -16,6 +18,9 @@ import StatusText, { isRunDelayed, statusLabel } from '../../components/StatusTe
 import { QueueReasonLine } from '../../components/WaitReason';
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
+import type { BulkAction, BulkResult } from '../../api/client';
+import BulkActions, { outcomeText } from './BulkActions';
+import type { Outcome } from './BulkActions';
 
 /** The state filter: a run state, or 'attention' for blocked, failed and held runs and runs waiting for approval. */
 export type RunsTableFilters = Omit<Pick<RunFilters, 'job_id' | 'state'>, 'state'> & {
@@ -94,17 +99,48 @@ export interface RunsTableProps {
     onFiltersChange: (filters: RunsTableFilters) => void;
     /** Epoch seconds, for the duration of runs still going. */
     now?: number;
+    /** Sends an action for many runs; without it, rows have no tick boxes. */
+    bulk?: (action: BulkAction, runIds: string[], comment?: string) => Promise<BulkResult[]>;
+    /** The user may approve, so Approve and Reject are offered. */
+    canApprove?: boolean;
+    /** Called after a bulk action, to reload the runs. */
+    onChanged?: () => void;
 }
 
 const ALL = '';
 
-export default function RunsTable({ runs, jobNames, filters, onFiltersChange, now }: RunsTableProps) {
+export default function RunsTable({ runs, jobNames, filters, onFiltersChange, now, bulk, canApprove = false, onChanged }: RunsTableProps) {
     const at = now !== undefined ? now : Math.floor(Date.now() / 1000);
     const rows = filterRuns(runs, filters);
     const jobIds = Object.keys(jobNames).sort((a, b) => jobNames[a].localeCompare(jobNames[b]));
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [grouped, setGroupedState] = useState(storedGrouped);
     const [open, setOpen] = useState<Record<string, boolean>>({});
+    const [picked, setPicked] = useState<Record<string, boolean>>({});
+    const [outcome, setOutcome] = useState<Outcome | null>(null);
+    // Only runs still listed count as ticked (a filter or a reload can drop some).
+    const selected = rows.filter((r) => picked[r.id]);
+    const setMany = (ids: string[], on: boolean) =>
+        setPicked((p) => {
+            const next = { ...p };
+            ids.forEach((id) => {
+                if (on) {
+                    next[id] = true;
+                } else {
+                    delete next[id];
+                }
+            });
+            return next;
+        });
+    const tickState = (ids: string[]): boolean | 'some' => {
+        const n = ids.filter((id) => picked[id]).length;
+        return n === 0 ? false : n === ids.length ? true : 'some';
+    };
+    const allTick = tickState(rows.map((r) => r.id));
+    const runLabel = (runId: string) => {
+        const r = runs.find((x) => x.id === runId);
+        return r ? `${jobNames[r.job_id] || r.job_id}${r.number ? ` run #${r.number}` : ''} (${formatTime(r.scheduled_time)})` : runId;
+    };
     const setGrouped = (v: boolean) => {
         setGroupedState(v);
         try {
@@ -122,7 +158,12 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
         </>
     );
     const runRow = (run: RunSummary, nested: boolean) => (
-        <Table.Row key={run.id} style={nested ? { boxShadow: `inset 3px 0 0 ${theme.borderColorStrong || theme.borderColor}` } : undefined}>
+        <Table.Row
+            key={run.id}
+            data-testid={`run-row-${run.id}`}
+            onRequestToggle={bulk ? () => setMany([run.id], !picked[run.id]) : undefined}
+            selected={bulk ? Boolean(picked[run.id]) : undefined}
+            style={nested ? { boxShadow: `inset 3px 0 0 ${theme.borderColorStrong || theme.borderColor}` } : undefined}>
             <Table.Cell>
                 {nested ? (
                     <span style={{ paddingLeft: '22px', color: theme.contentColorMuted, fontVariantNumeric: 'tabular-nums' }}>{run.number ? `Run #${run.number}` : 'Run'}</span>
@@ -179,10 +220,49 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                     </Select>
                 </ControlGroup>
             </div>
+            {outcome && (() => {
+                const text = outcomeText(outcome, runLabel);
+                return (
+                    <div data-testid="bulk-outcome" style={{ marginBottom: '8px' }}>
+                        <Message type={text.failed.length ? 'warning' : 'success'} appearance="default" onRequestRemove={() => setOutcome(null)}>
+                            <div>
+                                {text.ok}
+                                {text.failed.length > 0 && ` ${text.failed.length} could not be changed:`}
+                            </div>
+                            {text.failed.length > 0 && (
+                                <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                                    {text.failed.map((f) => (
+                                        <li key={f}>{f}</li>
+                                    ))}
+                                </ul>
+                            )}
+                        </Message>
+                    </div>
+                );
+            })()}
+            {bulk && selected.length > 0 && (
+                <BulkActions
+                    selected={selected}
+                    canApprove={canApprove}
+                    jobNames={jobNames}
+                    onClear={() => setPicked({})}
+                    send={bulk}
+                    onDone={(o) => {
+                        setOutcome(o);
+                        setPicked({});
+                        if (onChanged) {
+                            onChanged();
+                        }
+                    }}
+                />
+            )}
             {rows.length === 0 ? (
                 <p>{runs.length ? 'No runs match these filters.' : 'No runs yet.'}</p>
             ) : (
-                <Table>
+                <Table
+                    onRequestToggleAllRows={bulk ? () => setMany(rows.map((r) => r.id), allTick !== true) : undefined}
+                    rowSelection={bulk ? (allTick === true ? 'all' : allTick === 'some' ? 'some' : 'none') : undefined}
+                >
                     <Table.Head>
                         <Table.HeadCell>Job</Table.HeadCell>
                         <Table.HeadCell>{showGroups ? 'Latest run' : 'Scheduled time'}</Table.HeadCell>
@@ -196,7 +276,12 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
                                   const isOpen = Boolean(open[g.jobId]);
                                   const latest = g.runs[0];
                                   const head = (
-                                      <Table.Row key={`job:${g.jobId}`} data-testid={`job-group-${g.jobId}`}>
+                                      <Table.Row
+                                          key={`job:${g.jobId}`}
+                                          data-testid={`job-group-${g.jobId}`}
+                                          onRequestToggle={bulk ? () => setMany(g.runs.map((r) => r.id), tickState(g.runs.map((r) => r.id)) !== true) : undefined}
+                                          selected={bulk ? tickState(g.runs.map((r) => r.id)) : undefined}
+                                      >
                                           <Table.Cell>
                                               <button
                                                   type="button"

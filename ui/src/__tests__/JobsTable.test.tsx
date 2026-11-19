@@ -331,4 +331,29 @@ describe('Jobs page: recent runs, show and sort', () => {
         renderThemed(<JobsTable jobs={[ok, bad, off]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
         expect(screen.getByText('Alpha')).toBeInTheDocument();
     });
+
+    test('next run says how soon, warnings filter, and the last run is compared with the usual time', () => {
+        const { inText, typicalDuration, slowRatio, showJobs } = jest.requireActual('../features/jobs/jobsView');
+        expect(inText(3)).toBe('now');
+        expect(inText(40)).toBe('in 40 s');
+        expect(inText(360)).toBe('in 6 min');
+        expect(inText(3600 * 2 + 300)).toBe('in 2 h 5 min');
+        expect(inText(86400 * 3)).toBe('in 3 days');
+        const timed = (id: string, state: string, t: number, took: number) => ({ ...run(id, state, t), ended_at: t + took });
+        const usual = [timed('r2', 'succeeded', 200, 40), timed('r1', 'succeeded', 100, 50), timed('r0', 'succeeded', 50, 60), timed('rx', 'failed', 10, 900)];
+        const slow = job({ next_run: NOW + 360, recent_runs: [timed('r3', 'succeeded', 300, 200), ...usual] as never, last_run: timed('r3', 'succeeded', 300, 200) as never });
+        expect(typicalDuration(slow)).toBe(55);
+        expect(slowRatio(slow, NOW)).toBeCloseTo(200 / 55);
+        const fine = job({ id: 'f', name: 'Fine', recent_runs: usual as never, last_run: usual[0] as never });
+        expect(slowRatio(fine, NOW)).toBeNull();
+        expect(typicalDuration(job({ recent_runs: usual.slice(0, 2) as never }))).toBeNull();
+        const warned = job({ id: 'w', name: 'Warned', warnings: [{ level: 'warning', code: 'missing_target_job', message: "a Start job action starts job 'gone'", step: null }] });
+        expect(showJobs([fine, warned], 'warnings', me).map((x: { id: string }) => x.id)).toEqual(['w']);
+        renderThemed(<JobsTable jobs={[slow, warned]} me={me} now={NOW} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const row = screen.getByText('Daily summary').closest('tr') as HTMLElement;
+        expect(within(row).getByText('in 6 min')).toBeInTheDocument();
+        expect(within(row).getByText('3m 20s')).toBeInTheDocument();
+        expect(within(row).getByText('3.6× the usual 55s')).toBeInTheDocument();
+        expect(screen.getByTestId('job-warning').textContent).toContain("Warning: a Start job action starts job 'gone'");
+    });
 });

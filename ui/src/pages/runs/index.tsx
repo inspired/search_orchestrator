@@ -1,9 +1,10 @@
-/* Runs: every run the user may see, newest first, filterable by job and state. Filtered by a
- * job, each of its running backfills shows as a line above the table. */
+/* Runs: every run the user may see, newest first, filterable by job and state, with tick boxes
+ * for Cancel, Re-run, Approve and Reject on many runs. Filtered by a job, each of its running
+ * backfills shows as a line above the table. */
 import React, { useEffect, useRef, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
-import { listJobs, listRuns } from '../../api/client';
+import { bulkRuns, listJobs, listRuns, me as getMe } from '../../api/client';
 import { RUN_STATES } from '../../api/types';
 import type { RunState, RunSummary } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
@@ -48,6 +49,13 @@ function RunsPage() {
     const runs = usePoll(() => fetchRuns(filters), fast ? 5000 : 30000, true);
     const [jobNames, setJobNames] = useState<Record<string, string>>({});
     const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+    const [canApprove, setCanApprove] = useState(false);
+
+    useEffect(() => {
+        getMe()
+            .then((m) => setCanApprove(Boolean(m.can_approve || m.can_admin)))
+            .catch(() => undefined);
+    }, []);
 
     useEffect(() => {
         listJobs()
@@ -113,6 +121,9 @@ function RunsPage() {
                     filters={filters}
                     onFiltersChange={setFilters}
                     now={now}
+                    bulk={bulkRuns}
+                    canApprove={canApprove}
+                    onChanged={runs.refresh}
                 />
             )}
         </PageShell>
