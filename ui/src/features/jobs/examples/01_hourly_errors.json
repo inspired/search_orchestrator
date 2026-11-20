@@ -1,0 +1,43 @@
+{
+  "id": "example_hourly_errors",
+  "name": "Example: hourly splunkd errors",
+  "description": "Counts the ERROR lines splunkd logged in the hour before each run. One search step on a schedule: the smallest job there is.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "getting started"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "17 * * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "count_errors",
+      "name": "Count splunkd errors",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR\n| stats count AS errors",
+      "earliest": "-1h@h",
+      "latest": "@h"
+    }
+  ],
+  "edges": [],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 120
+      },
+      "step:count_errors": {
+        "x": 320,
+        "y": 20
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ import {
     PreviewContext,
     previewKey,
     previewKeys,
+    previewRefusal,
     toBeRun,
     upstreamOf,
 } from '../features/builder/previewLogic';
@@ -78,7 +79,7 @@ describe('previewLogic', () => {
             { id: 'b', type: 'inline', spl: '| makeresults' },
             { id: 'p', type: 'previous', spl: '| stats count' },
         ];
-        expect(generatedInput(job(steps), 'p')).toBe('(no previous steps yet)');
+        expect(generatedInput(job(steps), 'p')).toBe('(no earlier steps yet)');
         expect(generatedInput(job(steps, [{ from: 'a', to: 'p' }]), 'p')).toBe('| loadjob ‹a›');
         expect(generatedInput(job(steps, [{ from: 'b', to: 'p' }, { from: 'a', to: 'p' }]), 'p')).toBe(
             '| loadjob ‹b› | append [| loadjob ‹a›]'
@@ -196,5 +197,86 @@ describe('previewLogic', () => {
         expect(previewKeys(edited, run, p1).b).toBe(previewKeys(j, run, p1).b);
         expect(previewKeys(j, ctx, p1).b).not.toBe(previewKeys(j, ctx, p2).b);
         expect(previewKeys(edited, ctx, p1).b).not.toBe(previewKeys(j, ctx, p1).b);
+    });
+});
+
+describe('previewRefusal', () => {
+    const j = job(
+        [
+            { id: 'a', type: 'inline', spl: '| makeresults' },
+            { id: 'w', name: 'Write summary', type: 'previous', spl: '| collect index=summary', output: { kind: 'summary_index', index: 'summary' } },
+            { id: 'c', type: 'previous', spl: '| stats count' },
+            { id: 'd', type: 'inline', spl: '| makeresults' },
+        ],
+        [
+            { from: 'a', to: 'w', condition: 'on_success' },
+            { from: 'w', to: 'c', condition: 'on_success' },
+        ]
+    );
+    test('an output step is never previewed', () => {
+        expect(previewRefusal(j, 'w', true)).toBe("Previews don't write to indexes or lookups; preview the step before it.");
+        expect(previewRefusal(j, 'w', false)).toBe("Previews don't write to indexes or lookups; preview the step before it.");
+    });
+    test('a live preview downstream of an output step is refused, naming it', () => {
+        expect(previewRefusal(j, 'c', true)).toBe("Previews don't write to indexes or lookups; Write summary is upstream of this step.");
+    });
+    test('previewing from a run reads stored results, so nothing upstream runs', () => {
+        expect(previewRefusal(j, 'c', false)).toBeNull();
+    });
+    test('other steps are previewed', () => {
+        expect(previewRefusal(j, 'a', true)).toBeNull();
+        expect(previewRefusal(j, 'd', true)).toBeNull();
+    });
+    describe('writing commands in the SPL', () => {
+        const w = job(
+            [
+                { id: 'a', name: 'Load', type: 'inline', spl: 'index=a | outputlookup x.csv' },
+                { id: 'b', type: 'previous', spl: '| stats count' },
+                { id: 'c', type: 'inline', spl: 'index=a | collect index=s' },
+                { id: 's', type: 'saved_search', spl: 'collect' },
+                { id: 'd', type: 'previous', spl: '| stats count' },
+            ],
+            [
+                { from: 'a', to: 'b', condition: 'on_success' },
+                { from: 's', to: 'd', condition: 'on_success' },
+            ]
+        );
+        test('the step itself', () => {
+            expect(previewRefusal(w, 'c', true)).toBe("Previews don't write to indexes or lookups; remove collect to preview this step.");
+            expect(previewRefusal(w, 'c', false)).toBe("Previews don't write to indexes or lookups; remove collect to preview this step.");
+        });
+        test('an upstream step, live only', () => {
+            expect(previewRefusal(w, 'b', true)).toBe("Previews don't write to indexes or lookups; Load runs outputlookup first.");
+            expect(previewRefusal(w, 'b', false)).toBeNull();
+        });
+        test('a saved search is not inspected', () => {
+            expect(previewRefusal(w, 's', true)).toBeNull();
+            expect(previewRefusal(w, 'd', true)).toBeNull();
+        });
+    });
+});
+
+describe('approval steps', () => {
+    const gated = job(
+        [
+            { id: 'a', type: 'inline', spl: 'search x' },
+            { id: 'gate', type: 'approval', approval: {} },
+            { id: 'b', type: 'inline', spl: 'search y' },
+        ],
+        [
+            { from: 'a', to: 'gate', condition: 'on_success' },
+            { from: 'gate', to: 'b', condition: 'on_success' },
+        ]
+    );
+
+    test('an approval step has no search to preview', () => {
+        expect(previewRefusal(gated, 'gate', true)).toBe('An approval step has no search to preview.');
+        expect(previewRefusal(gated, 'gate', false)).toBe('An approval step has no search to preview.');
+        expect(previewRefusal(gated, 'b', true)).toBeNull();
+    });
+
+    test('a preview of a step after it never previews the approval step', () => {
+        const previews: Record<string, LivePreview> = {};
+        expect(toBeRun(gated, 'b', previews, keysOf(gated, ctx, previews))).toEqual(['a', 'b']);
     });
 });

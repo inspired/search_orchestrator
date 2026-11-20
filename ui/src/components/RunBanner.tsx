@@ -4,12 +4,13 @@ import React from 'react';
 import Message from '@splunk/react-ui/Message';
 import type { RunDetail, StepDef } from '../api/types';
 import { formatSpan, formatSpanAdjective, joinNames } from '../format';
+import { blockedAdvice, nextStepText } from '../features/run/nextStep';
 import { isStepDelayed } from './StatusText';
 
 const DEFAULT_DELAYED_AFTER = 3600;
 
 export interface BannerMessage {
-    type: 'warning' | 'error';
+    type: 'warning' | 'error' | 'info';
     text: string;
 }
 
@@ -57,7 +58,10 @@ export function bannerMessages(run: RunDetail, now: number): BannerMessage[] {
                 failed.length === 1 ? 'it' : 'them'
             }.`;
         }
-        text += ` Re-run from the failed step or cancel the run.`;
+        // A held run gets the held guidance below instead.
+        if (!run.held) {
+            text += ` ${blockedAdvice(run)}`;
+        }
         out.push({ type: 'error', text });
     }
 
@@ -81,6 +85,12 @@ export function bannerMessages(run: RunDetail, now: number): BannerMessage[] {
             }
             out.push({ type: 'warning', text });
         }
+    }
+
+    // A blocked run's own message already carries its advice; the other cases add a note.
+    const advice = run.state === 'blocked' && !run.held ? null : nextStepText(run);
+    if (advice) {
+        out.push({ type: 'info', text: advice });
     }
     return out;
 }

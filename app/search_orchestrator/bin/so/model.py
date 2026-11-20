@@ -2,19 +2,24 @@
 
 Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
-unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_shape, previous_needs_pipe,
-previous_needs_dependency; warnings timezone_fallback, previous_old_time_range.
+unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_deadline, bad_shape, previous_needs_pipe,
+previous_needs_dependency, bad_approval; warnings timezone_fallback, previous_old_time_range.
 ``workload_pool`` was removed from the first version and is ignored, as is a step's
 ``read_previous`` (1.5.0, removed in 1.7.0).
 """
+import math
 import re
 
+from . import approval as approvalmod
 from . import cron as cronmod
+from . import deadline as deadlinemod
 from . import expr as exprmod
 from . import tokens as tk
 
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # job ids; also preview sids' job part
 STEP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")  # and no "__": arg names use it
+TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
+MAX_TAGS = 10
 PARAM_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 BUILTIN_DEFAULTS = {"delayed_after": 3600, "give_up_after": 86400,
                     "max_runtime": 14400, "retries": 0}
@@ -132,28 +137,28 @@ def _validate_params(job, issues):
     for p in job.get("params", []) or []:
         n = p.get("name")
         if not isinstance(n, str) or not PARAM_NAME_RE.fullmatch(n):
-            issues.append(_issue("error", "bad_param", "bad parameter name %r" % (n,)))
+            issues.append(_issue("error", "bad_param", "parameter name %r isn't valid; use letters, numbers and _, starting with a letter" % (n,)))
             continue
         if n in names:
-            issues.append(_issue("error", "bad_param", "duplicate parameter %r" % n))
+            issues.append(_issue("error", "bad_param", "parameter %r is listed twice; give each parameter its own name" % n))
         names.add(n)
         t = p.get("type", "string")
         if t not in _PARAM_TYPES:
-            issues.append(_issue("error", "bad_param", "parameter %r: unknown type %r" % (n, t)))
+            issues.append(_issue("error", "bad_param", "parameter %r has an unknown type %r; pick Text, Number, One of a list or Time" % (n, t)))
             continue
         if t == "enum" and not p.get("values"):
-            issues.append(_issue("error", "bad_param", "parameter %r: enum needs values" % n))
+            issues.append(_issue("error", "bad_param", "parameter %r is a list with no values; add values separated by commas" % n))
         if p.get("regex"):
             try:
                 re.compile(p["regex"])
             except re.error as e:
-                issues.append(_issue("error", "bad_param", "parameter %r: bad regex (%s)" % (n, e)))
+                issues.append(_issue("error", "bad_param", "parameter %r: the pattern isn't valid (%s); fix it or clear it" % (n, e)))
                 continue
         if p.get("default") is not None:
             try:
                 tk.validate_param(p, p["default"])
             except tk.TokenError as e:
-                issues.append(_issue("error", "bad_param", "parameter %r: bad default (%s)" % (n, e.reason)))
+                issues.append(_issue("error", "bad_param", "parameter %r: the default breaks the parameter's own rules (%s); change or clear it" % (n, e.reason)))
     return names
 
 
@@ -165,7 +170,82 @@ def _check_expr_tokens(text, ids, params, issues, step, what):
         return
     for name in sorted(exprmod.tokens(node)):
         if not _token_ok(name, ids, params):
-            issues.append(_issue("error", "unknown_token", "%s: unknown token $%s$" % (what, name), step))
+            issues.append(_issue("error", "unknown_token", "%s: $%s$ isn't a token this job has; pick one with Insert value" % (what, name), step))
+
+
+def _check_spl_tokens(spl, ids, params, issues, step, prefix=""):
+    """Unknown tokens in SPL (a step's search or an SPL condition)."""
+    for m in _DOTTED_RE.finditer(spl):
+        first, rest = m.group(1), m.group(2)
+        name = first + "." + rest
+        if (first == "run" or first in ids or _SUFFIX_RE.search("." + rest)) \
+                and not _token_ok(name, ids, params):
+            issues.append(_issue("error", "unknown_token", prefix + "%s isn't a token this job has; pick one with Insert value or fix the spelling" % m.group(0), step))
+    for name in tk.find_tokens(spl, ids):
+        if name.startswith("run.param.") and not _token_ok(name, ids, params):
+            issues.append(_issue("error", "unknown_token", prefix + "$%s$ uses a parameter the job doesn't declare; add it on the Parameters tab" % name, step))
+
+
+# SPL commands that write data (the builder's writingCommands.ts list). A condition only reads.
+WRITING_COMMANDS = ("collect", "outputlookup", "outputcsv", "tscollect", "mcollect",
+                    "meventcollect", "sendemail", "delete")
+_COMMAND_WORD_RE = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _pipes(spl):
+    """Each ``|`` that starts a command (top level or in a subsearch), with the command word
+    after it (lower case, or ""). Double-quoted strings, backtick macros and ```` ``` ````
+    comments are skipped, and ``||`` is the eval "or", not a pipe. A ``'`` is not a
+    delimiter: in a search it is a literal character (``O'Brien``), so skipping to the
+    next one could hide a command; in an eval expression a pipe inside ``'...'`` is
+    refused too (as the builder's writingCommands.ts)."""
+    out, i, n = [], 0, len(spl)
+    while i < n:
+        c = spl[i]
+        if c == '"':
+            i += 1
+            while i < n and spl[i] != c:
+                i += 2 if spl[i] == "\\" else 1
+            i += 1
+        elif c == "`":
+            close = "```" if spl.startswith("```", i) else "`"
+            end = spl.find(close, i + len(close))
+            i = i + 1 if end < 0 else end + len(close)
+        elif c == "|":
+            if spl.startswith("||", i):
+                i += 2
+                continue
+            m = _COMMAND_WORD_RE.match(spl, i + 1)
+            out.append(m.group(1).lower() if m else "")
+            i += 1
+        else:
+            i += 1
+    return out
+
+
+def writing_command(spl):
+    """The first writing command ``spl`` uses as a command, lower case, or None."""
+    return next((w for w in _pipes(spl) if w in WRITING_COMMANDS), None)
+
+
+def _check_spl_condition(text, kind, ids, params, issues, step, where):
+    if not text.strip():
+        what = "an SPL expression" if kind == "eval" else "a search"
+        issues.append(_issue("error", "bad_expression", "%s: the condition is empty; write %s, or pick another condition" % (where, what), step))
+        return
+    if kind == "eval" and _pipes(text):
+        issues.append(_issue("error", "bad_expression", "%s: an SPL expression can't contain | outside quotes; write only what follows | where, or pick Search returns results for a full search" % where, step))
+    else:
+        cmd = writing_command(text)
+        if cmd:
+            issues.append(_issue("error", "condition_writes", "%s: a condition only reads, so it can't use %s; move %s into a step and check that step's results here" % (where, cmd, cmd), step))
+    if _ORCHESTRATE_RE.search(text):
+        issues.append(_issue("error", "condition_writes", "%s: a condition can't call | orchestrate; use a start-job action instead" % where, step))
+    try:
+        tk.compile_spl(text, ids)
+    except tk.TokenError as e:
+        issues.append(_issue("error", "unsafe_token_position", "%s: %s: %s" % (where, e.token, e.reason), step))
+    _check_spl_tokens(text, ids, params, issues, step, where + ": ")
 
 
 def _token_ok(name, ids, params):
@@ -185,6 +265,49 @@ def _lst(job, key):
     return v if isinstance(v, list) else []
 
 
+def _coord_ok(v):
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and math.isfinite(v) and abs(v) <= 1_000_000)
+
+
+GROUP_COLORS = tuple("categoricalA%d" % i for i in range(1, 8))
+
+
+def _group_ok(g):
+    return (isinstance(g, dict)
+            and isinstance(g.get("id"), str) and len(g["id"]) <= 40
+            and isinstance(g.get("title"), str) and len(g["title"]) <= 80
+            and g.get("color") in GROUP_COLORS
+            and all(_coord_ok(g.get(k)) for k in ("x", "y", "w", "h"))
+            and g["w"] > 0 and g["h"] > 0
+            and isinstance(g.get("collapsed", False), bool))
+
+
+def _groups_ok(layout):
+    if "groups" not in layout:
+        return True
+    groups = layout["groups"]
+    return isinstance(groups, list) and len(groups) <= 200 and all(_group_ok(g) for g in groups)
+
+
+def _layout_ok(layout):
+    if not isinstance(layout, dict):
+        return False
+    # A layout that holds groups may have no node positions.
+    if "nodes" not in layout and "groups" in layout:
+        return True
+    nodes = layout.get("nodes")
+    if not isinstance(nodes, dict) or len(nodes) > 1000:
+        return False
+    return all(isinstance(p, dict) and _coord_ok(p.get("x")) and _coord_ok(p.get("y"))
+               for p in nodes.values())
+
+
+def _output_ok(out):
+    return (isinstance(out, dict) and out.get("kind") in ("summary_index", "lookup")
+            and all(isinstance(v, (str, bool)) for v in out.values()))
+
+
 def _shape_issues(job):
     out = []
 
@@ -201,6 +324,26 @@ def _shape_issues(job):
         bad("defaults must be an object")
     if job.get("timezone") is not None and not isinstance(job["timezone"], str):
         bad("timezone must be a string")
+    tags = job.get("tags")
+    if tags is not None:
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            bad("tags must be a list of words")
+        elif len(tags) > MAX_TAGS:
+            bad("a job can have at most %d tags; remove some" % MAX_TAGS)
+        else:
+            for t in tags:
+                if not TAG_RE.fullmatch(t):
+                    bad("tag %r isn't valid: use 1-40 letters, digits, spaces, _ . or -, "
+                        "starting with a letter or digit" % t)
+            if len({t.lower() for t in tags}) != len(tags):
+                bad("a tag is listed twice; give each tag once")
+    if job.get("deadline") is not None and not isinstance(job["deadline"], dict):
+        out.append(_issue("error", "bad_deadline", deadlinemod.shape_issues(job["deadline"])[0]))
+
+    if "layout" in job and not _layout_ok(job["layout"]):
+        bad("layout is broken; use Tidy up and save again")
+    elif isinstance(job.get("layout"), dict) and not _groups_ok(job["layout"]):
+        bad("a group in layout is broken; remove it and save again")
 
     def check_durations(d, where, step=None):
         for k in BUILTIN_DEFAULTS:
@@ -214,9 +357,13 @@ def _shape_issues(job):
             continue
         sid = s.get("id") if isinstance(s.get("id"), str) else None
         check_durations(s, "step", sid)
+        if s.get("max_scan") is not None and (not _is_int(s["max_scan"]) or s["max_scan"] < 1):
+            bad("step Events scanned limit must be a whole number of events, at least 1", sid)
         for k in ("spl", "saved_search_ref", "type"):
             if s.get(k) is not None and not isinstance(s[k], str):
                 bad("step %s must be a string" % k, sid)
+        if "output" in s and not _output_ok(s["output"]):
+            bad("step output must be a summary index or lookup; open the node and set it again", sid)
         rw = s.get("run_when")
         if rw is not None and not (isinstance(rw, dict) and isinstance(rw.get("kind"), (str, type(None)))
                                    and isinstance(rw.get("value"), (str, type(None)))):
@@ -237,7 +384,8 @@ def _shape_issues(job):
     for e in _lst(job, "edges"):
         if not isinstance(e, dict):
             continue
-        for k in ("from", "to", "condition", "expression"):
+        for k in ("from", "to", "condition", "expression", "expression_kind", "earliest",
+                  "latest", "hidden_search"):
             if e.get(k) is not None and not isinstance(e[k], str):
                 bad("edge %s must be a string" % k)
     for t in _lst(job, "triggers"):
@@ -265,27 +413,29 @@ def _validate(job, known_saved_searches):
     if tz:
         status = cronmod.tz_status(tz)
         if status == "unknown":
-            issues.append(_issue("error", "bad_timezone", "unknown time zone %r" % tz))
+            issues.append(_issue("error", "bad_timezone", "unknown time zone %r; pick one from the Time zone list or clear it" % tz))
         elif status == "unavailable":
             issues.append(_issue("warning", "timezone_fallback",
-                                 "time zone database unavailable; server local time will be used"))
+                                 "the server can't look up time zones, so schedules will use its local time; ask your Splunk admin to install time zone data"))
+    if job.get("deadline") is not None:
+        issues.extend(_issue("error", "bad_deadline", m) for m in deadlinemod.shape_issues(job["deadline"]))
     for t in job.get("triggers", []) or []:
         if t.get("type") == "cron":
             try:
                 cronmod.parse(t.get("cron"))
             except cronmod.CronError as e:
-                issues.append(_issue("error", "bad_cron", "trigger cron: %s" % e))
+                issues.append(_issue("error", "bad_cron", "schedule: %s; fix the cron or pick a preset" % e))
 
     seen = set()
     for s in steps:
         sid = s.get("id")
         if not isinstance(sid, str) or not STEP_ID_RE.fullmatch(sid) or "__" in sid:
-            issues.append(_issue("error", "bad_step_id", "bad step id %r" % (sid,), sid if isinstance(sid, str) else None))
+            issues.append(_issue("error", "bad_step_id", "step id %r isn't valid; use lowercase letters, numbers and _ (no __), starting with a letter" % (sid,), sid if isinstance(sid, str) else None))
             continue
         if sid == "run":
-            issues.append(_issue("error", "reserved_step_id", "step id 'run' is reserved", sid))
+            issues.append(_issue("error", "reserved_step_id", "step id 'run' is reserved for run tokens; choose another id", sid))
         if sid in seen:
-            issues.append(_issue("error", "duplicate_step", "duplicate step id %r" % sid, sid))
+            issues.append(_issue("error", "duplicate_step", "two steps use the id %r; give each step its own id" % sid, sid))
         seen.add(sid)
     ids = seen
 
@@ -296,16 +446,16 @@ def _validate(job, known_saved_searches):
         if s.get("type") == "saved_search":
             ref = s.get("saved_search_ref")
             if not ref:
-                issues.append(_issue("error", "bad_step", "saved_search step needs saved_search_ref", sid))
+                issues.append(_issue("error", "bad_step", "pick a saved search for this step", sid))
             elif known_saved_searches is not None and ref not in known_saved_searches:
-                issues.append(_issue("error", "unknown_saved_search", "unknown saved search %r" % ref, sid))
+                issues.append(_issue("error", "unknown_saved_search", "saved search %r was not found; pick another" % ref, sid))
         elif s.get("type") in ("inline", "previous"):
             if s.get("type") == "inline" and not (s.get("spl") or "").strip():
-                issues.append(_issue("error", "bad_step", "inline step needs spl", sid))
+                issues.append(_issue("error", "bad_step", "this step has no search; write one in Search", sid))
             if _ORCHESTRATE_RE.search(s.get("spl") or ""):
                 # It would start runs outside the chain depth limit.
                 issues.append(_issue("error", "orchestrate_in_step",
-                                     "Steps cannot call | orchestrate; use a start_job action", sid))
+                                     "a step can't call | orchestrate; use a start-job action instead", sid))
             try:
                 tk.compile_spl(s.get("spl") or "", ids)
             except tk.TokenError as e:
@@ -314,18 +464,22 @@ def _validate(job, known_saved_searches):
             if s.get("type") == "previous":
                 if not (s.get("spl") or "").lstrip().startswith("|"):
                     issues.append(_issue("error", "previous_needs_pipe",
-                                         "A From previous steps search must start with |", sid))
+                                         "the search must start with |, such as | stats count", sid))
                 if not any(e.get("to") == sid for e in job.get("edges", []) or []):
                     issues.append(_issue("error", "previous_needs_dependency",
-                                         "A From previous steps step must depend on at least "
-                                         "one step", sid))
+                                         "this step needs a step before it to read from; add one in Depends on", sid))
                 if s.get("earliest") or s.get("latest"):
                     issues.extend(old_time_range_issues({"steps": [s]}))
             elif not s.get("earliest") and not s.get("latest"):
                 issues.append(_issue("warning", "all_time_search",
-                                     "This step searches all time.", sid))
+                                     "this step searches all time; set a time range to search less", sid))
+        elif approvalmod.is_approval(s):
+            issues.extend(_issue("error", "bad_approval", m, sid) for m in approvalmod.shape_issues(s))
+            message = approvalmod.config(s).get("message")
+            if isinstance(message, str):
+                _check_spl_tokens(message, ids, params, issues, sid, "message: ")
         else:
-            issues.append(_issue("error", "bad_step", "unknown step type %r" % s.get("type"), sid))
+            issues.append(_issue("error", "bad_step", "step type %r isn't supported; pick Search, Saved search, Results of earlier steps or Approval" % s.get("type"), sid))
         rw = s.get("run_when")
         if rw:
             kind, val = rw.get("kind"), rw.get("value")
@@ -333,49 +487,94 @@ def _validate(job, known_saved_searches):
                 try:
                     cronmod.parse(val)
                 except cronmod.CronError as e:
-                    issues.append(_issue("error", "bad_cron", "run_when: %s" % e, sid))
+                    issues.append(_issue("error", "bad_cron", "run when: %s; fix the cron" % e, sid))
             elif kind == "expression":
-                _check_expr_tokens(val, ids, params, issues, sid, "run_when")
+                _check_expr_tokens(val, ids, params, issues, sid, "run when")
             else:
-                issues.append(_issue("error", "bad_run_when", "unknown run_when kind %r" % kind, sid))
-        spl = s.get("spl") or ""
-        for m in _DOTTED_RE.finditer(spl):
-            first, rest = m.group(1), m.group(2)
-            name = first + "." + rest
-            if (first == "run" or first in ids or _SUFFIX_RE.search("." + rest)) \
-                    and not _token_ok(name, ids, params):
-                issues.append(_issue("error", "unknown_token", "unknown token %s" % m.group(0), sid))
-        for name in tk.find_tokens(spl, ids):
-            if name.startswith("run.param.") and not _token_ok(name, ids, params):
-                issues.append(_issue("error", "unknown_token", "undeclared parameter in $%s$" % name, sid))
+                issues.append(_issue("error", "bad_run_when", "run when type %r isn't supported; pick one in Run when" % kind, sid))
+        _check_spl_tokens(s.get("spl") or "", ids, params, issues, sid)
 
     edges = job.get("edges", []) or []
+    pairs = {}
+    for e in edges:
+        pairs.setdefault((e.get("from"), e.get("to")), []).append(e)
+    for (a, b), same in pairs.items():
+        if len(same) > 1 and any(e.get("condition") == "expression" for e in same):
+            # A condition's result is kept per step pair, so the pair must be unique.
+            issues.append(_issue("error", "duplicate_edge", "dependency %s->%s is listed more than once and has a condition; remove the extra line so only one connects these steps" % (a, b), b if b in ids else None))
     for e in edges:
         a, b = e.get("from"), e.get("to")
         for end in (a, b):
             if end not in ids:
-                issues.append(_issue("error", "unknown_edge_step", "edge references unknown step %r" % (end,)))
+                issues.append(_issue("error", "unknown_edge_step", "a dependency points at step %r, which doesn't exist; remove the dependency" % (end,)))
         cond = e.get("condition", "on_success")
         if cond not in _EDGE_CONDITIONS:
-            issues.append(_issue("error", "bad_edge", "unknown edge condition %r" % (cond,)))
+            issues.append(_issue("error", "bad_edge", "dependency condition %r isn't supported; pick on success, on failure, always or an expression" % (cond,)))
         elif cond == "expression":
-            _check_expr_tokens(e.get("expression"), ids, params, issues, b if b in ids else None,
-                               "edge %s->%s" % (a, b))
+            where = "dependency %s->%s" % (a, b)
+            kind = e.get("expression_kind") or "simple"
+            if kind == "simple":
+                _check_expr_tokens(e.get("expression"), ids, params, issues,
+                                   b if b in ids else None, where)
+            elif kind in ("eval", "search"):
+                _check_spl_condition(e.get("expression") or "", kind, ids, params, issues,
+                                     b if b in ids else None, where)
+            else:
+                issues.append(_issue("error", "bad_edge", "%s: condition check %r isn't supported; pick Simple comparison, SPL expression or Search returns results" % (where, kind), b if b in ids else None))
+
+    targets = {e.get("to") for e in edges}
+    for i, t in enumerate(job.get("triggers", []) or []):
+        if not isinstance(t, dict) or t.get("steps") is None:
+            continue
+        what = "the schedule" if t.get("type") == "cron" else "the trigger"
+        listed = t["steps"]
+        if not isinstance(listed, list) or not all(isinstance(s, str) for s in listed):
+            issues.append(_issue("error", "bad_trigger", "%s's steps must be a list of step ids" % what))
+            continue
+        for sid in listed:
+            if sid not in ids:
+                issues.append(_issue("error", "bad_trigger", "%s starts step %r, which doesn't exist; remove its line" % (what, sid)))
+            elif sid in targets:
+                issues.append(_issue("error", "bad_trigger", "%s starts %r, but a line already leads into that step; a trigger can only start a step with no line into it" % (what, sid), sid))
+        if not listed and t.get("enabled") is not False:
+            issues.append(_issue("warning", "trigger_starts_nothing", "%s isn't connected to any step, so its runs do nothing; drag from it to the steps it should start" % what))
+    if job.get("triggers") and any(isinstance(t, dict) and isinstance(t.get("steps"), list) for t in job["triggers"]):
+        started = set()
+        everything = False
+        for t in job["triggers"]:
+            if isinstance(t, dict) and isinstance(t.get("steps"), list):
+                started.update(t["steps"])
+            elif isinstance(t, dict):
+                everything = True
+        if not everything:
+            for s in steps:
+                sid = s.get("id")
+                if sid in ids and sid not in targets and sid not in started:
+                    issues.append(_issue("warning", "step_not_started", "no trigger starts this step, so only manual runs and runs from other jobs reach it; connect a schedule to it", sid))
+
+    for scope_step, alist in [(None, job.get("actions") or [])] + [(s.get("id"), s.get("actions") or []) for s in steps]:
+        for a in alist:
+            if isinstance(a, dict) and a.get("condition") not in (None, ""):
+                if not isinstance(a["condition"], str):
+                    issues.append(_issue("error", "bad_expression", "an action's condition must be text", scope_step))
+                else:
+                    _check_expr_tokens(a["condition"], ids, params, issues, scope_step if scope_step in ids else None, "action condition")
 
     _, succ = _graph(job)
     try:
         topo_order(job)
     except ValueError:
-        issues.append(_issue("error", "cycle", "steps form a dependency cycle"))
+        issues.append(_issue("error", "cycle", "steps depend on each other in a loop; remove a dependency to break it"))
 
     # Warnings
     for s in steps:
-        if s.get("id") in ids and resolve_step(job, s)["retries"] > 0:
+        if s.get("id") in ids and resolve_step(job, s)["retries"] > 0 \
+                and not approvalmod.is_approval(s):
             issues.append(_issue("warning", "retries_duplicate_risk",
-                                 "retries above 0 can write duplicates to a summary index", s["id"]))
+                                 "retries above 0 can write duplicates to a summary index; keep retries at 0 unless the step is safe to run twice", s["id"]))
     if not any(a.get("hook") == "on_failure" for a in job.get("actions", []) or []):
         issues.append(_issue("warning", "no_failure_notification",
-                             "no on_failure action; the fallback notification will be used"))
+                             "no failure action, so the admin's fallback notification will be used; add an on_failure action to choose who is told"))
     branch_targets = [e.get("to") for e in edges
                       if e.get("condition") in ("on_failure", "expression") and e.get("to") in ids]
     skippable = _downstream(succ, branch_targets)
@@ -389,7 +588,7 @@ def _validate(job, known_saved_searches):
             ref = name.split(".")[0]
             if ref != "run" and ref in skippable and arg_default_missing(name, defaults):
                 issues.append(_issue("warning", "token_from_skippable_step",
-                                     "$%s$ may come from a skipped step; add |default" % name, sid))
+                                     "$%s$ may come from a skipped step, which fails this step; add a default, as in $%s|none$" % (name, name), sid))
     return issues
 
 

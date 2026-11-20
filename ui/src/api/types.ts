@@ -1,5 +1,7 @@
 /* Shapes of the Search Orchestrator REST API (app/search_orchestrator/bin/so/api.py).
  * Times are integer epoch seconds. */
+import type { ApprovalState } from './approvals';
+import type { StepPerf } from './performance';
 
 export const RUN_STATES = ['queued', 'running', 'blocked', 'paused', 'succeeded', 'failed', 'cancelled'] as const;
 export type RunState = (typeof RUN_STATES)[number];
@@ -15,11 +17,12 @@ export const STEP_STATES = [
     'skipped',
     'cancelled',
     'abandoned',
+    'awaiting_approval',
 ] as const;
 export type StepState = (typeof STEP_STATES)[number];
 
 /** Why a step was skipped: its cadence did not apply, or no incoming edge was satisfied. */
-export type SkipKind = 'run_when' | 'not_taken';
+export type SkipKind = 'run_when' | 'not_taken' | 'not_started';
 
 export type AnyState = RunState | StepState;
 
@@ -59,16 +62,36 @@ export interface RunWhen {
 }
 
 export interface Action {
-    hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed';
+    /** `on_approval_requested`: approval steps only. */
+    hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed' | 'on_late' | 'on_approval_requested';
     type: 'webhook' | 'email' | 'event' | 'start_job' | 'alert_action';
+    /** Webhooks: the body format; absent uses the destination's. */
+    preset?: WebhookPreset;
+    /** PagerDuty and ServiceNow webhooks (bin/so/presets.py PRESET_OPTIONS); never `{}`. */
+    options?: Record<string, string>;
     [field: string]: unknown;
 }
+
+export type StepOutput =
+    | {
+          kind: 'summary_index';
+          index: string;
+          source?: string;
+          sourcetype?: string;
+          host?: string;
+          add_run_id?: boolean;
+          /** Only these fields (comma or space separated, * allowed); empty writes every field. */
+          fields?: string;
+          /** The events' _time: the result's own (default), the run's scheduled time, or now. */
+          time?: 'result' | 'scheduled' | 'now';
+      }
+    | { kind: 'lookup'; name: string; append?: boolean; fields?: string };
 
 export interface StepDef {
     id: string;
     name?: string;
     /** `previous`: SPL that starts with |, run on the results of the steps it depends on. */
-    type: 'inline' | 'saved_search' | 'previous';
+    type: 'inline' | 'saved_search' | 'previous' | 'approval';
     spl?: string;
     saved_search_ref?: string;
     earliest?: string;
@@ -77,15 +100,40 @@ export interface StepDef {
     delayed_after?: number | null;
     give_up_after?: number | null;
     max_runtime?: number | null;
+    /** Events this step's search may scan; null or absent uses Settings > Events scanned limit. */
+    max_scan?: number | null;
     retries?: number | null;
     actions?: Action[];
+    output?: StepOutput;
+    /** `approval` steps (no search, time range, retries or max runtime); absent fields use defaults. */
+    approval?: { message?: string; approver_roles?: string[]; timeout?: number; on_timeout?: 'reject' | 'approve' };
 }
+
+/** How an expression line is checked: the small comparison language (the default when
+ * absent), an SPL `where` expression, or a search that must return a row. */
+export type ConditionKind = 'simple' | 'eval' | 'search';
 
 export interface Edge {
     from: string;
     to: string;
     condition?: 'on_success' | 'on_failure' | 'always' | 'expression';
     expression?: string;
+    expression_kind?: ConditionKind;
+    /** `search` conditions only, relative to the run's scheduled time. */
+    earliest?: string;
+    latest?: string;
+    /** Written by the server at save. */
+    hidden_search?: string;
+}
+
+/** An SPL condition's result on a run, by edge key `<from>><to>`. */
+export interface ConditionStatus {
+    state: 'starting' | 'running' | 'met' | 'not_met' | 'failed' | 'cancelled';
+    sid?: string | null;
+    error?: string | null;
+    result_count?: number | null;
+    started_at?: number | null;
+    ended_at?: number | null;
 }
 
 export interface Trigger {
@@ -94,6 +142,8 @@ export interface Trigger {
     job?: string;
     on?: 'success' | 'complete';
     enabled?: boolean;
+    /** The steps it starts (each with no line into it); without it, every such step. */
+    steps?: string[];
 }
 
 export interface Defaults {
@@ -108,6 +158,8 @@ export interface JobDefinition {
     id?: string;
     name: string;
     description?: string;
+    /** Up to 10 words to group jobs by (team, system); filters on Jobs, Runs and Calendar. */
+    tags?: string[];
     enabled: boolean;
     timezone?: string;
     catchup?: 'all' | 'latest' | 'none';
@@ -118,7 +170,24 @@ export interface JobDefinition {
     edges?: Edge[];
     actions?: Action[];
     defaults?: Defaults;
+    /** Finish a scheduled or chained run by a time of day, or within a span of its start; omit when unset. */
+    deadline?: { finish_by?: string; within?: number };
     run_roles?: string[];
+    /** Node positions on the canvas, by node key, and the groups (backdrops) drawn behind them.
+     * Omit when unset; the server rejects null. A layout that holds groups may have no `nodes`. */
+    layout?: { nodes?: Record<string, { x: number; y: number }>; groups?: LayoutGroup[] };
+}
+
+/** A titled, tinted frame behind nodes in the editor; a node belongs to it while its box is inside. */
+export interface LayoutGroup {
+    id: string;
+    title: string;
+    color: 'categoricalA1' | 'categoricalA2' | 'categoricalA3' | 'categoricalA4' | 'categoricalA5' | 'categoricalA6' | 'categoricalA7';
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    collapsed?: boolean;
 }
 
 export interface JobPermissions {
@@ -152,12 +221,18 @@ export interface Job extends JobDefinition {
     /** True when no cron slot was found within the server's 400-day walk. */
     next_run_beyond?: boolean;
     last_run?: LastRun | null;
+    /** The newest runs, newest first (at most 10; GET jobs). */
+    recent_runs?: LastRun[];
     /** Problems a re-save fixes, such as previous_old_time_range. */
     warnings?: Issue[];
+    /** You follow this job (GET jobs). */
+    following?: boolean;
 }
 
 export interface StepStatus {
     state: StepState;
+    /** What the search cost, once it finished (bin/so/engine.py); keys are left out when unknown. */
+    perf?: StepPerf;
     skip_kind?: SkipKind | null;
     attempt?: number;
     sid?: string | null;
@@ -165,17 +240,48 @@ export interface StepStatus {
     ended_at?: number | null;
     next_attempt_at?: number | null;
     delay_alerted?: boolean;
+    /** The attempt that went over the events scanned limit (Settings: warn). */
+    scan_warned?: number | null;
     result_count?: number | null;
     error?: string | null;
     dispatch_errors?: number;
+    /** Approval steps: the request and, once someone (or the timeout, `by: "timeout"`) decides, the decision. */
+    approval_state?: ApprovalState;
 }
 
 /** A run as GET runs lists it (no definition). */
+/** Why a queued run hasn't started (bin/so/queue_info.py). */
+export type QueueReason =
+    | { kind: 'engine_stopped'; last_seen: number | null }
+    | { kind: 'held'; run_id: string }
+    | { kind: 'waiting_for_run'; run_id: string; state: RunState }
+    | { kind: 'behind'; ahead: number; next_run_id: string }
+    | { kind: 'next_tick' };
+
+/** Why a step of a running run hasn't started. */
+export type StepReason =
+    | { kind: 'waiting_for'; steps: string[] }
+    | { kind: 'search_slots'; job_running: number; job_max: number; all_running: number; all_max: number }
+    | { kind: 'next_tick' };
+
+export interface EngineStatus {
+    running: boolean;
+    /** Epoch seconds of the engine's last tick, if it ever ran. */
+    last_seen: number | null;
+}
+
 export interface RunSummary {
     id: string;
+    /** The run's number within its job, 1 for the oldest kept run (GET runs). */
+    number?: number;
+    /** Queued runs: why they haven't started. */
+    queue_reason?: QueueReason;
     job_id: string;
     owner: string;
+    /** How the run started, such as manual, cron, completion or backfill. */
     trigger: string;
+    /** The backfill that created the run (trigger "backfill"). */
+    backfill?: string | null;
     upstream: string | null;
     scheduled_time: number;
     params: Record<string, string>;
@@ -194,7 +300,11 @@ export interface RunSummary {
     gave_up: boolean;
     rerun_count: number;
     chain_depth: number;
+    deadline_at?: number | null;
+    late_at?: number | null;
     steps: Record<string, StepStatus>;
+    /** SPL condition results (absent before any ran). */
+    conditions?: Record<string, ConditionStatus>;
 }
 
 export interface RerunLatest {
@@ -204,6 +314,8 @@ export interface RerunLatest {
 
 /** A run as GET runs/<id> returns it. */
 export interface RunDetail extends RunSummary {
+    /** Running runs: why steps that wait haven't started, by step id. */
+    step_reasons?: Record<string, StepReason>;
     definition: JobDefinition & { id: string };
     definition_changed: boolean;
     rerun_latest: Record<string, RerunLatest>;
@@ -224,6 +336,7 @@ export interface ActionRun {
 
 export interface RunDetailResponse {
     run: RunDetail;
+    engine?: EngineStatus;
     attempts: StepAttempt[];
     actions: ActionRun[];
 }
@@ -264,6 +377,9 @@ export interface Me {
     can_admin: boolean;
     can_build: boolean;
     can_run: boolean;
+    can_approve: boolean;
+    /** Building blocks (node kinds) an admin turned off in Settings: not offered in the builder. */
+    turned_off?: string[];
 }
 
 export interface Settings {
@@ -274,6 +390,13 @@ export interface Settings {
     run_retention_days: number;
     fallback: { type: 'email'; to: string } | { type: 'webhook'; destination: string; preset?: string } | null;
     base_url: string | null;
+    /** ERROR, WARNING, INFO (default) or DEBUG: what the app writes to its log files. */
+    log_level?: string;
+    /** Events a step's search may scan (null: no limit), and what happens over it. */
+    scan_limit?: number | null;
+    scan_limit_action?: 'warn' | 'stop';
+    /** Building blocks (node kinds) turned off: the builder doesn't offer them. */
+    turned_off?: string[];
     [key: string]: unknown;
 }
 
@@ -294,18 +417,25 @@ export interface AlertAction {
     params: AlertActionParam[];
 }
 
+export type WebhookPreset = 'generic' | 'slack' | 'teams' | 'pagerduty' | 'servicenow';
+
 export interface Destination {
     name: string;
-    preset: 'slack' | 'generic';
+    preset: WebhookPreset;
     host: string | null;
     has_headers: boolean;
+    /** PagerDuty: whether a routing key is stored (it is never shown). */
+    body_secret_set?: boolean;
 }
 
 export interface DestinationInput {
     name: string;
+    /** PagerDuty: empty uses the Events API v2 endpoint. */
     url: string;
-    preset?: 'slack' | 'generic';
+    preset?: WebhookPreset;
     headers?: Record<string, string> | null;
+    /** PagerDuty only, write-only; absent keeps the stored key. */
+    routing_key?: string;
 }
 
 export interface Health {

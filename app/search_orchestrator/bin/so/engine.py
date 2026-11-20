@@ -5,7 +5,8 @@ Splunk and KV Store. It is the only component that advances runs.
 
 1. Take or renew the leader lease; a non-leader does nothing.
 2. Fire due cron slots (``scheduler``), then apply pending commands
-   (pause, resume, cancel, rerun, dismiss) from ``so_commands``.
+   (pause, resume, cancel, rerun, dismiss, approve, cancel_backfill) from ``so_commands``,
+   then create the next runs of running backfills (``backfill.feed``).
 3. Send the daily hold alert, then promote queued runs: one active run per
    job, re-runs first, then oldest ``scheduled_time``. A held run (failed by
    give-up with ``after_give_up = hold``) blocks promotion until a re-run or
@@ -86,7 +87,8 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import authz, model, scheduler, tokens
+from . import approval, authz, backfill, hidden, logs, model, scheduler, tokens
+from . import deadline as deadlinemod
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
 from .gateway import DispatchError, GatewayError, KvError
@@ -96,8 +98,11 @@ from .store import ACTIVE_RUN_STATES, TERMINAL_RUN_STATES
 log = logging.getLogger(__name__)
 
 DEFAULT_SETTINGS = {"max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
-                    "result_retention": 86400, "run_retention_days": 90}
+                    "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO",
+                    "scan_limit": None, "scan_limit_action": "warn"}
 TOUCH_EVERY = 300
+MISSED_AFTER = 120  # a schedule not checked for longer than this may have missed slots
+HEARTBEAT_EVERY = 300  # seconds between the engine's heartbeat log lines
 PRUNE_EVERY = 3600
 STATE_SAVE_EVERY = 60
 HOLD_ALERT_EVERY = 86400
@@ -107,6 +112,7 @@ LIVE = ("running", "blocked", "paused")
 PRUNE_BATCH = 200
 LEASE_RENEW_EVERY = 10
 UNKNOWN_LIMIT = 300  # seconds a dispatch's fate may stay unknown before the attempt fails
+CONDITION_TIMEOUT = 300  # seconds an SPL condition search may run before it counts as failed
 COMMAND_ATTEMPTS = 10
 COMPLETION_STATES = {"success": ("succeeded",), "complete": ("succeeded", "failed", "cancelled")}
 
@@ -130,7 +136,10 @@ def _check_auth(err):
 
 
 def _inflight(run):
-    return sum(1 for st in (run.get("steps") or {}).values() if st.get("state") in IN_FLIGHT)
+    """Searches the run has out: steps and SPL conditions."""
+    return (sum(1 for st in (run.get("steps") or {}).values() if st.get("state") in IN_FLIGHT)
+            + sum(1 for c in (run.get("conditions") or {}).values()
+                  if c.get("state") in IN_FLIGHT))
 
 
 def _fingerprint(run):
@@ -176,7 +185,11 @@ def first_fields(definition):
         found |= tokens.find_tokens(s.get("spl") or "", ids)
     for text in _action_texts(definition):
         found |= tokens.find_tokens(text, ids)
-    texts = [e.get("expression") for e in definition.get("edges") or [] if e.get("expression")]
+    edges = [e for e in definition.get("edges") or [] if e.get("expression")]
+    for e in edges:
+        if tokens.condition_kind(e) != "simple":
+            found |= tokens.find_tokens(e["expression"], ids)
+    texts = [e["expression"] for e in edges if tokens.condition_kind(e) == "simple"]
     texts += [(s.get("run_when") or {}).get("value") for s in steps
               if (s.get("run_when") or {}).get("kind") == "expression"]
     for text in texts:
@@ -212,6 +225,7 @@ def _action_texts(definition):
         if isinstance(a, dict):
             for key in ("subject", "message", "body", "payload", "params"):
                 yield from _strings(a.get(key))
+    yield from approval.message_texts(definition)  # an approval step's message
 
 
 class _Budget:
@@ -252,12 +266,17 @@ class Engine:
         self.clock = clock
         self.holder = holder
         self.lease = Lease(gateway)
-        self._leader = False
+        self._leader = None  # None until the first tick (so a standby engine says so once)
         self._lease_at = 0
         self._estate = None
         self._estate_saved = None
         self._estate_urgent = False
         self._jobs = {}
+        self._tick_runs = 0
+        self._said = {}
+        self._said_now = set()
+        self._skip = None
+        self._beat = {"at": None, "ticks": 0, "slowest": 0}
 
     # -- the tick -------------------------------------------------------------
 
@@ -265,20 +284,72 @@ class Engine:
         now = int(self.clock())
         try:
             if not self.lease.acquire(self.holder, now):
+                if self._leader is not False:
+                    logs.event(log, logging.INFO, "standby", holder=self.holder,
+                               reason="another engine holds the lease")
                 self._leader = False
                 return
+            if not self._leader:
+                logs.event(log, logging.INFO, "lease_acquired", holder=self.holder)
             self._lease_at = now
             if not self._leader or self._estate is None:
                 self._estate = self.store.get_engine_state()
                 self._estate_saved = now
                 self._leader = True
+            started = time.time()
             self._tick(now)
+            ms = int((time.time() - started) * 1000)
+            logs.event(log, logging.DEBUG, "tick", ms=ms,
+                       active_runs=self._tick_runs, jobs=len(self._jobs))
+            self._heartbeat(now, ms)
+            self._skipped_ok(now)
         except LeaseLost:
             self._leader = False
             log.warning("lease lost during the tick; stopping it")
         except GatewayError as err:
             _check_auth(err)
+            self._skipped(err, now)
+
+    def _heartbeat(self, now, ms):
+        """Every HEARTBEAT_EVERY seconds the engine holding the lease says it is alive, at
+        INFO, with how many ticks it ran, their average and the slowest (the Troubleshooting
+        Engine graphs at Info level): the app's Engine not running alert fires when these stop."""
+        beat = self._beat
+        beat["ticks"] += 1
+        beat["slowest"] = max(beat["slowest"], ms)
+        beat["total"] = beat.get("total", 0) + ms
+        # The most runs active at any tick in these 5 minutes: active_runs is only this tick's,
+        # and short runs are over long before the next heartbeat.
+        beat["peak"] = max(beat.get("peak", 0), self._tick_runs)
+        if beat["at"] is not None and now - beat["at"] < HEARTBEAT_EVERY:
+            return
+        if beat["at"] is not None:
+            logs.event(log, logging.INFO, "heartbeat", holder=self.holder, ticks=beat["ticks"],
+                       avg_ms=int(round(beat.get("total", 0) / max(beat["ticks"], 1))),
+                       slowest_ms=beat["slowest"], active_runs=self._tick_runs,
+                       peak_runs=beat.get("peak", 0), jobs=len(self._jobs))
+        self._beat = {"at": now, "ticks": 0, "slowest": 0, "total": 0, "peak": 0}
+
+    def _skipped(self, err, now):
+        """A tick Splunk could not serve: warn once per reason, then count quietly (KV Store
+        starting after a restart answers 503 for a minute; that is said once, at INFO)."""
+        reason = "%s: %s" % (type(err).__name__, err)
+        prev = self._skip
+        if prev and prev["reason"] == reason:
+            prev["count"] += 1
+            log.debug("tick skipped again (%s)", reason)
+            return
+        self._skip = {"reason": reason, "count": 1, "since": now}
+        if "initializing" in str(err).lower():
+            logs.event(log, logging.INFO, "waiting_for_kvstore", error=str(err)[:200])
+        else:
             log.warning("tick skipped (%s): %s", type(err).__name__, err)
+
+    def _skipped_ok(self, now):
+        if self._skip:
+            logs.event(log, logging.INFO, "ticks_resumed", skipped=self._skip["count"],
+                       seconds=int(now - self._skip["since"]), reason=self._skip["reason"][:200])
+            self._skip = None
 
     def _keep_lease(self, force=False):
         """Renew the lease during a long tick (every LEASE_RENEW_EVERY seconds, or now if
@@ -293,6 +364,8 @@ class Engine:
 
     def _tick(self, now):
         settings = self._settings()
+        logs.set_level(settings.get("log_level"))
+        self._said_now = set()
         jobs = {}
         for job in self.store.list_jobs():
             jobs[job.get("id") or job.get("_key")] = job
@@ -301,10 +374,14 @@ class Engine:
         self._keep_lease()
         self._commands(jobs, settings, now)
         self._keep_lease()
+        backfill.feed(self, jobs, settings, now)
+        self._keep_lease()
         runs = self.store.list_active_runs()
+        self._tick_runs = len(runs)
         held = [r for r in self.store.list_runs({"held": True}) if r.get("state") == "failed"]
         self._hold_alerts(held, jobs, now)
         self._promote(runs, held, jobs, now)
+        self._lateness(runs, now)
         self._keep_lease()
         self._advance_all(runs, jobs, settings, now)
         self._keep_lease()
@@ -312,6 +389,8 @@ class Engine:
         self._keep_lease()
         self._prune(settings, now)
         self._save_estate(now)
+        # A wait that ended is said again if it comes back.
+        self._said = {k: v for k, v in self._said.items() if k in self._said_now}
 
     def _settings(self):
         out = dict(DEFAULT_SETTINGS)
@@ -344,20 +423,54 @@ class Engine:
                 self._estate_urgent = True
             elif job.get("enabled") is not False:
                 slots = scheduler.due_runs(job, last, now)
+                self._report_missed(job_id, job, last, now, slots)
                 for slot in slots:
                     self._create_cron_run(job, slot, settings, now)
                 if slots:
                     self._estate_urgent = True
+            else:
+                self._report_disabled(job_id, job, last, now)
             checked[job_id] = now  # a disabled job does not catch up later
         for job_id in [j for j in checked if j not in jobs]:
             del checked[job_id]
             self._estate_urgent = True
 
+    def _report_disabled(self, job_id, job, last, now):
+        """A disabled job's slots pass without a run: say so, once per slot."""
+        for slot in scheduler.slots_in(job, last, now, cap=scheduler.CATCHUP_CAP):
+            self._emit({"type": "schedule_skipped", "reason": "disabled", "job_id": job_id,
+                        "scheduled_time": int(slot)}, now)
+
+    def _report_missed(self, job_id, job, last, now, slots):
+        """Slots that passed while nothing checked the schedule (the engine was stopped, or
+        on standby) and that the catch-up policy does not run: say how many and why."""
+        if now - int(last) <= MISSED_AFTER:
+            return
+        every = scheduler.slots_in(job, last, now)
+        missed = len(every) - len([s for s in slots if s in set(every)])
+        if missed <= 0:
+            return
+        self._emit({"type": "schedule_missed", "job_id": job_id, "missed": missed,
+                    "at_least": len(every) >= scheduler.SLOT_COUNT_CAP,
+                    "since": int(last), "seconds": int(now - int(last)),
+                    "policy": job.get("catchup") or "all", "caught_up": len(slots),
+                    "catchup_cap": scheduler.CATCHUP_CAP}, now)
+
+    def _say(self, key, said, name, **fields):
+        """Log why something waits, once until ``said`` (what is in the way) changes (a log
+        line, not an audit event: it repeats while the wait lasts)."""
+        self._said_now.add(key)
+        if self._said.get(key) == said:
+            return
+        self._said[key] = said
+        logs.event(log, logging.INFO, name, **fields)
+
     def _create_cron_run(self, job, slot, settings, now):
         try:
             scheduler.create_run(self.store, job, "cron", slot, {}, now=now,
                                  catchup=scheduler.is_catchup(slot, now), audit=self.audit,
-                                 actions=self.actions, queue_cap=settings["queue_cap"])
+                                 actions=self.actions, queue_cap=settings["queue_cap"],
+                                 entry=scheduler.cron_entry(job, slot))
         except tokens.TokenError as err:
             job_id = job.get("id") or job.get("_key")
             self._emit({"type": "run_rejected", "reason": "invalid_params", "job_id": job_id,
@@ -419,6 +532,8 @@ class Engine:
 
     def _apply_command(self, command, jobs, settings, now):
         kind = command.get("type")
+        if kind == "cancel_backfill":
+            return backfill.apply_cancel(self, command, jobs, settings, now)
         run = self.store.get_run(command.get("run_id")) if command.get("run_id") else None
         if run is None:
             return "rejected", "unknown run", None
@@ -443,6 +558,8 @@ class Engine:
             return "ok", None, run
         elif kind == "rerun":
             return self._rerun(run, command, jobs, now, pending)
+        elif kind == "approve":
+            return self._approve(run, command, now, pending)
         elif kind == "dismiss":
             if state != "failed" or not run.get("held"):
                 return "rejected", "only a failed run holding the queue can be dismissed", run
@@ -458,6 +575,19 @@ class Engine:
         if run.get("paused_at") is not None:
             run["paused_seconds"] = (run.get("paused_seconds") or 0) + max(0, now - int(run["paused_at"]))
             run["paused_at"] = None
+
+    def _approve(self, run, command, now, pending):
+        """Save the decision on the run before anything else happens: this tick's
+        evaluation (or the one after a resume) settles the step from it, so a replayed
+        command or a second decision is only audited ``approval_ignored``."""
+        result, detail, events = approval.apply_command(run, command, now)
+        if result == "ok":
+            pending.events.extend(events)
+            self._save(run, pending)
+        else:
+            for event in events:
+                self.audit.emit(event)
+        return result, detail, run
 
     def _rerun(self, run, command, jobs, now, pending):
         step_id = command.get("step_id") or command.get("step")
@@ -478,6 +608,7 @@ class Engine:
                               if st.get("sid") and st.get("state") != "waiting"})
         if definition is not None:
             new["owner"] = job.get("owner")
+        deadlinemod.keep_met(run, new, now)
         if new["state"] == "queued":
             new["queued_at"] = now
         old_steps = run.get("steps") or {}
@@ -523,13 +654,26 @@ class Engine:
             by_job.setdefault(run.get("job_id"), []).append(run)
         held_jobs = {r.get("job_id") for r in held
                      if self._policy(jobs.get(r.get("job_id")), r) == "hold"}
+        holder = {r.get("job_id"): _run_id(r) for r in held}
         for job_id, job_runs in by_job.items():
-            if any(r.get("state") in LIVE for r in job_runs) or job_id in held_jobs:
-                continue
-            queued = [r for r in job_runs if r.get("state") == "queued"]
+            queued = sorted((r for r in job_runs if r.get("state") == "queued"), key=promotion_order)
             if not queued:
                 continue
-            run = min(queued, key=promotion_order)
+            live = [r for r in job_runs if r.get("state") in LIVE]
+            if job_id in held_jobs or live:
+                for q in queued:
+                    if job_id in held_jobs:
+                        self._say(_run_id(q), "held", "run_waiting", job_id=job_id, run_id=_run_id(q),
+                                  reason="held", by_run=holder.get(job_id))
+                    else:
+                        self._say(_run_id(q), "live:" + _run_id(live[0]), "run_waiting", job_id=job_id,
+                                  run_id=_run_id(q), reason="waiting_for_run", by_run=_run_id(live[0]),
+                                  by_state=live[0].get("state"))
+                continue
+            run = queued[0]
+            for q in queued[1:]:
+                self._say(_run_id(q), "behind:" + _run_id(run), "run_waiting", job_id=job_id,
+                          run_id=_run_id(q), reason="behind", by_run=_run_id(run))
             on_time = (run.get("trigger") == "cron" and not run.get("catchup")
                        and not run.get("rerun_count"))
             pending = _Pending()
@@ -538,6 +682,21 @@ class Engine:
                                 "delay_base": int(run["scheduled_time"]) if on_time else now,
                                 "giveup_base": now, "paused_seconds": 0, "paused_at": None},
                           pending, now)
+            self._save(run, pending)
+
+    def _lateness(self, runs, now):
+        """Mark each unfinished run past its deadline late once and fire ``on_late``.
+        The hook is submitted before ``late_at`` is saved: a replayed tick finds the row."""
+        for run in runs:
+            if not deadlinemod.is_late(run, now):
+                continue
+            pending = _Pending()
+            if self.actions.submit(run, "on_late", "job", None, occurrence=0):
+                pending.events.append(self._event(run, "action_submitted", now, hook="on_late",
+                                                  scope="job", step_id=None, occurrence=0))
+            run["late_at"] = now
+            pending.events.append(self._event(run, "run_late", now, state=run.get("state"),
+                                              deadline_at=run.get("deadline_at")))
             self._save(run, pending)
 
     # -- runs -----------------------------------------------------------------
@@ -600,8 +759,11 @@ class Engine:
             for sid in list(defs):
                 st = run["steps"][sid]
                 if st.get("state") in IN_FLIGHT and st.get("sid") and not st.get("outcome"):
-                    self._poll(run, sid, defs[sid], now, pending)
-        starts, hooks = [], []
+                    self._poll(run, sid, defs[sid], now, pending, settings)
+        cond_redispatch = []
+        if run.get("state") != "cancelled":
+            cond_redispatch = self._conditions_before(run, now, pending)
+        starts, hooks, cond_starts = [], [], []
         for effect in statemod.evaluate(run, now):
             kind = effect[0]
             if kind == "set_step":
@@ -614,6 +776,8 @@ class Engine:
                 hooks.append(effect[1:])
             elif kind == "start_step":
                 starts.append(effect[1])
+            elif kind == "start_condition":
+                cond_starts.append(effect[1])
         for sid in unresolved:
             if run["steps"][sid].get("state") != "starting":  # cancelled or given up meanwhile
                 self._orphan(run, sid, defs[sid], now, pending, "the run ended before it could "
@@ -625,6 +789,7 @@ class Engine:
                                                   occurrence=run.get("rerun_count") or 0))
         ttl_sids = []
         if run.get("state") in TERMINAL_RUN_STATES:
+            self._conditions_ended(run, now, pending)
             if not run.get("closed"):
                 self._fire_completions(run, settings, now, pending)
                 run["closed"] = True
@@ -640,15 +805,35 @@ class Engine:
             to_dispatch = [sid for sid in redispatch if run["steps"][sid].get("state") == "starting"
                            and not run["steps"][sid].get("sid")
                            and not run["steps"][sid].get("outcome")]
+        cond_dispatch = []
         if budget is not None:
             budget.adjust(run.get("job_id"), _inflight(run) - before)
+            if run.get("state") not in TERMINAL_RUN_STATES:
+                # Redispatches are already counted as in flight (starting).
+                cond_dispatch = list(cond_redispatch)
+                new_conds = [k for k in cond_starts if k not in cond_redispatch]
+                new_conds = new_conds[:budget.room(run.get("job_id"))]
+                for key in new_conds:
+                    self._set_condition(run, key, {"state": "starting", "intent_at": now,
+                                                   "sid": None, "started_at": None,
+                                                   "ended_at": None, "error": None,
+                                                   "result_count": None})
+                budget.adjust(run.get("job_id"), len(new_conds))
+                cond_dispatch.extend(new_conds)
             chosen = starts[:budget.room(run.get("job_id"))]
-            if chosen:
+            for sid in starts[len(chosen):]:
+                self._say("%s|%s" % (_run_id(run), sid), "slots", "step_waiting",
+                          job_id=run.get("job_id"), run_id=_run_id(run), step_id=sid,
+                          reason="search_slots", running=budget.total, max_searches=budget.max_global,
+                          running_for_job=budget.jobs.get(run.get("job_id"), 0),
+                          max_searches_per_job=budget.max_job)
+            if chosen or cond_dispatch:
                 for sid in chosen:
                     st = run["steps"][sid]
                     # A dispatch-error retry of the same attempt keeps its first intent_at,
                     # so history still finds a search that a timed-out dispatch started.
                     keep = st.get("intent_at") if st.get("dispatch_errors") else None
+                    st.pop("perf", None)  # the previous attempt's
                     self._set_step(run, sid, {"state": "starting", "intent_at": keep or now,
                                               "try_at": now, "sid": None, "started_at": None,
                                               "ended_at": None, "outcome": None}, pending, now)
@@ -656,6 +841,8 @@ class Engine:
                 self._save(run, pending)
                 pending = _Pending()
                 to_dispatch.extend(chosen)
+        for key in cond_dispatch:
+            self._dispatch_condition(run, key, now, pending)
         for sid in to_dispatch:
             self._dispatch(run, sid, defs[sid], now, pending)
         if pending.rows or pending.events or _fingerprint(run) != loaded:
@@ -665,17 +852,27 @@ class Engine:
             self._control(sid, "setttl", ttl=ttl)
 
     def _completion_targets(self, run):
+        """The jobs this run's end starts; for a job that waits on it but is not started
+        (disabled, or the run ended the wrong way), a log line says why."""
         state = run.get("state")
         out = []
         for job_id, job in sorted(self._jobs.items()):
-            if job.get("enabled") is False:
+            mine = [t for t in job.get("triggers") or []
+                    if isinstance(t, dict) and t.get("type") == "completion"
+                    and t.get("enabled") is not False and t.get("job") == run.get("job_id")]
+            if not mine:
                 continue
-            for t in job.get("triggers") or []:
-                if (isinstance(t, dict) and t.get("type") == "completion"
-                        and t.get("enabled") is not False and t.get("job") == run.get("job_id")
-                        and state in COMPLETION_STATES.get(t.get("on") or "success", ())):
-                    out.append((job_id, job))
-                    break
+            if job.get("enabled") is False:
+                logs.event(log, logging.INFO, "completion_not_fired", job_id=run.get("job_id"),
+                           run_id=_run_id(run), target_job=job_id, reason="disabled", outcome=state)
+                continue
+            fired = [t for t in mine if state in COMPLETION_STATES.get(t.get("on") or "success", ())]
+            if fired:
+                out.append((job_id, job, scheduler.entry_of(fired)))
+            else:
+                logs.event(log, logging.INFO, "completion_not_fired", job_id=run.get("job_id"),
+                           run_id=_run_id(run), target_job=job_id, reason="outcome", outcome=state,
+                           on=",".join(sorted({t.get("on") or "success" for t in mine})))
         return out
 
     def _fire_completions(self, run, settings, now, pending):
@@ -689,7 +886,7 @@ class Engine:
         depth = int(run.get("chain_depth") or 0) + 1
         owner = run.get("owner")
         access = None
-        for job_id, job in targets:
+        for job_id, job, entry in targets:
             key = scheduler.run_key(job_id, "completion", run["scheduled_time"], upstream, rerun)
             if self.store.get_run(key) is not None:
                 continue  # already fired for this upstream run
@@ -716,7 +913,8 @@ class Engine:
                 created = scheduler.create_run(
                     self.store, job, "completion", run["scheduled_time"], {}, upstream=upstream,
                     now=now, audit=self.audit, actions=self.actions,
-                    queue_cap=settings["queue_cap"], chain_depth=depth, rerun=rerun)
+                    queue_cap=settings["queue_cap"], chain_depth=depth, rerun=rerun,
+                    upstream_run=run, entry=entry)
             except tokens.TokenError as err:
                 pending.events.append(self._event(
                     run, "run_rejected", now, reason="invalid_params", target_job=job_id,
@@ -759,6 +957,7 @@ class Engine:
     def _set_step(self, run, sid, fields, pending, now):
         st = run["steps"].setdefault(sid, {})
         old = st.get("state")
+        was_delayed = bool(st.get("delay_alerted"))
         st.update(fields)
         if "state" in fields and fields["state"] != old:
             event = self._event(run, "step_state", now, step_id=sid, attempt=st.get("attempt"),
@@ -767,6 +966,12 @@ class Engine:
                 if st.get(key) is not None:
                     event[key] = st[key]
             pending.events.append(event)
+        for kind, extra in approval.step_events(old, fields):
+            pending.events.append(self._event(run, kind, now, step_id=sid, **extra))
+        if fields.get("delay_alerted") and not was_delayed:
+            # Whether or not the step has an on_delayed action (the Run health dashboard).
+            pending.events.append(self._event(run, "step_delayed", now, step_id=sid,
+                                              attempt=st.get("attempt"), state=st.get("state")))
 
     def _set_run(self, run, fields, pending, now):
         old = run.get("state")
@@ -831,15 +1036,51 @@ class Engine:
         st = run["steps"][sid]
         attempt = st.get("attempt") or 1
         rerun = run.get("rerun_count") or 0
-        return {"_key": "%s:%s:%d:%d" % (_run_id(run), sid, rerun, attempt),
-                "run_id": _run_id(run), "job_id": run.get("job_id"), "step_id": sid,
-                "attempt": attempt, "rerun": rerun, "sid": st.get("sid"),
-                "intent_at": st.get("intent_at"), "started_at": st.get("started_at"),
-                "ended_at": st.get("ended_at"), "outcome": st.get("outcome"),
-                "error": st.get("error"), "result_count": st.get("result_count"),
-                "dispatch_errors": st.get("dispatch_errors") or 0}
+        row = {"_key": "%s:%s:%d:%d" % (_run_id(run), sid, rerun, attempt),
+               "run_id": _run_id(run), "job_id": run.get("job_id"), "step_id": sid,
+               "attempt": attempt, "rerun": rerun, "sid": st.get("sid"),
+               "intent_at": st.get("intent_at"), "started_at": st.get("started_at"),
+               "ended_at": st.get("ended_at"), "outcome": st.get("outcome"),
+               "error": st.get("error"), "result_count": st.get("result_count"),
+               "dispatch_errors": st.get("dispatch_errors") or 0}
+        if st.get("perf"):
+            row["perf"] = dict(st["perf"])
+        return row
 
-    def _poll(self, run, sid, sdef, now, pending):
+    @staticmethod
+    def scan_limit(sdef, settings):
+        """``(events, action)``: the step's own Events scanned limit, else the Settings one
+        (None when neither is set); action is "warn" or "stop" (Settings)."""
+        settings = settings or {}
+        own = sdef.get("max_scan")
+        limit = own if isinstance(own, int) and own > 0 else settings.get("scan_limit")
+        limit = limit if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0 else None
+        action = "stop" if settings.get("scan_limit_action") == "stop" else "warn"
+        return limit, action
+
+    def _scan_check(self, run, sid, sdef, st, status, settings, now, pending, can_stop=True):
+        """True when the search must stop for scanning more events than its limit; with
+        "warn" (or a search that already finished), the step says so once per attempt
+        (audit ``step_scan_limit``) and goes on."""
+        limit, action = self.scan_limit(sdef, settings)
+        if not can_stop:
+            action = "warn"
+        scanned = (status.get("perf") or {}).get("scan_count")
+        if limit is None or not isinstance(scanned, int) or scanned <= limit:
+            return False
+        if action == "stop":
+            pending.events.append(self._event(run, "step_scan_limit", now, step_id=sid,
+                                              sid=st.get("sid"), scanned=scanned, limit=limit,
+                                              action="stop"))
+            return True
+        if st.get("scan_warned") != st.get("attempt"):
+            st["scan_warned"] = st.get("attempt")
+            pending.events.append(self._event(run, "step_scan_limit", now, step_id=sid,
+                                              sid=st.get("sid"), scanned=scanned, limit=limit,
+                                              action="warn"))
+        return False
+
+    def _poll(self, run, sid, sdef, now, pending, settings=None):
         st = run["steps"][sid]
         try:
             status = self.gw.job_status(st["sid"])
@@ -848,7 +1089,14 @@ class Engine:
             log.warning("status of search %s failed: %s", st["sid"], err)
             return
         state = status.get("state")
-        if state == "running":
+        logs.event(log, logging.DEBUG, "search_status", run_id=_run_id(run), job_id=run.get("job_id"),
+                   step_id=sid, sid=st["sid"], state=state, result_count=status.get("result_count"))
+        if state in ("running", "done") and self._scan_check(run, sid, sdef, st, status,
+                                                             settings, now, pending,
+                                                             can_stop=state == "running"):
+            self._control(st["sid"], "cancel")
+            state = "scan_limit"
+        elif state == "running":
             return
         finished = state == "done" and not status.get("finalized")
         # A From previous steps search whose appended input was truncated.
@@ -876,15 +1124,25 @@ class Engine:
                          "its results may be incomplete" % st["sid"])
             elif state == "failed":
                 error = "search %s failed: %s" % (st["sid"], status.get("error") or "unknown error")
+            elif state == "scan_limit":
+                limit, _ = self.scan_limit(sdef, settings)
+                error = ("stopped: the search scanned %s events, more than its limit of %s "
+                         "(Events scanned limit)" % ((status.get("perf") or {}).get("scan_count"),
+                                                     limit))
             else:
                 error = ("search %s no longer exists: it expired, was deleted or was reaped "
                          "outside the orchestrator" % st["sid"])
             st.update(outcome="failed", error=error, ended_at=now, first=None)
+        if status.get("perf"):
+            st["perf"] = dict(status["perf"])
+        else:
+            st.pop("perf", None)
         pending.rows.append(self._row(run, sid))
         pending.events.append(self._event(run, "step_attempt", now, step_id=sid,
-                                          attempt=st.get("attempt"), sid=st["sid"],
-                                          outcome=st["outcome"], error=st.get("error"),
-                                          result_count=st.get("result_count")))
+                                          **dict(st.get("perf") or {}, attempt=st.get("attempt"),
+                                                 sid=st["sid"], outcome=st["outcome"],
+                                                 error=st.get("error"),
+                                                 result_count=st.get("result_count"))))
 
     def _adopt(self, run, sid, sdef, now, pending):
         """Adopt a job dispatched for this attempt whose search ID was never saved.
@@ -960,11 +1218,13 @@ class Engine:
     @staticmethod
     def _input_sids(run, sdef):
         """A ``previous`` step's input search IDs: its dependencies that succeeded, in
-        edge order. Skipped and failed ones add nothing."""
+        edge order. Skipped and failed ones add nothing, nor does an approval step (it
+        succeeds with no search, so no sid)."""
         steps = run.get("steps") or {}
         return [(steps.get(up) or {}).get("sid")
                 for up in tokens.previous_inputs(run.get("definition") or {}, sdef["id"])
-                if (steps.get(up) or {}).get("state") == "succeeded"]
+                if (steps.get(up) or {}).get("state") == "succeeded"
+                and (steps.get(up) or {}).get("sid")]
 
     def _search_name(self, run, sdef):
         """The saved search this attempt dispatches, for dispatch, history adoption and
@@ -975,12 +1235,12 @@ class Engine:
             return sdef.get("hidden_search_empty")
         return sdef.get("hidden_search")
 
-    def _render_args(self, run, sdef):
+    def _render_args(self, run, sdef, now=None):
         definition = run.get("definition") or {}
         ids = [s["id"] for s in definition.get("steps") or []]
         spl = sdef.get("spl") or ""
         _, arg_names = tokens.step_spl(sdef, ids)
-        args = tokens.render_args(arg_names, tokens.run_context(run),
+        args = tokens.render_args(arg_names, tokens.run_context(run, now),
                                   tokens.token_defaults(spl, ids))
         if sdef.get("type") == "previous":
             sids = self._input_sids(run, sdef)
@@ -1025,7 +1285,7 @@ class Engine:
             if problem is not None:
                 return self._attempt_failed(run, sid, problem, now, pending)
         try:
-            args = self._render_args(run, sdef)
+            args = self._render_args(run, sdef, now)
         except tokens.TokenError as err:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
@@ -1088,10 +1348,10 @@ class Engine:
         if (info.get("exists") and info.get("owner") == owner and info.get("sharing") == "user"
                 and info.get("dispatch_as") == "owner"):
             return None
-        return ("saved search %r is no longer a private search of %s with dispatchAs = owner "
-                "(owner %s, sharing %s, dispatchAs %s), so it was not run; re-save the job to "
-                "run it through a wrapper" % (name, owner, info.get("owner"), info.get("sharing"),
-                                              info.get("dispatch_as")))
+        return ("saved search %r is no longer a private search of %s (owner %s, sharing %s, "
+                "runs as %s), so it was not run; save the job again, or make the search "
+                "private again" % (name, owner, info.get("owner"), info.get("sharing"),
+                                   info.get("dispatch_as")))
 
     def _expired_upstream(self, run, sid):
         """For a re-run: (kind, upstream step, reason) with kind "expired", "unknown"
@@ -1132,6 +1392,184 @@ class Engine:
             return ("hidden saved search %r was not found for owner %r: it was deleted outside "
                     "the app; re-save the job to recreate it (%s)" % (name, owner, err))
         return "dispatch of %r was rejected: %s" % (name, err)
+
+    # -- SPL conditions ---------------------------------------------------------
+
+    @staticmethod
+    def _edge(run, key):
+        for e in (run.get("definition") or {}).get("edges") or []:
+            if statemod.condition_key(e) == key:
+                return e
+        return None
+
+    @staticmethod
+    def _set_condition(run, key, fields):
+        c = run.setdefault("conditions", {}).setdefault(key, {})
+        c.update(fields)
+        return c
+
+    def _condition_event(self, run, kind, key, now, **fields):
+        edge = self._edge(run, key) or {}
+        return self._event(run, kind, now, edge=key, from_step=edge.get("from"),
+                           step_id=edge.get("to"), check=tokens.condition_kind(edge), **fields)
+
+    def _condition_done(self, run, key, state, now, pending, error=None, result_count=None):
+        """Record an SPL condition's final result: met, not_met or failed (not met)."""
+        c = self._set_condition(run, key, {"state": state, "ended_at": now, "error": error,
+                                           "result_count": result_count})
+        if state == "failed":
+            pending.events.append(self._condition_event(run, "condition_failed", key, now,
+                                                        sid=c.get("sid"), error=error))
+        pending.events.append(self._condition_event(run, "condition_evaluated", key, now,
+                                                    sid=c.get("sid"), result=state == "met",
+                                                    result_count=result_count, error=error))
+
+    def _conditions_before(self, run, now, pending):
+        """Before evaluate: adopt or poll every condition search that is out. Returns the
+        keys of starting conditions that history shows never started (dispatch them)."""
+        redispatch = []
+        for key, c in sorted((run.get("conditions") or {}).items()):
+            if c.get("state") == "starting" and not c.get("sid"):
+                found = self._adopt_condition(run, key, now, pending)
+                if found == "none":
+                    redispatch.append(key)
+                    continue
+                if found != "adopted":
+                    continue
+            if c.get("state") in IN_FLIGHT and c.get("sid"):
+                self._poll_condition(run, key, now, pending)
+        return redispatch
+
+    def _adopt_condition(self, run, key, now, pending):
+        """A condition saved as starting whose search ID was never saved (a crash or lost
+        lease mid-dispatch): adopt the newest search history has since its intent_at.
+        "adopted", "none" (dispatch it), "pending" (history unavailable) or "failed"."""
+        c = run["conditions"][key]
+        name = (self._edge(run, key) or {}).get("hidden_search")
+        if not name:
+            return "none"  # the dispatch fails it clearly
+        try:
+            found = self.gw.history(run.get("owner"), name, c.get("intent_at") or now)
+        except GatewayError as err:
+            _check_auth(err)
+            log.warning("history of %s failed: %s", name, err)
+            if err.transient and now - int(c.get("intent_at") or now) < UNKNOWN_LIMIT:
+                return "pending"
+            self._condition_done(run, key, "failed", now, pending,
+                                 error="Could not confirm whether the condition search "
+                                       "started: %s" % err)
+            return "failed"
+        if not found:
+            return "none"
+        self._set_condition(run, key, {"state": "running", "sid": found[0],
+                                       "started_at": c.get("intent_at") or now})
+        return "adopted"
+
+    def _poll_condition(self, run, key, now, pending):
+        c = run["conditions"][key]
+        try:
+            status = self.gw.job_status(c["sid"])
+        except GatewayError as err:
+            _check_auth(err)
+            log.warning("status of condition search %s failed: %s", c["sid"], err)
+            status = {"state": "running"}
+        state = status.get("state")
+        if state == "running":
+            started = int(c.get("started_at") or c.get("intent_at") or now)
+            if now - started >= CONDITION_TIMEOUT:
+                self._control(c["sid"], "cancel")
+                self._condition_done(run, key, "failed", now, pending,
+                                     error="the condition search took longer than %d seconds "
+                                           "and was stopped" % CONDITION_TIMEOUT)
+            return
+        if state == "done" and not status.get("finalized") and status.get("truncated"):
+            # Its rows may be incomplete, so "no rows" can't be trusted.
+            return self._condition_done(run, key, "failed", now, pending,
+                                        error="a subsearch in the condition was cut short: %s"
+                                              % status["truncated"])
+        if state == "done" and not status.get("finalized"):
+            count = int(status.get("result_count") or 0)
+            self._condition_done(run, key, "met" if count > 0 else "not_met", now, pending,
+                                 result_count=count)
+            return
+        if state == "done":
+            error = "condition search %s was stopped early outside the orchestrator" % c["sid"]
+        elif state == "failed":
+            error = "condition search %s failed: %s" % (c["sid"], status.get("error")
+                                                        or "unknown error")
+        else:
+            error = ("condition search %s no longer exists: it expired or was deleted "
+                     "outside the orchestrator" % c["sid"])
+        self._condition_done(run, key, "failed", now, pending, error=error)
+
+    def _dispatch_condition(self, run, key, now, pending):
+        """Dispatch an SPL condition's hidden search as the owner (saved ``starting``
+        first, so a restart adopts it). Problems fail the condition (not met)."""
+        edge = self._edge(run, key)
+        name = (edge or {}).get("hidden_search")
+        if not name:
+            return self._condition_done(
+                run, key, "failed", now, pending,
+                error="the condition has no hidden saved search in the run's definition; "
+                      "re-save the job to create it")
+        definition = run.get("definition") or {}
+        ids = [s["id"] for s in definition.get("steps") or []]
+        text = edge.get("expression") or ""
+        try:
+            _, arg_names = tokens.compile_condition(text, ids, tokens.condition_kind(edge))
+            args = tokens.render_args(arg_names, tokens.run_context(run, now),
+                                      tokens.token_defaults(text, ids))
+        except tokens.TokenError as err:
+            return self._condition_done(run, key, "failed", now, pending,
+                                        error="token %s: %s" % (err.token, err.reason))
+        earliest, latest = hidden.condition_time_range(edge)
+        self._keep_lease(force=True)
+        try:
+            search_id = self.gw.dispatch(run.get("owner"), name, int(run["scheduled_time"]), args,
+                                         earliest, latest, trigger_actions=False)
+        except DispatchError as err:
+            _check_auth(err)
+            if err.transient:
+                c = run["conditions"][key]
+                if now - int(c.get("intent_at") or now) < UNKNOWN_LIMIT:
+                    c["error"] = "dispatch failed, trying again: %s" % err
+                    return None  # stays starting; history is asked first next tick
+            return self._condition_done(run, key, "failed", now, pending,
+                                        error=self._dispatch_failure(run, name, err))
+        self._set_condition(run, key, {"state": "running", "sid": search_id,
+                                       "started_at": now, "error": None})
+        pending.events.append(self._condition_event(run, "condition_dispatched", key, now,
+                                                    sid=search_id, hidden_search=name,
+                                                    owner=run.get("owner"),
+                                                    dispatch_now=int(run["scheduled_time"])))
+        return None
+
+    def _conditions_ended(self, run, now, pending):
+        """The run ended (cancel, give-up): stop condition searches still out. One saved
+        as starting without a sid (a crash mid-dispatch) is looked up in history first,
+        so a search it may have started is cancelled too."""
+        for key, c in sorted((run.get("conditions") or {}).items()):
+            if c.get("state") not in IN_FLIGHT:
+                continue
+            sid = c.get("sid")
+            if not sid:
+                name = (self._edge(run, key) or {}).get("hidden_search")
+                try:
+                    found = self.gw.history(run.get("owner"), name,
+                                            c.get("intent_at") or now) if name else []
+                    sid = found[0] if found else None
+                except GatewayError as err:
+                    _check_auth(err)
+                    pending.events.append(self._condition_event(
+                        run, "possible_orphan_search", key, now, hidden_search=name,
+                        owner=run.get("owner"), intent_at=c.get("intent_at"),
+                        reason="the run ended before the condition search could be "
+                               "confirmed: %s" % err))
+            if sid:
+                self._control(sid, "cancel")
+            self._set_condition(run, key, {"state": "cancelled", "ended_at": now, "sid": sid})
+            pending.events.append(self._condition_event(run, "condition_cancelled", key, now,
+                                                        sid=sid))
 
     # -- retention --------------------------------------------------------------
 

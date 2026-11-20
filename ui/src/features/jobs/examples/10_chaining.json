@@ -1,0 +1,119 @@
+{
+  "id": "example_chaining",
+  "name": "Example: chained jobs",
+  "description": "Starts after Example: daily, weekly and monthly rollup succeeds, and on its own weekday schedule. It reads splunkd's health with | rest (admins only) and, when it succeeds, starts Example: hourly splunkd errors. Groups keep the triggers, the work and the follow-up apart on the canvas.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "chaining"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "50 9 * * 1-5"
+    },
+    {
+      "type": "completion",
+      "job": "example_rollup",
+      "on": "success"
+    }
+  ],
+  "steps": [
+    {
+      "id": "health",
+      "name": "splunkd health",
+      "type": "inline",
+      "spl": "| rest /services/server/health/splunkd splunk_server=local\n| table title health",
+      "earliest": "-15m",
+      "latest": "now"
+    },
+    {
+      "id": "unhealthy",
+      "name": "Keep what isn't green",
+      "type": "previous",
+      "spl": "| where health!=\"green\""
+    }
+  ],
+  "edges": [
+    {
+      "from": "health",
+      "to": "unhealthy",
+      "condition": "on_success"
+    }
+  ],
+  "actions": [
+    {
+      "hook": "on_success",
+      "type": "start_job",
+      "job": "example_hourly_errors"
+    },
+    {
+      "hook": "on_failure",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} failed",
+      "message": "{{message}}\n\n{{run_url}}"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 40
+      },
+      "trigger:1": {
+        "x": 40,
+        "y": 120
+      },
+      "job": {
+        "x": 20,
+        "y": 300
+      },
+      "step:health": {
+        "x": 320,
+        "y": 60
+      },
+      "step:unhealthy": {
+        "x": 600,
+        "y": 60
+      },
+      "action:job:0": {
+        "x": 320,
+        "y": 270
+      },
+      "action:job:1": {
+        "x": 320,
+        "y": 350
+      }
+    },
+    "groups": [
+      {
+        "id": "g1",
+        "title": "What starts it",
+        "color": "categoricalA1",
+        "x": 16,
+        "y": -12,
+        "w": 228,
+        "h": 200
+      },
+      {
+        "id": "g2",
+        "title": "The work",
+        "color": "categoricalA2",
+        "x": 296,
+        "y": 8,
+        "w": 528,
+        "h": 152
+      },
+      {
+        "id": "g3",
+        "title": "Follow-up",
+        "color": "categoricalA3",
+        "x": -4,
+        "y": 218,
+        "w": 548,
+        "h": 212
+      }
+    ]
+  }
+}

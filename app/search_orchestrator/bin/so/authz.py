@@ -7,10 +7,15 @@ where no job is involved (a new job, or an admin-only setting).
 * ``orchestrator_build`` may create jobs and edit the jobs it owns.
 * Owners and members of a role listed in the job's ``run_roles`` who also
   hold ``orchestrator_run`` may run the job and see it (its SPL and runs).
+* ``orchestrator_approve`` users who may see the job decide its approval steps
+  (``can_approve``; the route also lets the user who started the run decide).
 """
 ADMIN = "orchestrator_admin"
 BUILD = "orchestrator_build"
 RUN = "orchestrator_run"
+APPROVE = "orchestrator_approve"
+# Every capability this app defines (authorize.conf).
+CAPABILITIES = (ADMIN, BUILD, RUN, APPROVE)
 
 
 def _caps(user_caps):
@@ -56,3 +61,17 @@ def can_edit(user, job, user_roles, user_caps):
     if BUILD not in caps:
         return False
     return job is None or (bool(user) and user == job.get("owner"))
+
+
+def can_approve(user, job, step, user_roles, user_caps):
+    """May ``user`` decide the approval ``step`` of a run of ``job``?
+
+    Admins always; else ``orchestrator_approve`` users who may see the job and, when the
+    step lists ``approver_roles``, hold one of them."""
+    caps = _caps(user_caps)
+    if ADMIN in caps:
+        return True
+    if APPROVE not in caps or not can_view(user, job, user_roles, user_caps):
+        return False
+    roles = ((step or {}).get("approval") or {}).get("approver_roles") or []
+    return not roles or bool(set(roles) & set(user_roles or ()))

@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { ApiError } from '../api/client';
 import type { JobDefinition, PreviewRequest } from '../api/types';
 import type { PreviewContext } from '../features/builder/previewLogic';
-import usePreviews, { PreviewApi, previewErrorText } from '../features/builder/usePreviews';
+import usePreviews, { PreviewApi, PreviewView, previewErrorText, previewSummary } from '../features/builder/usePreviews';
 
 const job: JobDefinition = {
     name: 'j',
@@ -50,6 +50,63 @@ beforeEach(() => jest.useFakeTimers());
 afterEach(() => jest.useRealTimers());
 
 describe('usePreviews', () => {
+    test("inputFor('b') equals the input a preview of b sends", async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        await act(async () => {
+            result.current.preview('b');
+            await flush();
+        });
+        const sent = api.startPreview.mock.calls.filter(([r]: [PreviewRequest]) => r.step_id === 'b')[0][0];
+        expect(result.current.inputFor('b')).toEqual(sent.input);
+        const runCtx: PreviewContext = { ...ctx, source: 'run-1' };
+        const { result: fromRun } = renderHook(() => usePreviews(job, runCtx, fakeApi()));
+        expect(fromRun.current.inputFor('b')).toEqual({ mode: 'run', run_id: 'run-1' });
+    });
+
+    test("inputFor('b', true) also sends b's own preview, for a condition line out of b", async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(job, ctx, api));
+        await act(async () => {
+            result.current.preview('b');
+            await settle();
+        });
+        const own = result.current.inputFor('b', true) as { mode: 'live'; previews: Record<string, { sid?: string }> };
+        expect(Object.keys(own.previews).sort()).toEqual(['a', 'b']);
+        expect(own.previews.b.sid).toMatch(/^sid-b-/);
+        const without = result.current.inputFor('b') as { mode: 'live'; previews: Record<string, unknown> };
+        expect(Object.keys(without.previews)).toEqual(['a']);
+    });
+
+    const written: JobDefinition = {
+        ...job,
+        steps: [
+            { id: 'a', type: 'inline', spl: '| makeresults' },
+            { id: 'w', name: 'Write lookup', type: 'previous', spl: '| outputlookup hosts.csv', output: { kind: 'lookup', name: 'hosts.csv' } },
+            { id: 'b', type: 'previous', spl: '| stats count' },
+        ],
+        edges: [
+            { from: 'a', to: 'w', condition: 'on_success' },
+            { from: 'w', to: 'b', condition: 'on_success' },
+        ],
+    };
+    test('an output step, or a step downstream of one, is refused without starting anything', async () => {
+        const api = fakeApi();
+        const { result } = renderHook(() => usePreviews(written, ctx, api));
+        act(() => {
+            result.current.preview('w');
+        });
+        await settle();
+        expect(result.current.previews.w.state).toBe('failed');
+        expect(result.current.previews.w.error).toBe("Previews don't write to indexes or lookups; preview the step before it.");
+        act(() => {
+            result.current.preview('b');
+        });
+        await settle();
+        expect(result.current.previews.b.error).toBe("Previews don't write to indexes or lookups; Write lookup is upstream of this step.");
+        expect(api.startPreview).not.toHaveBeenCalled();
+    });
+
     test('previewing b with no preview of a starts a, then b with a as input', async () => {
         const api = fakeApi();
         const { result } = renderHook(() => usePreviews(job, ctx, api));
@@ -405,7 +462,7 @@ describe('usePreviews', () => {
         expect(result.current.previews.c.stale).toBe(false);
     });
 
-    test('a truncated From previous steps preview is failed', async () => {
+    test('a truncated Results of earlier steps preview is failed', async () => {
         const api = fakeApi({
             previewStatus: jest.fn(() =>
                 Promise.resolve({ state: 'done' as const, result_count: 5, truncated: 'append stopped at 50000 rows', messages: [] })
@@ -703,5 +760,24 @@ describe('usePreviews', () => {
         await flush();
         expect(api.cancelPreview).toHaveBeenCalledWith('sid-a-1');
         expect(result.current.previews.a.state).toBe('failed');
+    });
+});
+
+describe('previewSummary', () => {
+    const base = { stale: false } as unknown as PreviewView;
+    test('rows and seconds of a finished preview', () => {
+        expect(previewSummary({ ...base, state: 'done', status: { state: 'done', result_count: 1204, run_duration: 3.24, messages: [] } } as PreviewView)).toEqual({ rows: 1204, seconds: 3.24 });
+        expect(previewSummary({ ...base, state: 'done', results: { fields: [], rows: [], total: 7 } } as PreviewView)).toEqual({ rows: 7 });
+    });
+    test('running and failed', () => {
+        expect(previewSummary({ ...base, state: 'running' } as PreviewView)).toEqual({ running: true });
+        expect(previewSummary({ ...base, state: 'failed', error: 'Bad SPL\nsecond line' } as PreviewView)).toEqual({ error: 'Bad SPL\nsecond line' });
+        expect(previewSummary({ ...base, state: 'failed' } as PreviewView)).toEqual({ error: 'The preview failed.' });
+    });
+    test('out of date previews say so; nothing for skipped or missing previews', () => {
+        expect(previewSummary(undefined)).toBeUndefined();
+        expect(previewSummary({ ...base, stale: true, state: 'done' } as PreviewView)).toEqual({ stale: true });
+        expect(previewSummary({ ...base, state: 'skipped' } as PreviewView)).toBeUndefined();
+        expect(previewSummary({ ...base, state: 'missing' } as PreviewView)).toBeUndefined();
     });
 });

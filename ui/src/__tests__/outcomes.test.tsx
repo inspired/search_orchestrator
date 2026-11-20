@@ -1,0 +1,148 @@
+import type { JobDefinition } from '../api/types';
+import { initialState, reducer } from '../features/builder/reducer';
+import { buildGraph } from '../features/builder/nodeModel';
+import { flowLinkLabel, flowLinkWords, linkLabel, lineMenuOutcomes, outcomeLabel, usedOutcomes, whenOptions } from '../features/builder/outcomes';
+
+const job: JobDefinition = {
+    name: 'nightly',
+    enabled: true,
+    triggers: [{ type: 'cron', cron: '0 2 * * *' }],
+    steps: [
+        { id: 'a', type: 'inline', spl: 'search x', actions: [{ hook: 'on_failure', type: 'email', to: 'x@y' }] },
+        { id: 'b', type: 'previous', spl: '| head 1' },
+        { id: 'c', type: 'saved_search', saved_search_ref: 's' },
+    ],
+    edges: [
+        { from: 'a', to: 'b', condition: 'on_success' },
+        { from: 'a', to: 'c', condition: 'expression', expression: '$a.resultCount$ > 0' },
+    ],
+    actions: [{ hook: 'on_failure', type: 'webhook', destination: 'ops', preset: 'slack' }],
+};
+const g = buildGraph(job);
+const link = (from: string, to: string) => g.links.find((l) => l.from === from && l.to === to)!;
+
+describe('whenOptions', () => {
+    it('lists every outcome of a step with counts', () => {
+        const o = whenOptions(job, 'step:a');
+        expect(o.map((x) => x.outcome)).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'if']);
+        expect(o.map((x) => x.label)).toEqual(['Succeeds', 'Fails', 'Finishes either way', 'Starts', 'Is delayed', 'If a condition is true']);
+        expect(o.map((x) => x.count)).toEqual([1, 1, 0, 0, 0, 1]);
+        expect(o.find((x) => x.outcome === 'start')!.note).toBe('actions only');
+        expect(o.find((x) => x.outcome === 'success')!.note).toBeUndefined();
+    });
+    it('filters by target', () => {
+        const toStep = whenOptions(job, 'step:a', 'step:b').map((x) => x.outcome);
+        expect(toStep).not.toContain('start');
+        expect(toStep).not.toContain('delayed');
+        expect(toStep).toContain('if');
+        const toAction = whenOptions(job, 'step:a', 'action:job:0');
+        expect(toAction.map((x) => x.outcome)).not.toContain('if');
+        expect(toAction.map((x) => x.outcome)).toContain('start');
+        expect(toAction.find((x) => x.outcome === 'start')!.note).toBeUndefined();
+    });
+    it('has no if for the whole job', () => {
+        expect(whenOptions(job, 'job').map((x) => x.outcome)).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'late']);
+    });
+    it('is empty for nodes without outcomes', () => {
+        expect(whenOptions(job, 'action:job:0')).toEqual([]);
+        expect(whenOptions(job, 'cond:a>c')).toEqual([]);
+    });
+});
+
+describe('usedOutcomes', () => {
+    it('returns used ports in port order', () => {
+        expect(usedOutcomes(g, 'step:a')).toEqual(['success', 'failure', 'if']);
+        expect(usedOutcomes(g, 'cond:a>c')).toEqual(['then']);
+        expect(usedOutcomes(g, 'step:b')).toEqual([]);
+    });
+});
+
+describe('linkLabel', () => {
+    it('labels lines', () => {
+        expect(linkLabel(job, link('step:a', 'step:b'))).toBe('✓ Succeeds');
+        expect(linkLabel(job, link('step:a', 'action:a:0'))).toBe('✗ Fails');
+        expect(linkLabel(job, link('cond:a>c', 'step:c'))).toBe('$a.resultCount$ > 0');
+        expect(linkLabel(job, link('trigger:0', 'step:a'))).toBe('');
+    });
+    it('cuts long conditions', () => {
+        const long: JobDefinition = { ...job, edges: [{ from: 'a', to: 'c', condition: 'expression', expression: 'x'.repeat(40) }] };
+        const lg = buildGraph(long);
+        const l = lg.links.find((k) => k.from === 'cond:a>c')!;
+        expect(linkLabel(long, l)).toBe(`${'x'.repeat(24)}…`);
+    });
+});
+
+describe('lineMenuOutcomes', () => {
+    it('step to action excludes if', () => {
+        const o = lineMenuOutcomes(job, link('step:a', 'action:a:0'));
+        expect(o).not.toContain('if');
+        expect(o).toContain('start');
+    });
+    it('step to step excludes start and delayed', () => {
+        const o = lineMenuOutcomes(job, link('step:a', 'step:b'));
+        expect(o).toEqual(['success', 'failure', 'always', 'if']);
+    });
+    it('condition lines list only the outcomes a plain line can take (success, failure, always)', () => {
+        const plain = ['success', 'failure', 'always'];
+        expect(lineMenuOutcomes(job, link('step:a', 'cond:a>c'))).toEqual(plain);
+        expect(lineMenuOutcomes(job, link('cond:a>c', 'step:c'))).toEqual(plain);
+    });
+    it('is empty for trigger lines', () => {
+        expect(lineMenuOutcomes(job, link('trigger:0', 'step:a'))).toEqual([]);
+    });
+});
+
+describe('the late outcome', () => {
+    it('is offered on the whole job only, as actions only', () => {
+        expect(whenOptions(job, 'job')).toContainEqual(expect.objectContaining({ outcome: 'late', label: 'Is late', note: 'actions only' }));
+        expect(whenOptions(job, 'step:a').map((o) => o.outcome)).not.toContain('late');
+    });
+
+    it('connecting it to a new email makes a job action on_late', () => {
+        const s = reducer(initialState(job), { type: 'addNode', kind: 'email', from: { key: 'job', port: 'late' } });
+        expect(s.job.actions).toContainEqual({ hook: 'on_late', type: 'email', to: '' });
+    });
+});
+
+describe('approval outcomes', () => {
+    const gated: JobDefinition = {
+        name: 'gated',
+        enabled: true,
+        steps: [
+            { id: 'a', type: 'inline', spl: 'search x' },
+            { id: 'gate', name: 'Sign-off', type: 'approval', approval: {}, actions: [{ hook: 'on_approval_requested', type: 'email', to: 'ops@x' }] },
+            { id: 'b', type: 'inline', spl: 'search y' },
+        ],
+        edges: [
+            { from: 'a', to: 'gate', condition: 'on_success' },
+            { from: 'gate', to: 'b', condition: 'on_success' },
+        ],
+    };
+    const gg = buildGraph(gated);
+    const gl = (from: string, to: string) => gg.links.find((l) => l.from === from && l.to === to)!;
+
+    it('an approval node reads Approved, Rejected and Decided either way', () => {
+        const o = whenOptions(gated, 'step:gate');
+        expect(o.map((x) => x.outcome)).toEqual(['success', 'failure', 'always', 'start', 'delayed', 'approval', 'if']);
+        expect(o.map((x) => x.label)).toEqual(['Approved', 'Rejected', 'Decided either way', 'Starts', 'Is delayed', 'Asks for approval', 'If a condition is true']);
+        expect(o.find((x) => x.outcome === 'approval')).toEqual(expect.objectContaining({ glyph: '⚑', count: 1, note: 'actions only' }));
+        expect(whenOptions(gated, 'step:gate', 'step:b').map((x) => x.outcome)).not.toContain('approval');
+    });
+
+    it('outcomeLabel names outcomes for the node kind', () => {
+        expect(outcomeLabel('approval', 'success')).toBe('Approved');
+        expect(outcomeLabel('approval', 'failure')).toBe('Rejected');
+        expect(outcomeLabel('approval', 'always')).toBe('Decided either way');
+        expect(outcomeLabel('approval', 'start')).toBe('Starts');
+        expect(outcomeLabel('search', 'success')).toBe('Succeeds');
+        expect(outcomeLabel('job', 'failure')).toBe('Fails');
+    });
+
+    it('lines out of an approval node use its words', () => {
+        expect(linkLabel(gated, gl('step:gate', 'step:b'))).toBe('✓ Approved');
+        expect(linkLabel(gated, gl('step:gate', 'action:gate:0'))).toBe('⚑ Asks for approval');
+        expect(flowLinkLabel(gg, gl('step:gate', 'step:b'))).toBe('✓ Approved');
+        expect(flowLinkWords(gg, gl('step:gate', 'step:b'))).toBe('Approved');
+        expect(linkLabel(gated, gl('step:a', 'step:gate'))).toBe('✓ Succeeds');
+    });
+});

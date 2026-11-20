@@ -45,3 +45,19 @@ def test_admin_may_do_everything():
 def test_new_job_needs_build():
     assert authz.can_edit("bob", None, [], BUILD)
     assert not authz.can_edit("carol", None, ["ops"], RUN)
+
+
+APPROVE = ["orchestrator_run", "orchestrator_approve"]
+GATE = {"id": "gate", "type": "approval", "approval": {}}
+LEADS = {"id": "gate", "type": "approval", "approval": {"approver_roles": ["ops-leads"]}}
+
+
+def test_can_approve_truth_table():
+    assert authz.APPROVE == "orchestrator_approve" and authz.APPROVE in authz.CAPABILITIES
+    assert authz.can_approve("root", JOB, LEADS, [], ADMIN)  # admins always
+    assert authz.can_approve("erin", JOB, GATE, ["ops"], APPROVE)  # capability and view
+    assert not authz.can_approve("frank", JOB, GATE, ["approver"], APPROVE)  # can't view
+    assert not authz.can_approve("erin", JOB, LEADS, ["ops"], APPROVE)  # wrong role
+    assert authz.can_approve("gina", JOB, LEADS, ["ops", "ops-leads"], APPROVE)
+    assert not authz.can_approve("carol", JOB, GATE, ["ops"], RUN)  # no capability
+    assert not authz.can_approve("erin", None, GATE, ["ops"], APPROVE)

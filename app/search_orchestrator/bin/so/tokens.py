@@ -2,7 +2,7 @@
 
 Token grammar (optionally ``|default`` before the closing ``$``)::
 
-    $run.id$  $run.scheduled_time$  $run.param.<name>$
+    $run.id$  $run.scheduled_time$  $run.now$  $run.param.<name>$
     $<step>.sid$  $<step>.resultCount$  $<step>.status$  $<step>.first.<field>$
 
 ``compile_spl`` rewrites known tokens into Splunk saved-search arguments
@@ -14,7 +14,7 @@ else, including a literal ``$`` or an unknown ``$foo$``, is left untouched.
 
 render_args ctx shape::
 
-    {"run":   {"id": str, "scheduled_time": str|int,
+    {"run":   {"id": str, "scheduled_time": str|int, "now": str|int,
                "params": {name: value}},
      "steps": {step_id: {"status": str,          # "skipped" etc.
                          "sid": str|None,
@@ -28,6 +28,7 @@ raises TokenError(token, reason).
 """
 import math
 import re
+import time
 from decimal import Decimal, InvalidOperation
 
 
@@ -44,7 +45,7 @@ _FIELD = r"[A-Za-z0-9_]+"
 
 def _regex(step_ids):
     steps = "|".join(re.escape(s) for s in sorted(step_ids, key=len, reverse=True))
-    alts = [r"run\.id", r"run\.scheduled_time", r"run\.param\.%s" % _FIELD]
+    alts = [r"run\.id", r"run\.scheduled_time", r"run\.now", r"run\.param\.%s" % _FIELD]
     if steps:
         alts.append(r"(?:%s)\.(?:sid|resultCount|status)" % steps)
         alts.append(r"(?:%s)\.first\.%s" % (steps, _FIELD))
@@ -64,10 +65,12 @@ def arg_name(name):
     return name.replace(".", "__")
 
 
-def _scan(spl, i, end, in_q, in_c):
+def _scan(spl, i, end, in_q, in_c, in_s=False):
     """Advance the lexer state from index i to end. ``in_q``: inside a double-quoted
     string, where a backslash escapes the next character. ``in_c``: inside a ```` ``` ````
-    comment, whose contents don't affect quoting."""
+    comment, whose contents don't affect quoting. ``in_s``: inside ``'...'`` (an eval
+    field name), whose contents don't affect quoting either: a ``"`` there must not make
+    a token look quoted."""
     while i < end:
         if in_c:
             if spl.startswith("```", i):
@@ -76,18 +79,25 @@ def _scan(spl, i, end, in_q, in_c):
             else:
                 i += 1
             continue
+        if in_s:
+            if spl[i] == "'":
+                in_s = False
+            i += 1
+            continue
         c = spl[i]
         if c == "\\":
             i += 2
             continue
         if c == '"':
             in_q = not in_q
+        elif not in_q and c == "'":
+            in_s = True
         elif not in_q and spl.startswith("```", i):
             in_c = True
             i += 3
             continue
         i += 1
-    return i, in_q, in_c
+    return i, in_q, in_c, in_s
 
 
 def _backslashes_before(spl, index):
@@ -104,14 +114,25 @@ def compile_spl(spl, step_ids):
 
     Raises TokenError for a token inside a ```` ``` ```` comment, or right after an
     odd run of backslashes: in both places a value could escape its quotes."""
+    return _compile(spl, step_ids, lambda name, tok: '"%s"' % tok)
+
+
+def _compile(spl, step_ids, outside):
+    """``compile_spl`` with ``outside(name, "$args.x$")`` giving the text for a token found
+    outside a double-quoted string (it must keep the value inside quotes)."""
     names = []
     out = []
-    pos, i, in_q, in_c = 0, 0, False, False
+    pos, i, in_q, in_c, in_s = 0, 0, False, False, False
     for m in _regex(step_ids).finditer(spl):
-        i, in_q, in_c = _scan(spl, i, m.start(), in_q, in_c)
+        i, in_q, in_c, in_s = _scan(spl, i, m.start(), in_q, in_c, in_s)
         token = m.group(0)
         if in_c:
             raise TokenError(token, "tokens can't be used inside a ``` comment")
+        if in_s:
+            # Inside an eval field name, or after a lone ' in search text: a value there
+            # could close the name and run as SPL.
+            raise TokenError(token, "a token can't follow an unclosed ' (single quote); "
+                                    "close it, or put the text in double quotes")
         if _backslashes_before(spl, m.start()) % 2:
             raise TokenError(token, "a token can't follow a backslash; put the backslash "
                                     "in the value instead")
@@ -120,11 +141,41 @@ def compile_spl(spl, step_ids):
             names.append(a)
         tok = "$args.%s$" % a
         out.append(spl[pos:m.start()])
-        out.append(tok if in_q else '"%s"' % tok)
+        out.append(tok if in_q else outside(m.group("name"), tok))
         pos = m.end()
         i = max(i, m.end())
     out.append(spl[pos:])
     return "".join(out), names
+
+
+CONDITION_KINDS = ("simple", "eval", "search")
+EVAL_PREFIX = "| makeresults | where "
+SEARCH_SUFFIX = "\n| head 1"  # own line: the search may end in a ``` comment
+_NUMERIC_TOKEN_RE = re.compile(r"^(?:run\.scheduled_time|run\.now|[a-z][a-z0-9_]*\.resultCount)$")
+
+
+def condition_kind(edge):
+    """An edge's ``expression_kind``: ``simple`` when absent."""
+    return (edge or {}).get("expression_kind") or "simple"
+
+
+def compile_condition(text, step_ids, kind):
+    """``(saved search text, arg names)`` for an ``eval`` or ``search`` condition.
+
+    ``eval``: ``| makeresults | where <text>``. A numeric token (``$<step>.resultCount$``,
+    ``$run.scheduled_time$``, ``$run.now$``) outside a string becomes
+    ``tonumber("$args.x$")``, so it compares as a number; other tokens are quoted strings,
+    as in steps. ``search``: compiled exactly like a step's SPL, then ``| head 1``: one
+    row decides, so the search can stop there."""
+    if kind == "eval":
+        def outside(name, tok):
+            if _NUMERIC_TOKEN_RE.match(name):
+                return 'tonumber("%s")' % tok
+            return '"%s"' % tok
+        spl, names = _compile(text or "", step_ids, outside)
+        return EVAL_PREFIX + spl, names
+    spl, names = compile_spl(text or "", step_ids)
+    return spl.rstrip() + SEARCH_SUFFIX, names
 
 
 INPUT_ARG = "so_input"
@@ -208,7 +259,7 @@ def _search_value(value, token):
 def _decode(arg, ctx):
     """Map an arg name back to (kind, step_id|None, extra)."""
     token = arg.replace("__", ".")
-    if arg in ("run__id", "run__scheduled_time"):
+    if arg in ("run__id", "run__scheduled_time", "run__now"):
         return "run", None, arg[5:]
     if arg.startswith("run__param__"):
         return "param", None, arg[len("run__param__"):]
@@ -264,8 +315,9 @@ def render_args(names, ctx, defaults=None):
     return out
 
 
-def run_context(run):
-    """The ``render_args``/``render_text`` ctx for a run document."""
+def run_context(run, now=None):
+    """The ``render_args``/``render_text`` ctx for a run document. ``$run.now$`` is ``now``
+    (epoch seconds; default: the clock), the time the tokens are filled."""
     definition = run.get("definition") or {}
     steps = {}
     for s in definition.get("steps") or []:
@@ -275,6 +327,7 @@ def run_context(run):
     scheduled = run.get("scheduled_time")
     return {"run": {"id": run.get("_key") or run.get("id"),
                     "scheduled_time": str(int(scheduled)) if scheduled is not None else None,
+                    "now": str(int(time.time() if now is None else now)),
                     "params": run.get("params") or {}},
             "steps": steps}
 

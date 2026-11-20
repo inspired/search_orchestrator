@@ -19,6 +19,7 @@ Step searches (``steps[i]``, written into the job definition):
   succeeded dependencies' sids) and ``hidden_search_empty`` from
   ``tokens.empty_step_spl`` (``| makeresults | where 1=0 <tail>``), dispatched
   when no dependency succeeded.
+* ``approval``: no search at all; ``plan`` writes nothing for it.
 * ``saved_search``: the two-mode rule, checked with the user's session through
   ``gateway.saved_search_info``. If the job owner owns it, it is private
   (sharing ``user``) and has ``dispatchAs = owner``: ``mode = "direct"`` and
@@ -29,6 +30,16 @@ Step searches (``steps[i]``, written into the job definition):
   cannot read is an ``unknown_saved_search`` error. The lookup spans all apps;
   a search this app's context can't see (not saved in this app and not
   shared globally) is a ``saved_search_not_visible`` error.
+
+Condition searches
+------------------
+An edge with ``condition = "expression"`` and ``expression_kind`` ``eval`` or ``search``
+(SPL conditions, 1.17.0) gets a hidden search named by content,
+``_so_<job>_cond_<hash8>``, written into the edge as ``hidden_search``.
+``tokens.compile_condition`` gives its SPL: ``| makeresults | where <expr>`` for
+``eval`` (time range ``-1m``..``now``), or the search itself with its own
+earliest/latest (default ``-24h``..``now``). The engine dispatches it as the owner when
+the line's source step finishes; it is true when it returns a row.
 
 Action searches
 ---------------
@@ -84,6 +95,8 @@ FALLBACK_OWNER = "nobody"
 SEARCH_ACTIONS = ("email", "event", "alert_action")
 ACTION_EARLIEST = "-1m"
 ACTION_LATEST = "now"
+CONDITION_EARLIEST = "-24h"  # "The 24 hours before", a search condition's default range
+CONDITION_LATEST = "now"
 _ALERT_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 PARAM_NAME_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
@@ -96,6 +109,28 @@ def action_search_name(job_id, action_index, compiled_hash):
 def action_hash(job_id, action_index, action_type, spl):
     text = "\0".join(["action", job_id, str(int(action_index)), action_type or "", spl])
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def condition_search_name(job_id, compiled_hash):
+    """``_so_<job>_cond_<hash8>`` for an SPL condition on a line."""
+    return "_so_%s_cond_%s" % (job_id, compiled_hash[:8])
+
+
+def condition_hash(job_id, edge, compiled_spl, earliest, latest):
+    text = "\0".join(["cond", job_id, str(edge.get("from")), str(edge.get("to")),
+                      tokens.condition_kind(edge), compiled_spl, earliest or "", latest or ""])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def condition_time_range(edge):
+    """``(earliest, latest)`` a condition search is dispatched with: a ``search``
+    condition's own range (neither set: the 24 hours before the scheduled time; both
+    empty strings: all time); an ``eval`` condition reads no events."""
+    if tokens.condition_kind(edge) == "search":
+        if edge.get("earliest") is None and edge.get("latest") is None:
+            return CONDITION_EARLIEST, CONDITION_LATEST
+        return edge.get("earliest") or "", edge.get("latest") or ""
+    return ACTION_EARLIEST, ACTION_LATEST
 
 
 def step_hash(job_id, step_id, compiled_spl, earliest, latest):
@@ -120,8 +155,13 @@ def action_spl(action):
         return ('| makeresults | sendemail to="$args.to$" subject="$args.subject$" '
                 'message="$args.message$"')
     if kind == "event":
-        return ('| makeresults | eval _raw="$args.payload$" | fields _raw _time '
-                '| collect index="$args.index$"')
+        # Source, sourcetype and host only when the action sets them (collect's defaults:
+        # this search's name, stash, this host); _time is the run's scheduled time or now.
+        extra = "".join(' %s="$args.%s$"' % (k, k) for k in ("source", "sourcetype", "host")
+                        if action.get(k))
+        return ('| makeresults | eval _raw="$args.payload$" | eval _time=$args.time$ '
+                '| fields _raw _time | collect index="$args.index$"%s '
+                'marker="so_run=$args.run_id$"' % extra)
     params = "".join(' param.%s="$args.param.%s$"' % (k, k)
                      for k in sorted((action.get("params") or {}).keys()))
     return "| makeresults | sendalert $args.action$%s" % params
@@ -132,25 +172,25 @@ def _action_issues(action, step):
         return []
     out = []
     if not _ALERT_NAME_RE.fullmatch(str(action.get("action") or "")):
-        out.append(_issue("error", "bad_action", "alert action name %r is not valid"
+        out.append(_issue("error", "bad_action", "alert action name %r isn't valid; pick one from the Alert action list"
                           % (action.get("action"),), step))
     for k in (action.get("params") or {}):
         if not PARAM_NAME_RE.fullmatch(str(k)):
-            out.append(_issue("error", "bad_action", "alert action parameter name %r is not "
-                              "valid" % (k,), step))
+            out.append(_issue("error", "bad_action", "alert action parameter name %r isn't "
+                              "valid; use letters, numbers and _" % (k,), step))
     return out
 
 
 def not_visible_message(ref):
-    return ("Saved search '%s' must be shared globally or saved in the Search Orchestrator "
-            "app to be used as a step." % ref)
+    return ("saved search '%s' must be shared globally or saved in the Search Orchestrator "
+            "app to be used as a step; change its sharing, or save a copy in this app" % ref)
 
 
 def _wrapped_warning(ref, owner, step):
     return _issue("warning", "saved_search_wrapped",
-                  "Saved search %r is not a private search of %s with dispatchAs = owner, so it "
-                  "runs through a hidden | savedsearch wrapper as %s: its own summary indexing "
-                  "and actions won't run" % (ref, owner, owner), step)
+                  "saved search %r isn't a private search of %s, so its own alerts and "
+                  "summary indexing don't run; add collect to the step if you need them"
+                  % (ref, owner), step)
 
 
 def _saved_search(gw, owner, step):
@@ -163,7 +203,8 @@ def _saved_search(gw, owner, step):
     info = gw.saved_search_info(owner, ref)
     if not info.get("exists"):
         return None, False, [_issue("error", "unknown_saved_search", "saved search %r was not "
-                                    "found, or %s cannot read it" % (ref, owner), sid)]
+                                    "found, or %s can't read it; pick another saved search"
+                                    % (ref, owner), sid)]
     if not info.get("visible", True):
         return None, False, [_issue("error", "saved_search_not_visible",
                                     not_visible_message(ref), sid)]
@@ -201,6 +242,10 @@ def plan(gw, job):
     for step in steps:
         sid = step.get("id")
         step.pop("hidden_search_empty", None)  # only ever set here, never from the request
+        if step.get("type") == "approval":  # runs no search
+            step.pop("hidden_search", None)
+            step.pop("mode", None)
+            continue
         if step.get("type") == "previous":
             # It reads its inputs with loadjob: a time range (say, left from an earlier
             # type) would only reach the dispatch.
@@ -233,6 +278,22 @@ def plan(gw, job):
                              "earliest": earliest, "latest": latest,
                              "description": "Search Orchestrator job %s, step %s (no inputs)"
                                             % (job_id, sid)})
+    for edge in job.get("edges") or []:
+        edge.pop("hidden_search", None)  # only ever set here, never from the request
+        kind = tokens.condition_kind(edge)
+        if edge.get("condition") != "expression" or kind not in ("eval", "search"):
+            continue
+        try:
+            spl, _ = tokens.compile_condition(edge.get("expression") or "", ids, kind)
+        except tokens.TokenError:
+            continue  # validation reports it; a run then fails this condition clearly
+        earliest, latest = condition_time_range(edge)
+        name = condition_search_name(job_id, condition_hash(job_id, edge, spl, earliest, latest))
+        edge["hidden_search"] = name
+        searches.append({"owner": owner, "name": name, "search": spl, "earliest": earliest,
+                         "latest": latest,
+                         "description": "Search Orchestrator job %s, condition %s to %s"
+                                        % (job_id, edge.get("from"), edge.get("to"))})
     for index, step_id, action in _indexed(job):
         action.pop("hidden_search", None)  # only ever set here, never from the request
         if action.get("type") not in SEARCH_ACTIONS:
@@ -289,6 +350,9 @@ def used(definition, owner):
             out.add((owner, step["hidden_search"]))
         if step.get("hidden_search_empty"):
             out.add((owner, step["hidden_search_empty"]))
+    for edge in definition.get("edges") or []:
+        if edge.get("hidden_search"):
+            out.add((owner, edge["hidden_search"]))
     for _, _, action in _indexed(definition):
         if action.get("type") in SEARCH_ACTIONS and action.get("hidden_search"):
             out.add((owner, action["hidden_search"]))

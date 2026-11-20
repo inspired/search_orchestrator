@@ -3,6 +3,7 @@
  * scripts/package.sh merges stage/ into the app. */
 const fs = require('fs');
 const path = require('path');
+const webpack = require('webpack');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 const pagesDir = path.join(__dirname, 'src', 'pages');
@@ -32,6 +33,10 @@ module.exports = (env, argv) => ({
                 use: 'babel-loader',
             },
             {
+                test: /\.md$/,
+                type: 'asset/source',
+            },
+            {
                 test: /\.m?js$/,
                 resolve: { fullySpecified: false },
             },
@@ -43,6 +48,8 @@ module.exports = (env, argv) => ({
     },
     performance: { hints: false },
     plugins: [
+        // SO_SUFFIX (e.g. _dev) names a side-by-side test copy; empty for the normal app (src/appNames.ts).
+        new webpack.DefinePlugin({ __SO_SUFFIX__: JSON.stringify(process.env.SO_SUFFIX || '') }),
         new CopyWebpackPlugin({
             patterns: [{ from: path.join(__dirname, 'src', 'splunk'), to: path.join(__dirname, 'stage') }],
         }),

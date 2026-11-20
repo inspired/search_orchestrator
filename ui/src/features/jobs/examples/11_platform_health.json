@@ -1,0 +1,456 @@
+{
+  "id": "example_platform_health",
+  "name": "Example: platform health pipeline (everything)",
+  "description": "The showcase job: it uses almost every feature at once. Every weekday morning (and after the rollup example succeeds) four checks run in parallel: splunkd errors, skipped scheduled searches, license usage and search activity. They merge into one table and a health score. The score is appended to so_example_platform_health.csv, and on Mondays a weekly trend reads it back (Run when). Three kinds of If… condition: a simple comparison against the error_threshold parameter drills into the worst components, a search condition explains skipped searches, and an SPL expression asks an admin to approve an escalation when the score is below 80. Approve writes an event to index=main; reject or a one-hour timeout notes the rejection. A summary runs either way. The job must finish by 07:30 (or within 90 minutes) or it emails as late; it also emails on failure, on a slow step and when approval is needed, and starts the hourly errors example when it succeeds. To page instead of email, add a Teams, PagerDuty or ServiceNow destination in Settings and swap an Email node for a Webhook node.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "chaining"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "0 6 * * 1-5"
+    },
+    {
+      "type": "completion",
+      "job": "example_rollup",
+      "on": "success"
+    }
+  ],
+  "deadline": {
+    "finish_by": "07:30",
+    "within": 5400
+  },
+  "params": [
+    {
+      "name": "environment",
+      "type": "enum",
+      "label": "Environment",
+      "default": "production",
+      "values": [
+        "production",
+        "staging",
+        "dev"
+      ],
+      "description": "Shown in the score and the approval message"
+    },
+    {
+      "name": "error_threshold",
+      "type": "number",
+      "label": "Error threshold",
+      "default": 50,
+      "description": "Drill into components when splunkd logged at least this many errors"
+    },
+    {
+      "name": "host_filter",
+      "type": "string",
+      "label": "Host filter",
+      "default": "*",
+      "description": "Limit the splunkd checks to hosts matching this (wildcards allowed)"
+    }
+  ],
+  "steps": [
+    {
+      "id": "splunkd_errors",
+      "name": "splunkd errors by component",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR host=$run.param.host_filter$\n| stats count AS value BY component\n| eval check=\"errors\", name=component",
+      "earliest": "-1d@d",
+      "latest": "@d",
+      "retries": 1,
+      "delayed_after": 120,
+      "max_runtime": 900,
+      "actions": [
+        {
+          "hook": "on_delayed",
+          "type": "email",
+          "to": "you@example.com",
+          "subject": "{{job}}: splunkd errors step is slow",
+          "message": "{{message}}\n\n{{run_url}}"
+        }
+      ]
+    },
+    {
+      "id": "skipped_searches",
+      "name": "Skipped scheduled searches",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=scheduler status=skipped\n| stats count AS value BY savedsearch_name\n| eval check=\"skipped\", name=savedsearch_name",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "license_usage",
+      "name": "License usage by index (GB)",
+      "type": "inline",
+      "spl": "index=_internal source=*license_usage.log* type=Usage\n| stats sum(b) AS bytes BY idx\n| eval value=round(bytes/1024/1024/1024, 3), check=\"license_gb\", name=idx\n| fields - bytes",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "search_activity",
+      "name": "Searches per user",
+      "type": "inline",
+      "spl": "index=_audit action=search info=completed\n| stats count AS value BY user\n| eval check=\"searches\", name=user",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "merged",
+      "name": "Merge all checks",
+      "type": "previous",
+      "spl": "| table check name value\n| sort check - value"
+    },
+    {
+      "id": "score",
+      "name": "Health score",
+      "type": "previous",
+      "spl": "| stats sum(eval(if(check=\"errors\", value, 0))) AS errors sum(eval(if(check=\"skipped\", value, 0))) AS skipped sum(eval(if(check=\"license_gb\", value, 0))) AS license_gb dc(eval(if(check=\"searches\", name, null()))) AS active_users\n| eval score=max(0, 100 - min(50, round(errors/tonumber($run.param.error_threshold$)*10)) - min(30, skipped*2))\n| eval env=\"$run.param.environment$\", day=strftime(tonumber($run.scheduled_time$) - 86400, \"%Y-%m-%d\")"
+    },
+    {
+      "id": "save_history",
+      "name": "Append to history lookup",
+      "type": "previous",
+      "spl": "| outputlookup append=true so_example_platform_health.csv",
+      "output": {
+        "kind": "lookup",
+        "name": "so_example_platform_health.csv",
+        "append": true
+      }
+    },
+    {
+      "id": "weekly_trend",
+      "name": "Weekly trend (Mondays)",
+      "type": "inline",
+      "spl": "| inputlookup so_example_platform_health.csv\n| where strptime(day, \"%Y-%m-%d\") >= relative_time(tonumber($run.scheduled_time$), \"-7d@d\")\n| stats avg(score) AS avg_score min(score) AS worst_score sum(errors) AS errors BY env",
+      "earliest": "-7d@d",
+      "latest": "@d",
+      "run_when": {
+        "kind": "cron",
+        "value": "* * * * 1"
+      }
+    },
+    {
+      "id": "top_errors",
+      "name": "Drill into the worst components",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR host=$run.param.host_filter$\n| stats count AS errors latest(event_message) AS last_message BY component\n| sort - errors\n| head 10",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "skipped_detail",
+      "name": "Why searches were skipped",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=scheduler status=skipped\n| stats count BY savedsearch_name, reason\n| sort - count",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "approve_escalation",
+      "name": "Approve escalation",
+      "type": "approval",
+      "approval": {
+        "message": "Platform health score is $score.first.score$ in $run.param.environment$ ($score.first.errors$ errors, $score.first.skipped$ skipped searches). Open an incident?",
+        "timeout": 3600,
+        "on_timeout": "reject",
+        "approver_roles": [
+          "admin"
+        ]
+      },
+      "actions": [
+        {
+          "hook": "on_approval_requested",
+          "type": "email",
+          "to": "you@example.com",
+          "subject": "{{job}} needs your approval",
+          "message": "{{message}}\n\n{{run_url}}"
+        }
+      ]
+    },
+    {
+      "id": "escalate",
+      "name": "Record the escalation",
+      "type": "inline",
+      "spl": "| makeresults\n| eval escalated_by=\"$approve_escalation.first.by|unknown$\", comment=\"$approve_escalation.first.comment|none$\", score=\"$score.first.score$\", env=\"$run.param.environment$\"\n| table _time escalated_by comment score env",
+      "actions": [
+        {
+          "hook": "on_success",
+          "type": "event",
+          "index": "main",
+          "payload": "{\"source\": \"search_orchestrator\", \"job\": \"{{job}}\", \"run_id\": \"{{run_id}}\", \"score\": \"$score.first.score$\", \"env\": \"$run.param.environment$\"}"
+        }
+      ],
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "note_rejection",
+      "name": "Note the rejection",
+      "type": "inline",
+      "spl": "| makeresults\n| eval note=\"escalation not approved\", by=\"$approve_escalation.first.by|timeout$\", score=\"$score.first.score$\"\n| table _time note by score",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "run_summary",
+      "name": "Run summary either way",
+      "type": "inline",
+      "spl": "| makeresults\n| eval job=\"example_platform_health\", env=\"$run.param.environment$\", score_status=\"$score.status$\", save_status=\"$save_history.status$\"\n| table _time job env score_status save_status",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    }
+  ],
+  "edges": [
+    {
+      "from": "splunkd_errors",
+      "to": "merged",
+      "condition": "on_success"
+    },
+    {
+      "from": "skipped_searches",
+      "to": "merged",
+      "condition": "on_success"
+    },
+    {
+      "from": "license_usage",
+      "to": "merged",
+      "condition": "on_success"
+    },
+    {
+      "from": "search_activity",
+      "to": "merged",
+      "condition": "on_success"
+    },
+    {
+      "from": "merged",
+      "to": "score",
+      "condition": "on_success"
+    },
+    {
+      "from": "score",
+      "to": "save_history",
+      "condition": "on_success"
+    },
+    {
+      "from": "save_history",
+      "to": "weekly_trend",
+      "condition": "on_success"
+    },
+    {
+      "from": "splunkd_errors",
+      "to": "top_errors",
+      "condition": "expression",
+      "expression": "$splunkd_errors.first.value$ >= $run.param.error_threshold$"
+    },
+    {
+      "from": "skipped_searches",
+      "to": "skipped_detail",
+      "condition": "expression",
+      "expression_kind": "search",
+      "expression": "index=_internal sourcetype=scheduler status=skipped\n| stats count\n| where count > 5",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "from": "score",
+      "to": "approve_escalation",
+      "condition": "expression",
+      "expression_kind": "eval",
+      "expression": "tonumber($score.first.score$) < 80 AND tonumber(strftime(now(), \"%w\")) != 0"
+    },
+    {
+      "from": "approve_escalation",
+      "to": "escalate",
+      "condition": "on_success"
+    },
+    {
+      "from": "approve_escalation",
+      "to": "note_rejection",
+      "condition": "on_failure"
+    },
+    {
+      "from": "score",
+      "to": "run_summary",
+      "condition": "always"
+    }
+  ],
+  "actions": [
+    {
+      "hook": "on_failure",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} failed",
+      "message": "{{message}}\n\n{{run_url}}"
+    },
+    {
+      "hook": "on_late",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} missed its deadline",
+      "message": "{{message}}\n\n{{run_url}}"
+    },
+    {
+      "hook": "on_success",
+      "type": "start_job",
+      "job": "example_hourly_errors"
+    },
+    {
+      "hook": "on_complete",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} finished",
+      "message": "{{message}}\n\n{{run_url}}"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 140
+      },
+      "trigger:1": {
+        "x": 40,
+        "y": 300
+      },
+      "job": {
+        "x": 20,
+        "y": 420
+      },
+      "step:splunkd_errors": {
+        "x": 320,
+        "y": 20
+      },
+      "step:skipped_searches": {
+        "x": 320,
+        "y": 180
+      },
+      "step:license_usage": {
+        "x": 320,
+        "y": 340
+      },
+      "step:search_activity": {
+        "x": 320,
+        "y": 500
+      },
+      "action:splunkd_errors:0": {
+        "x": 320,
+        "y": -110
+      },
+      "cond:splunkd_errors>top_errors": {
+        "x": 610,
+        "y": -110
+      },
+      "step:top_errors": {
+        "x": 900,
+        "y": -110
+      },
+      "cond:skipped_searches>skipped_detail": {
+        "x": 610,
+        "y": 640
+      },
+      "step:skipped_detail": {
+        "x": 900,
+        "y": 640
+      },
+      "step:merged": {
+        "x": 610,
+        "y": 260
+      },
+      "step:score": {
+        "x": 900,
+        "y": 260
+      },
+      "step:save_history": {
+        "x": 1190,
+        "y": 140
+      },
+      "step:weekly_trend": {
+        "x": 1480,
+        "y": 140
+      },
+      "step:run_summary": {
+        "x": 1190,
+        "y": 520
+      },
+      "cond:score>approve_escalation": {
+        "x": 1190,
+        "y": 330
+      },
+      "step:approve_escalation": {
+        "x": 1480,
+        "y": 330
+      },
+      "action:approve_escalation:0": {
+        "x": 1480,
+        "y": 450
+      },
+      "step:escalate": {
+        "x": 1770,
+        "y": 270
+      },
+      "action:escalate:0": {
+        "x": 2060,
+        "y": 270
+      },
+      "step:note_rejection": {
+        "x": 1770,
+        "y": 420
+      },
+      "action:job:0": {
+        "x": 20,
+        "y": 560
+      },
+      "action:job:1": {
+        "x": 20,
+        "y": 660
+      },
+      "action:job:2": {
+        "x": 20,
+        "y": 760
+      },
+      "action:job:3": {
+        "x": 20,
+        "y": 860
+      }
+    },
+    "groups": [
+      {
+        "id": "g1",
+        "title": "Collect (parallel)",
+        "color": "categoricalA1",
+        "x": 296,
+        "y": -150,
+        "w": 270,
+        "h": 760
+      },
+      {
+        "id": "g2",
+        "title": "Drill-down conditions",
+        "color": "categoricalA3",
+        "x": 586,
+        "y": -150,
+        "w": 560,
+        "h": 120
+      },
+      {
+        "id": "g3",
+        "title": "Score and history",
+        "color": "categoricalA2",
+        "x": 586,
+        "y": 100,
+        "w": 1140,
+        "h": 150
+      },
+      {
+        "id": "g4",
+        "title": "Approval gate",
+        "color": "categoricalA5",
+        "x": 1166,
+        "y": 250,
+        "w": 1140,
+        "h": 260
+      }
+    ]
+  }
+}

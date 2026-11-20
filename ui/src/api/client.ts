@@ -2,6 +2,7 @@
  * splunkd's proxy at /<locale>/splunkd/__raw/services/orchestrator/... Every failure
  * throws ApiError with the server's {code, message, issues}. */
 import { createRESTURL } from '@splunk/splunk-utils/url';
+import { REST_BASE } from '../appNames';
 import { getCSRFToken } from '@splunk/splunk-utils/config';
 import type {
     AlertAction,
@@ -70,14 +71,14 @@ function url(path: string, query: Query = {}): string {
         }
     });
     params.append('output_mode', 'json');
-    return `${createRESTURL(`orchestrator/${path}`)}?${params.toString()}`;
+    return `${createRESTURL(`${REST_BASE}/${path}`)}?${params.toString()}`;
 }
 
-function enc(id: string): string {
+export function enc(id: string): string {
     return encodeURIComponent(id);
 }
 
-async function request<T>(method: Method, path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
+export async function request<T>(method: Method, path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
     const headers: Record<string, string> = {
         Accept: 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
@@ -132,6 +133,9 @@ const SERVER_FIELDS = [
     'next_run',
     'next_run_beyond',
     'last_run',
+    'recent_runs',
+    'warnings',
+    'following',
     'hidden_searches',
     'created_at',
     'created_by',
@@ -154,7 +158,15 @@ export function toDefinition(job: JobDefinition | Job): JobDefinition {
 // Jobs.
 
 /** Every job the user may see, without their next and last runs. */
+/** Every job with its next run, last run, newest runs and warnings (the Jobs and
+ * Dependencies pages). */
 export async function listJobs(): Promise<Job[]> {
+    return (await request<{ jobs: Job[] }>('GET', 'jobs')).jobs;
+}
+
+/** Every job without its runs, which costs a KV Store query per job: for pages that only
+ * need names, tags and definitions. */
+export async function listJobsBrief(): Promise<Job[]> {
     return (await request<{ jobs: Job[] }>('GET', 'jobs', { query: { brief: 1 } })).jobs;
 }
 
@@ -221,6 +233,26 @@ export const resumeRun = (runId: string) => control(runId, 'resume');
 export const cancelRun = (runId: string) => control(runId, 'cancel');
 export const dismissRun = (runId: string) => control(runId, 'dismiss');
 
+export type BulkAction = 'cancel' | 'pause' | 'resume' | 'dismiss' | 'rerun' | 'approve' | 'reject';
+
+export interface BulkResult {
+    run_id: string;
+    ok: boolean;
+    code?: string;
+    message?: string;
+}
+
+/** The same action on many runs (at most 100), each checked as if done on its own. A re-run
+ * starts from the run's first failed step with the definition it used; approve and reject
+ * decide every step the run waits on (reject needs a comment). */
+export async function bulkRuns(action: BulkAction, runIds: string[], comment?: string): Promise<BulkResult[]> {
+    const body: Record<string, unknown> = { action, run_ids: runIds };
+    if (comment) {
+        body.comment = comment;
+    }
+    return (await request<{ results: BulkResult[] }>('POST', 'runs/bulk', { body })).results;
+}
+
 /** Throws ApiError `definition_choice_required` (with `choices`) if the job changed and no
  * definition was chosen. */
 export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: string; definition: string }> {
@@ -245,6 +277,37 @@ export function schedulePreview(job: JobDefinition | Job): Promise<SchedulePrevi
  * run's step results are kept after it ends. */
 export function previewDefaults(job: JobDefinition | Job): Promise<{ scheduled_time: number; result_retention?: number }> {
     return request('POST', 'preview/defaults', { body: { job: toDefinition(job) } });
+}
+
+/** The next `count` (1 to 5) times a cron fires in `timezone` (null: the server's), as epoch
+ * seconds. A bad cron is an ApiError with code `bad_cron`. */
+/** POST schedule/next. `timezone` is the job's zone when it set one that resolved, else null
+ * (server time); `utc_offsets` are seconds east of UTC for each slot, as the server computed them. */
+export interface NextSlotsResponse {
+    slots: number[];
+    utc_offsets: number[];
+    timezone: string | null;
+    timezone_status: 'ok' | 'unknown' | 'unavailable';
+    /** With `clashes`: per slot, the other enabled jobs (that you may see) scheduled in the same minute. */
+    clashes?: Array<Array<{ id: string; name: string }>>;
+}
+
+/** The next `count` (1 to 10) slots; `jobId` is left out of the clashes. */
+export function nextSlots(cron: string, timezone: string | null, count = 3, opts: { clashes?: boolean; jobId?: string } = {}): Promise<NextSlotsResponse> {
+    const body: Record<string, unknown> = { cron, timezone, count };
+    if (opts.clashes) {
+        body.clashes = true;
+        if (opts.jobId) {
+            body.job_id = opts.jobId;
+        }
+    }
+    return request('POST', 'schedule/next', { body });
+}
+
+/** The window `earliest`/`latest` cover for a run scheduled at `scheduledTime`, as epoch seconds
+ * (earliest null: all time). A value Splunk rejects is an ApiError `bad_time` with extra.field. */
+export function resolveTimeRange(earliest: string, latest: string, scheduledTime: number): Promise<{ earliest: number | null; latest: number }> {
+    return request('POST', 'timerange/resolve', { body: { earliest, latest, scheduled_time: scheduledTime } });
 }
 
 export function startPreview(req: PreviewRequest): Promise<PreviewStart> {
@@ -276,6 +339,28 @@ export async function putSettings(changes: Partial<Settings>): Promise<Settings>
 
 export async function listDestinations(): Promise<Destination[]> {
     return (await request<{ destinations: Destination[] }>('GET', 'destinations')).destinations;
+}
+
+export type FollowEvent = 'failure' | 'late' | 'delayed' | 'success';
+export type FollowNotify = { type: 'email' } | { type: 'webhook'; destination: string };
+export interface Follow {
+    on: FollowEvent[];
+    notify: FollowNotify;
+    email: string | null;
+}
+
+/** Your own follow of a job (null when you don't follow it) and your Splunk email address. */
+export function getFollow(jobId: string): Promise<{ follow: Follow | null; email: string | null }> {
+    return request('GET', `jobs/${enc(jobId)}/follow`);
+}
+
+/** Follow a job, or change what you are told about. Email goes to your Splunk account's address. */
+export function putFollow(jobId: string, on: FollowEvent[], notify: FollowNotify): Promise<{ follow: Follow }> {
+    return request('PUT', `jobs/${enc(jobId)}/follow`, { body: { on, notify } });
+}
+
+export function deleteFollow(jobId: string): Promise<{ follow: null }> {
+    return request('DELETE', `jobs/${enc(jobId)}/follow`);
 }
 
 /** The custom alert actions the caller can pick for an alert action step or job action. */

@@ -40,7 +40,7 @@ import re
 import time
 import uuid
 
-from . import preview, tokens
+from . import authz, preview, tokens
 
 AUDIT_INDEX = "orchestrator"
 JOB_IDS = {"basic": "so_selftest", "rollup_late": "so_selftest_rollup_late",
@@ -347,8 +347,8 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
 
     def user_access():
         access = user_gw.user_access(user)
-        caps = sorted(c for c in access.get("capabilities") or [] if c.startswith("orchestrator_"))
-        return "orchestrator_admin" in caps, "roles=%s; %d capabilities; orchestrator: %s" % (
+        caps = sorted(c for c in access.get("capabilities") or [] if c in authz.CAPABILITIES)
+        return authz.ADMIN in caps, "roles=%s; %d capabilities; orchestrator: %s" % (
             ",".join(access.get("roles") or []), len(access.get("capabilities") or []),
             ",".join(caps) or "none")
 

@@ -1,5 +1,5 @@
-/* Webhook destinations. The URL and headers are secrets kept in Splunk's credential store:
- * they are write-only here. The page shows whether each is set and offers a field to
+/* Webhook destinations. The URL, headers and PagerDuty routing key are secrets kept in Splunk's
+ * credential store: they are write-only here. The page shows whether each is set and offers a field to
  * replace it, never the stored value. */
 import React, { useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -14,9 +14,27 @@ import TextArea from '@splunk/react-ui/TextArea';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
 import MinusCircle from '@splunk/react-icons/MinusCircle';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Destination, DestinationInput } from '../../api/types';
+import type { Destination, DestinationInput, WebhookPreset } from '../../api/types';
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+const FORMATS: { value: WebhookPreset; label: string }[] = [
+    { value: 'generic', label: 'Generic JSON' },
+    { value: 'slack', label: 'Slack' },
+    { value: 'teams', label: 'Microsoft Teams' },
+    { value: 'pagerduty', label: 'PagerDuty' },
+    { value: 'servicenow', label: 'ServiceNow' },
+];
+const formatLabel = (preset: WebhookPreset) => (FORMATS.find((f) => f.value === preset) || FORMATS[0]).label;
+const SERVICENOW_PATH = '/api/now/table/incident';
+const PAGERDUTY_URL = 'https://events.pagerduty.com/v2/enqueue';
+
+function servicenowUrlOk(url: string): boolean {
+    try {
+        return new URL(url).pathname.replace(/\/+$/, '').endsWith(SERVICENOW_PATH);
+    } catch {
+        return false;
+    }
+}
 
 function SetText({ set, testId }: { set: boolean; testId: string }) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
@@ -59,8 +77,9 @@ interface EditorProps {
 
 function DestinationEditor({ existing, taken, onSave, onClose, returnFocus }: EditorProps) {
     const [name, setName] = useState(existing ? existing.name : '');
-    const [preset, setPreset] = useState<'slack' | 'generic'>(existing ? existing.preset : 'generic');
+    const [preset, setPreset] = useState<WebhookPreset>(existing ? existing.preset : 'generic');
     const [url, setUrl] = useState('');
+    const [routingKey, setRoutingKey] = useState('');
     const [headers, setHeaders] = useState('');
     const [clearHeaders, setClearHeaders] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -74,12 +93,25 @@ function DestinationEditor({ existing, taken, onSave, onClose, returnFocus }: Ed
             nameError = 'A destination with this name exists. Use Replace on it instead.';
         }
     }
-    const urlError = url && !url.trim().toLowerCase().startsWith('https://') ? 'The URL must start with https://.' : null;
-    const canSave = Boolean(name) && !nameError && Boolean(url.trim()) && !urlError && !busy;
+    const pagerduty = preset === 'pagerduty';
+    // A stored key only counts while the destination stays PagerDuty.
+    const keyStored = Boolean(existing && existing.preset === 'pagerduty' && existing.body_secret_set);
+    let urlError: string | null = null;
+    if (url && !url.trim().toLowerCase().startsWith('https://')) {
+        urlError = 'The URL must start with https://.';
+    } else if (url.trim() && preset === 'servicenow' && !servicenowUrlOk(url.trim())) {
+        urlError = `A ServiceNow URL ends in ${SERVICENOW_PATH}.`;
+    }
+    const urlOk = pagerduty || Boolean(url.trim());
+    const keyOk = !pagerduty || keyStored || Boolean(routingKey.trim());
+    const canSave = Boolean(name) && !nameError && urlOk && !urlError && keyOk && !busy;
 
     const save = async () => {
         setError(null);
         const body: DestinationInput = { name, url: url.trim(), preset };
+        if (pagerduty && routingKey.trim()) {
+            body.routing_key = routingKey.trim();
+        }
         try {
             if (clearHeaders) {
                 body.headers = null;
@@ -105,8 +137,9 @@ function DestinationEditor({ existing, taken, onSave, onClose, returnFocus }: Ed
             <Modal.Header title={existing ? `Replace ${existing.name}` : 'New webhook destination'} />
             <Modal.Body>
                 <p>
-                    The URL and headers are stored in Splunk&apos;s credential store and are never shown again. Enter
-                    the URL each time you save.
+                    {pagerduty
+                        ? 'The URL, headers and routing key are stored in Splunk\'s credential store and are never shown again.'
+                        : 'The URL and headers are stored in Splunk\'s credential store and are never shown again. Enter the URL each time you save.'}
                 </p>
                 {!existing && (
                     <ControlGroup
@@ -128,17 +161,29 @@ function DestinationEditor({ existing, taken, onSave, onClose, returnFocus }: Ed
                     <Select
                         inputId="dest-preset"
                         value={preset}
-                        onChange={(_e: unknown, { value }: { value: unknown }) => setPreset(value as 'slack' | 'generic')}
+                        onChange={(_e: unknown, { value }: { value: unknown }) => setPreset(value as WebhookPreset)}
                     >
-                        <Select.Option label="Generic JSON" value="generic" />
-                        <Select.Option label="Slack" value="slack" />
+                        {FORMATS.map((f) => (
+                            <Select.Option key={f.value} label={f.label} value={f.value} />
+                        ))}
                     </Select>
                 </ControlGroup>
                 <ControlGroup
                     label="New URL"
                     labelFor="dest-url"
                     labelPosition="top"
-                    help={urlError || (existing ? 'Required to save. Replaces the stored URL.' : 'An https:// address.')}
+                    help={
+                        urlError ||
+                        (pagerduty
+                            ? existing && existing.preset === 'pagerduty'
+                                ? 'Optional. Empty keeps the stored URL.'
+                                : `Optional. Empty uses the PagerDuty Events API, ${PAGERDUTY_URL}.`
+                            : existing
+                              ? 'Required to save. Replaces the stored URL.'
+                              : preset === 'servicenow'
+                                ? `An https:// address ending in ${SERVICENOW_PATH}.`
+                                : 'An https:// address.')
+                    }
                     error={Boolean(urlError)}
                 >
                     <Text
@@ -150,6 +195,31 @@ function DestinationEditor({ existing, taken, onSave, onClose, returnFocus }: Ed
                         onChange={(_e: unknown, { value }: { value: string }) => setUrl(value)}
                     />
                 </ControlGroup>
+                {pagerduty && (
+                    <p>
+                        Stored routing key: <SetText set={keyStored} testId="dest-routing-key" />
+                    </p>
+                )}
+                {pagerduty && (
+                    <ControlGroup
+                        label="Routing key"
+                        labelFor="dest-routing-key-input"
+                        labelPosition="top"
+                        help={
+                            keyStored
+                                ? 'Empty keeps the stored key.'
+                                : 'Required. From the Events API v2 integration of the PagerDuty service.'
+                        }
+                    >
+                        <Text
+                            inputId="dest-routing-key-input"
+                            type="password"
+                            autoComplete="off"
+                            value={routingKey}
+                            onChange={(_e: unknown, { value }: { value: string }) => setRoutingKey(value)}
+                        />
+                    </ControlGroup>
+                )}
                 <ControlGroup
                     label="New headers (optional)"
                     labelFor="dest-headers"
@@ -255,7 +325,7 @@ export default function Destinations({ destinations, fallbackName, onSave, onDel
                         {destinations.map((d) => (
                             <Table.Row key={d.name}>
                                 <Table.Cell>{d.name}</Table.Cell>
-                                <Table.Cell>{d.preset === 'slack' ? 'Slack' : 'Generic JSON'}</Table.Cell>
+                                <Table.Cell>{formatLabel(d.preset)}</Table.Cell>
                                 <Table.Cell>{d.host || ''}</Table.Cell>
                                 <Table.Cell>
                                     <SetText set testId="dest-url" />

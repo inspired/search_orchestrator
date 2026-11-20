@@ -1,5 +1,6 @@
 """REST API route tests: api.handle(user, method, path, body, deps) with FakeGateway."""
 import calendar
+import json
 
 import pytest
 
@@ -188,6 +189,22 @@ def test_delete_removes_job_and_hidden_searches(w):
     assert ("alice", job["actions"][0]["hidden_search"]) not in w.gw.saved_searches
     assert w.gw.saved_searches == {}
     assert w.audit.of("job_deleted")
+
+
+def test_condition_searches_are_saved_replaced_and_deleted_with_the_job(w):
+    edge = {"from": "a", "to": "b", "condition": "expression", "expression_kind": "search",
+            "expression": "index=main error"}
+    job = saved(w, body=job_body(edges=[edge]))
+    first = job["edges"][0]["hidden_search"]
+    assert first.startswith("_so_daily_cond_") and ("alice", first) in w.gw.saved_searches
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily",
+                         job_body(edges=[dict(edge, expression="index=main fatal")]))
+    assert status == 200, out
+    second = out["job"]["edges"][0]["hidden_search"]
+    assert second != first and ("alice", second) in w.gw.saved_searches
+    assert ("alice", first) not in w.gw.saved_searches  # no run needs it
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    assert w.gw.saved_searches == {}
 
 
 def test_job_validation_errors_block_save(w):
@@ -478,7 +495,9 @@ def test_destination_secret_not_returned(w):
         status, out = w.call(user, "GET", "/orchestrator/destinations")
         assert status == 200
         text = repr(out)
-        assert "secret" not in text.replace("_secret_ref", "") and "tok" not in text
+        # body_secret_set is a flag (features-2 Task 19), not a secret.
+        assert "secret" not in text.replace("_secret_ref", "").replace("body_secret_set", "") \
+            and "tok" not in text
         assert [d["name"] for d in out["destinations"]] == ["ops"]
     doc = w.gw.kv_get("so_settings", "destinations")
     dest = doc["destinations"][0]
@@ -588,7 +607,7 @@ def test_rest_adapter_builds_user_and_system_sessions(w):
     assert {label for label, name in w.calls if name.startswith("kv_")} == {"system-token"}
     out = orchestrator_rest.respond(_request("GET", "/orchestrator/runs", query=[["job_id", "daily"]]),
                                     build=build, audit_factory=lambda gw: w.audit)
-    assert out["status"] == 200 and json.loads(out["payload"]) == {"runs": []}
+    assert out["status"] == 200 and json.loads(out["payload"])["runs"] == []
 
 
 def test_rest_adapter_errors(w):
@@ -904,13 +923,14 @@ def test_list_runs_pushes_query_limit_and_projection_into_kv(w):
                          {"job_id": "daily", "state": "queued", "limit": "2"})
     assert status == 200
     run_calls = [c for c in calls if c[0] == RUNS]
-    assert run_calls == [(RUNS, {"job_id": "daily", "state": "queued"}, "created_at:-1", 2, 0,
-                          "definition:0")]
+    # The list itself; a second query looks up why the queued runs wait (queue_info).
+    assert run_calls[0] == (RUNS, {"job_id": "daily", "state": "queued"}, "created_at:-1", 2, 0,
+                            "definition:0")
     assert len(out["runs"]) == 2 and all("definition" not in r for r in out["runs"])
     calls.clear()
     status, out = w.call("carol", "GET", "/orchestrator/runs", {"limit": "3"})
     run_calls = [c for c in calls if c[0] == RUNS]
-    assert len(run_calls) == 1 and run_calls[0][3] == 3 and run_calls[0][5] == "definition:0"
+    assert run_calls[0][3] == 3 and run_calls[0][5] == "definition:0"
     assert len(out["runs"]) == 3
     calls.clear()
     assert w.call("bob", "GET", "/orchestrator/runs")[1]["runs"] == []
@@ -923,6 +943,23 @@ def test_list_runs_newest_first(w):
     second = start(w)
     out = w.call("alice", "GET", "/orchestrator/runs")[1]
     assert [r["id"] for r in out["runs"]] == [second, first]
+
+
+def test_list_runs_numbers_each_run_within_its_job_whatever_the_filter(w):
+    saved(w)
+    ids = []
+    for i in range(4):
+        w.now = T0 + i
+        ids.append(start(w, body={"params": {}, "scheduled_time": T0 + i}))
+    run = w.store.get_run(ids[1])
+    run["state"] = "failed"
+    w.store.save_run(run)
+    out = w.call("alice", "GET", "/orchestrator/runs")[1]
+    assert {r["id"]: r["number"] for r in out["runs"]} == {ids[0]: 1, ids[1]: 2, ids[2]: 3, ids[3]: 4}
+    out = w.call("alice", "GET", "/orchestrator/runs", {"state": "failed"})[1]
+    assert [(r["id"], r["number"]) for r in out["runs"]] == [(ids[1], 2)]
+    out = w.call("alice", "GET", "/orchestrator/runs", {"limit": "1"})[1]
+    assert [(r["id"], r["number"]) for r in out["runs"]] == [(ids[3], 4)]
 
 
 # Final review M9: enable or disable a job without taking it over.
@@ -1617,6 +1654,472 @@ def test_alert_actions_need_build_access(w):
     assert w.call("carol", "GET", "/orchestrator/alert_actions")[0] == 403
 
 
+# Builder readouts: schedule/next and timerange/resolve.
+
+NOV6 = 1762390800  # 2025-11-06 01:00 UTC
+
+
+def test_schedule_next_daily(w):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "UTC"})
+    assert status == 200
+    assert out["slots"] == [1762477200, 1762563600, 1762650000]
+    assert out["timezone_status"] == "ok"
+
+
+@pytest.fixture
+def oslo_local(monkeypatch):
+    import time as _t
+    if not hasattr(_t, "tzset"):
+        pytest.skip("tzset unavailable")
+    monkeypatch.setenv("TZ", "Europe/Oslo")
+    _t.tzset()
+    yield
+    monkeypatch.undo()
+    _t.tzset()
+
+
+def test_schedule_next_named_zone_returns_name_and_offsets(w):
+    w.now = NOV6  # November: Oslo is UTC+01:00
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "Europe/Oslo"})
+    assert status == 200
+    assert out["timezone"] == "Europe/Oslo"
+    assert out["timezone_status"] == "ok"
+    assert out["slots"] == [1762473600, 1762560000, 1762646400]  # 01:00 Oslo = 00:00 UTC
+    assert out["utc_offsets"] == [3600, 3600, 3600]
+
+
+def test_schedule_next_offsets_follow_dst(w):
+    w.now = 1774659600  # 2026-03-28 01:00 UTC; Oslo moves to +02:00 on the 29th
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 12 * * *", "timezone": "Europe/Oslo"})
+    assert out["utc_offsets"] == [3600, 7200, 7200]
+
+
+def test_schedule_next_server_time_has_no_zone_name(w, oslo_local):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next", {"cron": "0 1 * * *"})
+    assert status == 200
+    assert out["timezone"] is None
+    assert out["timezone_status"] == "ok"
+    assert out["slots"] == [1762473600, 1762560000, 1762646400]
+    assert out["utc_offsets"] == [3600, 3600, 3600]
+
+
+def test_schedule_next_unknown_zone_falls_back_to_server_time(w, oslo_local):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "No/Such_Zone"})
+    assert status == 200
+    assert out["timezone"] is None
+    assert out["timezone_status"] == "unknown"
+    assert out["utc_offsets"] == [3600, 3600, 3600]
+
+
+def test_schedule_next_bad_cron(w):
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "61 * * * *", "timezone": "UTC"})
+    assert status == 400 and error(out) == "bad_cron"
+
+
+def test_schedule_next_count_bounds(w):
+    for count in (11, 0):
+        status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                             {"cron": "0 1 * * *", "timezone": "UTC", "count": count})
+        assert status == 400 and error(out) == "bad_request"
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "UTC", "count": 5})
+    assert status == 200 and len(out["slots"]) == 5
+
+
+def test_schedule_next_run_only_user_forbidden(w):
+    status, out = w.call("carol", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 1 * * *", "timezone": "UTC"})
+    assert status == 403 and error(out) == "forbidden"
+
+
+def test_timerange_resolve_previous_day(w):
+    w.now = NOV6
+    w.gw.times = {("-1d@d", NOV6): 1762300800, ("@d", NOV6): 1762387200}
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1d@d", "latest": "@d", "scheduled_time": NOV6})
+    assert status == 200
+    assert out == {"earliest": 1762300800, "latest": 1762387200}
+
+
+def test_timerange_resolve_empty_values(w):
+    w.now = NOV6
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "", "latest": "", "scheduled_time": NOV6})
+    assert status == 200
+    assert out == {"earliest": None, "latest": NOV6}
+    assert not [c for c in w.calls if c[1] == "parse_times"]
+
+
+def test_timerange_resolve_bad_value(w):
+    w.now = NOV6
+    w.gw.times = {("@d", NOV6): 1762387200}
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1x", "latest": "@d", "scheduled_time": NOV6})
+    assert status == 400 and error(out) == "bad_time"
+    assert out["error"]["field"] == "earliest"
+    assert out["error"]["message"].endswith("; use a form like -1d@d, @d or now")
+
+
+def test_timerange_resolve_reply_without_the_value_is_a_splunk_error(w, monkeypatch):
+    w.now = NOV6
+    monkeypatch.setattr(w.gw, "parse_times", lambda user, times, now: {})
+    status, out = w.call("alice", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1d@d", "latest": "@d", "scheduled_time": NOV6})
+    assert status == 502 and error(out) == "splunk_error"
+    assert "-1d@d" in out["error"]["message"]
+
+
+def test_timerange_resolve_run_only_user_forbidden(w):
+    status, out = w.call("carol", "POST", "/orchestrator/timerange/resolve",
+                         {"earliest": "-1d", "latest": "now", "scheduled_time": NOV6})
+    assert status == 403 and error(out) == "forbidden"
+
+
+def test_moving_nodes_is_not_a_changed_definition(w):
+    saved(w)
+    run_id = start(w)
+    fail_run(w, run_id)
+    body = job_body()
+    body["layout"] = {"nodes": {"step:a": {"x": 5, "y": 6}}}
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", body)
+    assert status == 200, out
+    status, out = w.call("carol", "POST", "/orchestrator/runs/%s/rerun" % run_id, {"step": "b"})
+    assert status != 409, out
+
+
+def test_layout_and_step_output_are_stored_and_returned(w):
+    body = job_body()
+    body["layout"] = {"nodes": {"step:a": {"x": 5, "y": -6.5}, "job": {"x": 0, "y": 0}}}
+    body["steps"][0]["output"] = {"kind": "lookup", "name": "x.csv", "add_run_id": False}
+    saved(w, body=body)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    assert status == 200, out
+    job = out["job"]
+    assert job["layout"] == body["layout"]
+    assert job["steps"][0]["output"] == body["steps"][0]["output"]
+
+
+def test_on_late_is_a_whole_job_outcome(w):
+    body = job_body()
+    body["steps"][0]["actions"] = [{"hook": "on_late", "type": "email", "to": "ops@example.com"}]
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 400
+    assert [(i["code"], i["message"], i["step"]) for i in out["error"]["issues"]
+            if i["level"] == "error"] == [
+        ("bad_action", "Is late is a whole-job outcome; connect it from the Whole job node", "a")]
+
+
+def test_job_level_on_late_action_and_deadline_save(w):
+    body = job_body(deadline={"finish_by": "06:00"}, actions=[
+        {"hook": "on_late", "type": "email", "to": "ops@example.com"}])
+    job = saved(w, body=body)
+    assert job["deadline"] == {"finish_by": "06:00"}
+    assert job["actions"][0]["hook"] == "on_late"
+
+
+def test_job_without_deadline_is_saved_without_one(w):
+    assert "deadline" not in saved(w)
+    assert "deadline" not in w.store.get_job("daily")
+
+
+# Teams, PagerDuty and ServiceNow presets.
+
+def _dest(w, body):
+    return w.call("root", "POST", "/orchestrator/destinations", body)
+
+
+def _webhook_issues(w, preset, options, destination="ops", job_id="daily"):
+    _dest(w, {"name": "ops", "url": "https://hooks.example.com/x"})
+    action = {"hook": "on_failure", "type": "webhook", "destination": destination,
+              "options": options}
+    if preset is not None:
+        action["preset"] = preset
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(job_id, actions=[action]))
+    return status, [i["message"] for i in (out.get("error") or {}).get("issues") or []]
+
+
+@pytest.mark.parametrize("preset,options,message", [
+    ("pagerduty", {"severity": "loud"}, "severity must be critical, error, warning or info"),
+    ("servicenow", {"urgency": "9"}, "urgency must be 1, 2 or 3"),
+    ("servicenow", {"impact": "9"}, "impact must be 1, 2 or 3"),
+    ("servicenow", {"assignment_group": "g" * 101},
+     "assignment group can be at most 100 characters"),
+    ("slack", {"severity": "info"},
+     "options only apply to Teams, PagerDuty and ServiceNow actions"),
+])
+def test_webhook_option_messages(w, preset, options, message):
+    status, messages = _webhook_issues(w, preset, options)
+    assert status == 400 and message in messages
+
+
+def test_webhook_options_use_the_destination_format(w):
+    # No preset on the action: the destination's (generic) format applies.
+    status, messages = _webhook_issues(w, None, {"severity": "info"})
+    assert status == 400
+    assert "options only apply to Teams, PagerDuty and ServiceNow actions" in messages
+
+
+def test_webhook_good_options_save(w):
+    status, _ = _webhook_issues(w, "pagerduty", {"severity": "warning"})
+    assert status == 201
+    status, _ = _webhook_issues(w, "servicenow", {"urgency": "1", "impact": "3",
+                                                  "assignment_group": "Data"}, job_id="other")
+    assert status == 201
+
+
+def test_webhook_unknown_preset_blocks_save(w):
+    status, messages = _webhook_issues(w, "fax", None)
+    assert status == 400 and messages
+
+
+@pytest.mark.parametrize("preset", ["teams", "pagerduty", "servicenow"])
+def test_destination_accepts_new_presets(w, preset):
+    body = {"name": "d", "preset": preset, "url": "https://acme.service-now.com/api/now/table/incident"}
+    if preset == "pagerduty":
+        body["routing_key"] = "k" * 32
+    status, out = _dest(w, body)
+    assert status == 201, out
+    assert out["destination"]["preset"] == preset
+    assert out["destination"]["body_secret_set"] is (preset == "pagerduty")
+
+
+def test_pagerduty_destination_defaults_url_and_stores_routing_key(w):
+    status, out = _dest(w, {"name": "pd", "preset": "pagerduty", "routing_key": "RKEY-123"})
+    assert status == 201, out
+    dest = w.gw.kv_get("so_settings", "destinations")["destinations"][0]
+    assert w.gw.read_secret(dest["url_secret_ref"]) == "https://events.pagerduty.com/v2/enqueue"
+    assert json.loads(w.gw.read_secret(dest["body_secret_ref"])) == {"routing_key": "RKEY-123"}
+    assert "routing_key" not in dest
+    assert {label for label, name in w.calls if name == "write_secret"} == {"system"}
+    listed = w.call("root", "GET", "/orchestrator/destinations")[1]
+    assert listed["destinations"][0]["body_secret_set"] is True
+    assert "RKEY-123" not in json.dumps(listed) + json.dumps(w.audit.events) + json.dumps(out)
+    # Saving again without a routing key keeps the stored one.
+    status, out = _dest(w, {"name": "pd", "preset": "pagerduty"})
+    assert status == 201 and out["destination"]["body_secret_set"] is True
+    assert json.loads(w.gw.read_secret("destination_pd_body")) == {"routing_key": "RKEY-123"}
+    # Switching to another format removes it; deleting removes every secret.
+    status, out = _dest(w, {"name": "pd", "preset": "generic", "url": "https://hooks.example.com/x"})
+    assert status == 201 and out["destination"]["body_secret_set"] is False
+    assert "destination_pd_body" not in w.gw.secrets
+    _dest(w, {"name": "pd", "preset": "pagerduty", "routing_key": "RKEY-123"})
+    assert w.call("root", "DELETE", "/orchestrator/destinations/pd")[0] == 200
+    assert w.gw.secrets == {}
+
+
+def test_replacing_a_pagerduty_destination_without_url_keeps_the_stored_url(w):
+    eu = "https://events.eu.pagerduty.com/v2/enqueue"
+    status, _ = _dest(w, {"name": "pd", "preset": "pagerduty", "url": eu, "routing_key": "RK"})
+    assert status == 201 and w.gw.read_secret("destination_pd_url") == eu
+    for url in (None, ""):
+        body = {"name": "pd", "preset": "pagerduty"}
+        if url is not None:
+            body["url"] = url
+        status, out = _dest(w, body)
+        assert status == 201, out
+        assert w.gw.read_secret("destination_pd_url") == eu
+        assert out["destination"]["host"] == "events.eu.pagerduty.com"
+    # A format switch to PagerDuty still fills the default.
+    _dest(w, {"name": "x", "preset": "generic", "url": "https://hooks.example.com/x"})
+    status, _ = _dest(w, {"name": "x", "preset": "pagerduty", "routing_key": "RK"})
+    assert status == 201
+    assert w.gw.read_secret("destination_x_url") == "https://events.pagerduty.com/v2/enqueue"
+
+
+@pytest.mark.parametrize("key", [None, "", "  ", 42])
+def test_pagerduty_destination_needs_routing_key(w, key):
+    body = {"name": "pd", "preset": "pagerduty"}
+    if key is not None:
+        body["routing_key"] = key
+    status, out = _dest(w, body)
+    assert status == 400 and error(out) == "bad_destination"
+    assert out["error"]["message"] == ("Enter the routing key from the PagerDuty service's "
+                                       "Events API v2 integration")
+    assert w.gw.secrets == {}
+
+
+def test_servicenow_destination_url_rule(w):
+    status, out = _dest(w, {"name": "sn", "preset": "servicenow",
+                            "url": "https://acme.service-now.com/api/now/table/problem"})
+    assert status == 400 and out["error"]["message"] == "A ServiceNow URL ends in /api/now/table/incident"
+    assert w.gw.secrets == {}
+    status, out = _dest(w, {"name": "sn", "preset": "servicenow",
+                            "url": "https://acme.service-now.com/api/now/table/incident"})
+    assert status == 201
+
+
+def test_slack_and_generic_destinations_still_need_a_url(w):
+    for preset in ("slack", "generic", "teams"):
+        status, out = _dest(w, {"name": "x", "preset": preset})
+        assert status == 400 and error(out) == "bad_destination"
+    status, out = _dest(w, {"name": "x", "url": "https://hooks.example.com/x"})
+    assert status == 201 and out["destination"] == {
+        "name": "x", "preset": "generic", "host": "hooks.example.com", "has_headers": False,
+        "body_secret_set": False}
+
+
+def test_routing_key_ignored_for_other_formats(w):
+    status, out = _dest(w, {"name": "x", "url": "https://hooks.example.com/x",
+                            "routing_key": "NOPE"})
+    assert status == 201 and out["destination"]["body_secret_set"] is False
+    assert "NOPE" not in json.dumps(w.gw.secrets)
+
+
+def test_approval_requested_only_on_approval_steps(w):
+    body = job_body()
+    body["actions"].append({"hook": "on_approval_requested", "type": "email",
+                            "to": "ops@example.com"})
+    body["steps"][1]["actions"] = [{"hook": "on_approval_requested", "type": "email",
+                                    "to": "ops@example.com"}]
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 400
+    assert [(i["code"], i["message"], i["step"]) for i in out["error"]["issues"]
+            if i["level"] == "error"] == [
+        ("bad_action", "Asks for approval only exists on approval steps", None),
+        ("bad_action", "Asks for approval only exists on approval steps", "b")]
+    body = job_body()
+    body["steps"].append({"id": "gate", "type": "approval", "approval": {"message": "ok?"},
+                          "actions": [{"hook": "on_approval_requested", "type": "email",
+                                       "to": "ops@example.com"}]})
+    body["edges"].append({"from": "b", "to": "gate"})
+    job = saved(w, body=body)
+    assert "hidden_search" not in job["steps"][2]
+
+
+def test_list_jobs_has_the_ten_newest_runs_newest_first(w):
+    saved(w)
+    ids = []
+    for i in range(12):
+        w.now = T0 + i
+        ids.append(start(w, body={"params": {}, "scheduled_time": T0 + i}))
+    job = w.call("alice", "GET", "/orchestrator/jobs")[1]["jobs"][0]
+    assert [r["id"] for r in job["recent_runs"]] == list(reversed(ids))[:10]
+    assert job["last_run"]["id"] == ids[-1] and "definition" not in job["recent_runs"][0]
+
+
+def test_jobs_list_warns_about_missing_and_disabled_jobs_it_starts_or_follows(w):
+    saved(w, body=job_body("target", name="Target", enabled=False))
+    body = job_body(actions=[{"hook": "on_success", "type": "start_job", "job": "gone"},
+                             {"hook": "on_success", "type": "start_job", "job": "target"}],
+                    triggers=[{"type": "completion", "job": "nowhere", "on": "success"}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", dict(body))
+    codes = [i["code"] for i in out["issues"]]
+    assert {"missing_target_job", "disabled_target_job", "missing_upstream_job"} <= set(codes)
+    assert out["valid"] is True  # warnings, not errors
+    saved(w, body=body)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs")
+    daily = [j for j in out["jobs"] if j["id"] == "daily"][0]
+    assert sorted(i["code"] for i in daily["warnings"]) == [
+        "disabled_target_job", "missing_target_job", "missing_upstream_job"]
+    assert "'gone'" in [i for i in daily["warnings"] if i["code"] == "missing_target_job"][0]["message"]
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    assert len(out["job"]["warnings"]) == 3
+
+
+def test_a_job_that_starts_itself_is_not_missing(w):
+    body = job_body(actions=[{"hook": "on_failure", "type": "start_job", "job": "daily"}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", dict(body))
+    assert "missing_target_job" not in [i["code"] for i in out["issues"]]
+
+
+def test_screen_fields_sent_back_with_a_save_are_not_stored(w):
+    saved(w)
+    status, out = w.call("alice", "GET", "/orchestrator/jobs/daily")
+    body = dict(out["job"], recent_runs=[{"id": "x"}], warnings=[{"code": "y"}])
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", body)
+    assert status == 200, out
+    stored = w.store.get_job("daily")
+    for key in ("recent_runs", "warnings", "last_run", "next_run", "permissions"):
+        assert key not in stored
+
+
+def test_schedule_next_gives_up_to_ten_slots_and_other_jobs_in_the_same_minute(w):
+    saved(w, body=job_body("hourly", name="Hourly", triggers=[{"type": "cron", "cron": "0 * * * *"}]))
+    saved(w, body=job_body("quarter", name="Quarter", triggers=[{"type": "cron", "cron": "*/15 * * * *"}]))
+    saved(w, body=job_body("off", name="Off", enabled=False, triggers=[{"type": "cron", "cron": "0 * * * *"}]))
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "30 * * * *", "timezone": "UTC", "count": 10, "clashes": True,
+                          "job_id": "daily"})
+    assert status == 200 and len(out["slots"]) == 10
+    assert out["clashes"] == [[{"id": "quarter", "name": "Quarter"}]] * 10
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 * * * *", "timezone": "UTC", "count": 2, "clashes": True,
+                          "job_id": "hourly"})
+    assert out["clashes"] == [[{"id": "quarter", "name": "Quarter"}]] * 2  # not itself, not disabled
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next",
+                         {"cron": "0 * * * *", "count": 11})
+    assert status == 400
+    status, out = w.call("alice", "POST", "/orchestrator/schedule/next", {"cron": "0 * * * *"})
+    assert "clashes" not in out
+
+
+def test_action_retry_settings_are_checked_on_save(w):
+    good = job_body(actions=[{"hook": "on_failure", "type": "email", "to": "a@example.com",
+                              "retries": 5, "retry_wait": 60}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", good)
+    assert out["valid"], out
+    for bad in ({"retries": 11}, {"retries": -1}, {"retries": "3"}, {"retry_wait": 5},
+                {"retry_wait": 7200}, {"retries": True}):
+        body = job_body(actions=[dict({"hook": "on_failure", "type": "email",
+                                       "to": "a@example.com"}, **bad)])
+        status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", body)
+        assert not out["valid"], bad
+
+
+def test_scan_limit_settings(w):
+    status, out = w.call("root", "PUT", "/orchestrator/settings",
+                         {"scan_limit": 50000000, "scan_limit_action": "stop"})
+    assert status == 200, out
+    assert (out["settings"]["scan_limit"], out["settings"]["scan_limit_action"]) == (50000000, "stop")
+    status, out = w.call("root", "PUT", "/orchestrator/settings", {"scan_limit": None})
+    assert out["settings"]["scan_limit"] is None
+    for bad in ({"scan_limit": -1}, {"scan_limit": "many"}, {"scan_limit_action": "explode"}):
+        status, out = w.call("root", "PUT", "/orchestrator/settings", bad)
+        assert status == 400, bad
+    body = job_body(steps=[{"id": "a", "type": "inline", "spl": "| makeresults", "max_scan": 0}])
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", body)
+    assert not out["valid"]
+
+
+def test_pruning_old_runs_also_removes_their_action_rows():
+    from so.store import ACTION_RUNS, RUNS, Store
+    from fakes import FakeGateway
+    gw = FakeGateway()
+    store = Store(gw)
+    gw.kv_insert(RUNS, {"_key": "j:1", "job_id": "j", "state": "succeeded", "ended_at": 10})
+    gw.kv_insert(ACTION_RUNS, {"_key": "j:1:job:on_success", "run_id": "j:1", "job_id": "j"})
+    gw.kv_insert(ACTION_RUNS, {"_key": "j:2:job:on_success", "run_id": "j:2", "job_id": "j"})
+    assert store.prune_runs(100) == 1
+    assert [r["run_id"] for r in gw.kv_query(ACTION_RUNS)] == ["j:2"]
+
+
+def test_delete_keeps_the_jobs_run_history(w):
+    saved(w)
+    run_id = start(w)
+    fail_run(w, run_id)
+    assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
+    assert w.store.get_job("daily") is None
+    assert w.store.get_run(run_id) is not None  # kept until run retention prunes it
+
+
+def test_event_action_fields_are_checked(w):
+    ok = {"hook": "on_failure", "type": "event", "index": "main", "source": "s", "time": "scheduled"}
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", job_body(actions=[ok]))
+    assert out["valid"], out
+    for bad in ({"host": "a\nb"}, {"time": "yesterday"}, {"sourcetype": 5}):
+        status, out = w.call("alice", "POST", "/orchestrator/jobs/validate",
+                             job_body(actions=[dict(ok, **bad)]))
+        assert not out["valid"], bad
+
+
 # Jobs page: search, paging and the bounded last-run read.
 
 def named(w, job_id, name, user="alice", **over):
@@ -1795,8 +2298,9 @@ def test_run_search_pushes_matching_job_ids_into_the_query(w):
     two_named_jobs(w)
     calls = spy_runs(w)
     runs_search(w, user="root", q="sales", limit="5")
-    assert len(calls) == 1 and calls[0]["query"] == {"job_id": {"$in": ["s", "sales"]}}
-    assert calls[0]["limit"] == 5 and calls[0]["fields"] == "definition:0"
+    reads = [c for c in calls if c["fields"] == "definition:0"]  # the rest number the runs
+    assert len(reads) == 1 and reads[0]["query"] == {"job_id": {"$in": ["s", "sales"]}}
+    assert reads[0]["limit"] == 5
 
 
 def test_run_search_with_no_matching_job_or_id_does_not_leak_other_runs(w):
@@ -1851,7 +2355,8 @@ def test_run_search_over_many_jobs_scans_newest_first_instead_of_a_huge_query(w,
     calls = spy_runs(w)
     out = runs_search(w, q="sales")
     assert [r["id"] for r in out["runs"]] == ["a:1", "b:1"]
-    assert all("job_id" not in (c["query"] or {}) for c in calls)
+    reads = [c for c in calls if c["fields"] == "definition:0"]  # the rest number the runs
+    assert reads and all("job_id" not in (c["query"] or {}) for c in reads)
     assert "partial" not in out
 
 

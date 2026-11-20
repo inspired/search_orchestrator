@@ -1,9 +1,11 @@
 /* The run's timeline: a label, a bar (solid while running, hatched while waiting, none
- * when skipped) and plain status text per step. */
+ * when skipped) with the time the step took (so far, while it runs) beside it, and plain
+ * status text per step. */
 import React from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { RunDetail } from '../../api/types';
 import StatusText from '../../components/StatusText';
+import { formatDuration } from '../../format';
 import { Bar, bars } from './bars';
 
 export interface TimelineProps {
@@ -12,6 +14,9 @@ export interface TimelineProps {
     selected?: string | null;
     onSelect: (stepId: string) => void;
 }
+
+// Near the right edge the time goes inside the bar when it fits, else to the bar's left.
+const WIDE_ENOUGH = 12;
 
 export default function Timeline({ run, now, selected, onSelect }: TimelineProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
@@ -40,6 +45,8 @@ export default function Timeline({ run, now, selected, onSelect }: TimelineProps
         <div role="list" aria-label="Step timeline" style={{ padding: '8px 0 12px' }}>
             {rows.map((bar) => {
                 const st = status[bar.stepId];
+                const spent = st && st.started_at && bar.kind !== 'waiting' && bar.kind !== 'skipped' ? formatDuration((st.ended_at ?? now) - st.started_at) : null;
+                const end = bar.startPct + bar.widthPct;
                 return (
                     <div
                         role="listitem"
@@ -91,6 +98,27 @@ export default function Timeline({ run, now, selected, onSelect }: TimelineProps
                                         ...fill(bar),
                                     }}
                                 />
+                            )}
+                            {spent && (
+                                <span
+                                    data-testid={`time-${bar.stepId}`}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        lineHeight: '18px',
+                                        fontSize: '11px',
+                                        fontVariantNumeric: 'tabular-nums',
+                                        whiteSpace: 'nowrap',
+                                        pointerEvents: 'none',
+                                        ...(end <= 85
+                                            ? { left: `calc(${end}% + 6px)`, color: theme.contentColorMuted }
+                                            : bar.widthPct >= WIDE_ENOUGH
+                                              ? { right: `calc(${100 - end}% + 6px)`, color: theme.contentColorInverted || theme.backgroundColor }
+                                              : { right: `calc(${100 - bar.startPct}% + 6px)`, color: theme.contentColorMuted }),
+                                    }}
+                                >
+                                    {spent}
+                                </span>
                             )}
                         </div>
                         <StatusText

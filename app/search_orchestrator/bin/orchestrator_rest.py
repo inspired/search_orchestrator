@@ -18,9 +18,10 @@ _BIN = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_BIN, "..", "lib"))
 sys.path.insert(0, _BIN)
 
-from so import api  # noqa: E402
+from so import api, logs  # noqa: E402
 from so.audit import SOURCETYPE  # noqa: E402
-from so.gateway import SplunkGateway  # noqa: E402
+from so.gateway import APP, SplunkGateway  # noqa: E402
+from so.store import Store  # noqa: E402
 
 try:
     from splunk.persistconn.application import PersistentServerConnectionApplication
@@ -34,6 +35,7 @@ AUDIT_SOURCE = "orchestrator_rest"
 DEFAULT_URI = "https://127.0.0.1:8089"
 
 log = logging.getLogger("so.rest")
+_LEVEL = logs.LevelFromSettings()
 
 
 class RestAudit:
@@ -55,6 +57,7 @@ class RestAudit:
         return doc
 
     def emit(self, event):
+        logs.audit_line(event)
         try:
             self.write(event)
         except Exception as err:
@@ -104,22 +107,57 @@ def respond(request, build=SplunkGateway.from_session, audit_factory=RestAudit):
         return _reply(400, {"error": {"code": "bad_request", "message": "the request body is "
                                       "not valid JSON", "issues": []}})
     uri = (request.get("server") or {}).get("rest_uri") or DEFAULT_URI
+    started = time.time()
+    method, path = (request.get("method") or "GET").upper(), request.get("rest_path") or ""
     try:
         system_gw = build(uri, system_token)
+        _LEVEL.apply(lambda: Store(system_gw).get_settings())
         deps = {"user_gateway": build(uri, user_token), "system_gateway": system_gw,
                 "audit": audit_factory(system_gw), "secrets": [user_token, system_token]}
         status, payload = api.handle(user, request.get("method"), request.get("rest_path") or "",
                                      body, deps)
     except Exception as err:  # never leak a traceback to the caller
-        log.exception("request failed")
+        log.exception("event=request_failed %s", logs.kv(method=method, path=path, user=user,
+                                                          error=type(err).__name__))
         return _reply(500, {"error": {"code": "internal_error", "message": "internal error (%s)"
                                       % type(err).__name__, "issues": []}})
+    _log_request(method, path, user, status, payload, started)
     return _reply(status, payload)
+
+
+def _log_request(method, path, user, status, payload, started):
+    """One line per request: INFO for changes and errors, DEBUG for reads that succeeded."""
+    level = logging.DEBUG if method == "GET" and status < 400 else logging.INFO
+    if status >= 500:
+        level = logging.ERROR
+    elif status >= 400 and status not in (401, 403, 404):
+        level = logging.WARNING
+    err = (payload or {}).get("error") if isinstance(payload, dict) else None
+    logs.event(log, level, "request", method=method, path=path, user=user, status=status,
+               ms=int((time.time() - started) * 1000),
+               error_code=(err or {}).get("code"), error=(err or {}).get("message"))
+
+
+def _log_to_stderr():
+    """splunkd copies a persistent handler's stderr to splunkd.log (component
+    PersistentScript) without naming the script; the prefix names this handler there,
+    for the ``orchestrator_internal`` macro and the Run health dashboard."""
+    logger = logging.getLogger("so")
+    if not any(getattr(h, "_so_rest", False) for h in logger.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler._so_rest = True
+        handler.setLevel(logging.WARNING)
+        handler.addFilter(logs.NotAudit())
+        handler.setFormatter(logging.Formatter(
+            AUDIT_SOURCE + ": %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
 
 
 class Handler(PersistentServerConnectionApplication):
     def __init__(self, command_line=None, command_arg=None):
         PersistentServerConnectionApplication.__init__(self)
+        _log_to_stderr()
+        logs.setup(APP, "rest")
 
     def handle(self, in_string):
         if isinstance(in_string, bytes):

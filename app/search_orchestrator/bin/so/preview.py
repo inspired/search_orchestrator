@@ -7,6 +7,7 @@ owner as splunkd reports it.
 """
 import hashlib
 import re
+import time
 
 from . import cron as cronmod
 from . import model
@@ -152,21 +153,25 @@ def reads(definition, step_id):
 
 def input_sids(definition, step_id, upstream):
     """A ``previous`` step's input sids: its dependencies that succeeded, in edge order
-    (``Engine._input_sids``'s rule). ``upstream`` is ``{step_id: {"state", "sid"}}``."""
+    (``Engine._input_sids``'s rule: an approval step, with no sid, adds nothing).
+    ``upstream`` is ``{step_id: {"state", "sid"}}``."""
     return [(upstream.get(up) or {}).get("sid")
             for up in tokens.previous_inputs(definition, step_id)
-            if (upstream.get(up) or {}).get("state") == "succeeded"]
+            if (upstream.get(up) or {}).get("state") == "succeeded"
+            and (upstream.get(up) or {}).get("sid")]
 
 
-def token_context(definition, scheduled_time, params, upstream):
+def token_context(definition, scheduled_time, params, upstream, now=None):
     """The ``render_args`` ctx for a preview, shaped like ``tokens.run_context``: run id
-    ``preview``, the given params, and each step's state from ``upstream``."""
+    ``preview``, the given params, ``$run.now$`` = ``now`` (default: the clock), and each
+    step's state from ``upstream``."""
     steps = {}
     for s in definition.get("steps") or []:
         st = upstream.get(s.get("id")) or {}
         steps[s.get("id")] = {"status": st.get("state"), "sid": st.get("sid"),
                               "resultCount": st.get("result_count"), "first": st.get("first")}
     return {"run": {"id": "preview", "scheduled_time": str(int(scheduled_time)),
+                    "now": str(int(time.time() if now is None else now)),
                     "params": dict(params or {})},
             "steps": steps}
 

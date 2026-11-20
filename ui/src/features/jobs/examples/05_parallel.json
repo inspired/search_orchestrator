@@ -1,0 +1,76 @@
+{
+  "id": "example_parallel",
+  "name": "Example: two branches, one report",
+  "description": "Two searches run side by side: splunkd errors by component and warnings by host, both for yesterday. A Results of earlier steps step then works on the rows of both and builds one table.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "branches"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "0 7 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "errors_by_component",
+      "name": "Errors by component",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR\n| stats count AS errors BY component",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "warnings_by_host",
+      "name": "Warnings by host",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=WARN\n| stats count AS warnings BY host",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "merged",
+      "name": "Merge both",
+      "type": "previous",
+      "spl": "| eval kind=if(isnotnull(errors), \"errors\", \"warnings\"), name=coalesce(component, host), count=coalesce(errors, warnings)\n| table kind name count\n| sort kind - count"
+    }
+  ],
+  "edges": [
+    {
+      "from": "errors_by_component",
+      "to": "merged",
+      "condition": "on_success"
+    },
+    {
+      "from": "warnings_by_host",
+      "to": "merged",
+      "condition": "on_success"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 94
+      },
+      "job": {
+        "x": 20,
+        "y": 178
+      },
+      "step:errors_by_component": {
+        "x": 320,
+        "y": 20
+      },
+      "step:warnings_by_host": {
+        "x": 320,
+        "y": 136
+      },
+      "step:merged": {
+        "x": 600,
+        "y": 78
+      }
+    }
+  }
+}

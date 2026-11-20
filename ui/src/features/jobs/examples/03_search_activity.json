@@ -1,0 +1,56 @@
+{
+  "id": "example_search_activity",
+  "name": "Example: daily search activity",
+  "description": "Summarises yesterday's completed searches per user from the _audit index. If the step fails, an email goes to you@example.com: change the address before you turn the job on.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "notifications"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "45 6 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "search_activity",
+      "name": "Searches per user",
+      "type": "inline",
+      "spl": "index=_audit action=search info=completed\n| stats count AS searches, avg(total_run_time) AS avg_seconds BY user\n| sort - searches",
+      "earliest": "-1d@d",
+      "latest": "@d",
+      "actions": [
+        {
+          "hook": "on_failure",
+          "type": "email",
+          "to": "you@example.com",
+          "subject": "Search activity failed: {{job}}",
+          "message": "{{message}}\n\n{{run_url}}"
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 120
+      },
+      "step:search_activity": {
+        "x": 320,
+        "y": 20
+      },
+      "action:search_activity:0": {
+        "x": 600,
+        "y": 30
+      }
+    }
+  }
+}

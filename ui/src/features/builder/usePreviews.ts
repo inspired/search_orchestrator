@@ -4,11 +4,12 @@
  * server keeps them. Cancelling a step also cancels the running upstream previews its
  * chain started, unless another chain is waiting on them. Everything lives in this hook:
  * unmounting discards it and cancels running previews, best effort. Nothing here blocks
- * editing. */
+ * editing. A preview never runs a step that writes to an index or lookup (previewRefusal). */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as client from '../../api/client';
 import type { JobDefinition, PreviewInput, PreviewInputRead, PreviewRequest, PreviewResults, PreviewStatus, SkipKind } from '../../api/types';
-import { BUILTIN_DEFAULTS, isStale, LivePreview, PreviewContext, previewKeys, previousInputs, toBeRun, upstreamOf } from './previewLogic';
+import type { PreviewSummary } from './nodePreview';
+import { BUILTIN_DEFAULTS, isStale, LivePreview, PreviewContext, previewKeys, previewRefusal, previousInputs, toBeRun, upstreamOf } from './previewLogic';
 
 export interface PreviewApi {
     startPreview: typeof client.startPreview;
@@ -162,12 +163,12 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         return outcome === 'superseded' ? 'cancelled' : outcome;
     };
 
-    const input = (jobSnap: JobDefinition, ctxSnap: PreviewContext, id: string): { request: PreviewInput; info: PreviewInputInfo } => {
+    const input = (jobSnap: JobDefinition, ctxSnap: PreviewContext, id: string, withSelf = false): { request: PreviewInput; info: PreviewInputInfo } => {
         if (ctxSnap.source !== 'live') {
             return { request: { mode: 'run', run_id: ctxSnap.source }, info: { mode: 'run', scheduledTime: ctxSnap.scheduledTime } };
         }
         const sent: Record<string, { sid?: string; skipped?: SkipKind }> = {};
-        upstreamOf(jobSnap, id).forEach((u) => {
+        (withSelf ? [...upstreamOf(jobSnap, id), id] : upstreamOf(jobSnap, id)).forEach((u) => {
             const p = store.current[u];
             if (p && p.sid && (p.state === 'done' || ranAndFailed(p))) {
                 sent[u] = { sid: p.sid };
@@ -335,6 +336,13 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         const anyway = Boolean(opts.anyway);
         const keys = previewKeys(jobSnap, ctxSnap, store.current);
         const live = ctxSnap.source === 'live';
+        const refused = previewRefusal(jobSnap, stepId, live);
+        if (refused) {
+            const t = claim(stepId, jobSnap, ctxSnap);
+            delete pending.current[stepId];
+            patch(stepId, t, { state: 'failed', error: refused });
+            return Promise.resolve();
+        }
         const order = live ? toBeRun(jobSnap, stepId, store.current, (id) => keys[id] || '') : [stepId];
         const toRun = order.slice(0, -1);
         const before = live ? upstreamOf(jobSnap, stepId).filter((u) => toRun.includes(u) || runningNow(u, jobSnap, ctxSnap)) : [];
@@ -462,26 +470,36 @@ export default function usePreviews(job: JobDefinition, ctx: PreviewContext, api
         return out;
     }, [job, ctx, previews]);
 
-    return { previews: views, preview, cancel };
+    /** The input a preview of the step would send now (a condition test reads the same). */
+    /** The input a preview of `stepId` sends; `withSelf` adds the step's own preview too, as a
+     * condition line out of it needs (Test condition reads that step's results). */
+    const inputFor = (stepId: string, withSelf = false): PreviewInput => input(latest.current.job, latest.current.ctx, stepId, withSelf).request;
+
+    return { previews: views, preview, cancel, inputFor };
 }
 
-/** The short plain-text note a previewed step shows on the graph. */
-export function previewNote(p: PreviewView | undefined): { text: string; failed: boolean } | null {
+/** What a node shows of a step's preview (see nodePreview): rows and seconds of a current
+ * finished one, "running", the error, or that it is out of date. Skipped and missing previews
+ * show nothing. */
+export function previewSummary(p: PreviewView | undefined): PreviewSummary | undefined {
     if (!p) {
-        return null;
+        return undefined;
     }
     if (p.state === 'running') {
-        return { text: 'previewing…', failed: false };
+        return { running: true };
     }
-    if (p.stale || p.state === 'missing') {
-        return { text: 'out of date', failed: false };
+    if (p.state === 'missing' || p.state === 'skipped') {
+        return undefined;
+    }
+    if (p.stale) {
+        return { stale: true };
     }
     if (p.state === 'failed') {
-        return { text: 'preview failed', failed: true };
+        return { error: p.error || (p.status && p.status.error) || 'The preview failed.' };
     }
-    if (p.state === 'skipped') {
-        return { text: 'would be skipped', failed: false };
+    const out: PreviewSummary = { rows: p.status ? p.status.result_count : p.results ? p.results.total : 0 };
+    if (p.status && typeof p.status.run_duration === 'number') {
+        out.seconds = p.status.run_duration;
     }
-    const n = p.status ? p.status.result_count : p.results ? p.results.total : 0;
-    return { text: `✓ ${n} row${n === 1 ? '' : 's'}`, failed: false };
+    return out;
 }

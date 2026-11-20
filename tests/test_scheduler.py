@@ -102,3 +102,57 @@ def test_run_keys_match_run_id_pattern():
         assert scheduler.is_run_id(key), key
     for bad in ("..", "x", "a/b:c", "a:..", ":a", "a::b", "a:b c", None, "a:" + "b" * 2050):
         assert not scheduler.is_run_id(bad), bad
+
+
+def test_cron_run_gets_a_deadline_manual_run_none():
+    store = Store(FakeGateway())
+    j = job(deadline={"within": 3600})
+    run = store.get_run(scheduler.create_run(store, j, "cron", T0, {}, now=T0))
+    assert run["deadline_at"] == T0 + 3600 and run["late_at"] is None
+    late = store.get_run(scheduler.create_run(store, j, "cron", T0 - DAY, {}, now=T0,
+                                              catchup=True))
+    assert late["deadline_at"] is None
+    manual = store.get_run(scheduler.create_run(store, j, "manual", T0, {}, now=T0))
+    assert manual["deadline_at"] is None and manual["late_at"] is None
+    chained = store.get_run(scheduler.create_run(store, j, "completion", T0, {},
+                                                 upstream="up:1", now=T0, upstream_run=run))
+    assert chained["deadline_at"] == T0 + 3600 and chained["deadline_eligible"] is True
+    from_manual = store.get_run(scheduler.create_run(store, j, "completion", T0, {},
+                                                     upstream="up:2", now=T0,
+                                                     upstream_run=manual))
+    assert from_manual["deadline_at"] is None and from_manual["deadline_eligible"] is False
+
+
+def test_run_without_deadline_job_has_no_deadline():
+    store = Store(FakeGateway())
+    run = store.get_run(scheduler.create_run(store, job(), "cron", T0, {}, now=T0))
+    assert run["deadline_at"] is None and "deadline" not in run["definition"]
+
+
+def test_rerun_keeps_the_runs_deadline_and_late_mark():
+    from so import state as statemod
+    store = Store(FakeGateway())
+    run = store.get_run(scheduler.create_run(store, job(deadline={"within": 3600}), "cron",
+                                             T0, {}, now=T0))
+    run.update(state="failed", late_at=T0 + 3600)
+    new = statemod.reset_for_rerun(run, "a", T0 + DAY, scheduler.snapshot(job()))
+    assert new["deadline_at"] == T0 + 3600 and new["late_at"] == T0 + 3600
+
+
+def test_backfill_run_key():
+    key = scheduler.run_key("j", "backfill", 100, backfill="bf0123456789ab")
+    assert key == "j:backfill-bf0123456789ab:100"
+    assert scheduler.is_run_id(key)
+
+
+def test_create_run_stores_backfill():
+    store = Store(FakeGateway())
+    run_id = scheduler.create_run(store, job(), "backfill", T0, {}, now=T0,
+                                  backfill="bf0123456789ab")
+    assert run_id == "j:backfill-bf0123456789ab:%d" % T0
+    run = store.get_run(run_id)
+    assert run["backfill"] == "bf0123456789ab" and run["deadline_at"] is None
+    assert scheduler.create_run(store, job(), "backfill", T0, {}, now=T0,
+                                backfill="bf0123456789ab") is None  # same slot
+    plain = store.get_run(scheduler.create_run(store, job(), "manual", T0, {}, now=T0))
+    assert plain["backfill"] is None

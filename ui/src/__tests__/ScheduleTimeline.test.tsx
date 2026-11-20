@@ -1,7 +1,6 @@
 import React from 'react';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import type { ScheduleResponse } from '../api/types';
-import RunsPage, { RunsApi } from '../features/runs/RunsPage';
 import ScheduleTimeline from '../features/schedule/ScheduleTimeline';
 import { NOW, renderThemed } from './fixtures';
 
@@ -89,33 +88,5 @@ describe('ScheduleTimeline', () => {
         renderThemed(<ScheduleTimeline data={data()} from={FROM} to={TO} now={NOW} q="rep" state="succeeded" />);
         expect(screen.getAllByRole('listitem')).toHaveLength(1);
         expect(screen.getAllByTestId('schedule-bar')).toHaveLength(1); // the scheduled run stays
-    });
-});
-
-describe('Runs page timeline view', () => {
-    test('switches to the timeline and keeps it in the URL', async () => {
-        window.history.replaceState(null, '', '/runs');
-        const api = {
-            listJobs: jest.fn(() => Promise.resolve([])),
-            searchRuns: jest.fn(() => Promise.resolve({ runs: [] })),
-            getSchedule: jest.fn(() => Promise.resolve(data())),
-        } as unknown as RunsApi;
-        renderThemed(<RunsPage api={api} />);
-        fireEvent.click(screen.getByRole('radio', { name: 'Timeline' }));
-        await waitFor(() => expect(screen.getByText('Daily summary')).toBeInTheDocument());
-        expect(window.location.search).toContain('view=timeline');
-        const [from, to] = (api.getSchedule as jest.Mock).mock.calls[0];
-        expect(to - from).toBe(86400);
-        fireEvent.click(screen.getByRole('radio', { name: '7 days' }));
-        await waitFor(() => expect((api.getSchedule as jest.Mock).mock.calls.length).toBeGreaterThan(1));
-        const last = (api.getSchedule as jest.Mock).mock.calls.slice(-1)[0];
-        expect(last[1] - last[0]).toBe(7 * 86400);
-        // searching in the timeline doesn't load the hidden table
-        const tableCalls = (api.searchRuns as jest.Mock).mock.calls.length;
-        fireEvent.change(screen.getByLabelText('Search by job name'), { target: { value: 'dai' } });
-        await act(async () => {
-            await new Promise((r) => setTimeout(r, 400));
-        });
-        expect((api.searchRuns as jest.Mock).mock.calls.length).toBe(tableCalls);
     });
 });

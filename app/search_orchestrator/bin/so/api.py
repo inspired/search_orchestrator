@@ -22,8 +22,10 @@ queued); ``"probe"`` returns
 ``{"checks": [{"check", "ok", "detail"}]}``. The audit object may offer
 ``write(event)``, which raises on failure, for the probe's audit check.
 
-Step previews: the ``preview`` routes are in ``preview_api.py``; the ``schedule`` routes
-(global timeline, builder busy-times strip) are in ``schedule_api.py``.
+Step previews: the ``preview`` routes are in ``preview_api.py``; backfills (``jobs/<id>/backfills``,
+``backfills``) in ``backfill_api.py``; the ``schedule``
+routes (global timeline, builder busy-times strip) in ``schedule_api.py``.
+Approving or rejecting an approval step (``runs/<id>/approve``) is in ``approval_api.py``.
 
 Failures return ``{"error": {"code", "message", "issues"}}`` (some codes add
 fields, such as ``choices`` for ``definition_choice_required``). A job or run
@@ -33,7 +35,8 @@ not leak.
 Engine commands (``so_commands``), applied by ``Engine._apply_command``:
 ``{"type": "pause"|"resume"|"cancel"|"dismiss", "run_id", "user"}`` and
 ``{"type": "rerun", "run_id", "step_id", "definition": "latest"|"original",
-"restart_downstream_jobs": bool, "user"}``. The engine decides whether the
+"restart_downstream_jobs": bool, "user"}``; ``{"type": "cancel_backfill", "backfill_id",
+"user"}``. The engine decides whether the
 run's state allows the command and audits the result.
 
 Hidden searches no longer needed are removed at each save of the job
@@ -45,9 +48,11 @@ import json
 import re
 import time
 import uuid
+from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
-from . import authz, hidden, model, preview, scheduler, selftest, tokens
+from . import authz, backfill, hidden, history, model, presets, preview, scheduler, selftest
+from . import approval, blocks, follows, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -65,8 +70,9 @@ AUDIT_INDEX = "orchestrator"
 RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
-HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed")
-PRESETS = ("slack", "generic")
+HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late",
+         "on_approval_requested")
+PRESETS = tuple(presets.PRESETS)  # slack, generic, teams, pagerduty, servicenow
 # Integer settings and their upper bounds (the lower bound is 1).
 INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 1000,
                 "result_retention": 7 * 86400, "run_retention_days": 3650}
@@ -83,9 +89,12 @@ LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "en
                    "delay_alerted", "held", "gave_up")
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
 _META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
-         "hidden_searches", "enabled")
+         "hidden_searches", "enabled", "tags")
 _SERVER_FIELDS = ("owner", "hidden_searches", "created_at", "created_by", "updated_at",
-                  "updated_by")
+                  "updated_by",
+                  # Added by GET jobs for the screens; never part of a saved job.
+                  "permissions", "next_run", "next_run_beyond", "last_run", "recent_runs",
+                  "warnings", "following")
 
 
 class ApiError(Exception):
@@ -149,7 +158,9 @@ class _Ctx:
 # Routing.
 
 def _routes():
-    from . import preview_api as pv  # imports this module: loaded on first use, no cycle
+    from . import condition_test as ct, history_api as hv, output_view as ov, preview_api as pv  # these import this module: no cycle
+    from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
+    from . import follows as fw, logs_api as lg
     from . import schedule_api as sc
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
@@ -157,21 +168,44 @@ def _routes():
         (r"jobs/(?P<job_id>[^/]+)", {"GET": get_job, "PUT": update_job, "DELETE": delete_job}),
         (r"jobs/(?P<job_id>[^/]+)/runs", {"POST": start_run}),
         (r"jobs/(?P<job_id>[^/]+)/enabled", {"POST": set_enabled}),
+        (r"jobs/(?P<job_id>[^/]+)/follow", {"GET": fw.get_follow, "PUT": fw.put_follow,
+                                            "DELETE": fw.delete_follow}),
+        (r"jobs/(?P<job_id>[^/]+)/versions", {"GET": hv.versions}),
+        (r"jobs/(?P<job_id>[^/]+)/restore", {"POST": hv.restore}),
+        (r"jobs/(?P<job_id>[^/]+)/backfills", {"POST": bf.create_backfill}),
+        (r"backfills", {"GET": bf.list_backfills}),
+        (r"backfills/(?P<backfill_id>[^/]+)", {"GET": bf.get_backfill}),
+        (r"backfills/(?P<backfill_id>[^/]+)/cancel", {"POST": bf.cancel_backfill}),
+        (r"calendar", {"GET": cal.calendar}),
+        (r"snippets", {"GET": sn.list_snippets, "POST": sn.create_snippet}),
+        (r"snippets/(?P<snippet_id>[^/]+)", {"GET": sn.get_snippet, "PUT": sn.update_snippet,
+                                             "DELETE": sn.delete_snippet}),
         (r"runs", {"GET": list_runs}),
+        (r"runs/bulk", {"POST": bulk_runs}),
         (r"runs/(?P<run_id>[^/]+)", {"GET": get_run}),
         (r"runs/(?P<run_id>[^/]+)/(?P<action>pause|resume|cancel|dismiss)", {"POST": control_run}),
         (r"runs/(?P<run_id>[^/]+)/rerun", {"POST": rerun}),
+        (r"runs/(?P<run_id>[^/]+)/approve", {"POST": ap.approve}),
+        (r"runs/(?P<run_id>[^/]+)/performance", {"GET": pf.performance}),
         (r"schedule", {"GET": sc.get_schedule}),
         (r"schedule/preview", {"POST": sc.schedule_preview}),
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
+        (r"logs", {"GET": lg.search_logs}),
+        (r"logs/summary", {"GET": lg.summary}),
+        (r"logs/breakdown", {"GET": lg.breakdown}),
+        (r"logs/problems", {"GET": lg.problems}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
         (r"alert_actions", {"GET": list_alert_actions}),
         (r"health", {"GET": health}),
         (r"me", {"GET": me}),
+        (r"schedule/next", {"POST": schedule_next}),
+        (r"timerange/resolve", {"POST": resolve_timerange}),
         (r"selftest", {"POST": run_selftest}),
         (r"preview", {"POST": pv.start_preview}),
         (r"preview/defaults", {"POST": pv.preview_defaults}),
+        (r"preview/condition", {"POST": ct.start}),
+        (r"preview/output", {"POST": ov.start}),
         (r"preview/(?P<sid>[^/]+)", {"GET": pv.poll_preview}),
         (r"preview/(?P<sid>[^/]+)/results", {"GET": pv.preview_rows}),
         (r"preview/(?P<sid>[^/]+)/cancel", {"POST": pv.cancel_preview}),
@@ -184,7 +218,8 @@ def _is_job_id(value):
 
 _ID_CHECKS = {"job_id": _is_job_id, "run_id": scheduler.is_run_id,
               "name": lambda v: bool(DEST_NAME_RE.fullmatch(v)),
-              "sid": lambda v: preview.parts(v) is not None}
+              "sid": lambda v: preview.parts(v) is not None,
+              "backfill_id": backfill.ID_RE.fullmatch, "snippet_id": lambda v: bool(re.fullmatch(r"sn[0-9a-f]{12}", v))}
 
 
 def _relative(path):
@@ -255,47 +290,97 @@ def _next_run(job, now):
     return (min(slots), False) if slots else (None, True)
 
 
-def _last_run(ctx, job_id):
-    rows = ctx.sys_gw.kv_query(RUNS, {"job_id": job_id}, sort="created_at:-1", limit=1)
-    if not rows:
-        return None
-    return {k: rows[0].get(k) for k in LAST_RUN_FIELDS}
+RECENT_RUNS = 10
 
 
-def _last_runs(ctx, job_ids):
-    """``{job id: last run}`` for a page of jobs; a job that never ran is absent.
+def _recent_runs(ctx, job_id):
+    """The job's newest runs (at most RECENT_RUNS, newest first), in one KV query."""
+    rows = ctx.sys_gw.kv_query(RUNS, {"job_id": job_id}, sort="created_at:-1", limit=RECENT_RUNS,
+                               fields=",".join(("_key",) + LAST_RUN_FIELDS))
+    return [{k: r.get(k) for k in LAST_RUN_FIELDS} for r in rows or []]
 
-    One read of their newest runs usually finds them all. If that read was cut off, a few
-    busy jobs may have crowded the others out, so those are looked up one at a time, which
-    a page bounds. Without the cut-off, a job not found has no runs.
-    """
+
+def _visible_jobs(ctx):
+    """``{id: job}`` of the jobs the user may see."""
+    return {j.get("id") or j.get("_key"): j for j in ctx.store.list_jobs()
+            if ctx.allowed(authz.can_view, j)}
+
+
+def _link_issues(job, known):
+    """Warnings for the jobs this job starts (start-job actions) or follows (completion
+    triggers) that don't exist, or that the user may not see (``known``: ``{id: job}`` of
+    the jobs they may see, so a hidden job reads as missing and its id is never confirmed),
+    and for start-job targets that are disabled."""
+    issues = []
+    scoped = [(None, a) for a in job.get("actions") or []]
+    for step in job.get("steps") or []:
+        if isinstance(step, dict):
+            scoped.extend((step.get("id"), a) for a in step.get("actions") or [])
+    for step_id, action in scoped:
+        if not isinstance(action, dict) or action.get("type") != "start_job":
+            continue
+        target = action.get("job")
+        if not isinstance(target, str) or not target:
+            continue
+        if target not in known:
+            issues.append(_issue("warning", "missing_target_job",
+                                 "a Start job action starts job %r, which doesn't exist or you "
+                                 "can't see; the action fails each time; pick another job" % target,
+                                 step_id))
+        elif known[target].get("enabled") is False:
+            issues.append(_issue("warning", "disabled_target_job",
+                                 "a Start job action starts %r, which is disabled; its runs still "
+                                 "start, but enable it if it should also run on its schedule"
+                                 % (known[target].get("name") or target), step_id))
+    for t in job.get("triggers") or []:
+        if not isinstance(t, dict) or t.get("type") != "completion" or t.get("enabled") is False:
+            continue
+        upstream = t.get("job")
+        if isinstance(upstream, str) and upstream and upstream not in known:
+            issues.append(_issue("warning", "missing_upstream_job",
+                                 "the trigger follows job %r, which doesn't exist or you can't "
+                                 "see, so it never starts this job; pick another job" % upstream))
+    return issues
+
+
+def _recent_runs_of(ctx, job_ids):
+    """``{job id: newest runs}`` for a page of jobs, in one read of their newest runs; a job
+    that never ran is absent. If that read was cut off, a few busy jobs may have crowded the
+    others out, so the jobs it didn't find are looked up one at a time, which a page bounds
+    (a job it found keeps the runs it found, which may be fewer than RECENT_RUNS)."""
     if not job_ids:
         return {}
     rows = ctx.store.list_runs({"job_id": {"$in": job_ids}}, limit=LAST_RUN_SCAN,
-                               fields=",".join(("job_id",) + LAST_RUN_FIELDS))
+                               fields=",".join(("_key", "job_id") + LAST_RUN_FIELDS))
     found = {}
-    for row in rows:  # newest first, so the first row seen for a job is its last run
-        found.setdefault(row.get("job_id"), {k: row.get(k) for k in LAST_RUN_FIELDS})
+    for row in rows:  # newest first
+        runs = found.setdefault(row.get("job_id"), [])
+        if len(runs) < RECENT_RUNS:
+            runs.append({k: row.get(k) for k in LAST_RUN_FIELDS})
     if len(rows) >= LAST_RUN_SCAN:
         for job_id in job_ids:
             if job_id not in found:
-                last = _last_run(ctx, job_id)
-                if last is not None:
-                    found[job_id] = last
+                recent = _recent_runs(ctx, job_id)
+                if recent:
+                    found[job_id] = recent
     return found
 
 
-def _with_runs(ctx, job, last_run):
-    """A job for the Jobs screen: the public job plus its next and last run."""
+def _listed_job(ctx, job, known=None, recent=None):
+    """A job for the Jobs screen: the public job plus its next run, its last run and its
+    newest runs (``recent``, for the run history dots), and warnings: steps a re-save fixes
+    and jobs it starts or follows that are missing. ``recent`` given (a page's batched read)
+    saves the job's own query."""
     out = _public_job(ctx, job)
     out["next_run"], out["next_run_beyond"] = _next_run(job, ctx.now)
-    out["last_run"] = last_run
-    out["warnings"] = model.old_time_range_issues(job)  # fixed by a re-save
+    if recent is None:
+        recent = _recent_runs(ctx, job.get("id") or job.get("_key"))
+    out["last_run"] = recent[0] if recent else None
+    out["recent_runs"] = recent
+    if known is None:
+        known = _visible_jobs(ctx)
+    out["warnings"] = model.old_time_range_issues(job) + _link_issues(job, known)
     return out
-
-
-def _listed_job(ctx, job):
-    return _with_runs(ctx, job, _last_run(ctx, _job_id(job)))
 
 
 def _job_id(job):
@@ -311,8 +396,8 @@ def _name_has(job, term):
     return term.casefold() in str(job.get("name") or "").casefold()
 
 
-def _jobs_page(ctx, jobs, body):
-    """One page of ``jobs``. A failed read of the last runs still lists the jobs."""
+def _jobs_page(ctx, jobs, body, known):
+    """One page of ``jobs``. A failed read of the runs still lists the jobs."""
     try:
         limit = max(1, min(JOBS_PAGE_MAX, int(body.get("limit") or JOBS_PAGE_MAX)))
         offset = max(0, int(body.get("offset") or 0))
@@ -321,16 +406,17 @@ def _jobs_page(ctx, jobs, body):
     page = jobs[offset:offset + limit]
     out = {"total": len(jobs)}
     try:
-        last = _last_runs(ctx, [_job_id(j) for j in page])
+        recent = _recent_runs_of(ctx, [_job_id(j) for j in page])
     except GatewayError:
-        last = {}
+        recent = {}
         out["last_run_unavailable"] = True
-    out["jobs"] = [_with_runs(ctx, j, last.get(_job_id(j))) for j in page]
+    out["jobs"] = [_listed_job(ctx, j, known, recent.get(_job_id(j)) or []) for j in page]
     return out
 
 
 def list_jobs(ctx, body):
-    jobs = [j for j in ctx.store.list_jobs() if ctx.allowed(authz.can_view, j)]
+    known = _visible_jobs(ctx)
+    jobs = list(known.values())
     term = _search_term(body)
     if term:
         jobs = [j for j in jobs if _name_has(j, term)]
@@ -339,8 +425,13 @@ def list_jobs(ctx, body):
     if str(body.get("brief")) == "1":
         return 200, {"jobs": [_public_job(ctx, j) for j in jobs]}
     if body.get("limit") in (None, ""):
-        return 200, {"jobs": [_listed_job(ctx, j) for j in jobs]}
-    return 200, _jobs_page(ctx, jobs, body)
+        out = {"jobs": [_listed_job(ctx, j, known) for j in jobs]}
+    else:
+        out = _jobs_page(ctx, jobs, body, known)
+    mine = follows.followed_by(ctx.sys_gw, ctx.user)
+    for job in out["jobs"]:
+        job["following"] = job.get("id") in mine
+    return 200, out
 
 
 def get_job(ctx, body, job_id):
@@ -379,15 +470,16 @@ def _prepare(body, job_id, owner):
 
 
 def _destination_names(ctx):
+    """``{name: preset}`` of the webhook destinations."""
     doc = ctx.sys_gw.kv_get(SETTINGS, DESTINATIONS_KEY) or {}
-    return {d.get("name") for d in doc.get("destinations") or []}
+    return {d.get("name"): d.get("preset") for d in doc.get("destinations") or []}
 
 
 def _job_issues(ctx, job):
     """Checks beyond ``model.validate_job``: job fields, actions and the start_job cycle."""
     issues = []
     if not isinstance(job.get("name"), str) or not job["name"].strip():
-        issues.append(_issue("error", "bad_job", "the job needs a name"))
+        issues.append(_issue("error", "bad_job", "the job needs a name; type one in Job name"))
     if not isinstance(job.get("enabled"), bool):
         issues.append(_issue("error", "bad_job", "enabled must be true or false"))
     roles = job.get("run_roles")
@@ -397,43 +489,77 @@ def _job_issues(ctx, job):
         if not isinstance(t, dict) or t.get("type") != "completion":
             continue
         if not isinstance(t.get("job"), str) or not JOB_ID_RE.fullmatch(t["job"]):
-            issues.append(_issue("error", "bad_trigger", "a completion trigger needs the id of "
-                                 "the job it follows"))
+            issues.append(_issue("error", "bad_trigger", "a completion trigger needs a job to follow; "
+                                 "pick one in Job"))
         if (t.get("on") or "success") not in ("success", "complete"):
-            issues.append(_issue("error", "bad_trigger", "a completion trigger's \"on\" must be "
-                                 "\"success\" or \"complete\""))
+            issues.append(_issue("error", "bad_trigger", "a completion trigger starts when the job "
+                                 "succeeds or completes; choose one in Start when it"))
     dests = None
     scoped = [(None, a) for a in job.get("actions") or []]
+    approvals = {s.get("id") for s in job.get("steps") or [] if approval.is_approval(s)}
     for step in job.get("steps") or []:
         scoped.extend((step.get("id"), a) for a in step.get("actions") or [])
     for step_id, action in scoped:
         if not isinstance(action, dict):
-            issues.append(_issue("error", "bad_action", "an action must be an object", step_id))
+            issues.append(_issue("error", "bad_action", "an action is malformed; remove it and add it again", step_id))
             continue
         kind = action.get("type")
         if kind not in ACTION_TYPES:
-            issues.append(_issue("error", "bad_action", "unknown action type %r" % (kind,), step_id))
+            issues.append(_issue("error", "bad_action", "unknown action type %r; choose one in Do" % (kind,), step_id))
             continue
         if action.get("hook") not in HOOKS:
-            issues.append(_issue("error", "bad_action", "unknown action hook %r"
+            issues.append(_issue("error", "bad_action", "unknown action time %r; choose one in When"
                                  % (action.get("hook"),), step_id))
+        elif action["hook"] == "on_late" and step_id is not None:
+            issues.append(_issue("error", "bad_action", "Is late is a whole-job outcome; "
+                                 "connect it from the Whole job node", step_id))
+        elif action["hook"] == "on_approval_requested" and step_id not in approvals:
+            issues.append(_issue("error", "bad_action", "Asks for approval only exists on "
+                                 "approval steps", step_id))
+        if kind == "event":
+            for key in ("source", "sourcetype", "host"):
+                value = action.get(key)
+                if value is not None and (not isinstance(value, str) or "\n" in value or "\r" in value):
+                    issues.append(_issue("error", "bad_action", "the event's %s must be one line of text" % key,
+                                         step_id))
+            if action.get("time") not in (None, "now", "scheduled"):
+                issues.append(_issue("error", "bad_action", "the event's time must be now or scheduled",
+                                     step_id))
+        for key, lo, hi, what in (("retries", 0, 10, "Retries must be a whole number from 0 to 10"),
+                                  ("retry_wait", 10, 3600, "Wait before retrying must be from 10 seconds to 1 hour")):
+            value = action.get(key)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)
+                                      or not lo <= value <= hi):
+                issues.append(_issue("error", "bad_action", what, step_id))
         required = {"email": "to", "event": "index", "start_job": "job",
                     "alert_action": "action", "webhook": "destination"}[kind]
         if not isinstance(action.get(required), str) or not action[required]:
-            issues.append(_issue("error", "bad_action", "%s action needs %s" % (kind, required),
+            issues.append(_issue("error", "bad_action", "the %s action needs %s; fill it in" % (kind, required),
                                  step_id))
         elif kind == "webhook":
             if dests is None:
                 dests = _destination_names(ctx)
             if action["destination"] not in dests:
-                issues.append(_issue("error", "unknown_destination", "unknown webhook destination "
-                                     "%r" % action["destination"], step_id))
+                issues.append(_issue("error", "unknown_destination", "webhook destination %r doesn't exist; "
+                                     "pick another, or ask an admin to add it in Settings"
+                                     % action["destination"], step_id))
+            preset = action.get("preset") or dests.get(action["destination"]) or "generic"
+            if preset not in PRESETS:
+                issues.append(_issue("error", "bad_action", "unknown webhook format %r; choose "
+                                     "Slack, Generic, Teams, PagerDuty or ServiceNow" % preset, step_id))
+            elif not action.get("body"):  # a body template ignores options
+                issues.extend(_issue("error", "bad_action", m, step_id)
+                              for m in presets.option_issues(preset, action.get("options")))
+    known = _visible_jobs(ctx)
+    known.setdefault(job.get("id"), job)  # a job may start itself
+    issues.extend(_link_issues(job, known))
     cycle = _chain_cycle(ctx, job)
     if cycle:
         cycle = _redact_cycle(ctx, cycle, job["id"])
         issues.append(_issue("warning", "job_chain_cycle",
-                             "start_job actions form a cycle across jobs (%s); each run starts the "
-                             "next until the chain depth limit (%d) stops it"
+                             "start-job actions form a loop across jobs (%s); each run starts the "
+                             "next until the limit of %d chained runs stops it; remove one "
+                             "start-job action to break the loop"
                              % (" -> ".join(cycle), CHAIN_LIMIT)))
     return issues
 
@@ -482,10 +608,15 @@ def _chain_cycle(ctx, job):
     return None
 
 
-def _check(ctx, job):
+def _check(ctx, job, previous=None):
     """``(issues, planned, searches)`` for a save, without writing anything. ``planned``
-    and ``searches`` come from ``hidden.plan`` and are None if an earlier check failed."""
+    and ``searches`` come from ``hidden.plan`` and are None if an earlier check failed.
+    ``previous`` is the saved job, if any: a building block turned off in Settings may stay
+    in a job that already used it, but can't be added."""
     issues = model.validate_job(job)
+    if _errors(issues):
+        return issues, None, None
+    issues += blocks.issues(job, previous, ctx.store.get_settings())
     if _errors(issues):
         return issues, None, None
     issues += _job_issues(ctx, job)
@@ -512,14 +643,27 @@ def validate_job(ctx, body):
         existing = ctx.store.get_job(job_id)
         if existing is not None and not ctx.allowed(authz.can_view, existing):
             existing = None  # as if new: never reveal that the id is taken
-    issues, _, _ = _check(ctx, _prepare(body, job_id, ctx.user))
+    issues, _, _ = _check(ctx, _prepare(body, job_id, ctx.user), existing)
     out = {"valid": not _errors(issues), "issues": issues}
     out.update(_owner_change(ctx, existing))
     return 200, out
 
 
-def _save(ctx, job, previous):
-    issues, planned, searches = _check(ctx, job)
+def _record_version(ctx, job, previous, restored_from=None):
+    try:  # the job is saved already: a failed version write must not fail the save
+        saved, pruned = history.record(ctx.sys_gw, job, ctx.user, ctx.now, previous, restored_from)
+    except GatewayError as err:
+        ctx.emit({"type": "job_version_failed", "job_id": job["id"], "error": str(err)})
+        return
+    for version in saved:
+        ctx.emit({"type": "job_version_saved", "job_id": job["id"], "version": version["version"],
+                  "summary": version["summary"]})
+    if pruned:
+        ctx.emit({"type": "job_versions_pruned", "job_id": job["id"], "count": pruned})
+
+
+def _save(ctx, job, previous, restored_from=None):
+    issues, planned, searches = _check(ctx, job, previous)
     if _errors(issues):
         raise ApiError(400, "job_invalid", "the job has errors and was not saved", issues)
 
@@ -545,6 +689,7 @@ def _save(ctx, job, previous):
     job["created_by"] = (previous or {}).get("created_by", ctx.user)
     job.update(updated_at=ctx.now, updated_by=ctx.user)
     ctx.store.save_job(job)
+    _record_version(ctx, job, previous, restored_from)
     _collect_garbage(ctx, job)
     return job, issues
 
@@ -596,13 +741,13 @@ def create_job(ctx, body):
     return 201, out
 
 
-def update_job(ctx, body, job_id):
+def update_job(ctx, body, job_id, restored_from=None):
     previous = _visible_job(ctx, job_id)
     if not ctx.allowed(authz.can_edit, previous):
         raise ctx.deny("edit_job", job_id=job_id)
     old_owner = previous.get("owner")
     change = _owner_change(ctx, previous)
-    job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous)
+    job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous, restored_from)
     ctx.emit({"type": "job_saved", "job_id": job_id, "created": False, "owner": job["owner"],
               "enabled": job.get("enabled")})
     if old_owner != ctx.user:
@@ -622,8 +767,10 @@ def set_enabled(ctx, body, job_id):
     enabled = body.get("enabled")
     if not isinstance(enabled, bool):
         raise ApiError(400, "bad_request", "enabled must be true or false")
+    before = dict(job)
     job.update(enabled=enabled, updated_at=ctx.now, updated_by=ctx.user)
     ctx.store.save_job(job)
+    _record_version(ctx, job, before)
     ctx.emit({"type": "job_enabled", "job_id": job_id, "enabled": enabled,
               "owner": job.get("owner")})
     return 200, {"job": _public_job(ctx, job)}
@@ -640,6 +787,8 @@ def delete_job(ctx, body, job_id):
     for entry in job.get("hidden_searches") or []:
         ctx.user_gw.delete_saved_search(entry["owner"], entry["name"])
     ctx.store.delete_job(job_id)
+    history.delete_all(ctx.sys_gw, job_id)
+    follows.delete_for_job(ctx.sys_gw, job_id)
     ctx.emit({"type": "job_deleted", "job_id": job_id, "owner": job.get("owner")})
     return 200, {"deleted": job_id}
 
@@ -677,7 +826,7 @@ def start_run(ctx, body, job_id):
     scheduled = _scheduled_time(ctx, body)
     try:
         run_id = scheduler.create_run(ctx.store, job, "manual", scheduled, params, now=ctx.now,
-                                      audit=ctx.audit, chain_depth=0)
+                                      audit=ctx.audit, chain_depth=0, started_by=ctx.user)
     except tokens.TokenError as err:
         message = "parameter %s: %s" % (err.token, err.reason)
         raise ApiError(400, "bad_param", message, [_issue("error", "bad_param", message)])
@@ -719,18 +868,53 @@ def list_runs(ctx, body):
         limit = max(1, min(1000, int(body.get("limit") or 200)))
     except (TypeError, ValueError):
         raise ApiError(400, "bad_request", "limit must be a number")
+    from . import queue_info
     term = _search_term(body)
+    partial = False
     if term:
-        return 200, _search_runs(ctx, filters, term, limit)
+        runs, partial = _search_runs(ctx, filters, term, limit)
+    else:
+        runs = _visible_runs(ctx, filters, limit)
+    engine = queue_info.engine_status(ctx)
+    reasons = queue_info.queue_reasons(ctx, runs, engine)
+    numbers = _run_numbers(ctx, runs)
+    out = []
+    for r in runs:
+        s = _summary(r)
+        key = r.get("_key") or r.get("id")
+        if key in reasons:
+            s["queue_reason"] = reasons[key]
+        if key in numbers:
+            s["number"] = numbers[key]
+        out.append(s)
+    result = {"runs": out, "engine": engine}
+    if partial:
+        result["partial"] = True
+    return 200, result
+
+
+def _run_numbers(ctx, runs):
+    """Each listed run's number within its job: 1 for the job's oldest kept run, counted over
+    all its runs (not the filtered or limited list), so a run keeps its number as new runs
+    arrive and in every filter. Only retention removing old runs shifts it."""
+    out = {}
+    for job_id in sorted({r.get("job_id") for r in runs if r.get("job_id")}):
+        rows = ctx.store.list_runs({"job_id": job_id}, fields="_key,created_at")
+        for i, row in enumerate(rows):
+            out[row.get("_key")] = len(rows) - i
+    return out
+
+
+def _visible_runs(ctx, query, limit):
+    """Up to ``limit`` runs matching ``query``, newest first, that the caller may see."""
     if ctx.allowed(authz.can_admin, None):
-        runs = ctx.store.list_runs(filters, limit=limit, fields=LIST_FIELDS)
-        return 200, {"runs": [_summary(r) for r in runs]}
+        return ctx.store.list_runs(query, limit=limit, fields=LIST_FIELDS)
     jobs = {j.get("id") or j.get("_key"): j for j in ctx.store.list_jobs()}
     visible = sorted(k for k, j in jobs.items() if ctx.allowed(authz.can_view, j))
-    query = dict(filters)
-    if "job_id" in filters:
-        if filters["job_id"] in jobs and filters["job_id"] not in visible:
-            return 200, {"runs": []}
+    query = dict(query)
+    if "job_id" in query:
+        if query["job_id"] in jobs and query["job_id"] not in visible:
+            return []
     else:  # runs of jobs the caller may see, and runs of deleted jobs (checked below)
         query["$or"] = [{"job_id": {"$in": visible}}, {"job_id": {"$nin": sorted(jobs)}}]
     out, skip = [], 0
@@ -740,13 +924,13 @@ def list_runs(ctx, body):
         if len(page) < limit:
             break
         skip += len(page)
-    return 200, {"runs": [_summary(r) for r in out[:limit]]}
+    return out[:limit]
 
 
 def _search_runs(ctx, filters, term, limit):
     """Newest runs of the visible jobs whose name contains ``term``, or whose id is exactly
     ``term``, which also finds a deleted job's runs. Every read is bounded: ``partial`` says
-    the search stopped before it had looked at everything."""
+    the search stopped before it had looked at everything. Returns ``(rows, partial)``."""
     jobs = {_job_id(j): j for j in ctx.store.list_jobs()}
     wanted = {k for k, j in jobs.items() if ctx.allowed(authz.can_view, j)
               and (k == term or _name_has(j, term))}
@@ -755,7 +939,7 @@ def _search_runs(ctx, filters, term, limit):
     if "job_id" in filters:
         wanted &= {filters["job_id"]}
     if not wanted:
-        return {"runs": []}
+        return [], False
     query, size = dict(filters), RUN_SCAN_PAGE
     if len(wanted) <= RUN_SEARCH_IN_MAX:
         query["job_id"], size = {"$in": sorted(wanted)}, limit
@@ -780,10 +964,7 @@ def _search_runs(ctx, filters, term, limit):
         if len(page) < size:
             break
         skip += len(page)
-    result = {"runs": [_summary(r) for r in out[:limit]]}
-    if partial and len(out) < limit:
-        result["partial"] = True
-    return result
+    return out[:limit], bool(partial and len(out) < limit)
 
 
 def _deleted_job_run_visible(ctx, row):
@@ -796,7 +977,7 @@ def _deleted_job_run_visible(ctx, row):
 
 
 def _definition(doc):
-    return {k: v for k, v in (doc or {}).items() if k not in _META}
+    return {k: v for k, v in (doc or {}).items() if k not in _META and k != "layout"}
 
 
 def _ancestors(definition, step_id):
@@ -844,7 +1025,13 @@ def get_run(ctx, body, run_id):
     out["permissions"] = {"can_run": ctx.allowed(authz.can_run, _run_job(ctx, run))}
     attempts = ctx.store.list_step_runs(run_id)
     actions = ctx.sys_gw.kv_query(ACTION_RUNS, {"run_id": run_id})
-    return 200, {"run": out, "attempts": attempts, "actions": actions}
+    from . import queue_info
+    engine = queue_info.engine_status(ctx)
+    reason = queue_info.queue_reasons(ctx, [run], engine).get(run_id)
+    if reason:
+        out["queue_reason"] = reason
+    out["step_reasons"] = queue_info.step_reasons(ctx, run)
+    return 200, {"run": out, "attempts": attempts, "actions": actions, "engine": engine}
 
 
 def _controllable_run(ctx, run_id, action):
@@ -904,6 +1091,70 @@ def rerun(ctx, body, run_id):
     return 202, {"command_id": key, "definition": choice}
 
 
+BULK_ACTIONS = ("cancel", "pause", "resume", "dismiss", "rerun", "approve", "reject")
+BULK_MAX = 100
+
+
+def _rerun_step(run):
+    """The step a bulk re-run starts from: the first failed step in the definition's order,
+    else the first that did not succeed or get skipped (a blocked or cancelled run)."""
+    steps = [s.get("id") for s in (run.get("definition") or {}).get("steps") or []]
+    states = {k: (v or {}).get("state") for k, v in (run.get("steps") or {}).items()}
+    for wanted in (("failed",), ("blocked", "cancelled", "pending", "waiting", None)):
+        for sid in steps:
+            if states.get(sid) in wanted:
+                return sid
+    return steps[0] if steps else None
+
+
+def _bulk_one(ctx, action, run_id, comment):
+    from . import approval_api as ap, approval as appr
+    if action in ("cancel", "pause", "resume", "dismiss"):
+        return control_run(ctx, {}, run_id, action)
+    if action == "rerun":
+        run = _visible_run(ctx, run_id)
+        step = _rerun_step(run)
+        if step is None:
+            raise ApiError(409, "invalid_state", "the run has no step to re-run from")
+        return rerun(ctx, {"step": step, "definition": "original"}, run_id)
+    run = _visible_run(ctx, run_id)
+    waiting = [sid for sid, st in (run.get("steps") or {}).items()
+               if (st or {}).get("state") == appr.AWAITING
+               and not ((st or {}).get("approval_state") or {}).get("decision")]
+    if not waiting:
+        raise ApiError(409, "not_awaiting_approval", "the run isn't waiting for an approval")
+    for sid in waiting:
+        ap.approve(ctx, {"step_id": sid, "decision": action, "comment": comment}, run_id)
+    return 202, {"steps": waiting}
+
+
+def bulk_runs(ctx, body):
+    """``POST runs/bulk {"action", "run_ids", "comment"}``: the same action on many runs,
+    each checked as if done on its own. A re-run starts from the run's first failed step with
+    the definition the run used; approve and reject decide every step the run waits on.
+    Answers 200 ``{"results": [{"run_id", "ok", "code", "message"}]}``."""
+    action = body.get("action")
+    if action not in BULK_ACTIONS:
+        raise ApiError(400, "bad_request", "action must be one of %s" % ", ".join(BULK_ACTIONS))
+    ids = body.get("run_ids")
+    if (not isinstance(ids, list) or not ids or len(ids) > BULK_MAX
+            or not all(isinstance(i, str) and scheduler.is_run_id(i) for i in ids)):
+        raise ApiError(400, "bad_request", "run_ids must be a list of 1-%d run ids" % BULK_MAX)
+    comment = body.get("comment")
+    if action == "reject" and not (isinstance(comment, str) and comment.strip()):
+        raise ApiError(400, "bad_request", "Add a comment saying why you reject")
+    results = []
+    for run_id in dict.fromkeys(ids):
+        try:
+            _bulk_one(ctx, action, run_id, comment)
+            results.append({"run_id": run_id, "ok": True})
+        except ApiError as err:
+            results.append({"run_id": run_id, "ok": False, "code": err.code, "message": err.message})
+    ctx.emit({"type": "bulk_run_action", "action": action, "count": len(results),
+              "failed": sum(1 for r in results if not r["ok"])})
+    return 200, {"results": results}
+
+
 # Settings and destinations.
 
 def _require_admin(ctx, action):
@@ -913,7 +1164,7 @@ def _require_admin(ctx, action):
 
 def _settings_view(stored):
     out = dict(DEFAULT_SETTINGS)
-    out.update(fallback=None, base_url=None)
+    out.update(fallback=None, base_url=None, turned_off=[])
     for key, value in (stored or {}).items():
         if not key.startswith("_") and value is not None:
             out[key] = value
@@ -964,6 +1215,27 @@ def put_settings(ctx, body):
             current[key] = value
         elif key == "fallback":
             current[key] = _check_fallback(ctx, value)
+        elif key == "log_level":
+            from .logs import LEVELS
+            if not isinstance(value, str) or value.upper() not in LEVELS:
+                raise _bad_setting("log_level must be one of %s" % ", ".join(LEVELS))
+            current[key] = value.upper()
+        elif key == "scan_limit":
+            if value in (None, 0, ""):
+                current[key] = None
+            elif isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10 ** 13:
+                raise _bad_setting("scan_limit must be a whole number of events, or empty for none")
+            else:
+                current[key] = value
+        elif key == "scan_limit_action":
+            if value not in ("warn", "stop"):
+                raise _bad_setting("scan_limit_action must be \"warn\" or \"stop\"")
+            current[key] = value
+        elif key == "turned_off":
+            try:
+                current[key] = blocks.check(value)
+            except ValueError as err:
+                raise _bad_setting(str(err))
         elif key == "base_url":
             if value not in (None, "") and not (isinstance(value, str)
                                                 and re.match(r"^https?://[^/\s]+", value)):
@@ -989,7 +1261,8 @@ def _save_destinations(ctx, dests):
 
 def _public_destination(dest):
     return {"name": dest.get("name"), "preset": dest.get("preset"), "host": dest.get("host"),
-            "has_headers": bool(dest.get("headers_secret_ref"))}
+            "has_headers": bool(dest.get("headers_secret_ref")),
+            "body_secret_set": bool(dest.get("body_secret_ref"))}
 
 
 def list_alert_actions(ctx, body):
@@ -1010,22 +1283,28 @@ def save_destination(ctx, body):
     if not isinstance(name, str) or not DEST_NAME_RE.fullmatch(name):
         raise ApiError(400, "bad_destination", "destination name must be 1-64 letters, digits, "
                        "_, . or -")
-    url = body.get("url")
-    if not isinstance(url, str):
-        raise ApiError(400, "bad_destination", "destination needs an https url")
-    try:
-        check_webhook_url(url)
-    except GatewayError as err:
-        raise ApiError(400, "bad_destination", str(err))
-    headers = body.get("headers", ...)
-    if headers not in (..., None) and not (isinstance(headers, dict) and all(
-            isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
-        raise ApiError(400, "bad_destination", "headers must be an object of strings")
     preset = body.get("preset") or "generic"
     if preset not in PRESETS:
         raise ApiError(400, "bad_destination", "unknown preset %r" % (preset,))
     dests = _destinations(ctx)
     old = next((d for d in dests if d.get("name") == name), {})
+    body_ref = old.get("body_secret_ref") if preset == "pagerduty" else None
+    try:
+        stored = ctx.sys_gw.read_secret(old["url_secret_ref"]) if body_ref \
+            and old.get("preset") == "pagerduty" and body.get("url") in (None, "") else None
+        url = presets.destination_url(preset, body.get("url"), stored)
+        if not isinstance(url, str):
+            raise ValueError("destination needs an https url")
+        check_webhook_url(url)
+        key = body.get("routing_key")
+        body_secret = presets.routing_key_secret(key) if preset == "pagerduty" and (
+            key is not None or not body_ref) else None
+    except (ValueError, GatewayError) as err:
+        raise ApiError(400, "bad_destination", str(err))
+    headers = body.get("headers", ...)
+    if headers not in (..., None) and not (isinstance(headers, dict) and all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
+        raise ApiError(400, "bad_destination", "headers must be an object of strings")
     url_ref = "destination_%s_url" % name
     ctx.sys_gw.write_secret(url_ref, url)
     headers_ref = old.get("headers_secret_ref")
@@ -1036,8 +1315,13 @@ def save_destination(ctx, body):
         if headers:
             headers_ref = "destination_%s_headers" % name
             ctx.sys_gw.write_secret(headers_ref, json.dumps(headers, sort_keys=True))
+    if old.get("body_secret_ref") and not body_ref:  # no longer PagerDuty
+        ctx.sys_gw.delete_secret(old["body_secret_ref"])
+    if body_secret:
+        body_ref = "destination_%s_body" % name
+        ctx.sys_gw.write_secret(body_ref, body_secret)
     dest = {"name": name, "url_secret_ref": url_ref, "headers_secret_ref": headers_ref,
-            "preset": preset, "host": urlsplit(url).hostname}
+            "body_secret_ref": body_ref, "preset": preset, "host": urlsplit(url).hostname}
     dests = [d for d in dests if d.get("name") != name] + [dest]
     _save_destinations(ctx, dests)
     ctx.emit({"type": "destination_saved", "destination": name, "host": dest["host"],
@@ -1055,7 +1339,8 @@ def delete_destination(ctx, body, name):
         raise ApiError(409, "destination_in_use", "destination %r is the fallback notification "
                        "destination; change the fallback first" % name)
     dest = next(d for d in dests if d.get("name") == name)
-    for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref")):
+    for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref"),
+                dest.get("body_secret_ref")):
         if not ref:
             continue
         try:
@@ -1073,7 +1358,7 @@ def delete_destination(ctx, body, name):
 # Health and the caller.
 
 def health(ctx, body):
-    if not any(c.startswith("orchestrator_") for c in ctx.access["capabilities"]):
+    if not any(c in authz.CAPABILITIES for c in ctx.access["capabilities"]):
         raise ctx.deny("read_health")
     settings = ctx.store.get_settings() or {}
     fb = settings.get("fallback") or {}
@@ -1100,11 +1385,97 @@ def health(ctx, body):
 
 
 def me(ctx, body):
-    caps = sorted(c for c in ctx.access["capabilities"] if c.startswith("orchestrator_"))
+    caps = sorted(c for c in ctx.access["capabilities"] if c in authz.CAPABILITIES)
     return 200, {"user": ctx.user, "roles": list(ctx.access["roles"]), "capabilities": caps,
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
-                 "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None)}
+                 "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None),
+                 "can_approve": authz.APPROVE in caps or ctx.allowed(authz.can_admin, None),
+                 "turned_off": blocks.turned_off(ctx.store.get_settings())}
+
+
+def _may_build(ctx, action):
+    if not ctx.allowed(authz.can_edit, None) and not ctx.allowed(authz.can_admin, None):
+        raise ctx.deny(action)
+
+
+def schedule_next(ctx, body):
+    """The next ``count`` run times of a cron in a zone, for the builder's schedule readout."""
+    _may_build(ctx, "preview_schedule")
+    count = _bounded_int(body, "count", 3, 10)
+    timezone = body.get("timezone") or None
+    try:
+        spec = cronmod.parse(body.get("cron"))
+    except cronmod.CronError as err:
+        raise ApiError(400, "bad_cron", str(err))
+    # No zone, or one that doesn't resolve, means server local time (always resolves).
+    tz = cronmod.resolve_tz(timezone)
+    slots, after = [], ctx.now + 1
+    while len(slots) < count:
+        slot = cronmod.next_slot(spec, after, tz, NEXT_RUN_MAX_DAYS)
+        if slot is None:
+            break
+        slots.append(slot)
+        after = slot + 1
+    offsets = [int(datetime.fromtimestamp(slot, tz).utcoffset().total_seconds()) for slot in slots]
+    out = {}
+    if body.get("clashes") is True:
+        out["clashes"] = _schedule_clashes(ctx, slots, body.get("job_id"))
+    return 200, dict(out, **{"slots": slots,
+                 "utc_offsets": offsets,
+                 "timezone": timezone if timezone and not isinstance(tz, cronmod.LocalTZ) else None,
+                 "timezone_status": cronmod.tz_status(timezone) if timezone else "ok"})
+
+
+def _schedule_clashes(ctx, slots, own_id):
+    """For each slot, the other enabled jobs the user may see whose schedule fires in the
+    same minute (``[{"id", "name"}]``, by name), so the builder can show where runs pile up.
+    Each check is a one-day cron match, so it costs no walk through every minute."""
+    others = [j for j in _visible_jobs(ctx).values()
+              if (j.get("id") or j.get("_key")) != own_id and j.get("enabled") is not False]
+    specs = []
+    for job in others:
+        for spec in scheduler.cron_specs(job):
+            specs.append((job, spec, cronmod.resolve_tz(job.get("timezone"))))
+    out = []
+    for slot in slots:
+        minute = slot - slot % 60
+        hits = {}
+        for job, spec, tz in specs:
+            if cronmod.next_slot(spec, minute, tz, 1) == minute:
+                jid = job.get("id") or job.get("_key")
+                hits[jid] = {"id": jid, "name": job.get("name") or jid}
+        out.append(sorted(hits.values(), key=lambda h: (str(h["name"]).lower(), h["id"])))
+    return out
+
+
+def resolve_timerange(ctx, body):
+    """The epoch window a step's Earliest/Latest covers for a scheduled time (Splunk's own
+    time parser, relative to that time). Empty Earliest is all time, empty Latest is the
+    scheduled time itself."""
+    _may_build(ctx, "resolve_timerange")
+    scheduled = body.get("scheduled_time")
+    if isinstance(scheduled, bool) or not isinstance(scheduled, int):
+        raise ApiError(400, "bad_request", "scheduled_time must be an epoch time in seconds")
+    resolved = {}
+    for field, default in (("earliest", None), ("latest", scheduled)):
+        value = body.get(field)
+        value = value.strip() if isinstance(value, str) else ""
+        if not value:
+            resolved[field] = default
+            continue
+        try:
+            times = ctx.user_gw.parse_times(ctx.user, [value], scheduled)
+        except GatewayError as err:
+            if err.status != 400:
+                raise
+            raise ApiError(400, "bad_time", "%s; use a form like -1d@d, @d or now" % err, field=field)
+        if times.get(value) is None:
+            # The same reply the router gives any other failed call to Splunk.
+            raise ApiError(502, "splunk_error",
+                           "a call to Splunk failed: its time parser gave no time for %r" % value)
+        resolved[field] = times[value]
+    return 200, resolved
 
 
 # Self-test.

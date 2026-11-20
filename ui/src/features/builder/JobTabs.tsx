@@ -1,38 +1,99 @@
-/* The builder's tabs: Steps (the canvas and side panel), Triggers, Parameters, job-level
- * Actions, Access (who may run) and Settings (description, step defaults, after give-up). */
-import React, { useState } from 'react';
+/* The builder's tabs: Flow (the node editor and its side panel), Parameters, Access (who may
+ * run), Settings (description, tags, time zone, missed runs, step defaults, after give-up) Source
+ * (the job as JSON text) and History (saved versions).
+ * Triggers and actions are nodes in Flow. */
+import React from 'react';
+import ComboBox from '@splunk/react-ui/ComboBox';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Message from '@splunk/react-ui/Message';
+import Multiselect from '@splunk/react-ui/Multiselect';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import type { AlertAction, Defaults, Destination, Job, JobDefinition } from '../../api/types';
+import type { AlertAction, Destination, Issue, Defaults, JobDefinition } from '../../api/types';
+import JobActionsTab from './JobActionsTab';
+import DeadlineFields from './DeadlineFields';
 import AccessTab from './AccessTab';
-import ActionsEditor from './ActionsEditor';
 import ParamsTab from './ParamsTab';
+import HistoryTab from './HistoryTab';
+import type { HistoryProps } from './HistoryTab';
+import SourceTab from './SourceTab';
 import type { BuilderAction } from './reducer';
 import { BUILTIN_DEFAULTS } from './previewLogic';
 import { DurationField } from './StepPanel';
-import TriggersTab from './TriggersTab';
+import LearnMore from '../../components/LearnMore';
+import { issueCounts } from './issueTabs';
+import { timeZoneOptions } from './schedule';
+import { cleanTags, tagsProblem } from '../jobs/tags';
+
+export type TabId = 'steps' | 'actions' | 'params' | 'access' | 'settings' | 'source' | 'history';
+
+export const TAB_LABELS: Record<TabId, string> = {
+    steps: 'Flow',
+    actions: 'Job actions',
+    params: 'Parameters',
+    access: 'Access',
+    settings: 'Settings',
+    source: 'Source',
+    history: 'History',
+};
 
 export interface JobTabsProps {
+    activeTab: TabId;
+    onTabChange: (tab: TabId) => void;
     job: JobDefinition;
     dispatch: (action: BuilderAction) => void;
     owner: string;
     roles: string[];
-    jobs: Pick<Job, 'id' | 'name'>[];
-    destinations: Destination[];
-    alertActions?: AlertAction[] | null;
-    /** The Steps tab: canvas and side panel. */
+    /** The Flow tab: canvas and side panel. */
     steps: React.ReactNode;
-    /** The saved job's id; none for a new job. */
-    jobId?: string | null;
+    /** Every current issue; each tab shows how many errors it holds. */
+    issues?: Issue[];
+    /** False for a viewer: the Source tab is read only. */
+    canEdit?: boolean;
+    /** The History tab; without it the tab shows the unsaved-job note. */
+    history?: HistoryProps;
+    /** Tags other jobs use, offered in the Tags field. */
+    knownTags?: string[];
+    /** For the Job actions tab. */
+    destinations?: Destination[];
+    alertActions?: AlertAction[] | null;
 }
 
-function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) {
+export function TagsField({ job, dispatch, knownTags = [] }: Pick<JobTabsProps, 'job' | 'dispatch' | 'knownTags'>) {
+    const tags = job.tags || [];
+    const problem = tagsProblem(tags);
+    const options = cleanTags([...tags, ...knownTags]);
+    return (
+        <ControlGroup
+            label="Tags"
+            labelFor="job-tags"
+            labelPosition="top"
+            help={problem || 'Group jobs by team or system; the Jobs, Runs and Calendar pages filter by tag. Type a new tag and press Enter.'}
+            error={Boolean(problem)}
+        >
+            <Multiselect
+                inputId="job-tags"
+                allowNewValues
+                values={tags}
+                placeholder="No tags"
+                onChange={(_e: unknown, { values }: { values: unknown[] }) => {
+                    const next = cleanTags(values.map(String));
+                    dispatch({ type: 'setJobField', field: 'tags', value: next.length ? next : undefined });
+                }}
+            >
+                {options.map((t) => (
+                    <Multiselect.Option key={t} label={t} value={t} />
+                ))}
+            </Multiselect>
+        </ControlGroup>
+    );
+}
+
+function SettingsTab({ job, dispatch, knownTags }: Pick<JobTabsProps, 'job' | 'dispatch' | 'knownTags'>) {
     const defaults = job.defaults || {};
     const setDefault = (key: keyof Defaults, value: number | null) => {
         const next = { ...defaults };
@@ -52,6 +113,7 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
                     onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'description', value })}
                 />
             </ControlGroup>
+            <TagsField job={job} dispatch={dispatch} knownTags={knownTags} />
             <Switch
                 appearance="toggle"
                 selected={job.enabled !== false}
@@ -59,6 +121,30 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
             >
                 Enabled (schedules and completion triggers start runs)
             </Switch>
+            <ControlGroup label="Time zone" labelFor="job-timezone" labelPosition="top" help="Used by every schedule and Run when in this job.">
+                <ComboBox
+                    inputId="job-timezone"
+                    value={job.timezone || ''}
+                    placeholder="Server time zone"
+                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'timezone', value: String(value) || undefined })}
+                >
+                    {timeZoneOptions(job.timezone).map((z) => (
+                        <ComboBox.Option key={z} value={z} />
+                    ))}
+                </ComboBox>
+            </ControlGroup>
+            <ControlGroup label="Missed runs" labelFor="job-catchup" labelPosition="top" help="What to do with scheduled times missed while Splunk or the engine was down.">
+                <Select
+                    inputId="job-catchup"
+                    value={job.catchup || 'all'}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'catchup', value })}
+                >
+                    <Select.Option label="Run each missed time (up to 7)" value="all" />
+                    <Select.Option label="Run only the latest missed time" value="latest" />
+                    <Select.Option label="Skip missed times" value="none" />
+                </Select>
+            </ControlGroup>
+            <DeadlineFields job={job} dispatch={dispatch} />
             <Heading level={3}>Step defaults</Heading>
             <p>Steps that leave these empty use them.</p>
             <DurationField
@@ -105,50 +191,35 @@ function SettingsTab({ job, dispatch }: Pick<JobTabsProps, 'job' | 'dispatch'>) 
                 label="When a step gives up"
                 labelFor="job-after-give-up"
                 labelPosition="top"
-                help="Hold keeps later runs of this job waiting until the run is re-run or dismissed."
+                help="Waiting stops a rollup running over a missing day. Starting anyway keeps the schedule but can leave gaps."
             >
                 <Select
                     inputId="job-after-give-up"
                     value={job.after_give_up || 'hold'}
                     onChange={(_e: unknown, { value }: { value: unknown }) => dispatch({ type: 'setJobField', field: 'after_give_up', value })}
                 >
-                    <Select.Option label="Hold later runs" value="hold" />
-                    <Select.Option label="Continue with later runs" value="continue" />
+                    <Select.Option label="Wait for this run to be fixed" value="hold" />
+                    <Select.Option label="Start later runs anyway" value="continue" />
                 </Select>
             </ControlGroup>
+            <LearnMore anchor="when-a-step-gives-up" topic="giving up" />
         </div>
     );
 }
 
-export default function JobTabs({ job, dispatch, owner, roles, jobs, destinations, alertActions, steps, jobId }: JobTabsProps) {
-    const [tab, setTab] = useState('steps');
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
+    const counts = issueCounts(issues);
     return (
         <div>
-            <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setTab(selectedTabId || 'steps')}>
-                <TabBar.Tab label="Steps" tabId="steps" />
-                <TabBar.Tab label="Triggers" tabId="triggers" />
-                <TabBar.Tab label="Parameters" tabId="params" />
-                <TabBar.Tab label="Actions" tabId="actions" />
-                <TabBar.Tab label="Access" tabId="access" />
-                <TabBar.Tab label="Settings" tabId="settings" />
+            <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onTabChange((selectedTabId || 'steps') as TabId)}>
+                {(Object.keys(TAB_LABELS) as TabId[]).map((id) => (
+                    <TabBar.Tab key={id} label={TAB_LABELS[id]} tabId={id} count={counts[id] || undefined} />
+                ))}
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
-                {tab === 'triggers' && <TriggersTab job={job} jobs={jobs} dispatch={dispatch} jobId={jobId} />}
                 {tab === 'params' && (
                     <ParamsTab params={job.params || []} onChange={(value) => dispatch({ type: 'setJobField', field: 'params', value })} />
-                )}
-                {tab === 'actions' && (
-                    <div style={{ maxWidth: '640px' }}>
-                        <p>Job actions fire for the whole run. Without an on-failure action, the fallback notification in Settings is used.</p>
-                        <ActionsEditor
-                            idPrefix="job-action"
-                            actions={job.actions || []}
-                            destinations={destinations}
-                            alertActions={alertActions}
-                            onChange={(value) => dispatch({ type: 'setJobField', field: 'actions', value })}
-                        />
-                    </div>
                 )}
                 {tab === 'access' && (
                     <AccessTab
@@ -158,7 +229,10 @@ export default function JobTabs({ job, dispatch, owner, roles, jobs, destination
                         onChange={(value) => dispatch({ type: 'setJobField', field: 'run_roles', value })}
                     />
                 )}
-                {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} />}
+                {tab === 'actions' && <JobActionsTab job={job} dispatch={dispatch} destinations={destinations} alertActions={alertActions} canEdit={canEdit} />}
+                {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} knownTags={knownTags} />}
+                {tab === 'source' && <SourceTab job={job} dispatch={dispatch} canEdit={canEdit} />}
+                {tab === 'history' && <HistoryTab jobId={history ? history.jobId : null} dirty={!!history?.dirty} canEdit={history ? history.canEdit : false} onRestored={history ? history.onRestored : () => undefined} />}
             </div>
         </div>
     );

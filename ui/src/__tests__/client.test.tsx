@@ -1,8 +1,10 @@
 import {
     ApiError,
     cancelPreview,
+    enc,
     listAlertActions,
     listJobs,
+    listJobsBrief,
     listRuns,
     searchJobs,
     searchRuns,
@@ -10,6 +12,7 @@ import {
     previewDefaults,
     previewResults,
     previewStatus,
+    request,
     setJobEnabled,
     startPreview,
     startRun,
@@ -85,9 +88,15 @@ describe('client', () => {
         expect(init.body).toBeUndefined();
     });
 
-    test('listJobs asks for the brief listing', async () => {
+    test('listJobs asks for the full listing, with runs, for the Jobs page', async () => {
         const fetch = mockFetch(200, { jobs: [] });
         await expect(listJobs()).resolves.toEqual([]);
+        expect((fetch.mock.calls[0] as FetchCall)[0]).not.toContain('brief');
+    });
+
+    test('listJobsBrief asks for the brief listing', async () => {
+        const fetch = mockFetch(200, { jobs: [] });
+        await expect(listJobsBrief()).resolves.toEqual([]);
         expect((fetch.mock.calls[0] as FetchCall)[0]).toContain('brief=1');
     });
 
@@ -256,5 +265,13 @@ describe('alert actions', () => {
         await expect(listAlertActions()).resolves.toEqual(actions);
         const [url] = fetch.mock.calls[0] as FetchCall;
         expect(url).toBe('/en-US/splunkd/__raw/services/orchestrator/alert_actions?output_mode=json');
+    });
+});
+
+describe('shared request helpers', () => {
+    it('exports request and enc', async () => {
+        expect(enc('a b/c')).toBe('a%20b%2Fc');
+        mockFetch(200, { ok: true });
+        await expect(request('GET', 'x')).resolves.toEqual({ ok: true });
     });
 });

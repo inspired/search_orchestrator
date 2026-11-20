@@ -19,7 +19,8 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
   ``run_results_expired`` (``step``), 403 ``run_results_forbidden`` (``step``: splunkd
   won't let the caller read that run's result), 400 ``invalid`` (errors in the step, the
   steps it reads, the edges into them, params or time zone; or anywhere in the job for a
-  cycle or a malformed job) or ``bad_param``. The sid of a live input is checked
+  cycle or a malformed job), ``bad_param`` or ``bad_request`` (an approval step: it has
+  no search to preview). The sid of a live input is checked
   statically (``preview.own_sid``) before splunkd is asked about it. Audited as
   ``preview_dispatched``.
 * ``GET preview/<sid>`` (query ``limit``, seconds, capped at ``preview.MAX_RUNTIME``):
@@ -31,9 +32,10 @@ nothing about it is stored. ``job_ref`` in its sid is the definition's id, or ``
   ``preview.TABLE_ROWS`` rows. ``POST preview/<sid>/cancel``: ``{"cancelled": true}``.
   A sid that is not the caller's own preview is 404 (results and cancel: also a gone one).
 """
+import copy
 import uuid
 
-from . import authz, hidden, model, preview, scheduler, tokens
+from . import approval, authz, hidden, model, preview, scheduler, tokens
 from . import state as statemod
 from .api import (ApiError, _errors, _is_job_id, _issue, _prepare, _run_job, _scheduled_time,
                   _visible_run)
@@ -73,9 +75,10 @@ def _blocks_every_preview(message, issues):
     return ApiError(400, "invalid", "%s; fix it before previewing" % message, issues)
 
 
-def _preview_scope(job, step_id):
+def _preview_scope(job, step_id, approval_ok=False):
     """The steps ``step_id`` reads, after checking the step, those steps, the edges into
-    them, the params and the time zone. Errors elsewhere (other steps and edges, the
+    them, the params and the time zone. An approval ``step_id`` is refused unless
+    ``approval_ok`` (a condition line from it is tested as approved). Errors elsewhere (other steps and edges, the
     schedule, actions) don't block a preview, except two anywhere in the job, since
     finding the steps a step reads needs a well-formed job whose edges form a DAG: a
     malformed job (``bad_shape``) and a dependency cycle. Both are 400 ``invalid`` with a
@@ -86,6 +89,10 @@ def _preview_scope(job, step_id):
         raise _blocks_every_preview("the job is malformed: %s" % shape[0]["message"], shape)
     if step_id not in [s.get("id") for s in job.get("steps") or []]:
         raise ApiError(400, "unknown_step", "the job has no step %r" % (step_id,))
+    if not approval_ok and any(approval.is_approval(s) for s in job["steps"]
+                               if s.get("id") == step_id):
+        raise ApiError(400, "bad_request", "An approval step has no search to preview; "
+                       "preview a step after it instead")
     cycle = model.find_cycle(job)
     if cycle:
         message = "the job has a cycle: %s" % " → ".join(cycle)
@@ -156,10 +163,12 @@ def _live_upstream(ctx, job, job_ref, scope, previews, scheduled, params):
     """Upstream states from the caller's live previews. Each upstream step is decided again
     (``state.preview_decision``, in topological order, from the states before it): a step a
     run would skip is skipped downstream whatever the client sends, even with a sid from
-    Preview anyway. A step a run would not reach past a failure is ``upstream_failed``."""
+    Preview anyway. A step a run would not reach past a failure is ``upstream_failed``. An
+    approval step is never previewed: it counts as approved with no comment."""
     if not isinstance(previews, dict):
         raise ApiError(400, "bad_request", "input previews must be an object")
     wanted = first_fields(job)
+    gates = {s.get("id") for s in job.get("steps") or [] if approval.is_approval(s)}
     upstream, needs = {}, []
     for up in scope:
         if not needs:
@@ -170,9 +179,12 @@ def _live_upstream(ctx, job, job_ref, scope, previews, scheduled, params):
             if decision == "needs":
                 raise _needs(upstream, detail.split(","))
             entry = previews.get(up)
-            if isinstance(entry, dict) and "skipped" in entry:
+            if up not in gates and isinstance(entry, dict) and "skipped" in entry:
                 needs.append(up)  # a run would run it, so a client claim of skipped is stale
                 continue
+        if up in gates:  # never previewed: taken as approved with no comment
+            upstream[up] = copy.deepcopy(approval.PREVIEW_STATE)
+            continue
         st = _live_state(ctx, job, job_ref, up, previews.get(up), wanted.get(up))
         if st is None:
             needs.append(up)
@@ -247,7 +259,7 @@ def _decide(job, step_id, scheduled, params, upstream):
     try:
         return statemod.preview_decision(job, step_id, scheduled, params, upstream)
     except (ValueError, TypeError) as err:  # a run would fail the step the same way
-        raise _invalid([_issue("error", "bad_run_when", "run_when: %s" % err, step_id)])
+        raise _invalid([_issue("error", "bad_run_when", "run when: %s" % err, step_id)])
 
 
 def _needs(upstream, steps, mode="live"):
@@ -272,7 +284,7 @@ def _preview_search(ctx, job, step, scheduled, params, upstream):
     ids = [s.get("id") for s in job.get("steps") or []]
     try:
         spl = preview.step_search(step, ids,
-                                  preview.token_context(job, scheduled, params, upstream),
+                                  preview.token_context(job, scheduled, params, upstream, ctx.now),
                                   preview.input_sids(job, step["id"], upstream))
     except tokens.TokenError as err:
         raise _invalid([_issue("error", "bad_token", "token %s: %s" % (err.token, err.reason),

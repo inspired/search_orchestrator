@@ -9,7 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app" / "search_orchestrator"
 COLLECTIONS = ["so_jobs", "so_runs", "so_step_runs", "so_action_runs",
-               "so_commands", "so_locks", "so_settings", "so_selftest"]
+               "so_commands", "so_locks", "so_settings", "so_selftest", "so_job_versions",
+               "so_backfills", "so_snippets", "so_follows"]
 
 
 def _fake_ui(tmp_path, build_script):
@@ -66,8 +67,12 @@ def test_no_pyc_or_dotfiles_in_package(tmp_path):
         assert not any(p.startswith(".") for p in parts), n
 
 
+def _stanzas_text(text):
+    return re.findall(r"^\[([^\]]+)\]", text, re.M)
+
+
 def _stanzas(path):
-    return re.findall(r"^\[([^\]]+)\]", path.read_text(), re.M)
+    return _stanzas_text(path.read_text())
 
 
 def test_runs_are_indexed_for_newest_first_reads():
@@ -117,3 +122,80 @@ def test_license_and_roles_import_user():
     conf.read(APP / "default" / "authorize.conf")
     for role in ("role_orchestrator_user_role", "role_orchestrator_builder_role"):
         assert conf[role]["importRoles"] == "user", role
+
+
+def test_variant_package_renames_every_global_name(tmp_path):
+    # scripts/package_variant.sh: a copy that installs next to the normal app. A source change
+    # that moves a name breaks scripts/variant_rename.py's expected counts, and so this test.
+    splunk = ROOT / "ui" / "src" / "splunk"
+    ui = _fake_ui(tmp_path, "mkdir -p stage && cp -R '%s/.' stage/" % splunk)
+    out = subprocess.run([str(ROOT / "scripts" / "package_variant.sh"), "t1", "0.0.1"],
+                         env=dict(os.environ, SO_UI_DIR=str(ui)), check=True, capture_output=True, text=True)
+    path = out.stdout.strip().splitlines()[-1]
+    assert path.endswith("dist/search_orchestrator_t1-0.0.1.tgz")
+    tar = tarfile.open(path)
+    names = set(tar.getnames())
+    assert all(n.split("/")[0] == "search_orchestrator_t1" for n in names)
+    for rel in ["bin/orchestrator_engine_t1.py", "bin/orchestrator_rest_t1.py", "bin/orchestratet1.py",
+                "bin/start_orchestrator_job_t1.py", "default/data/ui/alerts/start_orchestrator_job_t1.html"]:
+        assert "search_orchestrator_t1/" + rel in names, rel
+
+    def read(rel):
+        return tar.extractfile("search_orchestrator_t1/" + rel).read().decode()
+    assert "label = Search Orchestrator (T1)" in read("default/app.conf")
+    assert "match = /orchestrator_t1\n" in read("default/restmap.conf")
+    assert "[role_orchestrator_user_role_t1]" in read("default/authorize.conf")
+    authorize = read("default/authorize.conf")
+    assert "[capability::orchestrator_approve_t1]" in authorize
+    assert "[role_orchestrator_approver_role_t1]" in authorize
+    assert "orchestrator_approve_t1 = enabled" in authorize
+    assert not re.search(r"orchestrator_approve(r_role)?\b(?!_t1)", authorize)
+    assert 'APPROVE = "orchestrator_approve_t1"' in read("bin/so/authz.py")
+    assert "index = orchestrator_t1\n" in read("default/inputs.conf")
+    assert "[commands/orchestratet1]" in read("metadata/default.meta")
+    # SPL splits `orchestrate_t1` into `orchestrate` + `_t1`: command names are letters and digits.
+    commands = _stanzas_text(read("default/commands.conf"))
+    assert commands == ["orchestratet1"] and all(re.fullmatch(r"[a-z0-9]+", c) for c in commands)
+    assert read("bin/orchestratet1.py") and "filename = orchestratet1.py" in read("default/commands.conf")
+    bnf = _stanzas_text(read("default/searchbnf.conf"))
+    assert bnf == ["orchestratet1-command", "orchestratet1-action", "orchestratet1-option"]
+    assert "| orchestratet1 start" in read("default/searchbnf.conf")
+    assert "| orchestrate_t1" not in "".join(read(n.split("/", 1)[1]) for n in names
+                                             if n.endswith((".py", ".conf", ".html", ".meta", ".md")))
+    assert "search_orchestrator_t1:/templates/run.html" in read("default/data/ui/views/run.xml")
+    assert "search_orchestrator_t1:/templates/dependencies.html" in read("default/data/ui/views/dependencies.xml")
+    assert "/static/app/search_orchestrator_t1/pages/dependencies.js" in read("appserver/templates/dependencies.html")
+    assert "search_orchestrator_t1:/templates/calendar.html" in read("default/data/ui/views/calendar.xml")
+    assert "/static/app/search_orchestrator_t1/pages/calendar.js" in read("appserver/templates/calendar.html")
+    # The Run health dashboard reads this copy's index and splunkd.log lines, and links here.
+    macros = read("default/macros.conf")
+    for stanza in ("orchestrator_index_t1", "orchestrator_internal_t1", "orchestrator_engine_process_t1",
+                   "orchestrator_search_process_t1"):
+        assert "[%s]" % stanza in macros, stanza
+    assert '"orchestrator_engine_t1.py"' in macros and '"orchestrator_rest_t1"' in macros
+    assert '"start_orchestrator_job_t1"' in macros and '"orchestratet1"' in macros
+    dash = read("default/data/ui/views/run_health.xml")
+    assert "/app/search_orchestrator_t1/run?run_id=" in dash and "/app/search_orchestrator/" not in dash
+    assert not re.search(r"`orchestrator_(index|internal|engine_process)`", dash)
+    os.remove(path)
+
+
+# Splunk's app bar draws only these icon names (layout-modern-nav.js, Splunk 10.x); any other
+# name shows the view's first letter in a grey circle (seen on a live instance).
+NAV_ICONS = set("""actions aicanvas alerts bell bookmark bookshelf chartcolumnpanel chartgantt chartgauge
+chartline chartpanels circlesfour cog cylinder cylinderindex dashboards datasets disabled filechart
+filemagnifier filenode forwarderuniversal house layerstriple layout layoutoverview magnifier modules
+monitor networkconnector nodetopology organizernotebook pulse reports search shieldkeyhole star tag""".split())
+
+
+def test_every_nav_view_has_an_icon_splunk_draws():
+    import os
+    import re
+    nav = open(os.path.join(os.path.dirname(__file__), "..", "ui", "src", "splunk", "default", "data",
+                            "ui", "nav", "default.xml")).read()
+    views = re.findall(r"<view ([^>]*)/>", nav)
+    assert views
+    for attrs in views:
+        icon = re.search(r'icon="([^"]*)"', attrs)
+        assert icon, "no icon: %s" % attrs
+        assert icon.group(1) in NAV_ICONS, "Splunk does not draw icon %r" % icon.group(1)

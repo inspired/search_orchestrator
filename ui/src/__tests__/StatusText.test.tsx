@@ -1,6 +1,8 @@
 import React from 'react';
 import { screen } from '@testing-library/react';
-import StatusText from '../components/StatusText';
+import Clock from '@splunk/react-icons/Clock';
+import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import StatusText, { statusIcon, statusLabel } from '../components/StatusText';
 import JobsTable from '../features/jobs/JobsTable';
 import RunsTable from '../features/runs/RunsTable';
 import RunBanner, { bannerMessages } from '../components/RunBanner';
@@ -95,7 +97,7 @@ describe('StatusText', () => {
         renderThemed(<StatusText state="skipped" skipKind="run_when" />);
         renderThemed(<StatusText state="skipped" skipKind="not_taken" />);
         expect(screen.getByText('Skipped (run when)')).toBeInTheDocument();
-        expect(screen.getByText('Skipped (not taken)')).toBeInTheDocument();
+        expect(screen.getByText('Skipped (branch not taken)')).toBeInTheDocument();
     });
 });
 
@@ -139,7 +141,7 @@ describe('RunBanner', () => {
                 type: 'error',
                 text:
                     'This run is blocked: Daily summary failed (search failed: no such index). ' +
-                    'Weekly rollup is waiting on it. Re-run from the failed step or cancel the run.',
+                    'Weekly rollup is waiting on it. Fix the cause, then re-run from Daily summary.',
             },
         ]);
         renderThemed(<RunBanner run={run} now={NOW} />);
@@ -152,4 +154,48 @@ describe('RunBanner', () => {
         const { container } = renderThemed(<RunBanner run={run} now={NOW} />);
         expect(container.textContent).toBe('');
     });
+
+    test('failed and held runs get next-step guidance as an info message', () => {
+        const failed = rollupRun({ state: 'failed', steps: { daily: { state: 'failed' } } });
+        expect(bannerMessages(failed, NOW)).toEqual([
+            {
+                type: 'info',
+                text: 'This run failed. Re-run it from Daily summary if its results are still needed.',
+            },
+        ]);
+        const held = rollupRun({ state: 'failed', held: true, steps: { daily: { state: 'failed' } } });
+        renderThemed(<RunBanner run={held} now={NOW} />);
+        expect(screen.getByText(/^Later runs of this job are waiting for this one\./)).toBeInTheDocument();
+        expect(screen.queryByText(/^This run failed\./)).toBeNull();
+    });
 });
+
+describe('awaiting_approval', () => {
+    test('reads Waiting for approval, with the clock icon in statusColorMedium', () => {
+        let medium = '';
+        function Probe() {
+            medium = (useSplunkTheme() as unknown as Record<string, string>).statusColorMedium;
+            return null;
+        }
+        renderThemed(
+            <>
+                <Probe />
+                <StatusText state="awaiting_approval" />
+            </>
+        );
+        const label = screen.getByText('Waiting for approval');
+        const span = label.parentElement as HTMLElement;
+        expect(span.getAttribute('data-state')).toBe('awaiting_approval');
+        expect(medium).not.toBe('');
+        expect(span.style.color).toBe(toRgb(medium));
+        expect(statusIcon('awaiting_approval')).toBe(Clock);
+        expect(statusLabel('awaiting_approval')).toBe('Waiting for approval');
+    });
+});
+
+/** jsdom gives inline colours back as rgb(). */
+function toRgb(color: string): string {
+    const el = document.createElement('span');
+    el.style.color = color;
+    return el.style.color;
+}

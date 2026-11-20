@@ -1,0 +1,63 @@
+{
+  "id": "example_fan_out",
+  "name": "Example: start two jobs when done",
+  "description": "A quick morning check of splunkd's own health. When it succeeds it starts two other examples, Example: hourly splunkd errors and Example: top sourcetypes to a lookup, each as its own run. Adding this example also adds those two, so the Start job actions have something to start.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "chaining"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "45 7 * * 1-5"
+    }
+  ],
+  "steps": [
+    {
+      "id": "check",
+      "name": "splunkd warnings in the last hour",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=WARN\n| stats count BY component\n| sort - count",
+      "earliest": "-1h",
+      "latest": "now"
+    }
+  ],
+  "edges": [],
+  "actions": [
+    {
+      "hook": "on_success",
+      "type": "start_job",
+      "job": "example_hourly_errors"
+    },
+    {
+      "hook": "on_success",
+      "type": "start_job",
+      "job": "example_top_sourcetypes"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 200
+      },
+      "step:check": {
+        "x": 320,
+        "y": 20
+      },
+      "action:job:0": {
+        "x": 600,
+        "y": 140
+      },
+      "action:job:1": {
+        "x": 600,
+        "y": 240
+      }
+    }
+  }
+}
