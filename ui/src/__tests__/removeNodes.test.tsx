@@ -138,8 +138,8 @@ describe('removals', () => {
     test('past eight names it says how many more', () => {
         const keys = ['step:a', 'step:b', 'step:c', 'action:a:0', 'action:b:0', 'action:b:1', 'action:b:2', 'action:job:0', 'trigger:0', 'trigger:1', 'trigger:2'];
         const r = removals(job(), keys);
-        expect(r?.title).toBe('Remove 11 nodes?');
+        expect(r?.title).toBe('Remove 10 nodes?'); // action:job:0 is not a node any more
         expect(r?.names).toHaveLength(8);
-        expect(r?.more).toBe(3);
+        expect(r?.more).toBe(2);
     });
 });

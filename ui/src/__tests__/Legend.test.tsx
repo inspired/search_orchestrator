@@ -9,14 +9,15 @@ describe('Legend', () => {
     test('has one row per family with its label and example kinds', () => {
         renderThemed(<Legend />);
         const rows = screen.getAllByRole('listitem').filter((r) => r.getAttribute('data-family'));
-        expect(rows).toHaveLength(9);
-        Object.values(FAMILY_STYLE).forEach((f) => expect(screen.getAllByText(f.label).length).toBeGreaterThan(0));
+        expect(rows).toHaveLength(8); // no Whole job: its actions are on the Job actions tab
+        Object.entries(FAMILY_STYLE)
+            .filter(([k]) => k !== 'job')
+            .forEach(([, f]) => expect(screen.getAllByText(f.label).length).toBeGreaterThan(0));
         const write = rows.find((r) => r.getAttribute('data-family') === 'write') as HTMLElement;
         expect(within(write).getByText(/Summary index, Lookup, Event to an index/)).toBeInTheDocument();
         const notify = rows.find((r) => r.getAttribute('data-family') === 'notify') as HTMLElement;
         expect(within(notify).getByText(/Microsoft Teams, PagerDuty, ServiceNow/)).toBeInTheDocument();
-        const job = rows.find((r) => r.getAttribute('data-family') === 'job') as HTMLElement;
-        expect(within(job).getByText(/Whole job/, { selector: 'span' })).toBeInTheDocument();
+        expect(rows.find((r) => r.getAttribute('data-family') === 'job')).toBeUndefined();
         rows.forEach((r) => expect(r.querySelector('svg path')).not.toBeNull());
     });
 

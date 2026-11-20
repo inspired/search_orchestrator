@@ -89,7 +89,13 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     { from: 'a', to: 'l' },
                 ]}
             />
-            <Code spl={'| collect index=summary source="daily" marker="so_run=$run.id$"\n| outputlookup append=true hosts.csv'} />
+            <MiniTable
+                head={['Node', 'What it adds to the search']}
+                rows={[
+                    ['Summary index', '| collect index=summary source="daily" marker="so_run=$run.id$"'],
+                    ['Lookup', '| outputlookup append=true hosts.csv'],
+                ]}
+            />
         </Figure>
     ),
     slack: () => (
@@ -151,7 +157,14 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     { from: 'c', to: 'b', port: 'success' },
                 ]}
             />
-            <Code spl={'$count.resultCount$ > 50\ntonumber($count.first.errors$) > 50 AND now() > relative_time(now(), "@d+6h")\nindex=_internal log_level=ERROR | where count > 5'} />
+            <MiniTable
+                head={['Check', 'Example (each one on its own)']}
+                rows={[
+                    ['Simple comparison', '$count.resultCount$ > 50'],
+                    ['SPL expression', 'tonumber($count.first.errors$) > 50 AND now() > relative_time(now(), "@d+6h")'],
+                    ['Search returns results', 'index=_internal log_level=ERROR | stats count | where count > 5'],
+                ]}
+            />
         </Figure>
     ),
     'results-of-earlier-steps': () => (
@@ -190,7 +203,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
     parameters: () => (
         <Figure caption="Parameters are asked for on Run now; scheduled runs use their defaults.">
             <Panel title="Run now" rows={[['Environment', 'production ▾'], ['Error threshold', '50'], ['Host filter', 'idx*'], ['', '[Run]']]} />
-            <Code spl={'index=_internal host=$run.param.host_filter$\n| where errors >= tonumber($run.param.error_threshold$)'} />
+            <Code spl={'index=_internal log_level=ERROR host=$run.param.host_filter$\n| stats count AS errors BY host\n| where errors >= tonumber($run.param.error_threshold$)'} />
         </Figure>
     ),
     triggers: () => (
@@ -208,7 +221,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     actions: () => (
-        <Figure caption="Actions fire on a hook (start, success, failure, delayed, late, approval requested) for a step or the whole job.">
+        <Figure caption="A step's actions are nodes on its outcome lines; the whole job's actions (fails, succeeds, is late) are on the Job actions tab.">
             <Flow
                 label="A step with an email on failure and a webhook when delayed"
                 width={460}
@@ -485,7 +498,15 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
     ),
     'the--orchestrate-command': () => (
         <Figure caption="| orchestrate starts, checks and tests jobs from a search.">
-            <Code spl={'| orchestrate start job=daily param.env=staging\n| orchestrate status run=daily:42\n| orchestrate backfill job=daily from=-7d@d to=@d\n| orchestrate jobs'} />
+            <MiniTable
+                head={['To', 'Search (each one on its own)']}
+                rows={[
+                    ['Start a run', '| orchestrate start job=daily param.env=staging'],
+                    ['See how a run went', '| orchestrate status run=daily:42'],
+                    ['Backfill a week', '| orchestrate backfill job=daily from=-7d@d to=@d'],
+                    ['List the jobs', '| orchestrate jobs'],
+                ]}
+            />
         </Figure>
     ),
     'audit-events': () => (

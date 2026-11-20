@@ -13,7 +13,8 @@ import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import type { Issue, Defaults, JobDefinition } from '../../api/types';
+import type { AlertAction, Destination, Issue, Defaults, JobDefinition } from '../../api/types';
+import JobActionsTab from './JobActionsTab';
 import DeadlineFields from './DeadlineFields';
 import AccessTab from './AccessTab';
 import ParamsTab from './ParamsTab';
@@ -28,10 +29,11 @@ import { issueCounts } from './issueTabs';
 import { timeZoneOptions } from './schedule';
 import { cleanTags, tagsProblem } from '../jobs/tags';
 
-export type TabId = 'steps' | 'params' | 'access' | 'settings' | 'source' | 'history';
+export type TabId = 'steps' | 'actions' | 'params' | 'access' | 'settings' | 'source' | 'history';
 
 export const TAB_LABELS: Record<TabId, string> = {
     steps: 'Flow',
+    actions: 'Job actions',
     params: 'Parameters',
     access: 'Access',
     settings: 'Settings',
@@ -56,6 +58,9 @@ export interface JobTabsProps {
     history?: HistoryProps;
     /** Tags other jobs use, offered in the Tags field. */
     knownTags?: string[];
+    /** For the Job actions tab. */
+    destinations?: Destination[];
+    alertActions?: AlertAction[] | null;
 }
 
 export function TagsField({ job, dispatch, knownTags = [] }: Pick<JobTabsProps, 'job' | 'dispatch' | 'knownTags'>) {
@@ -202,7 +207,7 @@ function SettingsTab({ job, dispatch, knownTags }: Pick<JobTabsProps, 'job' | 'd
     );
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history, knownTags }: JobTabsProps) {
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
     const counts = issueCounts(issues);
     return (
         <div>
@@ -224,6 +229,7 @@ export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, ow
                         onChange={(value) => dispatch({ type: 'setJobField', field: 'run_roles', value })}
                     />
                 )}
+                {tab === 'actions' && <JobActionsTab job={job} dispatch={dispatch} destinations={destinations} alertActions={alertActions} canEdit={canEdit} />}
                 {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} knownTags={knownTags} />}
                 {tab === 'source' && <SourceTab job={job} dispatch={dispatch} canEdit={canEdit} />}
                 {tab === 'history' && <HistoryTab jobId={history ? history.jobId : null} dirty={!!history?.dirty} canEdit={history ? history.canEdit : false} onRestored={history ? history.onRestored : () => undefined} />}

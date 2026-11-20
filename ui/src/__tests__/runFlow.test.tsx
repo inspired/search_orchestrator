@@ -78,11 +78,12 @@ describe('lineStates', () => {
         expect(lineStates(def, { a: st('running') }, g)[tk]).toBe('flowing');
     });
     test('action lines fire when the action row exists, else follow the hook', () => {
-        const ak = 'job-on_failure->action:job:0';
-        const k = Object.keys(lineStates(def, {}, g)).find((x) => x.endsWith('->action:job:0')) as string;
-        expect(ak && k).toBeTruthy();
-        expect(lineStates(def, {}, g, { 'action:job:0': { state: 'done' } })[k]).toBe('fired');
-        expect(lineStates(def, {}, g)[k]).toBe('pending');
+        const d2 = { ...def, steps: def.steps.map((s, i) => (i === 0 ? { ...s, actions: [{ hook: 'on_failure' as const, type: 'email' as const, to: 'x' }] } : s)) };
+        const g2 = buildGraph(d2);
+        const k = Object.keys(lineStates(d2, {}, g2)).find((x) => x.endsWith(`->action:${d2.steps[0].id}:0`)) as string;
+        expect(k).toBeTruthy();
+        expect(lineStates(d2, {}, g2, { [`action:${d2.steps[0].id}:0`]: { state: 'done' } })[k]).toBe('fired');
+        expect(lineStates(d2, {}, g2)[k]).toBe('pending');
     });
 });
 

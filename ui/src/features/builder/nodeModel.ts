@@ -235,7 +235,7 @@ export function buildGraph(job: JobDefinition): FlowGraph {
             });
         }
     });
-    nodes.push({ key: JOB_KEY, kind: 'job', label: 'Whole job', detail: job.name || '' });
+    // Whole-job actions are edited on the Job actions tab, not drawn on the canvas.
     steps.forEach((s) => {
         nodes.push({ key: stepKey(s.id), kind: nodeKindOfStep(s), label: stepLabel(s), detail: stepTypeLabel(s), stepId: s.id });
     });
@@ -270,12 +270,6 @@ export function buildGraph(job: JobDefinition): FlowGraph {
         });
     });
 
-    (job.actions || []).forEach((a, i) => {
-        const n = actionNode(a, 'job', i);
-        nodes.push(n);
-        const port = portForHook(a.hook);
-        links.push({ key: `${JOB_KEY}-${port}->${n.key}`, from: JOB_KEY, port, to: n.key, kind: 'action', data: false });
-    });
     steps.forEach((s) => {
         (s.actions || []).forEach((a, i) => {
             const n = actionNode(a, s.id, i);

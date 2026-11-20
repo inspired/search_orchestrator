@@ -21,10 +21,10 @@ describe('readiness', () => {
     it('a blank job has nothing done', () => {
         const items = readiness(blankJob());
         expect(items.map((i) => i.label)).toEqual(['Give the job a name', 'Add a step', "Write each step's search", SCHEDULE, NOTIFY]);
-        expect(items.map((i) => i.tab)).toEqual(['steps', 'steps', 'steps', 'steps', 'steps']);
+        expect(items.map((i) => i.tab)).toEqual(['steps', 'steps', 'steps', 'steps', 'actions']);
         expect(items[3].addKinds).toEqual(['trigger_cron', 'trigger_completion']);
         expect(items[3].node).toBeUndefined();
-        expect(items[4].node).toBe('job');
+        expect(items[4].node).toBeUndefined();
         expect(items.map((i) => i.optional)).toEqual([false, false, false, true, true]);
         expect(items.every((i) => !i.done)).toBe(true);
     });
@@ -136,14 +136,14 @@ describe('BuilderPage checklist', () => {
     it('a templated job named by the user keeps the notice item until hidden', async () => {
         await show(<BuilderPage api={fakeApi()} template="rollup" />);
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Mine' } });
-        expect(screen.getByRole('button', { name: `Go to Flow: ${NOTIFY}` })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: `Go to Job actions: ${NOTIFY}` })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Hide checklist' }));
         expect(screen.queryByText(/of 5 done/)).toBeNull();
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: '' } });
         expect(screen.queryByText(/of 5 done/)).toBeNull();
     });
 
-    it('the failure-notification item selects the Whole job node', async () => {
+    it('the failure-notification item opens the Job actions tab', async () => {
         const api = fakeApi({
             validateJob: jest.fn().mockResolvedValue({
                 valid: true,
@@ -154,10 +154,9 @@ describe('BuilderPage checklist', () => {
         });
         await show(<BuilderPage api={api} jobId="rollups" />);
         fireEvent.click(screen.getByRole('tab', { name: /^Parameters/ }));
-        fireEvent.click(screen.getByRole('button', { name: `Go to Flow: ${NOTIFY}` }));
-        expect(screen.getByRole('tab', { name: /^Flow/, selected: true })).toBeInTheDocument();
-        expect(screen.getByTestId('node-job')).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.getByRole('region', { name: 'Whole job' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: `Go to Job actions: ${NOTIFY}` }));
+        expect(screen.getByRole('tab', { name: /^Job actions/, selected: true })).toBeInTheDocument();
+        expect(screen.getByTestId('job-actions-tab')).toBeInTheDocument();
     });
 
     it('a loaded job with a schedule but no failure action offers Hide checklist', async () => {

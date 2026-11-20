@@ -1,7 +1,10 @@
 /* Which tab and which node fix an issue, and how many errors each tab holds. */
 import type { Action, Issue, JobDefinition } from '../../api/types';
 import type { TabId } from './JobTabs';
-import { JOB_KEY, actionKey, condKey, stepKey, triggerKey } from './nodeModel';
+import { actionKey, condKey, stepKey, triggerKey } from './nodeModel';
+
+/** Warnings about the jobs a job starts (a whole-job Start job action). */
+const JOB_LINK_CODES = ['missing_target_job', 'disabled_target_job'];
 
 const TRIGGER_CODES = ['bad_cron', 'bad_trigger', 'job_chain_cycle'];
 const ACTION_CODES = ['bad_action', 'unknown_destination', 'no_failure_notification'];
@@ -14,6 +17,10 @@ export function tabForIssue(issue: Issue): TabId {
     }
     if (issue.code === 'bad_param') {
         return 'params';
+    }
+    // A whole-job action (no step) is on the Job actions tab.
+    if (!issue.step && (ACTION_CODES.includes(issue.code) || JOB_LINK_CODES.includes(issue.code))) {
+        return 'actions';
     }
     return 'steps';
 }
@@ -115,6 +122,9 @@ function triggerFor(job: JobDefinition, issue: Issue): number {
 
 /** The node that fixes an issue, or null when no node does (parameters, time zone, ...). */
 export function nodeForIssue(job: JobDefinition, issue: Issue): string | null {
+    if (!issue.step && tabForIssue(issue) === 'actions') {
+        return null; // the Job actions tab, not a node
+    }
     const action = actionIndexFor(job, issue);
     if (action !== null) {
         return actionKey(issue.step || 'job', action);
@@ -125,9 +135,6 @@ export function nodeForIssue(job: JobDefinition, issue: Issue): string | null {
     }
     if (TRIGGER_CODES.includes(issue.code)) {
         return (job.triggers || []).length ? triggerKey(triggerFor(job, issue)) : null;
-    }
-    if (ACTION_CODES.includes(issue.code)) {
-        return JOB_KEY;
     }
     return null;
 }

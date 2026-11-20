@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.39.0 (2026-11-20)
+
+- **No more "Whole job" node:** actions for the whole job (it fails, succeeds, finishes, starts, a step is delayed, it misses its deadline) are on a new **Job actions** tab next to Flow, each with When, its fields and retries. The canvas holds only triggers, steps, conditions and the steps' own actions; a step action's When lists steps only. The setup checklist and issue links for job actions open the tab. Saved jobs are unchanged (still `job.actions`).
+- **Preview explained:** the preview bar says what Preview step does and what "as if scheduled at" and "Input from" are for, with Learn more.
+- **Help examples fixed:** examples that were run together as one search (the three kinds of condition, the two write nodes, the `| orchestrate` commands) are separate rows now, and the parameters example counts errors before comparing them.
+
 ## 1.38.0 (2026-11-20)
 
 - **Troubleshooting graphs are Splunk's own charts:** the activity, request, engine and response-time graphs use `@splunk/visualizations` Column and Line (as Dashboard Studio), with Splunk's axes, legend, tooltips and severity colours. Filtering by level moves to **Show the errors** and **Show the warnings** under the activity graph. The library is pinned (28.9.1) and loaded only on the Troubleshooting page.

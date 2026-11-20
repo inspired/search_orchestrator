@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import DateInput from '@splunk/react-ui/Date';
+import LearnMore from '../../components/LearnMore';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -118,6 +119,12 @@ export default function PreviewBar({
                 marginBottom: '8px',
             }}
         >
+            <p data-testid="preview-explained" style={{ flex: '1 1 100%', margin: '0 0 8px', fontSize: '12px', color: theme.contentColorMuted }}>
+                <strong>Preview step</strong> runs one step&apos;s search now, as you, and shows its first rows, so you can check it first; nothing is stored or written. These
+                settings make the preview behave like a real run: <strong>as if scheduled at</strong> sets the run&apos;s time (its time ranges and $run.scheduled_time$), and{' '}
+                <strong>Input from</strong> chooses where the earlier steps&apos; results come from (your previews now, or what a past run saved).{' '}
+                <LearnMore anchor="previewing-steps" topic="previewing steps" />
+            </p>
             <ControlGroup label="Preview as if scheduled at" labelFor="preview-date" labelPosition="top" help="Your browser's time zone.">
                 <DateInput
                     inputId="preview-date"

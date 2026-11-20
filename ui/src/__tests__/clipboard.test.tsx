@@ -173,12 +173,11 @@ describe('pasteResult', () => {
             triggers: [{ type: 'cron', cron: '1 1 * * *' }],
             actions: [{ hook: 'on_success', type: 'email', to: 'q' }, { hook: 'on_failure', type: 'email', to: 'r' }],
         };
-        const clip = copySelection(source, ['job', 'trigger:0'], shown);
+        const clip = copySelection(source, ['trigger:0'], shown);
         const r = pasteResult(t, clip, { x: 0, y: 0 });
-        expect(r.job.actions).toHaveLength(3);
+        expect(r.job.actions).toHaveLength(2); // whole-job actions are not on the canvas, so not copied
         expect(r.job.triggers).toHaveLength(2);
-        expect(r.keys.sort()).toEqual(['action:job:2', 'trigger:1']);
-        expect(r.job.layout!.nodes!['action:job:2']).toBeDefined();
+        expect(r.keys.sort()).toEqual(['trigger:1']);
         expect(r.job.layout!.nodes!['trigger:1']).toBeDefined();
     });
 

@@ -235,7 +235,7 @@ export default function HelpOverview() {
 
             <Section title="Node shapes" theme={theme}>
                 <ul style={{ ...grid(240), listStyle: 'none', margin: 0, padding: 0 }}>
-                    {(Object.keys(FAMILY_STYLE) as Family[]).map((family) => {
+                    {(Object.keys(FAMILY_STYLE) as Family[]).filter((f) => f !== 'job').map((family) => {
                         const s = FAMILY_STYLE[family];
                         return (
                             <li key={family} style={{ ...card(theme), display: 'flex', gap: '12px', alignItems: 'center' }}>

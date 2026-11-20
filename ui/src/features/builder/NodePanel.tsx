@@ -13,7 +13,6 @@ import EdgePanel from './EdgePanel';
 import { issuesForAction } from './issueTabs';
 import type { FlowSelection } from './FlowCanvas';
 import OutputPanel from './OutputPanel';
-import JobNodePanel from './JobNodePanel';
 import { FlowGraph, JOB_KEY, stepKey } from './nodeModel';
 import type { BuilderAction } from './reducer';
 import type { NextSlots } from './ScheduleEditor';
@@ -209,9 +208,6 @@ export default function NodePanel(props: NodePanelProps) {
     }
     if (node && node.edge) {
         return edgePanel(node.key, node.edge);
-    }
-    if (node && node.key === JOB_KEY) {
-        return <JobNodePanel key={node.key} job={job} onSelect={selectNode} />;
     }
     return <p style={{ color: theme.contentColorMuted }}>{EMPTY_HINT}</p>;
 }

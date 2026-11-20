@@ -83,9 +83,8 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Approval** | octagon | amber |
 | Write: **Summary index**, **Lookup**, **Event to an index** | cylinder | orange |
 | **Start another job** | slanted sides | slate |
-| **Whole job** | double outline | grey |
 
-**The + handle.** A step has one input on its left and one round **+** on its right edge, shown when you point at the node, select it or focus it. The **Whole job** node and each **If…** node have a + too.
+**The + handle.** A step has one input on its left and one round **+** on its right edge, shown when you point at the node, select it or focus it. Each **If…** node has a + too.
 
 - **Click +** to open the **When** list: what has to happen to this node for the next one to run or fire. Each row shows how many lines already use it, for example "2 lines". Choose one, then pick a node in the search box below it: the new node is placed to the right of this one, in the first free spot, and connected with that outcome. `Escape` closes the list at any point.
 - **Drag from +** to draw a line. Drop it on another node and the When list opens with only the outcomes that can go there; when only one can, the line is made without asking. Drop it on empty canvas and the When list and the search box open together; the new node lands where you dropped the line.
@@ -100,7 +99,7 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | Asks for approval | ⚑ | not allowed (actions only) | fires when an **Approval** step starts waiting |
 | If a condition is true | ◇ | adds an **If…** node; the next step runs when its condition is true (see [Conditions](#conditions)) | not allowed |
 
-The **Whole job** list has no "If a condition is true"; its lines make job-wide actions, which fire for the whole run. Trigger nodes have no +: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't made.
+Actions for the whole job (it fails, succeeds, is late) aren't on the canvas: they are on the **Job actions** tab; see [Actions](#actions). Trigger nodes have no +: a dashed line goes from each trigger to every step that has no step before it, because those are the steps it starts. An action takes exactly one line in. A line that isn't allowed, such as one that would make a loop, isn't made.
 
 **Outcome tabs.** Every outcome a node already uses shows as a small round tab on its right edge: just the symbol (✓ ✗ ∞ ▶ ⏱ ◇) in a ring in the outcome's colour. Point at a tab to see its name, such as "Succeeds" or "Fails"; screen readers read the name too. Its lines leave from that tab, and lines are coloured by outcome. Dragging from a tab draws another line with that outcome, without the When list. The tabs stack in a column centred on the node's middle, with the + to their right.
 
@@ -414,7 +413,10 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 
 ### Actions
 
-Each action is a node. Drag a line to it from a step's **+** handle, or from the **Whole job** node's for a job-wide action; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way, Is delayed or, from the **Whole job** node, Is late). An action's **When** field moves its line from the keyboard.
+There are two kinds of action:
+
+- **A step's actions** are nodes on the Flow tab. Drag a line to one from the step's **+** handle; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way or Is delayed). An action's **When** field moves its line, to another step or outcome, from the keyboard.
+- **The whole job's actions** are on the **Job actions** tab, next to Flow: **Add job action**, then pick **When** (the job fails, succeeds, finishes either way, starts, a step is delayed, or the job misses its deadline) and what it does. They fire once for the whole run.
 
 - **Webhook**, **Slack**, **Microsoft Teams**, **PagerDuty** or **ServiceNow** to a destination your admin set up (each is a body format; see [Microsoft Teams, PagerDuty and ServiceNow](#microsoft-teams-pagerduty-and-servicenow)).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
@@ -438,7 +440,7 @@ With both, the earlier one counts. The deadline is wall-clock time, so pausing a
 
 **Only on-time scheduled runs, and runs started by another job's run that had a deadline itself** (completion or start-job triggers, along a chain of any length), have a deadline. Manual, REST, alert, backfill and catch-up runs have none, because they are often scheduled in the past and would be late at once, and neither do the runs they start. A deadline is fixed when the run is created and a re-run keeps it. A re-run of a run that finished before its deadline, started after the deadline, is not late.
 
-When a run that has not finished passes its deadline, it is marked late once. The **Whole job** node's **Is late** outcome fires then: drag a line from it to an action (**On late** hook). An action's **When** field has the same choice. If a job has no late action, your admin's fallback notification is used. The run's page shows "This run missed its deadline (...)" with how late it finished, or that it is still running, and the audit index gets `run_late`. Late runs do not change the run's outcome. **Run health** lists them under **Late runs**.
+When a run that has not finished passes its deadline, it is marked late once. A job action with **When: The job misses its deadline** (on the **Job actions** tab) fires then. If a job has no late action, your admin's fallback notification is used. The run's page shows "This run missed its deadline (...)" with how late it finished, or that it is still running, and the audit index gets `run_late`. Late runs do not change the run's outcome. **Run health** lists them under **Late runs**.
 
 ### Who may run
 

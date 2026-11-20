@@ -25,7 +25,8 @@ const job: JobDefinition = {
 describe('buildGraph', () => {
     const g = buildGraph(job);
     it('orders node keys', () => {
-        expect(g.nodes.map((n) => n.key)).toEqual(['trigger:0', 'job', 'step:a', 'step:b', 'step:c', 'cond:a>c', 'action:job:0', 'action:a:0']);
+        // Whole-job actions are on the Job actions tab, not the canvas.
+        expect(g.nodes.map((n) => n.key)).toEqual(['trigger:0', 'step:a', 'step:b', 'step:c', 'cond:a>c', 'action:a:0']);
     });
     it('derives links', () => {
         const has = (from: string, port: string | null, to: string, kind: string, data: boolean) =>
@@ -35,18 +36,18 @@ describe('buildGraph', () => {
         expect(has('step:a', 'success', 'step:b', 'edge', true)).toBe(true);
         expect(has('step:a', 'if', 'cond:a>c', 'condition', false)).toBe(true);
         expect(has('cond:a>c', 'then', 'step:c', 'condition', false)).toBe(true);
-        expect(has('job', 'failure', 'action:job:0', 'action', false)).toBe(true);
+        expect(g.links.some((l) => l.from === 'job' || l.to === 'action:job:0')).toBe(false);
         expect(has('step:a', 'failure', 'action:a:0', 'action', false)).toBe(true);
     });
     it('labels nodes', () => {
         expect(nodeKindOfAction(job.actions![0])).toBe('slack');
         expect(nodeKindOfAction(job.steps[0].actions![0])).toBe('email');
         expect(g.nodes[0].label).toBe('Schedule');
-        expect(g.nodes[1].label).toBe('Whole job');
+        expect(g.nodes.some((n) => n.kind === 'job')).toBe(false);
     });
     it('copes with a bare job and dangling links', () => {
         const bare = buildGraph({ name: 'x', enabled: true, steps: [{ id: 'a', type: 'inline' }], edges: [{ from: 'a', to: 'zz' }] });
-        expect(bare.nodes.map((n) => n.key)).toEqual(['job', 'step:a']);
+        expect(bare.nodes.map((n) => n.key)).toEqual(['step:a']);
         expect(bare.links).toEqual([]);
     });
 });
@@ -120,11 +121,16 @@ describe('channel nodes', () => {
         const g = buildGraph({
             name: 'x',
             enabled: true,
-            steps: [],
-            actions: [
-                { hook: 'on_failure', type: 'webhook', preset: 'teams', destination: 'ops-teams' },
-                { hook: 'on_failure', type: 'webhook', preset: 'pagerduty', destination: 'pd' },
-                { hook: 'on_failure', type: 'webhook', preset: 'servicenow', destination: 'snow' },
+            steps: [
+                {
+                    id: 's',
+                    type: 'inline',
+                    actions: [
+                        { hook: 'on_failure', type: 'webhook', preset: 'teams', destination: 'ops-teams' },
+                        { hook: 'on_failure', type: 'webhook', preset: 'pagerduty', destination: 'pd' },
+                        { hook: 'on_failure', type: 'webhook', preset: 'servicenow', destination: 'snow' },
+                    ],
+                },
             ],
         });
         const actions = g.nodes.filter((n) => n.action);

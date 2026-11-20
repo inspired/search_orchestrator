@@ -81,7 +81,8 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
     if (!action) {
         return null;
     }
-    const sources = [...steps.map((s) => ({ scope: s.id as ActionScope, label: stepLabel(s), ports: outputPorts(nodeKindOfStep(s)) })), { scope: 'job' as ActionScope, label: 'Whole job', ports: outputPorts('job') }];
+    // Whole-job actions live on the Job actions tab; a step's action moves between steps only.
+    const sources = steps.map((s) => ({ scope: s.id as ActionScope, label: stepLabel(s), ports: outputPorts(nodeKindOfStep(s)) }));
     const key = actionKey(scope, index);
     const current = encode(scope, action.hook);
 

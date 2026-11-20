@@ -18,9 +18,10 @@ describe('tabForIssue', () => {
         ['bad_deadline', null, 'settings'],
         ['timezone_fallback', null, 'settings'],
         ['bad_param', null, 'params'],
-        ['bad_action', null, 'steps'],
-        ['unknown_destination', null, 'steps'],
-        ['no_failure_notification', null, 'steps'],
+        ['bad_action', null, 'actions'],
+        ['unknown_destination', null, 'actions'],
+        ['no_failure_notification', null, 'actions'],
+        ['missing_target_job', null, 'actions'],
         ['whatever', null, 'steps'],
         ['bad_cron', 'a', 'steps'],
         ['bad_action', 'a', 'steps'],
@@ -60,8 +61,8 @@ describe('nodeForIssue', () => {
         expect(nodeForIssue(job(null), mk(code))).toBe('trigger:0');
         expect(nodeForIssue(job(null, false), mk(code))).toBeNull();
     });
-    it.each(['bad_action', 'unknown_destination', 'no_failure_notification'])('%s with no matching action selects the whole job', (code) => {
-        expect(nodeForIssue(job(null), mk(code))).toBe('job');
+    it.each(['bad_action', 'unknown_destination', 'no_failure_notification'])('%s of the whole job selects no node (it opens the Job actions tab)', (code) => {
+        expect(nodeForIssue(job(null), mk(code))).toBeNull();
     });
     it('a trigger issue naming a followed job selects that trigger', () => {
         const j = {
@@ -118,10 +119,10 @@ describe('nodeForIssue', () => {
         it('a step-level issue with nothing to match selects the first action with an empty required field', () => {
             expect(nodeForIssue(acts(), at('bad_action', 'a', "unknown action time 'x'; choose one in When"))).toBe('action:a:1');
         });
-        it('a job-level unknown destination selects the action naming it', () => {
-            expect(
-                nodeForIssue(acts(), at('unknown_destination', null, "webhook destination 'gone' doesn't exist; pick another, or ask an admin to add it in Settings"))
-            ).toBe('action:job:2');
+        it('a job-level unknown destination is on the Job actions tab, not a node', () => {
+            const issue = at('unknown_destination', null, "webhook destination 'gone' doesn't exist; pick another, or ask an admin to add it in Settings");
+            expect(nodeForIssue(acts(), issue)).toBeNull();
+            expect(tabForIssue(issue)).toBe('actions');
         });
         it('a step with no actions keeps selecting the step', () => {
             expect(nodeForIssue(acts(), at('bad_action', 'c', 'the email action needs to; fill it in'))).toBe('step:c');
@@ -253,8 +254,7 @@ describe('BuilderPage issue feedback', () => {
         const panel = screen.getByRole('region', { name: 'Action' });
         expect(panel).toHaveTextContent('the email action needs to; fill it in');
         fireEvent.click(screen.getByRole('button', { name: /^Go to .*webhook destination 'gone'/ }));
-        expect(screen.getByTestId('node-action:job:1')).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.getByRole('region', { name: 'Action' })).toHaveTextContent("webhook destination 'gone' doesn't exist; pick another");
+        expect(screen.getByTestId('job-actions-tab')).toBeInTheDocument();
     });
 
     it('an empty condition in the save list selects the condition node and shows its panel', async () => {

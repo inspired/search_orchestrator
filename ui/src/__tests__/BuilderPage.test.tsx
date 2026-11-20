@@ -128,7 +128,7 @@ describe('BuilderPage flow', () => {
     it('shows the tabs Flow, Parameters, Access, Settings, Source and History', async () => {
         await show(<BuilderPage jobId="rollups" api={fakeApi()} />);
         await screen.findByRole('button', { name: /^Search Weekly rollup/ });
-        expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Flow', 'Parameters', 'Access', 'Settings', 'Source', 'History']);
+        expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Flow', 'Job actions', 'Parameters', 'Access', 'Settings', 'Source', 'History']);
         expect(screen.queryByRole('tab', { name: /Triggers/ })).toBeNull();
         expect(screen.queryByRole('tab', { name: /Actions/ })).toBeNull();
         expect(screen.getByRole('group', { name: /^Job flow/ })).toBeInTheDocument();
@@ -215,6 +215,8 @@ describe('BuilderPage flow', () => {
                 { hook: 'on_failure', type: 'email', to: 'b@example.com' },
             ],
         });
+        job.steps[2].actions = job.actions;
+        job.actions = [];
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
         const canvas = screen.getByRole('group', { name: /^Job flow/ });
@@ -222,13 +224,13 @@ describe('BuilderPage flow', () => {
             const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(screen.getByTestId(`node-${key}`).getAttribute('transform') || '');
             return { clientX: Number(m?.[1]) + 20, clientY: Number(m?.[2]) + 20 };
         };
-        fireEvent.keyDown(screen.getByTestId('node-action:job:0'), { key: 'Enter' });
-        expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.keyDown(screen.getByTestId('node-action:monthly:0'), { key: 'Enter' });
+        expect(screen.getByTestId('node-action:monthly:0')).toHaveAttribute('aria-pressed', 'true');
         fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), centre('step:daily'));
-        fireEvent.pointerUp(canvas, centre('action:job:0'));
+        fireEvent.pointerUp(canvas, centre('action:monthly:0'));
         fireEvent.click(screen.getByRole('option', { name: /^Fails/ }));
         expect(screen.getByTestId('node-action:daily:0')).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.getByTestId('node-action:job:0')).toHaveAttribute('aria-pressed', 'false');
+        expect(screen.getByTestId('node-action:monthly:0')).toHaveAttribute('aria-pressed', 'false');
         expect(screen.getByLabelText('To')).toHaveValue('a@example.com');
     });
 
@@ -598,12 +600,14 @@ describe('BuilderPage removing nodes', () => {
                 { hook: 'on_failure', type: 'email', to: '' },
             ],
         });
+        job.steps[2].actions = job.actions;
+        job.actions = [];
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
-        fireEvent.keyDown(screen.getByTestId('node-action:job:0'), { key: 'Delete' });
+        fireEvent.keyDown(screen.getByTestId('node-action:monthly:0'), { key: 'Delete' });
         expect(screen.getByText('Remove Slack (ops-channel)?')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-        fireEvent.keyDown(screen.getByTestId('node-action:job:1'), { key: 'Delete' });
+        fireEvent.keyDown(screen.getByTestId('node-action:monthly:1'), { key: 'Delete' });
         expect(screen.getByText('Remove email?')).toBeInTheDocument();
     });
 
@@ -633,10 +637,12 @@ describe('BuilderPage removing nodes', () => {
                 { from: 'weekly', to: 'monthly', condition: 'on_success' },
             ],
         });
+        job.steps[2].actions = job.actions;
+        job.actions = [];
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
         const cases: [string, string, string, string][] = [
-            ['action:job:0', 'Remove email (a@b.c)?', 'Email (a@b.c) is removed. Undo brings it back.', 'Remove action'],
+            ['action:monthly:0', 'Remove email (a@b.c)?', 'Email (a@b.c) is removed. Undo brings it back.', 'Remove action'],
             ['trigger:0', 'Remove schedule (Every day at 01:00)?', 'Schedule (Every day at 01:00) is removed. Undo brings it back.', 'Remove trigger'],
             [
                 'cond:daily>weekly',

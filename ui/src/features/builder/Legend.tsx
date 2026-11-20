@@ -9,7 +9,8 @@ import { ACTION_ONLY_PORTS } from './nodeModel';
 import { FAMILY_OF, FAMILY_STYLE, Family, HANDLE_R, PORT_STYLE, shapePath } from './nodeStyle';
 import { OUTCOME_LABEL, Outcome } from './outcomes';
 
-const FAMILIES = Object.keys(FAMILY_STYLE) as Family[];
+// No Whole job: its actions are on the Job actions tab, not the canvas.
+const FAMILIES = (Object.keys(FAMILY_STYLE) as Family[]).filter((f) => f !== 'job');
 const OUTCOMES = Object.keys(OUTCOME_LABEL) as Outcome[];
 
 /** Example kinds of a family, from the catalog; the whole job has no catalog entry. */

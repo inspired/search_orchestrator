@@ -1,7 +1,6 @@
 import React from 'react';
 import { fireEvent, screen } from '@testing-library/react';
 import ActionPanel from '../features/builder/ActionPanel';
-import JobNodePanel from '../features/builder/JobNodePanel';
 import type { JobDefinition } from '../api/types';
 import { renderThemed } from './fixtures';
 
@@ -45,15 +44,6 @@ describe('ActionPanel', () => {
         expect(screen.getByText("webhook destination 'slack-ops' doesn't exist; pick another")).toBeInTheDocument();
     });
 
-    test('moving to Whole job · Finished either way dispatches moveAction and reports the new key', () => {
-        const { dispatch, onMoved } = setup('a', 0);
-        fireEvent.click(screen.getByRole('combobox', { name: 'When' }));
-        fireEvent.click(screen.getByRole('option', { name: 'Whole job · Finished either way' }));
-        expect(dispatch).toHaveBeenCalledWith({ type: 'moveAction', scope: 'a', index: 0, toScope: 'job', hook: 'on_complete' });
-        // The job already has one action, so the moved one is appended at index 1.
-        expect(onMoved).toHaveBeenCalledWith('action:job:1');
-    });
-
     test('changing only the outcome keeps the key', () => {
         const { dispatch, onMoved } = setup('a', 0);
         fireEvent.click(screen.getByRole('combobox', { name: 'When' }));
@@ -62,15 +52,14 @@ describe('ActionPanel', () => {
         expect(onMoved).toHaveBeenCalledWith('action:a:0');
     });
 
-    test('lists every step and the whole job with its outcomes', () => {
+    test('lists every step with its outcomes, and no Whole job (that is the Job actions tab)', () => {
         setup('a', 0);
         fireEvent.click(screen.getByRole('combobox', { name: 'When' }));
         const names = screen.getAllByRole('option').map((o) => o.textContent);
-        expect(names).toHaveLength(16);
+        expect(names).toHaveLength(10);
         expect(names[0]).toBe('Daily summary · Succeeded');
         expect(names[5]).toBe('Weekly · Succeeded');
-        expect(names[14]).toBe('Whole job · Delayed');
-        expect(names[15]).toBe('Whole job · Late');
+        expect(names.some((n) => (n || '').startsWith('Whole job'))).toBe(false);
     });
 
     test('editing an email field dispatches updateAction with only that field', () => {
@@ -87,26 +76,6 @@ describe('ActionPanel', () => {
     });
 });
 
-describe('JobNodePanel', () => {
-    test('explains the lines and selects an outgoing action', () => {
-        const onSelect = jest.fn();
-        renderThemed(<JobNodePanel job={job()} onSelect={onSelect} />);
-        expect(
-            screen.getByText('Lines from Whole job fire for the whole run. Without a Failed line, the fallback notification in Settings is used.')
-        ).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: /Failed: Webhook/ }));
-        expect(onSelect).toHaveBeenCalledWith('action:job:0');
-    });
-
-    test('a webhook with the Slack preset shows its type as Slack and keeps the destination', () => {
-        const dispatch = jest.fn();
-        const j = job();
-        j.actions = [{ hook: 'on_failure', type: 'webhook', preset: 'slack', destination: 'slack-ops' }];
-        renderThemed(<ActionPanel job={j} scope="job" index={0} destinations={[{ name: 'slack-ops' } as never]} alertActions={[]} tokenGroups={[]} dispatch={dispatch} onMoved={jest.fn()} onRequestRemove={jest.fn()} />);
-        expect(screen.getByRole('combobox', { name: 'Do' })).toHaveTextContent('Slack');
-        expect(screen.getByRole('combobox', { name: 'Destination' })).toHaveTextContent('slack-ops');
-    });
-});
 
 describe('channel action panels', () => {
     const DESTS = [

@@ -265,10 +265,10 @@ describe('FlowCanvas', () => {
         renderThemed(<FlowCanvas graph={graph} positions={positions} selected={{ kind: 'nodes', keys: ['step:a', 'step:b'] }} issues={[]} onSelect={jest.fn()} />);
         expect(screen.getByTestId('plus-step:a')).toHaveAttribute('data-plus-shown', 'true');
         expect(screen.getByTestId('plus-step:b')).toHaveAttribute('data-plus-shown', 'true');
-        expect(screen.getByTestId('plus-job')).not.toHaveAttribute('data-plus-shown');
+        expect(screen.getByTestId('plus-trigger:0')).not.toHaveAttribute('data-plus-shown');
     });
 
-    test('steps, the whole job, conditions and triggers have a +; actions do not', () => {
+    test('steps, conditions and triggers have a +; actions do not', () => {
         const withCond = buildGraph({ ...job, edges: [{ from: 'a', to: 'b', condition: 'expression', expression: 'x > 1' }] });
         renderThemed(
             <FlowCanvas
@@ -282,7 +282,7 @@ describe('FlowCanvas', () => {
         );
         expect(screen.getByTestId('plus-step:a')).toBeInTheDocument();
         expect(screen.getByTestId('plus-step:b')).toBeInTheDocument();
-        expect(screen.getByTestId('plus-job')).toBeInTheDocument();
+        expect(screen.queryByTestId('plus-job')).toBeNull(); // no Whole job node: Job actions tab
         expect(screen.getByTestId('plus-cond:a>b')).toBeInTheDocument();
         expect(screen.getByTestId('plus-trigger:0')).toBeInTheDocument();
         expect(screen.queryByTestId('plus-action:a:0')).toBeNull();
@@ -496,13 +496,6 @@ describe('FlowCanvas', () => {
             expect(props.onRequestRemove).toHaveBeenCalledWith('step:a');
         });
 
-        test('Delete on the whole job does nothing', () => {
-            const { props, canvas } = setup({ selected: { kind: 'node', key: 'job' } });
-            fireEvent.keyDown(canvas, { key: 'Delete' });
-            fireEvent.keyDown(screen.getByTestId('node-job'), { key: 'Backspace' });
-            expect(props.onRequestRemove).not.toHaveBeenCalled();
-        });
-
         test('Backspace on a focused node asks to remove it', () => {
             const { props } = setup();
             fireEvent.keyDown(screen.getByTestId('node-step:b'), { key: 'Backspace' });
@@ -524,10 +517,10 @@ describe('FlowCanvas', () => {
             expect(view().getAttribute('transform')).toBe('translate(0,0) scale(1)');
             fireEvent.keyDown(canvas, { key: 'f' });
             // bounds 0..750 × 100..468 → centred at (375, 284), fits at zoom 1.
-            expect(view().getAttribute('transform')).toBe('translate(225,16) scale(1)');
+            expect(view().getAttribute('transform')).toBe('translate(225,72) scale(1)');
             fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
             fireEvent.click(screen.getByRole('button', { name: 'Frame all' }));
-            expect(view().getAttribute('transform')).toBe('translate(225,16) scale(1)');
+            expect(view().getAttribute('transform')).toBe('translate(225,72) scale(1)');
         });
 
         test('Escape clears the selection', () => {

@@ -602,6 +602,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         issues={issues}
                         canEdit={meta.canEdit}
                         knownTags={knownTags}
+                        destinations={destinations}
+                        alertActions={alertActions}
                         history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r, n) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), afterSaved(r, client.toDefinition(r.job), `Restored version ${n}.`)) }}
                     />
                 </>

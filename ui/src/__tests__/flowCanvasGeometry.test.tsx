@@ -49,10 +49,10 @@ describe('flowCanvasGeometry', () => {
         expect(frameView(graph, pos, 0, 0)).toBeNull();
         expect(frameView(graph, {}, 800, 600)).toBeNull();
         const v = frameView(graph, pos, 480, 300)!;
-        // bounds 800 × 268 at (0, 0): fits at min(400/800, 220/268) = 0.5.
+        // Fits at 0.5 and centres the nodes (the Whole job node is no longer drawn).
         expect(v.zoom).toBeCloseTo(0.5);
         expect(v.pan.x).toBeCloseTo(240 - 400 * 0.5);
-        expect(v.pan.y).toBeCloseTo(150 - 134 * 0.5);
+        expect(v.pan.y).toBeCloseTo(86);
     });
 });
 
