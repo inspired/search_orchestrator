@@ -1,5 +1,6 @@
 import { describe as describeLine, eventLabel, explainError } from '../features/logs/catalog';
 import { describeRequest, routeName, routeParts } from '../features/logs/requests';
+import { infinitive, plainError } from '../features/logs/plain';
 import { explainGap, fold } from '../features/logs/RunStory';
 import { tiles } from '../features/logs/Overview';
 import type { LogLine } from '../api/logs';
@@ -43,7 +44,7 @@ describe('log catalog', () => {
         expect(refused.title).toBe('Engine refused to pause the run: cannot pause a succeeded run');
         expect(refused.tone).toBe('warning');
         const free = describeLine({ level: 'WARNING', process: 'engine', message: 'status of search scheduler__x failed: timed out', raw: '' }, names);
-        expect(free.title).toBe('Could not read the status of search scheduler__x: timed out');
+        expect(free.title).toBe('Could not read the status of a scheduled search: Splunk did not answer in time');
         expect(free.why).toMatch(/tries again/);
         expect(describeLine({ level: 'ERROR', process: 'engine', message: 'something odd', raw: '' }).tone).toBe('error');
         expect(describeLine(line('brand_new_thing', { error: 'HTTP 503' })).title).toBe('Brand new thing: HTTP 503');
@@ -57,7 +58,7 @@ describe('log catalog', () => {
         const saved = describeRequest({ method: 'PUT', path: '/orchestrator/jobs/daily', status: '200', ms: '1234', user: 'alice' }, names);
         expect([saved.title, saved.result, saved.tone]).toEqual(['alice saved Daily logins', '200 OK · 1.2 s', 'ok']);
         const denied = describeRequest({ method: 'POST', path: '/orchestrator/jobs/daily/runs', status: '403', user: 'dave', error: 'you may not run job' }, names);
-        expect(denied.title).toBe('dave started Daily logins now — you may not run job');
+        expect(denied.title).toBe('dave could not start Daily logins now: you may not run job');
         expect(denied.tone).toBe('warning');
         expect(denied.why).toMatch(/capability/);
         expect(describeRequest({ method: 'GET', path: '/orchestrator/runs', status: '500' }, names).tone).toBe('error');
@@ -87,7 +88,7 @@ describe('lines from a live instance', () => {
             real({ event: 'action_failed', action_type: 'email', attempts: '4', hook: 'on_approval_requested', error: 'action search failed: command="sendemail", [Errno 111] Connection refused while sending mail to: you@example.com' }),
             names
         );
-        expect(d.title).toMatch(/^Email failed after 4 tries: action search failed/);
+        expect(d.title).toBe('Email failed after 4 tries: Splunk could not reach its mail server to send the email to you@example.com');
         expect(d.why).toMatch(/mail server/);
         expect(d.fix).toMatch(/Email settings/);
     });
@@ -150,5 +151,41 @@ describe('app health alerts in Settings', () => {
         const { appId } = jest.requireActual('../features/settings/HealthPanel');
         expect(appId('/en-US/app/search_orchestrator_jlh/settings')).toBe('search_orchestrator_jlh');
         expect(appId('/')).toBe('search_orchestrator');
+    });
+});
+
+describe('errors in plain words', () => {
+    test('the lines from a live instance read as sentences', () => {
+        const kv = "a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{\"messages\":[{\"type\":\"ERROR\",\"text\":\"KV Store is initializing. Please try again later.\"}]}'";
+        expect(plainError(kv)).toBe('KV Store was still starting up');
+        expect(plainError('connection error: [Errno 111] Connection refused')).toBe('Splunk was not answering (it may have been starting or stopping)');
+        expect(plainError('[Errno 111] Connection refused', 'action')).toBe('the receiver did not answer (connection refused)');
+        expect(plainError('search _c3BsdW5rLXN5c3RlbS11c2Vy__admin_c2VhcmNo__RMD5db72_at_1_2 no longer exists: it expired')).toBe('the search had already expired');
+        expect(plainError("KV Store error: HTTP 500 -- b'{\"messages\":[{\"type\":\"ERROR\",\"text\":\"Disk is full\"}]}'")).toBe('Disk is full');
+        expect(plainError('HTTPError')).toBe('Splunk refused the call');
+        expect(plainError("bad step '' in minute field")).toBe("bad step '' in minute field");
+        expect(plainError('')).toBe('');
+    });
+
+    test('a failed request says what the person could not do', () => {
+        expect(infinitive('loaded the runs list')).toBe('load the runs list');
+        expect(infinitive('asked to cancel run x')).toBe('cancel run x');
+        expect(infinitive('enabled or disabled Daily')).toBe('enable or disable Daily');
+        const d = describeLine({
+            time: 't',
+            level: 'ERROR',
+            event: 'request',
+            fields: {
+                event: 'request',
+                user: 'joernh',
+                method: 'GET',
+                path: '/orchestrator_jlh/runs',
+                status: '502',
+                error: "a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{\"messages\":[{\"type\":\"ERROR\",\"text\":\"KV Store is initializing. Please try again later.\"}]}'",
+            },
+        } as never);
+        expect(d.title).toBe('joernh could not load the runs list: KV Store was still starting up');
+        expect(d.why).toContain('KV Store needs a minute or two');
+        expect(d.fix).toContain('Reload the page');
     });
 });

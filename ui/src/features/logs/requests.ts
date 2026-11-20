@@ -2,6 +2,8 @@
  * action ("approved step X", "saved job Y"), the status becomes its outcome. */
 import type { LogNames } from '../../api/logs';
 import type { Described, Tone } from './catalog';
+import { explainError } from './catalog';
+import { infinitive, plainError } from './plain';
 
 type F = Record<string, string | undefined>;
 
@@ -153,10 +155,17 @@ export function describeRequest(f: F, names: LogNames, level?: string): Describe
         who: f.user || 'unknown',
         result: [status ? `${status} ${STATUS_WORD[status] || ''}`.trim() : '', Number.isNaN(ms) ? '' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`].filter(Boolean).join(' · '),
     };
-    if (f.error || f.error_code) {
-        out.title += ` — ${f.error || f.error_code}`;
+    if (st >= 400 || f.error) {
+        // A failed request as a sentence: "joernh could not load the runs list: KV Store was
+        // still starting up". The error as written stays in the line's details.
+        const why = plainError(f.error) || (f.error_code ? f.error_code.replace(/_/g, ' ') : STATUS_WORD[status] || `status ${status}`);
+        out.title = `${f.user || 'Someone'} could not ${infinitive(text)}: ${why}`;
     }
-    if (st >= 500) {
+    const known = explainError(f.error);
+    if (known.why && st >= 500) {
+        out.why = known.why;
+        out.fix = known.fix;
+    } else if (st >= 500) {
         out.why = 'The REST handler failed while doing this (see the error, and any traceback near this line).';
         out.fix = 'Try again; if it repeats, report the error.';
     } else if (st === 403) {

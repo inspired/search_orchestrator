@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.45.0 (2026-11-20)
+
+- **Troubleshooting in plain words:** errors in What happened, Problems and the run story are said plainly instead of as Splunk's and Python's wording: "joernh could not load the runs list: KV Store was still starting up" instead of "joernh loaded the runs list — a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{…}'". Also "Splunk could not reach its mail server", "Splunk was not answering", "the receiver did not answer", "the search had already expired", and search ids as "a step search" or "a scheduled search". A failed request reads as what the person could not do. KV Store starting gets its own why and what to do. The line as written stays in each line's details.
+
 ## 1.44.4 (2026-11-20)
 
 - **Engine graphs show real data at every range:** Active runs read the heartbeat's `active_runs`, a snapshot every 5 minutes; runs that take seconds were never caught, so it was always 0, and in 30-second or 1-minute buckets 4 in 5 buckets were empty, so Search drew nothing. The panel is now **Runs started**, counted from `run_state` (logged at Info) in every bucket. The tick time panel keeps only the buckets with a value, so its 5-minute points join in Search too. The heartbeat gains `peak_runs`, the most runs at once in its 5 minutes.

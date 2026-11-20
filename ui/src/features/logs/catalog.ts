@@ -4,6 +4,7 @@
  * Pure, so it can be tested without rendering. */
 import type { LogLine, LogNames } from '../../api/logs';
 import { describeRequest } from './requests';
+import { cleanIds, plainError } from './plain';
 
 export type Category = 'run' | 'step' | 'condition' | 'action' | 'approval' | 'job' | 'engine' | 'api' | 'splunk' | 'backfill' | 'settings' | 'other';
 export type Tone = 'error' | 'warning' | 'ok' | 'info' | 'muted';
@@ -169,6 +170,7 @@ export function explainError(error?: string, context: 'action' | 'search' | 'any
         return {};
     }
     const rules: Array<[RegExp, string, string]> = [
+        [/KV Store is initializing|KV Store is (starting|not ready)/i, 'Right after Splunk starts, KV Store needs a minute or two before it answers; anything that reads jobs or runs meanwhile fails.', 'Nothing to do: it works again once KV Store is up. Reload the page.'],
         [/sendemail|smtp|while sending mail/i, 'Splunk could not send the email: its mail server is not set up or not reachable.', 'Set the mail host in Splunk (Settings → Server settings → Email settings) and check that Splunk can reach it.'],
         [/HTTP 401|unauthori[sz]ed/i, 'The other side rejected the credentials.', 'Check the destination’s URL token or headers in Settings → Webhook destinations.'],
         [/HTTP 403|forbidden|not allowed|permission/i, 'The account used is not allowed to do this.', 'Check the job owner’s roles and capabilities, or the target’s permissions.'],
@@ -176,7 +178,7 @@ export function explainError(error?: string, context: 'action' | 'search' | 'any
         [/HTTP 429|rate limit/i, 'The other side is rate limiting.', 'Send fewer messages, or let the retries finish.'],
         [/HTTP 5\d\d/i, 'The other side failed while handling it. This is usually temporary.', 'The app retries; if it keeps failing, check the receiving service.'],
         [/timed? ?out|timeout/i, 'No answer came in time.', 'Usually temporary. If it repeats, check that Splunk or the target is not overloaded.'],
-        [/connection (error|refused|reset)|could not be reached|name or service not known/i, 'The app could not connect.', 'Check the host name and that the service is up and reachable from Splunk.'],
+        [/\[Errno 111\]|connection (error|refused|reset)|could not be reached|name or service not known/i, context === 'action' ? 'The app could not connect to the receiver.' : 'Splunk did not answer: splunkd was starting, stopping or overloaded.', 'Check the host name and that the service is up and reachable from Splunk.'],
         [/concurren|quota|too many searches|max(imum)? number of/i, 'Splunk’s search limit for the user or the server was reached.', 'Lower Searches at once in Settings, or raise the role’s search quota.'],
         [/Error in '|Unknown search command|parse|syntax/i, 'The step’s SPL has an error.', 'Open the job and use Preview on the step to see Splunk’s message.'],
         [/expired|reaped|no longer exists/i, 'The search job was removed before the engine read it (it expired or was deleted).', 'Raise Keep step results in Settings, or check for something deleting search jobs.'],
@@ -208,12 +210,23 @@ const MESSAGE_RULES: Array<[RegExp, Category, Tone, (m: RegExpMatchArray) => str
     [/request failed/i, 'api', 'error', () => 'A request failed with an internal error', 'An unexpected error in the REST handler (see the traceback).', 'Report the traceback.'],
 ];
 
+/** The captured error at the end of a message rule, in plain words. */
+function plainGroups(m: RegExpMatchArray): RegExpMatchArray {
+    const out = [...m] as unknown as RegExpMatchArray;
+    const last = out.length - 1;
+    if (last > 0 && /error|failed|refused|HTTP|Errno|KV Store|timed? ?out|no longer exists/i.test(out[last] || '')) {
+        out[last] = plainError(out[last]);
+    }
+    out.input = m.input;
+    return out;
+}
+
 function describeMessage(line: LogLine): Described {
     const msg = line.message || line.raw || '';
     for (const [re, category, tone, title, why, fix] of MESSAGE_RULES) {
         const m = msg.match(re);
         if (m) {
-            return { category, tone: line.level === 'ERROR' ? 'error' : tone, title: title(m), who: line.process === 'rest' ? 'the app' : 'engine', why, fix };
+            return { category, tone: line.level === 'ERROR' ? 'error' : tone, title: cleanIds(title(plainGroups(m))), who: line.process === 'rest' ? 'the app' : 'engine', why, fix };
         }
     }
     const tone: Tone = line.level === 'ERROR' || line.level === 'CRITICAL' ? 'error' : line.level === 'WARNING' ? 'warning' : 'muted';
@@ -252,7 +265,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         }
         case 'splunkd_call':
             return d('splunk', f.error ? 'warning' : 'muted', `Splunk call ${f.method || ''} ${f.path || ''}`.trim(), {
-                result: [f.status, secs(f.ms)].filter(Boolean).join(' · ') + (f.error ? ` · ${f.error}` : ''),
+                result: [f.status, secs(f.ms)].filter(Boolean).join(' · ') + (f.error ? ` · ${plainError(f.error)}` : ''),
             });
         case 'engine_started':
             return d('engine', 'ok', `Engine started on ${f.holder || 'this server'} (ticks every ${f.tick_seconds || 5} s)`);
@@ -326,7 +339,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
                     fix: 'Let the waiting runs finish, find why they wait (a held run?), or raise Queue cap per job in Settings.',
                 });
             }
-            return d('run', 'warning', `No new run for ${job}: the schedule’s parameters are invalid${err ? ` (${err})` : ''}`, {
+            return d('run', 'warning', `No new run for ${job}: the schedule’s parameters are invalid${err ? ` (${plainError(err)})` : ''}`, {
                 why: 'A scheduled run uses the parameters’ defaults, and one is missing or not allowed.',
                 fix: 'Give every parameter a valid default in the job.',
             });
@@ -365,7 +378,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
             } else if (to === 'succeeded') {
                 title = `Step ${step} succeeded`;
             } else if (to === 'failed') {
-                title = `Step ${step} failed${err ? `: ${err}` : ''}`;
+                title = `Step ${step} failed${err ? `: ${plainError(err)}` : ''}`;
             } else if (to === 'skipped') {
                 title = `Step ${step} skipped${f.skip_kind && SKIP_WORD[f.skip_kind] ? `: ${SKIP_WORD[f.skip_kind]}` : ''}`;
             }
@@ -375,13 +388,13 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
             return d('step', 'info', `Search for step ${step} started`, { result: f.attempt && f.attempt !== '1' ? `attempt ${f.attempt}` : undefined });
         case 'step_attempt': {
             if (f.outcome === 'failed') {
-                return d('step', 'error', `Search for step ${step} failed${err ? `: ${err}` : ''}`, explainError(err, 'search'));
+                return d('step', 'error', `Search for step ${step} failed${err ? `: ${plainError(err)}` : ''}`, explainError(err, 'search'));
             }
             const parts = [f.result_count !== undefined ? `${num(f.result_count)} results` : '', f.scan_count ? `${num(f.scan_count)} events scanned` : ''].filter(Boolean);
             return d('step', 'ok', `Search for step ${step} finished${parts.length ? `: ${parts.join(', ')}` : ''}`, { result: f.run_duration ? `${Number(f.run_duration).toFixed(1)} s` : undefined });
         }
         case 'step_dispatch_error':
-            return d('step', 'error', `Could not start the search for step ${step}${err ? `: ${err}` : ''}`, {
+            return d('step', 'error', `Could not start the search for step ${step}${err ? `: ${plainError(err)}` : ''}`, {
                 result: f.dispatch_errors ? `try ${f.dispatch_errors}` : undefined,
                 ...(explainError(err, 'search').why ? explainError(err, 'search') : { why: 'Splunk refused to start the step’s saved search.', fix: 'Preview the step in the job to see Splunk’s message; the engine tries again.' }),
             });
@@ -405,7 +418,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
                 result: f.result_count !== undefined ? `${num(f.result_count)} rows` : undefined,
             });
         case 'condition_failed':
-            return d('condition', 'error', `Condition on ${stepName(names, line.job_id, f.from_step)} → ${step} could not be checked${err ? `: ${err}` : ''}`, explainError(err, 'search'));
+            return d('condition', 'error', `Condition on ${stepName(names, line.job_id, f.from_step)} → ${step} could not be checked${err ? `: ${plainError(err)}` : ''}`, explainError(err, 'search'));
         case 'condition_cancelled':
             return d('condition', 'muted', `Condition check on ${stepName(names, line.job_id, f.from_step)} → ${step} cancelled: the run ended first`);
         case 'condition_tested':
@@ -418,9 +431,9 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
                 result: f.attempts && f.attempts !== '1' ? `after ${f.attempts} tries` : undefined,
             });
         case 'action_retry':
-            return d('action', 'warning', `${ACTION_WORD[f.action_type || ''] || 'Action'} failed, will retry${err ? `: ${err}` : ''}`, { result: f.attempts ? `try ${f.attempts}` : undefined, ...explainError(err, 'action') });
+            return d('action', 'warning', `${ACTION_WORD[f.action_type || ''] || 'Action'} failed, will retry${err ? `: ${plainError(err, 'action')}` : ''}`, { result: f.attempts ? `try ${f.attempts}` : undefined, ...explainError(err, 'action') });
         case 'action_failed':
-            return d('action', 'error', `${ACTION_WORD[f.action_type || ''] || 'Action'} failed${f.attempts ? ` after ${f.attempts} tries` : ''}${err ? `: ${err}` : ''}`, {
+            return d('action', 'error', `${ACTION_WORD[f.action_type || ''] || 'Action'} failed${f.attempts ? ` after ${f.attempts} tries` : ''}${err ? `: ${plainError(err, 'action')}` : ''}`, {
                 ...(explainError(err, 'action').why ? explainError(err, 'action') : { why: 'The action kept failing, so the app gave up on it.', fix: 'Check the action’s settings; the fallback notification is sent if one is set.' }),
             });
         case 'chain_depth_exceeded':
@@ -484,11 +497,11 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'job_versions_pruned':
             return d('job', 'muted', `Removed ${num(f.count)} old versions of ${job}`);
         case 'job_version_failed':
-            return d('job', 'warning', `${job} was saved, but its version could not be stored${err ? `: ${err}` : ''}`, { fix: 'Save the job again to store a version.' });
+            return d('job', 'warning', `${job} was saved, but its version could not be stored${err ? `: ${plainError(err)}` : ''}`, { fix: 'Save the job again to store a version.' });
         case 'job_restored':
             return d('job', 'info', `${user || 'Someone'} restored ${job} to version ${f.to_version || '?'}`);
         case 'hidden_search_delete_failed':
-            return d('job', 'warning', `Could not delete the old step search ${f.name || ''}${err ? `: ${err}` : ''}`, { why: 'Saving or deleting a job removes the step searches it no longer uses.', fix: `Delete ${f.name || 'it'} by hand under Settings → Searches, reports and alerts (owner ${f.owner || '?'}).` });
+            return d('job', 'warning', `Could not delete the old step search ${f.name || ''}${err ? `: ${plainError(err)}` : ''}`, { why: 'Saving or deleting a job removes the step searches it no longer uses.', fix: `Delete ${f.name || 'it'} by hand under Settings → Searches, reports and alerts (owner ${f.owner || '?'}).` });
         case 'preview_dispatched':
             return d('job', 'muted', `${user || 'Someone'} previewed step ${step}${job ? ` in ${job}` : ''}`);
         case 'output_viewed':
@@ -503,7 +516,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'destination_deleted':
             return d('settings', 'info', `${user || 'Someone'} deleted webhook destination ${f.destination || ''}`);
         case 'destination_secret_delete_failed':
-            return d('settings', 'warning', `Could not delete the stored secret of destination ${f.destination || ''}${err ? `: ${err}` : ''}`, { fix: 'Try deleting the destination again.' });
+            return d('settings', 'warning', `Could not delete the stored secret of destination ${f.destination || ''}${err ? `: ${plainError(err)}` : ''}`, { fix: 'Try deleting the destination again.' });
         case 'snippet_saved':
             return d('job', 'muted', `${user || 'Someone'} ${f.created === 'true' ? 'saved' : 'renamed'} a snippet`);
         case 'snippet_deleted':
@@ -519,7 +532,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'selftest_probe':
             return d('engine', 'muted', 'Self-test probe');
         default:
-            return d('other', levelTone, ev.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) + (err ? `: ${err}` : ''), explainError(err));
+            return d('other', levelTone, ev.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) + (err ? `: ${plainError(err)}` : ''), explainError(err));
     }
 }
 

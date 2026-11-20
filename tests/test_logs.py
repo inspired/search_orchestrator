@@ -357,3 +357,12 @@ def test_problem_error_keeps_quotes_inside_the_value():
     assert err == ('action search failed: command="sendemail", [Errno 111] Connection refused '
                    'while sending mail to: you@example.com')
     assert 'eval what=coalesce(err, error,' in query
+
+
+def test_problems_use_the_same_plain_words_as_the_page():
+    query = logs_api.problems_query({"range": "24h"})
+    for words in ('"KV Store was still starting up"', '"Splunk could not reach its mail server"',
+                  '"Splunk was not answering (it may have been starting or stopping)"',
+                  '"the receiver did not answer (connection refused)"',
+                  '"Engine skipped a tick".said', '"Requests failed ("'):
+        assert words in query, words
