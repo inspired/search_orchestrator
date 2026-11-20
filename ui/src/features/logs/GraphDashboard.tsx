@@ -94,7 +94,9 @@ export function graphDefinition(base: SearchLink, panels: GraphPanel[], surface:
                 yAxisTitleVisibility: p.unit ? 'show' : 'hide',
                 ...(p.unit === 'ms' ? { yAxisTitleText: 'Milliseconds' } : {}),
                 ...(p.kind === 'column' && p.stacked ? { stackMode: 'stacked' } : {}),
-                ...(p.kind === 'line' ? { nullValueDisplay: p.connect ? 'connect' : 'gaps', ...(Object.keys(dashed).length ? { lineDashStylesByField: dashed } : {}) } : {}),
+                // Markers, so a half hour with a value between empty ones still shows (requests are
+                // logged at Info only when they change something or fail).
+                ...(p.kind === 'line' ? { markerDisplay: 'filled', nullValueDisplay: p.connect ? 'connect' : 'gaps', ...(Object.keys(dashed).length ? { lineDashStylesByField: dashed } : {}) } : {}),
             },
         };
         structure.push({ item: `viz_${p.id}`, type: 'block', position: { x: 0, y, w: WIDTH, h: p.height } });

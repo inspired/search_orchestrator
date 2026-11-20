@@ -134,6 +134,7 @@ describe('Troubleshooting page', () => {
         expect(screen.getByTestId('graph-engine')).toHaveTextContent("At Info level the points are the engine's heartbeat, every 5 minutes");
         const def = JSON.parse(screen.getByTestId('dashboard').getAttribute('data-definition') || '{}');
         expect(def.visualizations.viz_ticks.options.nullValueDisplay).toBe('connect');
+        expect(def.visualizations.viz_ticks.options.markerDisplay).toBe('filled');
         expect(window.location.search).toContain('graph=engine');
     });
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.44.3 (2026-11-20)
+
+- **Line graphs show single points:** the response time and engine lines have markers (`markerDisplay: filled`), so a half hour with a value between empty ones still shows. At Info level requests are logged only when they change something or fail, so the response time line is mostly single points.
+
 ## 1.44.2 (2026-11-20)
 
 - **Engine graphs work at Info level:** the Troubleshooting Engine graphs (tick time, active runs) read only the `tick` lines, which are logged at Debug, so they were empty at the default Info level. They now also read the engine's `heartbeat` (every 5 minutes, at Info), which gains `avg_ms`, the average tick over those 5 minutes, beside `ticks`, `slowest_ms` and `active_runs`. The lines join the 5-minute points; whether the engine ran at all shows on the Activity graph and the Engine value. The heartbeat line in What happened says the average too.
