@@ -26,7 +26,14 @@ function DashboardCore(props) {
                 { key: id, 'data-testid': `panel-${id}`, 'data-type': vizs[id].type },
                 React.createElement('span', null, vizs[id].title),
                 (props.actionMenus || []).map((el, i) =>
-                    React.cloneElement(el, { key: i, type: 'block', itemId: id, itemDefinition: vizs[id], dataSources: def.dataSources })
+                    React.cloneElement(el, {
+                        key: i,
+                        type: 'block',
+                        itemId: id,
+                        itemDefinition: vizs[id],
+                        // As the framework: only the data sources the panel itself uses.
+                        dataSources: Object.fromEntries(Object.values(vizs[id].dataSources || {}).map((ds) => [ds, (def.dataSources || {})[ds]])),
+                    })
                 )
             )
         )

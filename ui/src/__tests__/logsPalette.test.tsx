@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import SplunkThemeProvider from '@splunk/themes/SplunkThemeProvider';
 import { PALETTES, paletteOf, schemeOf, toneHex } from '../features/logs/palette';
 import { LevelText } from '../features/logs/LinesTable';
@@ -123,8 +123,14 @@ describe('Troubleshooting palette', () => {
         expect(panel).toHaveTextContent('Log lines over time by level');
         const button = screen.getByTestId('open-in-search');
         expect(button.getAttribute('aria-label')).toBe('Open in search');
-        expect(button.getAttribute('target')).toBe('_blank');
-        const href = decodeURIComponent((button.getAttribute('href') || '').replace(/\+/g, ' '));
+        // A plain icon button (no external-link icon) that opens a new tab with the whole search,
+        // base and chain, although the framework hands it only the chain.
+        expect(button.querySelectorAll('svg')).toHaveLength(1);
+        const open = jest.spyOn(window, 'open').mockImplementation(() => null);
+        fireEvent.click(button);
+        expect(open).toHaveBeenCalledWith(button.getAttribute('data-href'), '_blank', 'noopener');
+        open.mockRestore();
+        const href = decodeURIComponent((button.getAttribute('data-href') || '').replace(/\+/g, ' '));
         expect(href).toContain('/app/search/search');
         expect(href).toContain('q=index=_internal | timechart count AS error | fields _time _span error warning info debug | rename error AS "Errors"');
         expect(href).toContain('earliest=-24h');

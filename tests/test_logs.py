@@ -330,3 +330,21 @@ def test_event_filter_takes_a_list_and_summary_counts_skipped_schedules(w):
         {"event": "schedule_missed", "level": "WARNING", "process": "engine", "sc": "-", "to": "-", "count": "1"}]
     t = w.call("alice", "GET", "/orchestrator/logs/summary")[1]["totals"]
     assert (t["schedules_skipped"], t["schedules_missed"]) == (2, 1)
+
+
+def test_problem_error_keeps_quotes_inside_the_value():
+    # Splunk's key=value extraction stops error="..." at the first \" inside it; the problems
+    # search takes the whole quoted value with rex. This applies that rex, as SPL reads its
+    # string (\" is ", \\ is \), to a real line.
+    query = logs_api.problems_query({"range": "24h"})
+    literal = re.search(r'\| rex field=_raw "(\\serror=.*?\)\\")"', query).group(1)
+    pattern = re.sub(r'\\(["\\])', r"\1", literal).replace("(?<err>", "(?P<err>")
+    raw = ('2026-11-20 08:00:00,000 +0000 level=WARNING process=engine logger=so.audit '
+           'event=action_retry action_type="email" error="action search failed: '
+           'command=\\"sendemail\\", [Errno 111] Connection refused while sending mail to: '
+           'you@example.com" job_id="daily"')
+    err = re.search(pattern, raw).group("err")
+    err = re.sub(r"\\(.)", r"\1", err)  # the eval replace that follows
+    assert err == ('action search failed: command="sendemail", [Errno 111] Connection refused '
+                   'while sending mail to: you@example.com')
+    assert 'eval what=coalesce(err, error,' in query

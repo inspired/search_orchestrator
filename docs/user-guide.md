@@ -711,7 +711,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
   - Errors, warnings, failed requests and response time (95% of requests answered within).
   - Failed actions, skipped schedules and failed runs.
 - **Graphs**, one tab each, drawn by Splunk's own dashboard framework, as a small Dashboard Studio dashboard: the page's search is the base search and each graph a chain search on it, with Splunk's legend and tooltips: **Activity** (lines over time by level, with **Show the errors** and **Show the warnings** under it), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** and **Events** (what the app did most). Engine ticks and Splunk calls are logged at Debug level only.
-  - Point at a graph to show its action bar at the top right; the magnifying glass opens the graph's search (the base search and its chain together) in Search in a new tab, as in Dashboard Studio. Graphs refresh every 10 seconds while **Live** is on.
+  - Point at a graph to show its action bar, under the panel at the right as in Dashboard Studio; the magnifying glass opens the graph's search (the base search and its chain together) in Search in a new tab, as in Dashboard Studio. Graphs refresh every 10 seconds while **Live** is on.
   - The lists (slowest routes, Splunk calls, events) have an **Open in Search** link under them.
   - Small columns at night are half hours with few lines, such as the engine's heartbeat and hourly jobs; point at one for its numbers.
 - **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found", with the job, run and step by name, who did it and the result.

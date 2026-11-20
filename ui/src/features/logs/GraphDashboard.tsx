@@ -139,22 +139,28 @@ export function panelSearch(itemDefinition: { dataSources?: { primary?: string }
     return { spl: parts.join(' '), earliest: params.earliest || '-24h', latest: params.latest || 'now' };
 }
 
-/** The Open in search action in a panel's action bar (it gets the panel's definition and the
- * dashboard's data sources from the framework). */
-export function OpenInSearchAction(props: { itemDefinition?: { dataSources?: { primary?: string } }; dataSources?: Record<string, DsDef> }) {
-    const search = panelSearch(props.itemDefinition, props.dataSources);
+/** The Search page URL for a panel's search. */
+export const searchUrl = (search: SearchLink) => createURL('/app/search/search', { q: search.spl, earliest: search.earliest, latest: search.latest });
+
+/** The Open in search action in a panel's action bar. The framework gives it the panel's
+ * definition and only the data sources that panel uses (the chain, not the base it extends),
+ * so the dashboard's own data sources come in as `allDataSources`. It opens a new tab from a
+ * plain icon button, as Dashboard Studio's does (a link button would add an external-link icon). */
+export function OpenInSearchAction(props: { itemDefinition?: { dataSources?: { primary?: string } }; dataSources?: Record<string, DsDef>; allDataSources?: Record<string, DsDef> }) {
+    const search = panelSearch(props.itemDefinition, { ...(props.dataSources || {}), ...(props.allDataSources || {}) });
     if (!search) {
         return null;
     }
+    const url = searchUrl(search);
     return (
         <Tooltip content="Open in search">
             <Button
                 appearance="subtle"
                 icon={<Magnifier />}
-                to={createURL('/app/search/search', { q: search.spl, earliest: search.earliest, latest: search.latest })}
-                openInNewContext
+                onClick={() => window.open(url, '_blank', 'noopener')}
                 aria-label="Open in search"
                 data-testid="open-in-search"
+                data-href={url}
             />
         </Tooltip>
     );
@@ -165,7 +171,10 @@ export default function GraphDashboard({ base, panels, live = false, label }: { 
     const surface = paletteOf(theme).surface;
     const definition = useMemo(() => graphDefinition(base, panels, surface, live), [base, panels, surface, live]);
     const key = useMemo(() => JSON.stringify(definition), [definition]);
-    const actions = useMemo(() => [<OpenInSearchAction key="open-in-search" />], []);
+    const actions = useMemo(
+        () => [<OpenInSearchAction key="open-in-search" allDataSources={definition.dataSources as Record<string, DsDef>} />],
+        [definition]
+    );
     return (
         <section aria-label={label} data-testid="graph-dashboard" style={{ width: '100%', height: graphHeight(panels) }}>
             {/* initialDefinition and initialMode come from @splunk/dashboard-types, which isn't installed (types only). */}

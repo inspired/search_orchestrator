@@ -180,7 +180,11 @@ def problems_query(filters):
         "%s (level IN (%s) OR event IN (%s) OR (event IN (run_state, step_state) to=\"failed\")"
         " OR (event=step_attempt outcome=\"failed\"))"
         r' | rex field=_raw "^\S+ \S+ \S+ level=\S+ process=\S+ logger=\S+ (?<msg>[^\r\n]*)"'
-        ' | eval what=coalesce(error, if(isnull(event), msg, null()), "")'
+        # Splunk's own key=value extraction stops error="..." at the first \" inside it
+        # (command=\"sendemail\"), so the whole quoted value is taken here and unescaped.
+        r' | rex field=_raw "\serror=\"(?<err>(?:[^\"\\\\]|\\\\.)*)\""'
+        r' | eval err=replace(err, "\\\\(.)", "\1")'
+        ' | eval what=coalesce(err, error, if(isnull(event), msg, null()), "")'
         ' | eval kind=coalesce(action_type, "action"), kind=upper(substr(kind, 1, 1)).substr(kind, 2)'
         ' | eval said=if(what="", "", ": ".what)'
         ' | eval problem=case('

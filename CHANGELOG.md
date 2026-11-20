@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.44.1 (2026-11-20)
+
+- **Open in search opens the whole search:** the dashboard framework hands a panel's action only the data sources that panel uses (its chain search), so Open in search opened just `| fields … | rename …`. It now gets the dashboard's own data sources and opens the base search and the chain together. It is a plain icon button, without the external-link icon a link button added.
+- **Problems keep the whole error:** Splunk's key=value extraction stopped `error="…"` at the first escaped quote inside it (`command=\"sendemail\"`), so problems read "action search failed: command=\". The problems search now takes the whole quoted value with `rex` and unescapes it.
+
 ## 1.44.0 (2026-11-20)
 
 - **Troubleshooting graphs are a Dashboard Studio dashboard:** Splunk's own dashboard framework (`@splunk/dashboard-core` 29.9.0, pinned) draws them from a definition: the page's timechart as the base search (`ds.search`, run by Splunk from the browser) and a chain search (`ds.chain`) per graph. Each panel has the framework's hover action bar with **Open in search**, which, as in Dashboard Studio, opens the panel's base and chain search together. The framework leaves that action to the app (Dashboard Studio ships its own), so the app supplies it. Only the grid layout, the two search types and the Column and Line charts are loaded. With **Live**, the graphs rerun every 10 seconds.
