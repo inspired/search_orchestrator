@@ -51,7 +51,7 @@ from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
 from . import authz, backfill, hidden, history, model, presets, preview, scheduler, selftest
-from . import approval, follows, tokens
+from . import approval, blocks, follows, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
 from .gateway import GatewayError, check_webhook_url
@@ -536,10 +536,15 @@ def _chain_cycle(ctx, job):
     return None
 
 
-def _check(ctx, job):
+def _check(ctx, job, previous=None):
     """``(issues, planned, searches)`` for a save, without writing anything. ``planned``
-    and ``searches`` come from ``hidden.plan`` and are None if an earlier check failed."""
+    and ``searches`` come from ``hidden.plan`` and are None if an earlier check failed.
+    ``previous`` is the saved job, if any: a building block turned off in Settings may stay
+    in a job that already used it, but can't be added."""
     issues = model.validate_job(job)
+    if _errors(issues):
+        return issues, None, None
+    issues += blocks.issues(job, previous, ctx.store.get_settings())
     if _errors(issues):
         return issues, None, None
     issues += _job_issues(ctx, job)
@@ -566,7 +571,7 @@ def validate_job(ctx, body):
         existing = ctx.store.get_job(job_id)
         if existing is not None and not ctx.allowed(authz.can_view, existing):
             existing = None  # as if new: never reveal that the id is taken
-    issues, _, _ = _check(ctx, _prepare(body, job_id, ctx.user))
+    issues, _, _ = _check(ctx, _prepare(body, job_id, ctx.user), existing)
     out = {"valid": not _errors(issues), "issues": issues}
     out.update(_owner_change(ctx, existing))
     return 200, out
@@ -586,7 +591,7 @@ def _record_version(ctx, job, previous, restored_from=None):
 
 
 def _save(ctx, job, previous, restored_from=None):
-    issues, planned, searches = _check(ctx, job)
+    issues, planned, searches = _check(ctx, job, previous)
     if _errors(issues):
         raise ApiError(400, "job_invalid", "the job has errors and was not saved", issues)
 
@@ -1039,7 +1044,7 @@ def _require_admin(ctx, action):
 
 def _settings_view(stored):
     out = dict(DEFAULT_SETTINGS)
-    out.update(fallback=None, base_url=None)
+    out.update(fallback=None, base_url=None, turned_off=[])
     for key, value in (stored or {}).items():
         if not key.startswith("_") and value is not None:
             out[key] = value
@@ -1106,6 +1111,11 @@ def put_settings(ctx, body):
             if value not in ("warn", "stop"):
                 raise _bad_setting("scan_limit_action must be \"warn\" or \"stop\"")
             current[key] = value
+        elif key == "turned_off":
+            try:
+                current[key] = blocks.check(value)
+            except ValueError as err:
+                raise _bad_setting(str(err))
         elif key == "base_url":
             if value not in (None, "") and not (isinstance(value, str)
                                                 and re.match(r"^https?://[^/\s]+", value)):
@@ -1260,7 +1270,8 @@ def me(ctx, body):
                  "can_admin": ctx.allowed(authz.can_admin, None),
                  "can_build": ctx.allowed(authz.can_edit, None),
                  "can_run": authz.RUN in caps or ctx.allowed(authz.can_admin, None),
-                 "can_approve": authz.APPROVE in caps or ctx.allowed(authz.can_admin, None)}
+                 "can_approve": authz.APPROVE in caps or ctx.allowed(authz.can_admin, None),
+                 "turned_off": blocks.turned_off(ctx.store.get_settings())}
 
 
 def _may_build(ctx, action):

@@ -3,6 +3,10 @@
  * search result; the ranked lists are rows that can be clicked to filter. One measure per
  * chart (no second axis). */
 import React, { useState } from 'react';
+import Button from '@splunk/react-ui/Button';
+import SuiTooltip from '@splunk/react-ui/Tooltip';
+import Magnifier from '@splunk/react-icons/Magnifier';
+import { createURL } from '@splunk/splunk-utils/url';
 import Column from '@splunk/visualizations/Column';
 import Line from '@splunk/visualizations/Line';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -21,6 +25,52 @@ export interface Series {
 export interface Point {
     time: string;
     [key: string]: number | string | null;
+}
+
+/** A search to open in Splunk's Search page. */
+export interface ChartSearchLink {
+    spl: string;
+    earliest: string;
+    latest: string;
+}
+
+/** The Search page URL for a graph: the graph's own search, and for a chart over time only its
+ * series (renamed to the legend's labels, in the same colours) shown as the same chart type, so
+ * Search opens on the Visualization tab looking like the graph. Without `view` the search opens
+ * as is (a table of results). */
+export function chartSearchUrl(link: ChartSearchLink, view?: { kind: 'column' | 'line'; series: Series[]; stacked?: boolean }): string {
+    let q = link.spl;
+    const params: Record<string, string> = { earliest: link.earliest, latest: link.latest };
+    if (view && view.series.length) {
+        q += ` | fields _time _span ${view.series.map((s) => s.key).join(' ')}`;
+        q += ` | rename ${view.series.map((s) => `${s.key} AS "${s.label}"`).join(', ')}`;
+        params['display.page.search.tab'] = 'visualizations';
+        params['display.general.type'] = 'visualizations';
+        params['display.visualizations.type'] = 'charting';
+        params['display.visualizations.charting.chart'] = view.kind;
+        if (view.stacked) {
+            params['display.visualizations.charting.chart.stackMode'] = 'stacked';
+        }
+        params['display.visualizations.charting.fieldColors'] = `{${view.series.map((s) => `"${s.label}":${s.color.replace('#', '0x')}`).join(',')}}`;
+    }
+    return createURL('/app/search/search', { q, ...params });
+}
+
+/** A graph with Splunk's magnifying glass in its top-right corner, as on a Dashboard Studio
+ * panel: it opens the graph's search in Search, in a new tab. */
+export function ChartFrame({ href, children }: { href?: string; children: React.ReactNode }) {
+    return (
+        <div data-testid="chart-frame" style={{ position: 'relative' }}>
+            {href && (
+                <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 1 }}>
+                    <SuiTooltip content="Open in Search">
+                        <Button appearance="subtle" icon={<Magnifier />} to={href} openInNewContext aria-label="Open in Search" data-testid="open-in-search" />
+                    </SuiTooltip>
+                </div>
+            )}
+            {children}
+        </div>
+    );
 }
 
 const W = 1100;

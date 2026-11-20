@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.42.0 (2026-11-20)
+
+- **Building blocks in Settings:** an admin can turn off any node kind except Search and Schedule (Approval, Saved search, Summary index, Lookup, After another job, and each action: Email, Webhook, Slack, Teams, PagerDuty, ServiceNow, Event, Alert action, Start another job). A kind that is off is not offered in the Flow or Simple editors, examples that use it can't be added, and a save that adds it is refused (`block_turned_off`). Jobs that already use it keep working and can still be saved. New setting `turned_off`, shown to every user in `/me`; new module `so/blocks.py`.
+- **Export one job:** **Export** in a job's ⋯ menu downloads just that job (`search_orchestrator_job_<id>_<date>.json`), importable with Import jobs.
+- **Open a graph in Search:** each Troubleshooting graph has Splunk's magnifying glass at its top right, as on a Dashboard Studio panel. It opens the graph's search in a new tab, and graphs over time open as the same chart with the same series and colours. The hint explains the low, steady heartbeat bars on the Activity graph.
+
 ## 1.41.0 (2026-11-20)
 
 - **One palette on Troubleshooting:** the graphs, the single values and the **Level** column use the same colours for the same level (red errors, orange warnings, blue info, green OK, grey detail), with separate steps for dark and light mode checked for contrast and colour-blind separation. Every single value is coloured by its state with its icon (green when fine), and the Level column colours Info and OK too, with an icon for Info. The whole page now uses the graphs' own background, black in dark mode and white in light mode, for the tables and tiles too.

@@ -277,7 +277,8 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'export-and-import-many-jobs': () => (
-        <Figure caption="Export the jobs shown to one file; Import jobs saves them all, keeps their ids, skips ids already taken and turns them off.">
+        <Figure caption="Export the jobs shown to one file, or one job from its ⋯ menu; Import jobs saves them all, keeps their ids, skips ids already taken and turns them off.">
+            <Panel title="⋯ Daily logins" rows={[['', 'Edit'], ['', 'Follow…'], ['', 'Export'], ['', 'Backfill…']]} width={160} />
             <Panel title="Import jobs" rows={[['File', '3 jobs: Daily logins, Weekly rollup and Cleanup'], ['', '1 id already taken: skipped'], ['', '☑ Turn the imported jobs off'], ['', '[Import 2 jobs]']]} width={320} />
         </Figure>
     ),

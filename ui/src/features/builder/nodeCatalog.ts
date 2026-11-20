@@ -1,6 +1,7 @@
 /* The kinds of node a person can add, and which ones make sense after a given port. */
+import type { Action, JobDefinition } from '../../api/types';
 import type { NodeKind, PortId } from './nodeModel';
-import { STEP_KINDS } from './nodeModel';
+import { STEP_KINDS, nodeKindOfAction, nodeKindOfStep } from './nodeModel';
 import { FAMILY_OF } from './nodeStyle';
 import type { Family } from './nodeStyle';
 
@@ -40,14 +41,53 @@ export const CATALOG: CatalogEntry[] = [
     entry('start_job', 'Start another job', ['chain', 'run', 'job', 'trigger'], 'Start a different job when the step or job gets here.'),
 ];
 
+/** Always on; every other kind an admin can turn off in Settings > Building blocks. */
+export const ALWAYS_ON: NodeKind[] = ['trigger_cron', 'search'];
+
+let turnedOff: ReadonlySet<string> = new Set();
+
+/** The kinds an admin turned off (from /me): the builder stops offering them. Jobs that
+ * already use one keep it. */
+export function setTurnedOff(kinds: string[] | undefined | null): void {
+    turnedOff = new Set((kinds || []).filter((k) => !ALWAYS_ON.includes(k as NodeKind)));
+}
+
+export function isTurnedOff(kind: string): boolean {
+    return turnedOff.has(kind);
+}
+
+/** The catalog without the kinds that are turned off. */
+export function activeCatalog(): CatalogEntry[] {
+    return CATALOG.filter((e) => !turnedOff.has(e.kind));
+}
+
+/** Every node kind a job uses (as the server's blocks.kinds_of). */
+export function kindsOfJob(job: Partial<JobDefinition>): Set<NodeKind> {
+    const out = new Set<NodeKind>();
+    (job.triggers || []).forEach((t) => out.add(t.type === 'cron' ? 'trigger_cron' : 'trigger_completion'));
+    const actions: Action[] = [...(job.actions || [])];
+    (job.steps || []).forEach((s) => {
+        out.add(nodeKindOfStep(s));
+        actions.push(...(s.actions || []));
+    });
+    actions.forEach((a) => out.add(nodeKindOfAction(a)));
+    return out;
+}
+
+/** Labels of the turned-off kinds a job uses, in catalog order. */
+export function turnedOffIn(job: Partial<JobDefinition>, off: string[] = [...turnedOff]): string[] {
+    const used = kindsOfJob(job);
+    return CATALOG.filter((e) => off.includes(e.kind) && used.has(e.kind)).map((e) => e.label);
+}
+
 const ACTION_KINDS: NodeKind[] = ['email', 'webhook', 'event', 'alert_action', 'start_job', 'slack', 'teams', 'pagerduty', 'servicenow'];
 
-const inCatalog = (kinds: NodeKind[]): NodeKind[] => CATALOG.filter((e) => kinds.includes(e.kind)).map((e) => e.kind);
+const inCatalog = (kinds: NodeKind[]): NodeKind[] => activeCatalog().filter((e) => kinds.includes(e.kind)).map((e) => e.kind);
 
 /** Kinds that can sit at the far end of a line dragged from `port` of a `fromKind` node. */
 export function targetKinds(port: PortId | null, fromKind: NodeKind | null): NodeKind[] {
     if (port === null) {
-        return CATALOG.map((e) => e.kind);
+        return activeCatalog().map((e) => e.kind);
     }
     const steps = inCatalog(STEP_KINDS);
     const actions = inCatalog(ACTION_KINDS);
@@ -71,7 +111,7 @@ export function targetKinds(port: PortId | null, fromKind: NodeKind | null): Nod
 
 /** Case-insensitive search: label prefix, then label substring, then keyword. */
 export function searchCatalog(query: string, kinds?: NodeKind[]): CatalogEntry[] {
-    const pool = kinds ? CATALOG.filter((e) => kinds.includes(e.kind)) : CATALOG;
+    const pool = kinds ? activeCatalog().filter((e) => kinds.includes(e.kind)) : activeCatalog();
     const q = query.trim().toLowerCase();
     if (!q) {
         return pool;

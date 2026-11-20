@@ -1,4 +1,4 @@
-/* Limits, retention, the fallback notification and the base URL. The input limits match the
+/* Limits, retention, the building blocks the builder offers, the fallback notification and the base URL. The input limits match the
  * server's (put_settings in bin/so/api.py); the server still checks, and its message shows. */
 import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -8,8 +8,18 @@ import Message from '@splunk/react-ui/Message';
 import NumberInput from '@splunk/react-ui/Number';
 import RadioList from '@splunk/react-ui/RadioList';
 import Select from '@splunk/react-ui/Select';
+import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import type { Destination, Settings } from '../../api/types';
+import { ALWAYS_ON, CATALOG } from '../builder/nodeCatalog';
+import { STEP_KINDS } from '../builder/nodeModel';
+
+/** The building blocks an admin can turn off, grouped as the builder shows them. */
+export const BLOCK_GROUPS: Array<{ label: string; kinds: string[] }> = [
+    { label: 'Triggers', kinds: CATALOG.filter((e) => e.kind.startsWith('trigger_')).map((e) => e.kind) },
+    { label: 'Steps', kinds: CATALOG.filter((e) => (STEP_KINDS as string[]).includes(e.kind)).map((e) => e.kind) },
+    { label: 'Actions', kinds: CATALOG.filter((e) => !e.kind.startsWith('trigger_') && !(STEP_KINDS as string[]).includes(e.kind)).map((e) => e.kind) },
+];
 
 const HOUR = 3600;
 
@@ -80,6 +90,8 @@ export interface Draft {
     /** Events scanned limit, as typed; empty is no limit. */
     scanLimit: string;
     scanAction: 'warn' | 'stop';
+    /** Building blocks turned off, sorted. */
+    turnedOff: string[];
 }
 
 export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG';
@@ -107,6 +119,7 @@ function toDraft(s: Settings): Draft {
         logLevel: ((s.log_level as string) || 'INFO').toUpperCase() as LogLevel,
         scanLimit: typeof s.scan_limit === 'number' && s.scan_limit > 0 ? String(s.scan_limit) : '',
         scanAction: s.scan_limit_action === 'stop' ? 'stop' : 'warn',
+        turnedOff: [...((s.turned_off as string[]) || [])].sort(),
     };
 }
 
@@ -159,6 +172,9 @@ export function changes(original: Settings, d: Draft): Partial<Settings> {
     }
     if (d.scanAction !== base.scanAction) {
         out.scan_limit_action = d.scanAction;
+    }
+    if ([...(d.turnedOff || [])].sort().join() !== base.turnedOff.join()) {
+        out.turned_off = [...d.turnedOff].sort();
     }
     return out as Partial<Settings>;
 }
@@ -280,6 +296,39 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                     <Select.Option value="stop" label="Stop the search: the step fails (and retries, if it has retries)" />
                 </Select>
             </ControlGroup>
+
+            <Heading level={2}>Building blocks</Heading>
+            <p data-testid="blocks-intro">
+                What people can add to a job. Turn off what your teams don&apos;t use to keep the builder simple: it is no longer offered in the Flow and Simple
+                editors or the examples, and a save that adds it is refused. Jobs that already use it keep working and can still be edited. Search and Schedule
+                are always on.
+            </p>
+            {BLOCK_GROUPS.map((g) => (
+                <div key={g.label} role="group" aria-label={g.label} style={{ margin: '0 0 12px' }}>
+                    <div style={{ fontWeight: 600, margin: '0 0 4px' }}>{g.label}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '2px 16px' }}>
+                        {g.kinds
+                            .filter((k) => !(ALWAYS_ON as string[]).includes(k))
+                            .map((k) => {
+                                const entry = CATALOG.find((e) => e.kind === k);
+                                const on = !draft.turnedOff.includes(k);
+                                return (
+                                    <Switch
+                                        key={k}
+                                        value={k}
+                                        appearance="checkbox"
+                                        selected={on}
+                                        data-testid={`block-${k}`}
+                                        title={entry ? entry.description : undefined}
+                                        onClick={() => set({ turnedOff: on ? [...draft.turnedOff, k] : draft.turnedOff.filter((x) => x !== k) })}
+                                    >
+                                        {entry ? entry.label : k}
+                                    </Switch>
+                                );
+                            })}
+                    </div>
+                </div>
+            ))}
 
             <Heading level={2}>Fallback notification</Heading>
             <p>

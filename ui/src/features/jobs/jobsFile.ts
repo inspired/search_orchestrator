@@ -25,9 +25,11 @@ export function exportJobs(jobs: Job[], now: Date = new Date()): string {
     return JSON.stringify(file, null, 2);
 }
 
-/** A file name with the date: search_orchestrator_jobs_2026-11-19.json. */
-export function exportFileName(now: Date = new Date()): string {
-    return `search_orchestrator_jobs_${now.toISOString().slice(0, 10)}.json`;
+/** A file name with the date: search_orchestrator_jobs_2026-11-19.json, or for one job
+ * search_orchestrator_job_daily_logins_2026-11-19.json. */
+export function exportFileName(now: Date = new Date(), jobId?: string): string {
+    const day = now.toISOString().slice(0, 10);
+    return jobId ? `search_orchestrator_job_${jobId.replace(/[^A-Za-z0-9_-]+/g, '_')}_${day}.json` : `search_orchestrator_jobs_${day}.json`;
 }
 
 /** Starts a download of `text` as `name`; false where the browser can't. */

@@ -6,6 +6,7 @@ import * as client from '../../api/client';
 import type { AlertAction, Destination, Job, Me, RunSummary } from '../../api/types';
 import type { BuilderApi } from './BuilderPage';
 import type { BuilderAction } from './reducer';
+import { setTurnedOff } from './nodeCatalog';
 
 export default function useBuilderData(api: BuilderApi, initialId: string | null, dispatch: React.Dispatch<BuilderAction>) {
     const [loading, setLoading] = useState(Boolean(initialId));
@@ -36,7 +37,12 @@ export default function useBuilderData(api: BuilderApi, initialId: string | null
     useEffect(() => {
         let live = true;
         api.me()
-            .then((m) => live && setMe(m))
+            .then((m) => {
+                setTurnedOff(m.turned_off);
+                if (live) {
+                    setMe(m);
+                }
+            })
             .catch(() => undefined);
         api.listDestinations()
             .then((d) => live && setDestinations(d))

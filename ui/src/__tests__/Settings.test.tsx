@@ -235,6 +235,7 @@ describe('Settings', () => {
             logLevel: 'INFO',
             scanLimit: '',
             scanAction: 'warn',
+            turnedOff: [],
         };
         expect(changes(SETTINGS, draft)).toEqual({});
         expect(changes(SETTINGS, { ...draft, logLevel: 'DEBUG' })).toEqual({ log_level: 'DEBUG' });
@@ -253,6 +254,7 @@ describe('Settings', () => {
             logLevel: 'INFO',
             scanLimit: '',
             scanAction: 'warn',
+            turnedOff: [],
         };
         expect(changes(original, draft)).toEqual({ fallback: { type: 'webhook', destination: 'pager', preset: 'slack' } });
         // Unchanged, the preset is not dropped either.

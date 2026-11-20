@@ -134,7 +134,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                         setFollowingJob(job);
                     }}
                     onExport={(shown) => {
-                        if (!download(exportJobs(shown), exportFileName())) {
+                        if (!download(exportJobs(shown), exportFileName(new Date(), shown.length === 1 ? shown[0].id : undefined))) {
                             setError('The browser blocked the download. Allow downloads for this page and try again.');
                         }
                     }}
@@ -170,6 +170,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     existingIds={(jobs.data || []).map((j) => j.id)}
                     createJob={api.createJob}
                     onAdded={jobs.refresh}
+                    turnedOff={(me && me.turned_off) || []}
                 />
             )}
             {runNow && (

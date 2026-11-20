@@ -266,6 +266,8 @@ With the canvas focused:
 
 ### Approval steps
 
+An admin can turn approvals off in **Settings > Building blocks**, as they can any other building block except Search and Schedule. The builder then stops offering it, and jobs that already have one keep working.
+
 An **Approval** node (an octagon) makes a run wait for a person before going on. It runs no search. Add it from **Add node** and connect it like a step: lines into it say when it is asked, and lines out of it use its own words:
 
 | Outcome | Meaning |
@@ -484,7 +486,7 @@ To bring a job in from text, choose **Import jobs** on the Jobs page, paste the 
 
 ### Export and import many jobs
 
-To move jobs to another Splunk, or keep a copy, choose **Export all jobs** on the Jobs page (with **Find jobs** or **Show** narrowing the list, it says **Export N shown** and exports only those). It downloads `search_orchestrator_jobs_<date>.json`: each job's definition with its id, without owners, run history or other server fields.
+To move jobs to another Splunk, or keep a copy, choose **Export all jobs** on the Jobs page (with **Find jobs** or **Show** narrowing the list, it says **Export N shown** and exports only those). For one job, choose **Export** in its **⋯** menu; that downloads `search_orchestrator_job_<id>_<date>.json`. Exporting many downloads `search_orchestrator_jobs_<date>.json`: each job's definition with its id, without owners, run history or other server fields.
 
 To bring them in, choose **Import jobs** and paste the file or choose it. The dialog lists the jobs in it and saves them at once with **Import N jobs**:
 
@@ -567,7 +569,7 @@ Above the table:
 
 - **Find jobs** searches names, ids, owners, descriptions and tags.
 - **Show** narrows to jobs whose last run failed, jobs with warnings, disabled, scheduled or your own; **Tag** to one tag; **Sort by** orders by name, next run, last run or failed first. All are remembered in this browser, so while any of them hides jobs a line says so ("Showing 3 of 12 jobs: tagged billing") with **Show all jobs**.
-- **Export** downloads the jobs shown; see [Export and import many jobs](#export-and-import-many-jobs). **Create job**, **Import jobs** and **Browse examples** are at the top of the page.
+- **Export** downloads the jobs shown, and **⋯ > Export** downloads one job; see [Export and import many jobs](#export-and-import-many-jobs). **Create job**, **Import jobs** and **Browse examples** are at the top of the page.
 
 ### Tags
 
@@ -709,6 +711,8 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
   - Errors, warnings, failed requests and response time (95% of requests answered within).
   - Failed actions, skipped schedules and failed runs.
 - **Graphs**, one tab each, drawn with Splunk's own charts (as in Dashboard Studio, with their legend and tooltips): **Activity** (lines over time by level, with **Show the errors** and **Show the warnings** under it), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** and **Events** (what the app did most). Engine ticks and Splunk calls are logged at Debug level only.
+  - The magnifying glass at the top right of each graph opens it in Splunk's Search in a new tab, as Dashboard Studio does. Graphs over time open as the same chart, with the same series, names and colours.
+  - On the Activity graph, the low, steady bars when nothing else happens are the engine's heartbeat: one Info line every 5 minutes.
 - **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found", with the job, run and step by name, who did it and the result.
   - The **Level** is coloured as in the graphs, with an icon and a word.
   - Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.

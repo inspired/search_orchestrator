@@ -12,6 +12,7 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { JobDefinition, SaveResponse } from '../../api/types';
 import { pageHref } from '../../components/PageShell';
 import { joinNames } from '../../format';
+import { turnedOffIn } from '../builder/nodeCatalog';
 import { stashImportedJob } from '../builder/sourceLogic';
 import ExampleDiagram from './ExampleDiagram';
 import { AddExamplesResult, EXAMPLE_JOBS, ExampleGroup, ExampleJob, GROUPS, addExamples, examplesNeeded } from './examples';
@@ -28,6 +29,8 @@ export interface ExamplesDialogProps {
     createJob: (job: JobDefinition) => Promise<SaveResponse>;
     /** Called after examples were saved. */
     onAdded?: () => void;
+    /** Building blocks an admin turned off: examples that use one can't be added. */
+    turnedOff?: string[];
 }
 
 const go = (url: string) => {
@@ -36,7 +39,7 @@ const go = (url: string) => {
 
 const list = (examples: ExampleJob[]) => examples.map((e) => e.title).join(', ');
 
-export default function ExamplesDialog({ onClose, returnFocus, navigate = go, canAdd, existingIds, createJob, onAdded }: ExamplesDialogProps) {
+export default function ExamplesDialog({ onClose, returnFocus, navigate = go, canAdd, existingIds, createJob, onAdded, turnedOff = [] }: ExamplesDialogProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [error, setError] = useState<string | null>(null);
     const [adding, setAdding] = useState<string | null>(null);
@@ -44,6 +47,10 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
     const [group, setGroup] = useState<ExampleGroup>(GROUPS[0].id);
     const [added, setAdded] = useState<string[]>([]);
     const exists = (id: string) => existingIds.includes(id) || added.includes(id);
+    /** Turned-off blocks an example (or an example it brings along) uses. */
+    const blockedBy = (example: ExampleJob): string[] =>
+        [example, ...examplesNeeded(example)].flatMap((e) => turnedOffIn(e.job, turnedOff)).filter((l, i, all) => all.indexOf(l) === i);
+    const addable = EXAMPLE_JOBS.filter((e) => !blockedBy(e).length);
 
     const run = async (key: string, which?: ExampleJob[]) => {
         setError(null);
@@ -122,6 +129,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                     {shown.map((example) => {
                         const needs = examplesNeeded(example);
                         const isThere = exists(example.job.id);
+                        const blocked = blockedBy(example);
                         return (
                             <li key={example.job.id} data-testid={`example-${example.job.id}`} style={{ border: `1px solid ${theme.borderColor}`, borderRadius: '4px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <ExampleDiagram job={example.job} title={example.title} height={150} />
@@ -131,6 +139,9 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                                 </div>
                                 <p style={{ margin: 0 }}>{example.summary}</p>
                                 <p style={muted}>{`Shows: ${example.features.join(', ')}`}</p>
+                                {blocked.length > 0 && (
+                                    <p style={muted} data-testid="example-blocked">{`Uses ${joinNames(blocked)}, which an admin turned off in Settings > Building blocks, so it can't be added.`}</p>
+                                )}
                                 {needs.length > 0 && <p style={muted}>{`Uses ${joinNames(needs.map((n) => n.title))}, ${canAdd ? 'added with it' : 'which must be jobs too'}.`}</p>}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
                                     <Button appearance="secondary" label="Open in builder" aria-label={`Open ${example.title} in builder`} disabled={Boolean(adding)} onClick={() => openExample(example)} />
@@ -139,7 +150,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                                             appearance="secondary"
                                             label={isThere ? 'Added' : adding === `add:${example.job.id}` ? 'Adding…' : 'Add as a job'}
                                             aria-label={`Add ${example.title} as a job`}
-                                            disabled={isThere || Boolean(adding)}
+                                            disabled={isThere || blocked.length > 0 || Boolean(adding)}
                                             onClick={() => run(`add:${example.job.id}`, [example])}
                                         />
                                     )}
@@ -151,7 +162,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
             </Modal.Body>
             <Modal.Footer>
                 <Button appearance="secondary" label="Close" onClick={onClose} />
-                {canAdd && <Button appearance="primary" label={adding === 'all' ? 'Adding examples…' : 'Add all examples'} disabled={Boolean(adding)} onClick={() => run('all')} />}
+                {canAdd && <Button appearance="primary" label={adding === 'all' ? 'Adding examples…' : 'Add all examples'} disabled={Boolean(adding)} onClick={() => run('all', turnedOff.length ? addable : undefined)} />}
             </Modal.Footer>
         </Modal>
     );

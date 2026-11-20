@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import SplunkThemeProvider from '@splunk/themes/SplunkThemeProvider';
 import { PALETTES, paletteOf, schemeOf, toneHex } from '../features/logs/palette';
 import { LevelText } from '../features/logs/LinesTable';
-import { StackedColumns } from '../features/logs/charts';
+import { ChartFrame, StackedColumns, chartSearchUrl } from '../features/logs/charts';
 import LogsSurface from '../features/logs/Surface';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 
@@ -79,5 +79,25 @@ describe('Troubleshooting palette', () => {
             </LogsSurface>
         );
         expect(screen.getByTestId('page-bg').textContent).toBe(`${scheme} ${PALETTES[scheme].surface}`);
+    });
+
+    test('the magnifying glass opens a graph in Search as the same chart, with only its series', () => {
+        const url = decodeURIComponent(
+            chartSearchUrl(
+                { spl: 'search index=_internal | timechart span=30m count AS error count AS info', earliest: '-24h', latest: 'now' },
+                { kind: 'column', stacked: true, series: [{ key: 'error', label: 'Errors', color: '#E8473C' }] }
+            ).replace(/\+/g, ' ')
+        );
+        expect(url).toContain('/app/search/search');
+        expect(url).toContain('| fields _time _span error | rename error AS "Errors"');
+        expect(url).toContain('display.visualizations.charting.chart=column');
+        expect(url).toContain('display.visualizations.charting.chart.stackMode=stacked');
+        expect(url).toContain('"Errors":0xE8473C');
+        expect(url).toContain('earliest=-24h');
+        inScheme('light', <ChartFrame href="/x">chart</ChartFrame>);
+        const button = screen.getByTestId('open-in-search');
+        expect(button.getAttribute('aria-label')).toBe('Open in Search');
+        expect(button.getAttribute('href')).toBe('/x');
+        expect(button.getAttribute('target')).toBe('_blank');
     });
 });

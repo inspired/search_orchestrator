@@ -4,12 +4,11 @@
 import React from 'react';
 import Link from '@splunk/react-ui/Link';
 import TabBar from '@splunk/react-ui/TabBar';
-import { createURL } from '@splunk/splunk-utils/url';
 import type { LogBreakdown, LogFilters, LogSummary, SearchLink } from '../../api/logs';
 import { eventLabel } from './catalog';
 import type { Tone } from './catalog';
-import { BarList, LineChart, StackedColumns, useTheme } from './charts';
-import type { Point } from './charts';
+import { BarList, ChartFrame, LineChart, StackedColumns, chartSearchUrl, useTheme } from './charts';
+import type { Point, Series } from './charts';
 import { ToneIcon, ago, toneColor } from './look';
 import { paletteOf } from './palette';
 
@@ -165,17 +164,6 @@ export function HealthStrip({ summary, breakdown, onPick, nowEpoch }: { summary:
 
 export type GraphId = 'activity' | 'requests' | 'engine' | 'calls' | 'events';
 
-function SearchLinkTo({ link, label }: { link?: SearchLink; label: string }) {
-    if (!link) {
-        return null;
-    }
-    return (
-        <Link to={createURL('/app/search/search', { q: link.spl, earliest: link.earliest, latest: link.latest })} openInNewContext>
-            {label}
-        </Link>
-    );
-}
-
 function Hint({ children }: { children: React.ReactNode }) {
     const t = useTheme();
     return <p style={{ color: t.contentColorMuted, fontSize: '12px', margin: '6px 0 0' }}>{children}</p>;
@@ -196,6 +184,26 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
         }
     };
     const box: React.CSSProperties = { margin: '0 0 24px' };
+    const activity = summary ? summary.searches.activity : undefined;
+    const over = (kind: 'column' | 'line', series: Series[], stacked = false) => (activity ? chartSearchUrl(activity, { kind, series, stacked }) : undefined);
+    const plain = (link?: SearchLink) => (link ? chartSearchUrl(link) : undefined);
+    const levelSeries: Series[] = [
+        { key: 'error', label: 'Errors', color: SEV.high },
+        { key: 'warning', label: 'Warnings', color: SEV.medium },
+        { key: 'info', label: 'Info', color: SEV.info },
+        { key: 'debug', label: 'Debug', color: SEV.low },
+    ];
+    const requestSeries: Series[] = [
+        { key: 'req_5xx', label: 'Server errors (5xx)', color: SEV.high },
+        { key: 'req_4xx', label: 'Refused (4xx)', color: SEV.medium },
+        { key: 'req_ok', label: 'OK', color: SEV.ok },
+    ];
+    const p95Series: Series[] = [{ key: 'req_p95', label: '95th percentile', color: SEV.info }];
+    const tickSeries: Series[] = [
+        { key: 'tick_avg', label: 'Average', color: SEV.info },
+        { key: 'tick_max', label: 'Slowest', color: SEV.medium, dashed: true },
+    ];
+    const activeSeries: Series[] = [{ key: 'active_runs', label: 'Active runs', color: SEV.info }];
     return (
         <section aria-label="Graphs" style={box}>
             <TabBar activeTabId={graph} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onGraph((selectedTabId as GraphId) || 'activity')}>
@@ -209,20 +217,11 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                 {!summary && <Hint>Loading…</Hint>}
                 {summary && graph === 'activity' && (
                     <>
-                        <StackedColumns
-                            label="Log lines over time by level"
-                            points={points}
-                            long={long}
-                            series={[
-                                { key: 'error', label: 'Errors', color: SEV.high },
-                                { key: 'warning', label: 'Warnings', color: SEV.medium },
-                                { key: 'info', label: 'Info', color: SEV.info },
-                                { key: 'debug', label: 'Debug', color: SEV.low },
-                            ]}
-                        />
+                        <ChartFrame href={over('column', levelSeries, true)}>
+                            <StackedColumns label="Log lines over time by level" points={points} long={long} series={levelSeries} />
+                        </ChartFrame>
                         <Hint>
-                            {`Log lines per ${summary.span}. A spike of errors or warnings shows when something broke; a gap with no lines at all means nothing was running or the engine was down. `}
-                            <SearchLinkTo link={summary.searches.activity} label="Open in Search" />
+                            {`Log lines per ${summary.span}. A spike of errors or warnings shows when something broke; a gap with no lines at all means nothing was running or the engine was down. The low, steady bars are the engine's heartbeat: one Info line every 5 minutes. The magnifying glass opens the graph in Search.`}
                         </Hint>
                         <div data-testid="level-links" style={{ display: 'flex', gap: '16px', fontSize: '12px', marginTop: '4px' }}>
                             {[
@@ -239,20 +238,15 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                 )}
                 {summary && graph === 'requests' && (
                     <>
-                        <StackedColumns
-                            label="Requests over time by result"
-                            points={points}
-                            long={long}
-                            series={[
-                                { key: 'req_5xx', label: 'Server errors (5xx)', color: SEV.high },
-                                { key: 'req_4xx', label: 'Refused (4xx)', color: SEV.medium },
-                                { key: 'req_ok', label: 'OK', color: SEV.ok },
-                            ]}
-                            height={140}
-                        />
+                        <ChartFrame href={over('column', requestSeries, true)}>
+                            <StackedColumns label="Requests over time by result" points={points} long={long} series={requestSeries} height={140} />
+                        </ChartFrame>
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Response time, 95th percentile</div>
-                        <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={[{ key: 'req_p95', label: '95th percentile', color: SEV.info }]} />
+                        <ChartFrame href={over('line', p95Series)}>
+                            <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={p95Series} />
+                        </ChartFrame>
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '12px 0 6px' }}>Slowest routes (95th percentile)</div>
+                        <ChartFrame href={plain(breakdown ? breakdown.searches.routes : undefined)}>
                         <BarList
                             unit="ms"
                             empty="No requests in this range."
@@ -264,38 +258,30 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 color: r.failed ? p.warning : undefined,
                             }))}
                         />
-                        <Hint>
-                            {'Info level logs only changes and failed requests; at Debug every request is logged, reads too. '}
-                            <SearchLinkTo link={breakdown ? breakdown.searches.routes : undefined} label="Open in Search" />
-                        </Hint>
+                        </ChartFrame>
+                        <Hint>{'Info level logs only changes and failed requests; at Debug every request is logged, reads too.'}</Hint>
                     </>
                 )}
                 {summary && graph === 'engine' && (
                     <>
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '0 0 2px' }}>Tick time</div>
-                        <LineChart
-                            label="Engine tick time over time"
-                            points={points}
-                            long={long}
-                            unit="ms"
-                            height={130}
-                            series={[
-                                { key: 'tick_avg', label: 'Average', color: SEV.info },
-                                { key: 'tick_max', label: 'Slowest', color: SEV.medium, dashed: true },
-                            ]}
-                        />
+                        <ChartFrame href={over('line', tickSeries)}>
+                            <LineChart label="Engine tick time over time" points={points} long={long} unit="ms" height={130} series={tickSeries} />
+                        </ChartFrame>
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Active runs</div>
-                        <LineChart label="Active runs over time" points={points} long={long} height={110} series={[{ key: 'active_runs', label: 'Active runs', color: SEV.info }]} />
+                        <ChartFrame href={over('line', activeSeries)}>
+                            <LineChart label="Active runs over time" points={points} long={long} height={110} series={activeSeries} />
+                        </ChartFrame>
                         <Hint>
                             {debugOff
                                 ? 'Ticks are logged at Debug level only: set Log level to Debug in Settings to fill these graphs. '
-                                : 'Each tick advances every active run; a tick normally takes well under a second. A gap means the engine did not tick (stopped, or another engine held the lease); slow ticks mean slow KV Store or Splunk calls (see Splunk calls). '}
-                            <SearchLinkTo link={summary.searches.activity} label="Open in Search" />
+                                : 'Each tick advances every active run; a tick normally takes well under a second. A gap means the engine did not tick (stopped, or another engine held the lease); slow ticks mean slow KV Store or Splunk calls (see Splunk calls).'}
                         </Hint>
                     </>
                 )}
                 {summary && graph === 'calls' && (
                     <>
+                        <ChartFrame href={plain(breakdown ? breakdown.searches.calls : undefined)}>
                         <BarList
                             unit="ms"
                             empty={debugOff ? 'Splunk calls are logged at Debug level only: set Log level to Debug in Settings.' : 'No Splunk calls in this range.'}
@@ -307,14 +293,13 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 color: c.errors ? p.warning : undefined,
                             }))}
                         />
-                        <Hint>
-                            {'Every call the app makes to splunkd (KV Store, saved searches, search jobs), slowest first by 95th percentile. Slow KV Store calls slow down every tick and every page. '}
-                            <SearchLinkTo link={breakdown ? breakdown.searches.calls : undefined} label="Open in Search" />
-                        </Hint>
+                        </ChartFrame>
+                        <Hint>{'Every call the app makes to splunkd (KV Store, saved searches, search jobs), slowest first by 95th percentile. Slow KV Store calls slow down every tick and every page.'}</Hint>
                     </>
                 )}
                 {summary && graph === 'events' && (
                     <>
+                        <ChartFrame href={plain(summary.searches.counts)}>
                         <BarList
                             empty="No events in this range."
                             onPick={(key) => onPick({ filters: key === '(no event)' ? { event: '', level: 'WARNING' } : { event: key, level: 'DEBUG' } })}
@@ -326,10 +311,8 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 color: e.levels.ERROR ? p.error : e.levels.WARNING ? p.warning : undefined,
                             }))}
                         />
-                        <Hint>
-                            {'What the app did most, in this range. Click one to show its lines. '}
-                            <SearchLinkTo link={summary.searches.counts} label="Open in Search" />
-                        </Hint>
+                        </ChartFrame>
+                        <Hint>{'What the app did most, in this range. Click one to show its lines.'}</Hint>
                     </>
                 )}
             </div>

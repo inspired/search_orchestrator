@@ -105,6 +105,23 @@ Only users with `orchestrator_admin` see it.
 | Splunk Web address | empty | an http(s) URL; makes links in messages absolute |
 | Events scanned limit | none | a whole number of events (`scan_limit`); a step can set its own (`max_scan`) |
 | When a step goes over | Warn | Warn (audit `step_scan_limit`, the search finishes) or Stop the search (it is cancelled and the step fails, then retries if it has retries) |
+| Building blocks | all on | any node kind except Search and Schedule can be turned off (`turned_off`) |
+
+### Building blocks
+
+Turn off what your teams don't use, to keep the builder simple. For example, turn off **Approval** if no one signs off on runs, or the webhook channels you have no destinations for. The kinds are grouped as in the builder:
+
+- **Triggers:** After another job.
+- **Steps:** Saved search, Results of earlier steps, Summary index, Lookup and Approval.
+- **Actions:** Email, Webhook, Slack, Microsoft Teams, PagerDuty, ServiceNow, Event to an index, Alert action and Start another job.
+
+A kind that is off:
+
+- is no longer offered in the Flow editor's + menus, Quick add and search, or in the Simple editor;
+- can't be added from **Browse examples**: an example that uses it says so, and can still be opened to look at;
+- can't be added in a save: the save is refused with "Approval is turned off in Settings > Building blocks". This also covers the API and **Import jobs**.
+
+Jobs that already use it keep running, and can still be edited and saved with it. Turning a kind off never breaks a job. Turn it back on at any time.
 
 **Health** shows whether the engine is running, whether the audit index exists, whether a fallback is set and how many commands are waiting, with a warning message for each problem.
 

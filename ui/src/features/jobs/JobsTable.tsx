@@ -294,12 +294,17 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                                                     onClick={() => onRunNow(job)}
                                                 />
                                             )}
-                                            {((canRun && onBackfill) || (canEdit && onDelete) || onFollow) && (
+                                            {((canRun && onBackfill) || (canEdit && onDelete) || onFollow || onExport) && (
                                                 <Dropdown toggle={<Button appearance="subtle" label="⋯" aria-label={`More actions for ${job.name}`} />}>
                                                     <Menu>
                                                         {canEdit && <Menu.Item to={pageHref('builder', { job_id: job.id })}>Edit</Menu.Item>}
                                                         {onFollow && (
                                                             <Menu.Item onClick={(e: React.MouseEvent) => onFollow(job, e.currentTarget as HTMLElement)}>{job.following ? 'Following…' : 'Follow…'}</Menu.Item>
+                                                        )}
+                                                        {onExport && (
+                                                            <Menu.Item onClick={() => onExport([job])} description="Download this job as a file to import elsewhere">
+                                                                Export
+                                                            </Menu.Item>
                                                         )}
                                                         {canRun && onBackfill && (
                                                             <Menu.Item disabled={!job.enabled} onClick={() => onBackfill(job)} description={job.enabled ? undefined : 'Enable the job first'}>

@@ -33,6 +33,7 @@ import { addSearch, addThen, moveSearch, OUTPUT_WHENS, readSimple, removeSearch,
 import type { Then, ThenKind, When } from './simpleModel';
 import { PORT_STYLE } from '../builder/nodeStyle';
 import type { PortId } from '../builder/nodeModel';
+import { isTurnedOff } from '../builder/nodeCatalog';
 
 export interface SimpleViewProps {
     job: JobDefinition;
@@ -205,7 +206,7 @@ export default function SimpleView(p: SimpleViewProps) {
                                                 }
                                             >
                                                 <Select.Option label="Its own data" value="inline" />
-                                                {i > 0 && <Select.Option label="The results of the search above" value="previous" />}
+                                                {i > 0 && (!isTurnedOff('previous') || step.type === 'previous') && <Select.Option label="The results of the search above" value="previous" />}
                                                 {step.type === 'saved_search' && <Select.Option label="A saved search (edit in Flow)" value="saved_search" />}
                                             </Select>
                                         </ControlGroup>
@@ -276,7 +277,7 @@ export default function SimpleView(p: SimpleViewProps) {
                         disabled={readOnly}
                         onChange={(_e: unknown, { value }: { value: unknown }) => set(setJobAction(job, simple.failure, failAction(String(value))))}
                     >
-                        {FAIL_KINDS.map((k) => (
+                        {FAIL_KINDS.filter((k) => !k.value || !isTurnedOff(k.value) || k.value === kindOfAction(failure)).map((k) => (
                             <Select.Option key={k.value} label={k.label} value={k.value} />
                         ))}
                     </Select>
@@ -302,7 +303,7 @@ export default function SimpleView(p: SimpleViewProps) {
                     >
                         <Select.Option label="Nothing more" value="" />
                         {p.jobs
-                            .filter((j) => j.id !== job.id)
+                            .filter((j) => j.id !== job.id && (!isTurnedOff('start_job') || (whenDone && whenDone.job === j.id)))
                             .map((j) => (
                                 <Select.Option key={j.id} label={`Start job “${j.name}”`} value={j.id} />
                             ))}
@@ -432,7 +433,7 @@ function AddThen({ onAdd }: { onAdd: (kind: ThenKind, when: When) => void }) {
         setOpen(false);
         setWhen(null);
     };
-    const kinds = when ? THEN_KINDS.filter((k) => !(k === 'summary_index' || k === 'lookup') || OUTPUT_WHENS.includes(when)) : [];
+    const kinds = when ? THEN_KINDS.filter((k) => !isTurnedOff(k) && (!(k === 'summary_index' || k === 'lookup') || OUTPUT_WHENS.includes(when))) : [];
     const option: React.CSSProperties = {
         display: 'flex',
         gap: '8px',

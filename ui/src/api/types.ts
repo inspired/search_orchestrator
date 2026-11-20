@@ -378,6 +378,8 @@ export interface Me {
     can_build: boolean;
     can_run: boolean;
     can_approve: boolean;
+    /** Building blocks (node kinds) an admin turned off in Settings: not offered in the builder. */
+    turned_off?: string[];
 }
 
 export interface Settings {
@@ -393,6 +395,8 @@ export interface Settings {
     /** Events a step's search may scan (null: no limit), and what happens over it. */
     scan_limit?: number | null;
     scan_limit_action?: 'warn' | 'stop';
+    /** Building blocks (node kinds) turned off: the builder doesn't offer them. */
+    turned_off?: string[];
     [key: string]: unknown;
 }
 
