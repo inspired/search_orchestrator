@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/lyderhansen/search_orchestrator/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lyderhansen/search_orchestrator?style=flat-square&label=download&color=2E7D32"></a>
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/lyderhansen/search_orchestrator?style=flat-square&label=download&color=2E7D32"></a>
   <img alt="Splunk Enterprise 9.4+" src="https://img.shields.io/badge/Splunk%20Enterprise-9.4%2B-0B6FA4?style=flat-square">
   <img alt="Splunk Cloud Victoria" src="https://img.shields.io/badge/Splunk%20Cloud-Victoria-0B6FA4?style=flat-square">
   <img alt="AppInspect: 0 failures" src="https://img.shields.io/badge/AppInspect-0%20failures-2E7D32?style=flat-square">
@@ -18,7 +18,7 @@
   <a href="docs/user-guide.md"><b>User guide</b></a> ·
   <a href="docs/admin-guide.md"><b>Admin guide</b></a> ·
   <a href="CHANGELOG.md"><b>Changelog</b></a> ·
-  <a href="https://github.com/lyderhansen/search_orchestrator/issues"><b>Report a problem</b></a>
+  <a href="../../issues"><b>Report a problem</b></a>
 </p>
 
 ---
@@ -75,14 +75,14 @@
 
 ## Try it in 5 minutes
 
-1. **Download** `search_orchestrator-<version>.tgz` from the [latest release](https://github.com/lyderhansen/search_orchestrator/releases/latest).
+1. **Download** `search_orchestrator-<version>.tgz` from the [latest release](../../releases/latest).
 2. **Install** it in Splunk: **Apps → Manage Apps → Install app from file**, and restart if asked.
 3. **Open Search Orchestrator → Jobs → Browse examples**, add one and press **Run now**.
 
 Roles, the audit index and settings are in the [admin guide](docs/admin-guide.md). Building and running jobs is in the [user guide](docs/user-guide.md), which is also built into the app.
 
 > [!NOTE]
-> This is a test release. Email, webhook, Slack, Teams, PagerDuty and ServiceNow notifications and approval steps are planned but not ready yet. You may find some of them in the app marked **Beta**; an admin can turn them off under **Settings → Building blocks**. Please [open an issue](https://github.com/lyderhansen/search_orchestrator/issues) when something breaks or reads oddly.
+> This is a test release. Email, webhook, Slack, Teams, PagerDuty and ServiceNow notifications and approval steps are planned but not ready yet. You may find some of them in the app marked **Beta**; an admin can turn them off under **Settings → Building blocks**. Please [open an issue](../../issues) when something breaks or reads oddly.
 
 ## Where it runs
 
@@ -106,4 +106,4 @@ python3 -m pytest -q tests                                 # backend tests
 
 ## Credits
 
-Based on [**inspired/search_orchestrator**](https://github.com/inspired/search_orchestrator) by **Mikael Bjerkeland**, who wrote the original design, engine and app shell. This repo continues that work together with him.
+Made by [Mikael Bjerkeland](https://github.com/inspired), who wrote the original design, engine and app shell, and [lyderhansen](https://github.com/lyderhansen). The original repo is [inspired/search_orchestrator](https://github.com/inspired/search_orchestrator).
