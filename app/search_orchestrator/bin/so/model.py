@@ -4,7 +4,8 @@ Issue = {"level": "error"|"warning", "code", "message", "step"}.
 Codes beyond the brief's list (reported to the controller): bad_step,
 unknown_saved_search, bad_edge, bad_run_when, bad_timezone, bad_deadline, bad_shape, previous_needs_pipe,
 previous_needs_dependency, bad_approval; warnings timezone_fallback, previous_old_time_range.
-``workload_pool`` was removed from the first version and is ignored.
+``workload_pool`` was removed from the first version and is ignored, as is a step's
+``read_previous`` (1.5.0, removed in 1.7.0).
 """
 import math
 import re

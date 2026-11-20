@@ -121,7 +121,7 @@ def test_upsert_never_sends_scheduling_arguments():
     g.SplunkGateway(svc).upsert_saved_search("alice", "_so_j_s", "search *", "-1h", "now", "d")
     kw = svc.calls[0][2]
     assert "is_scheduled" not in kw and "dispatchAs" not in kw
-    assert kw["is_visible"] == 0 and kw["search"] == "search *"
+    assert kw["is_visible"] == 0 and kw["search"] == "*"
 
 
 def test_upsert_creates_on_404():
@@ -318,6 +318,22 @@ def test_parse_history_details_reads_dispatch_now():
     assert [d["sid"] for d in out] == ["s2", "s3", "s1"]
     assert out[0]["dispatch_now"] == 1796086000 and out[1]["dispatch_now"] is None
     assert out[2]["dispatch_now"] == 1796086800 and out[1]["published"] == 1796086807
+
+
+def test_parse_history_details_reads_now_from_the_request_or_search_id():
+    # Real server, 10.6.1.1: history entries carry only start, ttl and flags; the job keeps
+    # dispatch.now as request.now, and its search ID ends _at_<now>_<n>.
+    sid = "_c3BsdW5rLXN5c3RlbS11c2Vy__alice_c2VhcmNo__RMD5361a047d4ce8e9e4_at_1796086000_18409"
+    body = json.dumps({"entry": [
+        {"name": "s1", "published": "2026-12-01T01:00:09+00:00",
+         "content": {"request": {"now": "1796086100"}}},
+        {"name": sid, "published": "2026-12-01T01:00:08+00:00",
+         "content": {"isDone": True, "start": 1796086800, "ttl": 600}},
+        {"name": "scheduler__alice_c2VhcmNo__RMD5x_at_1796086800_7",
+         "published": "2026-12-01T01:00:07+00:00", "content": {}}]})
+    out = g.parse_history_details(body, 1796086800)
+    assert [d["dispatch_now"] for d in out] == [1796086100, 1796086000, 1796086800]
+    assert [d["by_scheduler"] for d in out] == [False, False, True]
 
 
 def test_done_job_with_error_message_is_failed():
@@ -592,3 +608,29 @@ def test_oneshot_search_adds_search_unless_it_starts_with_a_pipe_or_search():
     assert oneshot_search("  | makeresults") == "  | makeresults"
     assert oneshot_search("search index=main") == "search index=main"
     assert oneshot_search("searchfoo=1") == "search searchfoo=1"
+
+
+# Splunk prepends "search " to a saved search that doesn't start with "|", and runs ad hoc
+# jobs as written. The same step SPL must mean the same in a run and in a preview.
+
+@pytest.mark.parametrize("spl, stored", [
+    ("search index=main | stats count", "index=main | stats count"),
+    ("  SEARCH index=main", "index=main"),
+    ("search\nindex=main", "index=main"),
+    ("index=main | stats count", "index=main | stats count"),
+    ("| tstats count", "| tstats count"),
+    ("searchtext index=main", "searchtext index=main"),
+])
+def test_saved_search_drops_a_leading_search_command(spl, stored):
+    assert g.saved_search_params(spl, "-1d@d", "@d")["search"] == stored
+
+
+@pytest.mark.parametrize("spl, sent", [
+    ("index=main | stats count", "search index=main | stats count"),
+    ("search index=main | stats count", "search index=main | stats count"),
+    ("  Search index=main", "search index=main"),
+    ("| tstats count", "| tstats count"),
+    ("  | loadjob x", "  | loadjob x"),
+])
+def test_preview_runs_the_search_a_run_would(spl, sent):
+    assert g.preview_dispatch_params(spl, None, None, 0, "sid")["search"] == sent

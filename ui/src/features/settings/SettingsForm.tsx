@@ -37,7 +37,7 @@ interface IntField {
 export const INT_FIELDS: IntField[] = [
     {
         key: 'max_searches',
-        label: 'Searches at once',
+        label: 'Concurrent searches',
         max: 100,
         unit: '',
         scale: 1,
@@ -45,7 +45,7 @@ export const INT_FIELDS: IntField[] = [
     },
     {
         key: 'max_searches_per_job',
-        label: 'Searches at once per job',
+        label: 'Concurrent searches per job',
         max: 50,
         unit: '',
         scale: 1,

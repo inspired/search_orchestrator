@@ -18,8 +18,10 @@ Splunk and KV Store. It is the only component that advances runs.
    results) every 5 minutes; at run end, set their TTL to the result-retention
    setting.
 7. ``actions.pump(now, keep_lease)``.
-8. Each run is saved as one document; audit events are emitted after the
-   save that made them true. Ended runs are pruned at most once an hour.
+8. Each run is saved as one document, only when the pass changed it (a run
+   waiting for a slot or a search costs no write); audit events are emitted
+   after the save that made them true. Ended runs are pruned at most once an
+   hour.
 
 Crash safety
 ------------
@@ -29,7 +31,8 @@ Crash safety
   adopts the newest job, or dispatches if there is none. In direct mode (the
   owner's own saved search, which may also run on its own) only a job whose
   ``dispatch.now`` (or published time) equals the run's scheduled time is
-  adopted; other jobs there make the outcome unknown. Adoption runs before
+  adopted; other jobs there make the outcome unknown. A job Splunk's own
+  schedule ran is never adopted. Adoption runs before
   evaluate, so a cancel or give-up cancels the adopted search; re-dispatch runs
   after evaluate, only if the step is still wanted. A transient history
   error leaves the step ``starting`` (in flight) and evaluate still runs, so
@@ -79,6 +82,7 @@ Settings (``so_settings`` document ``settings``, defaults in
 ``queue_cap``, ``result_retention`` (seconds), ``run_retention_days``.
 The engine's own bookkeeping lives in the ``engine_state`` document.
 """
+import json
 import logging
 import time
 
@@ -138,6 +142,11 @@ def _inflight(run):
                   if c.get("state") in IN_FLIGHT))
 
 
+def _fingerprint(run):
+    """A run's content, to tell whether a pass changed it."""
+    return json.dumps(run, sort_keys=True, default=str)
+
+
 def _run_id(run):
     return run.get("_key") or run.get("id")
 
@@ -157,7 +166,10 @@ def _scalar(value):
 
 def _dispatched_for(detail, scheduled):
     """Was this history job dispatched with ``dispatch.now`` = ``scheduled``? Without a
-    ``dispatch.now``, its published time must equal it."""
+    ``dispatch.now``, its published time must equal it. A job Splunk's own schedule ran
+    never is."""
+    if detail.get("by_scheduler"):
+        return False
     when = detail.get("dispatch_now")
     if when is None:
         when = detail.get("published")
@@ -725,6 +737,7 @@ class Engine:
                 self.store.save_run(run)
 
     def _advance(self, run, job, settings, now, budget, pending):
+        loaded = _fingerprint(run)
         definition = run.get("definition") or {}
         defs = {s["id"]: model.resolve_step(definition, s) for s in definition.get("steps") or []}
         before = _inflight(run)
@@ -832,7 +845,8 @@ class Engine:
             self._dispatch_condition(run, key, now, pending)
         for sid in to_dispatch:
             self._dispatch(run, sid, defs[sid], now, pending)
-        self._save(run, pending)
+        if pending.rows or pending.events or _fingerprint(run) != loaded:
+            self._save(run, pending)
         ttl = int(settings["result_retention"])
         for sid in ttl_sids:
             self._control(sid, "setttl", ttl=ttl)
@@ -1134,7 +1148,8 @@ class Engine:
         """Adopt a job dispatched for this attempt whose search ID was never saved.
 
         Returns (kind, reason): "adopted", "none" (history has no such job),
-        "unknown" (transient history error) or "error" (non-transient)."""
+        "unknown" (transient history error, or a job that may or may not be this
+        attempt's) or "error" (non-transient)."""
         st = run["steps"][sid]
         name = self._search_name(run, sdef)
         if not name:
@@ -1265,15 +1280,15 @@ class Engine:
                 return self._attempt_failed(run, sid, "Could not confirm whether the results of "
                                             "step %s are still available" % up, now, pending)
             return None  # stays starting; checked again next tick
+        if sdef.get("mode") == "direct":
+            problem = self._direct_problem(run, name)
+            if problem is not None:
+                return self._attempt_failed(run, sid, problem, now, pending)
         try:
             args = self._render_args(run, sdef, now)
         except tokens.TokenError as err:
             return self._attempt_failed(run, sid, "token %s: %s" % (err.token, err.reason),
                                         now, pending)
-        if sdef.get("mode") == "direct":
-            problem = self._direct_problem(run, name)
-            if problem is not None:
-                return self._attempt_failed(run, sid, problem, now, pending)
         earliest, latest = sdef.get("earliest"), sdef.get("latest")
         if sdef.get("type") == "previous":
             # Its input is search results, not events: never send a time range override,

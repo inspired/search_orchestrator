@@ -46,7 +46,7 @@ export const JOB_TEMPLATES: JobTemplate[] = [
                 '0 1 * * *',
                 [
                     search('daily', 'Daily summary', preset('previous_day')),
-                    search('weekly', 'Weekly rollup', { earliest: '-7d@d', latest: '@d' }, { run_when: runWhenPreset('mondays') }),
+                    search('weekly', 'Weekly rollup', { earliest: '-7d@d', latest: '@d' }, { run_when: runWhenPreset('days') }),
                     search('monthly', 'Monthly rollup', preset('previous_month'), { run_when: runWhenPreset('first_of_month') }),
                 ],
                 [onSuccess('daily', 'weekly'), onSuccess('weekly', 'monthly')]

@@ -23,7 +23,8 @@ import { availableTokens } from './tokens';
 import LearnMore from '../../components/LearnMore';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
-import { isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
+import DayPicker from './DayPicker';
+import { daysCron, daysOfCron, isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
 import { BUILTIN_DEFAULTS, generatedInput, previewRefusal } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
@@ -231,6 +232,7 @@ export default function StepPanel({
             set({ run_when: runWhenPreset(key) });
         }
     };
+    const days = choice === 'days' ? daysOfCron((step.run_when && step.run_when.value) || '') || [] : [];
 
     const defaults = job.defaults || {};
     const inherit = (key: keyof typeof BUILTIN_DEFAULTS) => {
@@ -381,6 +383,11 @@ export default function StepPanel({
                     <Select.Option label="Expression" value="expression" />
                 </Select>
             </ControlGroup>
+            {choice === 'days' && (
+                <ControlGroup label="Days" labelPosition="top" help="Keep at least one day.">
+                    <DayPicker days={days} onChange={(next) => set({ run_when: { kind: 'cron', value: daysCron(next) } })} />
+                </ControlGroup>
+            )}
             {(choice === 'cron' || choice === 'expression') && (
                 <ControlGroup
                     label={choice === 'cron' ? 'Run-when cron' : 'Run-when expression'}

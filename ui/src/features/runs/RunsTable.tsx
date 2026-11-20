@@ -10,6 +10,7 @@ import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Link from '@splunk/react-ui/Link';
 import Message from '@splunk/react-ui/Message';
+import Progress from '@splunk/react-ui/Progress';
 import Select from '@splunk/react-ui/Select';
 import Table from '@splunk/react-ui/Table';
 import { RUN_STATES } from '../../api/types';
@@ -33,6 +34,32 @@ export type RunsTableFilters = Omit<Pick<RunFilters, 'job_id' | 'state'>, 'state
 /** A step of the run is waiting for someone to approve or reject it. */
 export function awaitsApproval(run: RunSummary): boolean {
     return Object.values(run.steps || {}).some((s) => s && s.state === 'awaiting_approval');
+}
+
+const IN_PROGRESS = ['running', 'paused', 'blocked'];
+const FINISHED_STEP = ['succeeded', 'failed', 'skipped', 'cancelled', 'abandoned'];
+
+/** Steps finished out of all steps, for a run that has started and not ended; else null. */
+export function stepProgress(run: Pick<RunSummary, 'state' | 'steps'>): { done: number; total: number } | null {
+    const steps = Object.values(run.steps || {});
+    if (!IN_PROGRESS.includes(run.state) || steps.length === 0) {
+        return null;
+    }
+    return { done: steps.filter((s) => FINISHED_STEP.includes(s.state)).length, total: steps.length };
+}
+
+function RunProgress({ run }: { run: RunSummary }) {
+    const p = stepProgress(run);
+    if (!p) {
+        return null;
+    }
+    const label = `${p.done} of ${p.total} step${p.total === 1 ? '' : 's'} done`;
+    return (
+        // A fixed width: the table cell lays its content out in a row, so an auto width collapses.
+        <div style={{ width: '120px', flex: '0 0 auto', marginTop: '4px' }} data-testid="run-progress" aria-label={label}>
+            <Progress percentage={(p.done / p.total) * 100} type={run.state === 'blocked' ? 'error' : 'info'} tooltip={label} />
+        </div>
+    );
 }
 
 /** Blocked or failed runs, held runs of any state, and runs waiting for approval. */
@@ -162,6 +189,7 @@ export default function RunsTable({ runs, jobNames, filters, onFiltersChange, no
         <>
             <StatusText state={run.state} delayed={isRunDelayed(run)} detail={awaitsApproval(run) ? 'waiting for approval' : undefined} />
             {run.state === 'queued' && run.queue_reason && <QueueReasonLine reason={run.queue_reason} />}
+            <RunProgress run={run} />
         </>
     );
     const runRow = (run: RunSummary, nested: boolean) => (

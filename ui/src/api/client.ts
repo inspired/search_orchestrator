@@ -13,6 +13,8 @@ import type {
     Issue,
     Job,
     JobDefinition,
+    JobSearch,
+    JobsResult,
     Me,
     PreviewRequest,
     PreviewResults,
@@ -21,8 +23,11 @@ import type {
     RerunRequest,
     RunDetailResponse,
     RunFilters,
+    RunsResult,
     RunSummary,
     SaveResponse,
+    SchedulePreviewResponse,
+    ScheduleResponse,
     Settings,
     ValidateResponse,
 } from './types';
@@ -152,8 +157,14 @@ export function toDefinition(job: JobDefinition | Job): JobDefinition {
 
 // Jobs.
 
+/** Every job the user may see, without their next and last runs. */
 export async function listJobs(): Promise<Job[]> {
-    return (await request<{ jobs: Job[] }>('GET', 'jobs')).jobs;
+    return (await request<{ jobs: Job[] }>('GET', 'jobs', { query: { brief: 1 } })).jobs;
+}
+
+/** One page of jobs matching a name, with their next and last runs. */
+export function searchJobs(search: JobSearch): Promise<JobsResult> {
+    return request<JobsResult>('GET', 'jobs', { query: { ...search } });
 }
 
 export async function getJob(jobId: string): Promise<Job> {
@@ -192,9 +203,13 @@ export function startRun(jobId: string, body: StartRunRequest = {}): Promise<{ r
 
 // Runs.
 
+export function searchRuns(filters: RunFilters = {}): Promise<RunsResult> {
+    const query: Query = { q: filters.q, job_id: filters.job_id, state: filters.state, limit: filters.limit };
+    return request<RunsResult>('GET', 'runs', { query });
+}
+
 export async function listRuns(filters: RunFilters = {}): Promise<RunSummary[]> {
-    const query: Query = { job_id: filters.job_id, state: filters.state, limit: filters.limit };
-    return (await request<{ runs: RunSummary[] }>('GET', 'runs', { query })).runs;
+    return (await searchRuns(filters)).runs;
 }
 
 export function getRun(runId: string): Promise<RunDetailResponse> {
@@ -239,6 +254,16 @@ export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: 
 // Step previews. Errors: needs_preview (`extra.steps`), upstream_failed, run_step_missing,
 // run_results_expired and run_results_forbidden (`extra.step`), invalid (`issues`),
 // bad_param, forbidden.
+
+/** Past, running and projected runs of every job over [from, to), and the load. */
+export function getSchedule(from: number, to: number): Promise<ScheduleResponse> {
+    return request('GET', 'schedule', { query: { from, to } });
+}
+
+/** The load of every other job around a draft job's cron schedules, with suggestions. */
+export function schedulePreview(job: JobDefinition | Job): Promise<SchedulePreviewResponse> {
+    return request('POST', 'schedule/preview', { body: { job: toDefinition(job) } });
+}
 
 /** The time a preview defaults to (the job's latest cron slot, or now), and the seconds a
  * run's step results are kept after it ends. */

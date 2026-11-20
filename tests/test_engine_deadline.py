@@ -11,7 +11,10 @@ def _late_job(deadline=WITHIN, **over):
 
 
 def _late_rows(w, run_id):
-    return w.action_rows(run_id=run_id, kind="action", hook="on_late", scope="job")
+    """The rows a late run leaves: its job's on_late actions, or (without any, since 1.7.1
+    keeps no row for a hook with nothing to send) the fallback notification."""
+    return (w.action_rows(run_id=run_id, kind="action", hook="on_late", scope="job")
+            + w.action_rows(run_id=run_id, kind="fallback", hook="on_late"))
 
 
 def test_running_run_goes_late_once():
@@ -27,7 +30,7 @@ def test_running_run_goes_late_once():
     assert late[0]["job_id"] == "j" and late[0]["deadline_at"] == T0 + 600
     assert late[0]["state"] == "running"
     rows = _late_rows(w, run_id)
-    assert [r["_key"] for r in rows] == ["%s:job:on_late:-:0" % run_id]
+    assert [r["kind"] for r in rows] == ["fallback"]
     assert w.run(run_id)["late_at"] == T0 + 600
     w.tick(advance=60)
     assert len(w.audit.of("run_late", run_id=run_id)) == 1

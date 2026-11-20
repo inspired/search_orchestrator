@@ -10,7 +10,7 @@ from so import engine as enginemod
 from so import names, scheduler
 from so.actions import ActionRunner
 from so.engine import AuthExpired, Engine
-from so.gateway import DispatchError, KvError
+from so.gateway import DispatchError, GatewayError, KvError
 from so.lease import Lease
 from so.store import Store
 
@@ -246,11 +246,12 @@ def test_late_daily_weekly_waits_delay_hook_once_then_starts():
     w.tick(at=T0 + 3599)
     assert not w.action_rows(hook="on_delayed")
     w.tick(at=T0 + 3600)
-    assert len(w.action_rows(hook="on_delayed", scope="job")) == 1
-    assert len(w.action_rows(hook="on_delayed", scope="step", step_id="daily")) == 1
+    assert len(w.action_rows(hook="on_delayed", scope="fallback")) == 1
+    assert w.step(run_id, "daily")["hooks_fired"].count("on_delayed") == 1
     for _ in range(3):
         w.tick(advance=60)
-    assert len(w.action_rows(hook="on_delayed", scope="job")) == 1
+    assert len(w.action_rows(hook="on_delayed", scope="fallback")) == 1
+    assert w.step(run_id, "daily")["hooks_fired"].count("on_delayed") == 1
     assert w.step(run_id, "weekly")["state"] == "waiting"
     w.finish(w.step(run_id, "daily")["sid"])
     w.tick(at=T0 + 5000)
@@ -281,7 +282,7 @@ def test_failed_daily_blocks_then_rerun_recovers():
     assert run["steps"]["daily"]["state"] == "failed"
     assert "bad search" in run["steps"]["daily"]["error"]
     assert run["steps"]["weekly"]["state"] == "waiting"
-    assert len(w.action_rows(hook="on_failure", scope="job")) == 1
+    assert len(w.action_rows(hook="on_failure", scope="fallback")) == 1
     w.tick(advance=3600)
     assert len(w.dispatched("daily")) == 1  # no automatic retry with retries = 0
     w.gw.script_job(j["steps"][0]["hidden_search"], ["done"])
@@ -490,15 +491,15 @@ def test_hold_repeats_alert_daily():
     r1 = w.manual(j)
     w.tick()
     w.tick(at=T0 + 600)
-    assert len(w.action_rows(run_id=r1, hook="on_failure", scope="job")) == 1
+    assert len(w.action_rows(run_id=r1, hook="on_failure", scope="fallback")) == 1
     w.tick(at=T0 + 600 + DAY - 1)
-    assert len(w.action_rows(run_id=r1, hook="on_failure", scope="job")) == 1
+    assert len(w.action_rows(run_id=r1, hook="on_failure", scope="fallback")) == 1
     w.tick(at=T0 + 600 + DAY)
     w.tick(advance=5)
-    rows = w.action_rows(run_id=r1, hook="on_failure", scope="job")
+    rows = w.action_rows(run_id=r1, hook="on_failure", scope="fallback")
     assert sorted(str(r["occurrence"]) for r in rows) == ["0", "hold1"]
     w.tick(at=T0 + 600 + 2 * DAY + 10)
-    assert len(w.action_rows(run_id=r1, hook="on_failure", scope="job")) == 3
+    assert len(w.action_rows(run_id=r1, hook="on_failure", scope="fallback")) == 3
     assert w.audit.of("hold_alert", run_id=r1)
 
 
@@ -510,7 +511,7 @@ def test_queue_cap_rejects_audits_and_notifies():
     assert w.manual(j) is None
     rejected = w.audit.of("run_rejected", job_id="j")
     assert rejected and rejected[0]["reason"] == "queue_cap"
-    rows = w.action_rows(hook="on_failure", scope="job")
+    rows = w.action_rows(hook="on_failure", scope="fallback")
     assert len(rows) == 1 and rows[0]["run_id"] == rejected[0]["run_id"]
     assert len(w.gw.kv["so_runs"]) == 2
 
@@ -686,7 +687,13 @@ def test_kv_401_raises_auth_expired():
 
 def test_hooks_submitted_once_across_crash_before_run_save():
     w = World()
-    j = w.add_job(make_job(), scripts={"a": {"states": ["done"]}})
+
+    def send(*hooks):
+        return [{"hook": h, "type": "webhook", "destination": "ops", "preset": "slack"}
+                for h in hooks]
+    j = w.add_job(make_job(steps=[{"id": "a", "actions": send("on_success", "on_complete")}],
+                           actions=send("on_start", "on_success", "on_complete")),
+                  scripts={"a": {"states": ["done"]}})
     run_id = cron_run(w, j)
     real = w.gw.kv_update
     state = {"fail": True}
@@ -1277,7 +1284,7 @@ def test_queue_cap_rejections_while_held_fold_into_daily_hold_alert():
         w.tick(at=t)
     rejected = w.audit.of("run_rejected", reason="queue_cap")
     assert len(rejected) > 100 and all(e.get("held") for e in rejected)
-    rows = w.action_rows(hook="on_failure", scope="job")
+    rows = w.action_rows(hook="on_failure", scope="fallback")
     assert sorted(str(r["occurrence"]) for r in rows) == ["0", "hold1"]
     assert all(r["run_id"] == r1 for r in rows)
 
@@ -1653,3 +1660,100 @@ def test_a_step_limit_overrides_settings_and_no_limit_means_nothing_happens():
     for _ in range(10):
         w2.tick(advance=5)
     assert w2.step(run2, "a")["state"] == "succeeded"
+
+
+# --- KV writes per pass ----------------------------------------------------------
+
+def count_kv_writes(w):
+    """Count every KV write by (collection, call), through the gateway's own methods."""
+    calls = {}
+
+    def counted(name):
+        real = getattr(w.gw, name)
+
+        def call(collection, *a, **kw):
+            calls[(collection, name)] = calls.get((collection, name), 0) + 1
+            return real(collection, *a, **kw)
+        setattr(w.gw, name, call)
+    for name in ("kv_update", "kv_insert", "kv_delete_query", "kv_batch_save"):
+        counted(name)
+    return calls
+
+
+def test_a_run_with_nothing_new_is_not_written():
+    w = World(T0)
+    long_running = {"states": ["running"] * 50}
+    j = w.add_job(make_job("j", steps=["a"], cron=None), scripts={"a": long_running})
+    w.manual(j, scheduled_time=T0)
+    w.tick()  # promotes and dispatches
+    w.tick(advance=5)  # records the on_start hook
+    calls = count_kv_writes(w)
+    w.tick(advance=5)
+    w.tick(advance=5)
+    assert calls.get(("so_runs", "kv_update"), 0) == 0
+
+
+def test_a_run_waiting_for_a_slot_is_not_written():
+    w = World(T0)
+    w.store.save_settings({"max_searches": 1})
+    long_running = {"states": ["running"] * 50}
+    for name in ("first", "second"):
+        j = w.add_job(make_job(name, steps=["a"], cron=None), scripts={"a": long_running})
+        w.manual(j, scheduled_time=T0)
+    w.tick()
+    w.tick(advance=5)  # records the on_start hook
+    calls = count_kv_writes(w)
+    w.tick(advance=5)
+    assert calls.get(("so_runs", "kv_update"), 0) == 0
+
+
+def test_a_finished_step_is_still_written():
+    w = World(T0)
+    j = w.add_job(make_job("j", steps=["a"], cron=None),
+                  scripts={"a": {"states": ["running", "done"]}})
+    w.manual(j, scheduled_time=T0)
+    w.tick()
+    w.tick(advance=5)
+    calls = count_kv_writes(w)
+    w.tick(advance=5)
+    assert calls.get(("so_runs", "kv_update"), 0) >= 1
+    assert w.store.list_runs({})[0]["state"] == "succeeded"
+
+
+def test_a_new_attempt_row_takes_one_write():
+    w = World(T0)
+    j = w.add_job(make_job("j", steps=["a"], cron=None))
+    calls = count_kv_writes(w)
+    w.manual(j, scheduled_time=T0)
+    w.tick()
+    w.tick(advance=5)
+    w.tick(advance=5)
+    assert not [c for c in calls if c[0] == "so_step_runs" and c[1] != "kv_batch_save"]
+    assert len(w.store.list_step_runs(w.store.list_runs({})[0]["_key"])) == 1
+
+
+def test_a_hook_with_no_actions_stores_no_row():
+    w = World(T0)
+    j = w.add_job(make_job("j", steps=["a"], cron=None))
+    w.manual(j, scheduled_time=T0)
+    for _ in range(3):
+        w.tick(advance=5)
+    assert w.store.list_runs({})[0]["state"] == "succeeded"
+    assert not w.gw.kv.get("so_action_runs")
+
+
+def test_direct_mode_never_adopts_a_job_from_the_searchs_own_schedule():
+    # Splunk's schedule names its jobs scheduler__..._at_<slot>; the slot may equal the run's.
+    w = World()
+    _add_direct(w)
+    w.tick(at=T0 - 5)
+    w.gw.fail_dispatch("mine", True)
+    w.tick(at=T0 + 1)
+    run_id = "j:%d" % T0
+    theirs = "scheduler__alice_c2VhcmNo__RMD5x_at_%d_1" % T0
+    w.gw.history_by_search[("alice", "mine")] = [(T0 + 2, theirs, T0)]
+    run = w.run(run_id)
+    sdef = next(s for s in run["definition"]["steps"] if s["id"] == "a")
+    kind, _ = w.engine._adopt(run, "a", sdef, T0 + 3, enginemod._Pending())
+    assert kind == "unknown"
+    assert not w.audit.of("step_adopted", run_id=run_id)

@@ -305,7 +305,7 @@ Good to know:
   - Custom takes Earliest and Latest as Splunk relative times, such as `-1d@d` and `@d`.
   - Times are relative to the run's **scheduled time**, never to when the step starts, so a daily summary that starts late still summarises the right day.
   - **All time searches everything and shows a warning.**
-- **Run when:** limits a step to some runs, so one job can hold daily, weekly and monthly steps. Presets such as "Mondays" and "1st of month" match the whole day of the scheduled time. A step that doesn't apply shows as *Skipped (run when)* and lets the steps after it go ahead.
+- **Run when:** limits a step to some runs, so one job can hold daily, weekly and monthly steps. **Days of week** shows a button for each day, Mon to Sun, with **Weekdays**, **Weekends** and **Every day** shortcuts; **1st of month** is the other preset. Both match the whole day of the scheduled time. Days of week starts with Monday on, and at least one day must stay on. A step that doesn't apply shows as *Skipped (run when)* and lets the steps after it go ahead. A cron that only limits the day of the week, such as `* * * * 1-5`, opens as Days of week.
 - **Delayed after** (default 1 hour from the scheduled time): fires the delay alert once.
 - **Give up after** (default 24 hours from when the run leaves the queue): the step fails, other searches in the run are cancelled, and unfinished steps are abandoned.
 - **Max runtime** (default 4 hours per attempt).
@@ -423,6 +423,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
 - **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed time (up to 7), only the latest, or none.
+- **Busy times:** under a Schedule node's settings, a strip shows the *other* jobs' concurrent searches over the next 24 hours (7 days when the schedule, or a step's Run when, doesn't run every day, and the 7 days around the next run when that is further away, such as a monthly schedule), in the job's time zone, with this schedule's runs on top and a dashed line at the **Concurrent searches** limit (Settings). For a schedule with one fixed time (such as `0 2 * * *`) it may suggest a quieter start within two hours on the same day: **Use this time** changes only the minute and hour. It is only a hint: ignore or dismiss it when a job must run at a set time.
 
 ### Actions
 
@@ -533,7 +534,8 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 ## Follow runs
 
 - **Jobs** lists every job you may see; see [The Jobs page](#the-jobs-page).
-- **Runs** lists the runs, grouped by job; see [The Runs page](#the-runs-page).
+- **Runs** lists the runs, grouped by job; a running, paused or blocked run shows a progress bar of its steps (finished out of all, including skipped ones; red when blocked). See [The Runs page](#the-runs-page).
+- **Runs → Timeline** shows every job's past, running and scheduled runs on one time axis, over 24 hours or 7 days (**Timeline** at the top right of the Runs page) (**Earlier**, **Now**, **Later** move the window). The top row, **Concurrent searches**, counts the searches running at each moment across all jobs, with a dashed line at the limit; scheduled time above the limit is drawn in the warning colour, because those searches would queue. Grey bars succeeded, red failed or were cancelled, amber were delayed, dark are running, hatched were queued, and dashed outlines are scheduled. A scheduled run's length is estimated from each step's last successful run (60 seconds for a step that never ran); steps whose Run when skips that day are left out, and steps with an expression condition are counted. A job started by another job's completion is indented under it. Jobs you may not see show as **Hidden job N**, with no name or links, so the load is the real one. Click a past run to open it.
 - **Dependencies** and **Calendar** show how jobs start each other and when they run; see [Dependencies](#dependencies) and [Calendar](#calendar).
 - **Run detail** has a timeline, the graph, logs, actions, performance, parameters and **Compare**.
   - When a run needs attention, a line under the header says what to do next, such as re-running from the failed step.

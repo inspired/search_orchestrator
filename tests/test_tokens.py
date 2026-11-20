@@ -1,5 +1,6 @@
 import pytest
 
+from so import tokens
 from so import tokens as tk
 
 from so.tokens import (TokenError, compile_spl, escape_spl_string, find_tokens,

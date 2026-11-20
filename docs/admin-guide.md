@@ -96,8 +96,8 @@ Only users with `orchestrator_admin` see it.
 
 | Setting | Default | Limits |
 |---|---|---|
-| Searches at once (all jobs) | 10 | 1 to 100 |
-| Searches at once per job | 4 | 1 to 50 |
+| Concurrent searches (all jobs) | 10 | 1 to 100 |
+| Concurrent searches per job | 4 | 1 to 50 |
 | Queue cap per job | 20 | 1 to 1000 |
 | Keep step results after a run | 24 hours | 1 to 168 hours (7 days) |
 | Keep run records | 90 days | 1 to 3650 days |
@@ -268,10 +268,10 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 
 | Route | Methods |
 |---|---|
-| `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE (GET adds `next_run`, `last_run`, `recent_runs` and `warnings`, such as `missing_target_job`, `disabled_target_job` and `missing_upstream_job`; these and `permissions` are ignored when sent back with a save) |
+| `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE (GET adds `next_run`, `last_run`, `recent_runs` and `warnings`, such as `missing_target_job`, `disabled_target_job` and `missing_upstream_job`; these and `permissions` are ignored when sent back with a save) `GET jobs` takes `q` (part of a name); with `limit` (at most 50) and `offset` it returns one page and `total`; `brief=1` leaves out next and last runs. |
 | `jobs/validate` | POST |
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
-| `runs`, `runs/<id>` | GET |
+| `runs`, `runs/<id>` | GET. `GET runs` takes `q` (part of a job's name, or an exact job ID), `job_id`, `state` and `limit`. |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
 | `jobs/<id>/follow` | GET, PUT (`on`: any of `failure`, `late`, `delayed`, `success`; `notify`: `{"type": "email"}` or `{"type": "webhook", "destination"}`), DELETE: the caller's own follow; `GET jobs` adds `following` |
 | `runs/bulk` | POST (`action` `cancel`, `pause`, `resume`, `dismiss`, `rerun`, `approve` or `reject`, `run_ids` 1 to 100, `comment` required to reject; each run is checked as its own route would, so the answer is 200 with `results`: `run_id`, `ok` and, when not, `code` and `message`. A re-run starts from the run's first failed step with the original definition; approve and reject decide every step the run waits on. Audit event `bulk_run_action`) |
@@ -281,6 +281,8 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `health`, `me` | GET (`me` includes `can_approve`) |
 | `selftest` | POST (admin) |
 | `schedule/next` | POST (builders: `cron`, optional `timezone` and `count` 1 to 10; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`; with `clashes: true` (and `job_id` to leave out), per slot the other enabled jobs you may see that fire in the same minute) |
+| `schedule` | GET (any app capability; `from` and `to` epoch seconds, by default 8 hours back to 16 hours ahead; returns every job's past, running and projected runs as `bars` and the concurrent-search `load` with `max_searches`; jobs the caller may not see are listed as `Hidden job N`, so the load is the real one) |
+| `schedule/preview` | POST (builders who may edit the job: `job`, a draft; returns the other jobs' `load` around the draft's cron schedules, in its time zone, and per schedule its `runs` and an optional quieter `suggestion`) |
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |
 | `jobs/<id>/restore` | POST (`version`: saves that version as a new version; needs the right to edit the job) |
 | `preview/condition` | POST (builders: tests one condition line now, as the caller like a preview; see [Test condition](user-guide.md#test-condition)) |

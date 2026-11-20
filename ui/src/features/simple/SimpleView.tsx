@@ -22,7 +22,7 @@ import PreviewResult from '../builder/PreviewResult';
 import SplEditor from '../builder/SplEditor';
 import { IssueList } from '../builder/StepPanel';
 import TimeRangeField from '../builder/TimeRangeField';
-import TriggerPanel from '../builder/TriggerPanel';
+import TriggerPanel, { TriggerPanelProps } from '../builder/TriggerPanel';
 import { ActionFields } from '../builder/ActionsEditor';
 import PresetOptions from '../builder/PresetOptions';
 import { availableTokens } from '../builder/tokens';
@@ -43,6 +43,8 @@ export interface SimpleViewProps {
     jobs: Pick<Job, 'id' | 'name'>[];
     destinations: Destination[];
     nextSlots?: NextSlots;
+    schedulePreview?: TriggerPanelProps['schedulePreview'];
+    savedJobId?: string | null;
     scheduledTime: number;
     resolveTimeRange: BuilderApi['resolveTimeRange'];
     previews: Record<string, PreviewView | undefined>;
@@ -155,7 +157,7 @@ export default function SimpleView(p: SimpleViewProps) {
                 </div>
                 {trigger && (
                     <fieldset disabled={readOnly} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
-                        <TriggerPanel job={job} index={0} jobs={p.jobs} nextSlots={p.nextSlots} dispatch={dispatch} onRequestRemove={p.onRequestRemove} onOpenSettings={p.onOpenSettings} />
+                        <TriggerPanel job={job} index={0} jobs={p.jobs} nextSlots={p.nextSlots} schedulePreview={p.schedulePreview} savedJobId={p.savedJobId} dispatch={dispatch} onRequestRemove={p.onRequestRemove} onOpenSettings={p.onOpenSettings} />
                     </fieldset>
                 )}
             </section>

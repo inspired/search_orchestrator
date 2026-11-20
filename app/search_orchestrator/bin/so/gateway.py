@@ -222,13 +222,26 @@ def oneshot_search(query):
     return "search " + stripped
 
 
+_LEADING_SEARCH = re.compile(r"\s*search\s+", re.IGNORECASE)
+
+
+def _without_search_command(spl):
+    """``spl`` without a leading ``search`` command: Splunk prepends one to every saved
+    search that doesn't start with ``|``, so ``search index=x`` would run as
+    ``search search index=x`` and match only events with the word "search"."""
+    match = _LEADING_SEARCH.match(spl)
+    return spl[match.end():] if match else spl
+
+
 def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
     """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
     sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s.
-    search/jobs (unlike a saved search) needs a leading ``search`` unless the SPL starts
-    with a pipe, else Splunk reports "Unknown search command 'index'"."""
+    An ad hoc job runs as written, so the search gets the ``search`` command a run's saved
+    search gets from Splunk: a step means the same in a preview and a run. (search/jobs,
+    unlike a saved search, needs that leading ``search`` unless the SPL starts with a pipe,
+    else Splunk reports "Unknown search command 'index'".)"""
     if not spl.lstrip().startswith("|"):
-        spl = "search " + spl.lstrip()
+        spl = "search " + _without_search_command(spl).lstrip()
     params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 180,
               "timeout": 1800, "exec_mode": "normal"}
     if earliest:
@@ -274,10 +287,19 @@ def parse_history(body, since_epoch):
     return [sid for _, sid in found]
 
 
+# A dispatched saved search's search ID ends ``_at_<dispatch.now>_<n>``.
+_DISPATCHED_AT = re.compile(r"_at_(\d+)_\d+$")
+
+
 def parse_history_details(body, since_epoch):
-    """History JSON -> ``[{"sid", "dispatch_now", "published"}]`` for jobs published or
+    """History JSON -> ``[{"sid", "dispatch_now", "published", "by_scheduler"}]`` for jobs
+    published or
     dispatched at or after since_epoch, newest first. ``dispatch_now`` is the job's
-    ``dispatch.now`` (from its content or its request), or None if absent."""
+    ``dispatch.now``, or None if absent. Real history entries (10.6.1.1) carry no request
+    and no ``dispatch.now``; a dispatched saved search's job keeps it as ``request.now``
+    and in its search ID (``..._at_<now>_<n>``), which is what is usually read here.
+    ``by_scheduler``: Splunk's own schedule ran it (search ID ``scheduler__...``), so it
+    is never a job this app dispatched."""
     found = []
     for entry in json.loads(body).get("entry", []):
         c = entry.get("content", {})
@@ -290,11 +312,17 @@ def parse_history_details(body, since_epoch):
         sid = entry.get("name") or c.get("sid")
         if sid and when is not None and when >= since_epoch:
             request = c.get("request") if isinstance(c.get("request"), dict) else {}
-            now = _epoch(c.get("dispatch.now"))
+            now = None
+            for raw in (c.get("dispatch.now"), request.get("dispatch.now"), request.get("now")):
+                now = _epoch(raw)
+                if now is not None:
+                    break
             if now is None:
-                now = _epoch(request.get("dispatch.now"))
+                at = _DISPATCHED_AT.search(sid)
+                now = int(at.group(1)) if at else None
             published = _epoch(entry.get("published") or c.get("published"))
-            found.append((when, {"sid": sid, "dispatch_now": now, "published": published}))
+            found.append((when, {"sid": sid, "dispatch_now": now, "published": published,
+                                 "by_scheduler": sid.startswith("scheduler__")}))
     found.sort(key=lambda p: p[0], reverse=True)
     return [d for _, d in found]
 
@@ -312,8 +340,9 @@ def dispatch_params(now_epoch, args, earliest=None, latest=None, trigger_actions
 
 
 def saved_search_params(search, earliest, latest, description=""):
-    """Never include is_scheduled or dispatchAs (HTTP 400 for restricted users)."""
-    return {"search": search, "dispatch.earliest_time": earliest,
+    """Never include is_scheduled or dispatchAs (HTTP 400 for restricted users). A leading
+    ``search`` command is dropped, since Splunk adds its own when the job runs."""
+    return {"search": _without_search_command(search), "dispatch.earliest_time": earliest,
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
@@ -554,6 +583,7 @@ class SplunkGateway:
             raise GatewayError("job status failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
 
+
     def first_row(self, sid):
         try:
             return parse_first_row(self._call("get", "search/jobs/{}/results".format(sid),
@@ -668,6 +698,7 @@ class SplunkGateway:
             raise GatewayError("saved search lookup failed: {}".format(err), self._status(err),
                                is_transient_status(self._status(err)))
         return parse_saved_search_info(body)
+
 
     def index_exists(self, name):
         try:

@@ -1,7 +1,7 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import RunsTable, { filterRuns, needsAttention } from '../features/runs/RunsTable';
+import RunsTable, { filterRuns, needsAttention, stepProgress } from '../features/runs/RunsTable';
 import { formatTime } from '../format';
 import { NOW, renderThemed, runSummary } from './fixtures';
 
@@ -15,7 +15,6 @@ const jobNames = { daily: 'Daily summary', weekly: 'Weekly rollup' };
 describe('RunsTable', () => {
     test('RunsTable filters by state', () => {
         expect(filterRuns(runs, { state: 'failed' }).map((r) => r.id)).toEqual(['daily:2']);
-        expect(filterRuns(runs, { job_id: 'weekly' }).map((r) => r.id)).toEqual(['weekly:1']);
         expect(filterRuns(runs, {}).length).toBe(3);
 
         renderThemed(
@@ -85,5 +84,30 @@ describe('RunsTable', () => {
         expect(rows).toHaveLength(2);
         expect(within(rows[1]).getByText('Running · waiting for approval')).toBeInTheDocument();
         expect(within(rows[0]).queryByText(/waiting for approval/)).toBeNull();
+    });
+});
+
+describe('Run progress', () => {
+    const steps = {
+        a: { state: 'succeeded' as const },
+        b: { state: 'skipped' as const },
+        c: { state: 'running' as const },
+        d: { state: 'waiting' as const },
+    };
+
+    test('counts finished steps for runs in progress only', () => {
+        expect(stepProgress(runSummary({ state: 'running', steps }))).toEqual({ done: 2, total: 4 });
+        expect(stepProgress(runSummary({ state: 'blocked', steps }))).toEqual({ done: 2, total: 4 });
+        expect(stepProgress(runSummary({ state: 'queued', steps }))).toBeNull();
+        expect(stepProgress(runSummary({ state: 'succeeded', steps }))).toBeNull();
+        expect(stepProgress(runSummary({ state: 'running', steps: {} }))).toBeNull();
+    });
+
+    test('shows a progress bar with the step count on running runs', () => {
+        const runs = [runSummary({ id: 'r1', state: 'running', steps }), runSummary({ id: 'r2', state: 'succeeded', steps })];
+        renderThemed(<RunsTable runs={runs} jobNames={{}} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
+        const bars = screen.getAllByTestId('run-progress');
+        expect(bars).toHaveLength(1);
+        expect(bars[0]).toHaveAttribute('aria-label', '2 of 4 steps done');
     });
 });

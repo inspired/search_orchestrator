@@ -122,7 +122,8 @@ class FakeGateway:
                                   "args": dict(args or {}), "earliest": earliest,
                                   "latest": latest, "trigger_actions": trigger_actions})
         when = self.clock() if self.clock else now_epoch
-        self.history_by_search.setdefault((owner, name), []).append((when, sid, now_epoch))
+        self.history_by_search.setdefault((owner, name), []).append(
+            (when, sid, now_epoch, dict(args or {})))
         if self.crash_after_dispatch:
             raise RuntimeError("simulated crash after dispatch")
         return sid
@@ -205,10 +206,10 @@ class FakeGateway:
 
     def history_details(self, owner, name, since_epoch):
         rows = [r for r in self.history_by_search.get((owner, name), []) if r[0] >= since_epoch]
-        return [{"sid": r[1], "dispatch_now": r[2] if len(r) > 2 else None, "published": r[0]}
+        return [{"sid": r[1], "dispatch_now": r[2] if len(r) > 2 else None, "published": r[0],
+                 "by_scheduler": r[1].startswith("scheduler__")}
                 for r in sorted(rows, key=lambda r: r[0], reverse=True)]
 
-    # KV.
 
     def _check_kv(self, collection=None):
         if self.kv_down:
@@ -298,6 +299,7 @@ class FakeGateway:
         return {"exists": True, "owner": o, "sharing": entry.get("sharing", "user"),
                 "dispatch_as": entry.get("dispatch_as", "owner"),
                 "app": entry.get("app", "search_orchestrator"), "visible": visible(entry)}
+
 
     def index_exists(self, name):
         return name in self.indexes

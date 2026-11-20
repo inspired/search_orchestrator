@@ -1,18 +1,23 @@
 /* Runs: every run the user may see, newest first, filterable by job and state, with tick boxes
  * for Cancel, Re-run, Approve and Reject on many runs. Filtered by a job, each of its running
- * backfills shows as a line above the table. */
+ * backfills shows as a line above the table. The Timeline view shows past, running and
+ * scheduled runs of every job over 24 hours or 7 days. */
 import React, { useEffect, useRef, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
+import RadioBar from '@splunk/react-ui/RadioBar';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import { bulkRuns, listJobs, listRuns, me as getMe } from '../../api/client';
 import { RUN_STATES } from '../../api/types';
 import type { RunState, RunSummary } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';
 import BackfillLines from '../../features/runs/BackfillLines';
+import SchedulePanel from '../../features/schedule/SchedulePanel';
 import RunsTable, { RunsTableFilters, awaitsApproval } from '../../features/runs/RunsTable';
 import usePoll from '../../hooks/usePoll';
 
 const ACTIVE = ['queued', 'running', 'paused', 'blocked'];
+
+type View = 'table' | 'timeline';
 
 function initialFilters(): RunsTableFilters {
     const state = queryParam('state');
@@ -48,7 +53,9 @@ async function fetchRuns(all: RunsTableFilters) {
 function RunsPage() {
     const [filters, setFilters] = useState<RunsTableFilters>(initialFilters);
     const [fast, setFast] = useState(true);
-    const runs = usePoll(() => fetchRuns(filters), fast ? 5000 : 30000, true);
+    const [view, setView] = useState<View>(() => (queryParam('view') === 'timeline' ? 'timeline' : 'table'));
+    const [timelineQ, setTimelineQ] = useState('');
+    const runs = usePoll(() => fetchRuns(filters), fast ? 5000 : 30000, view === 'table');
     const [jobNames, setJobNames] = useState<Record<string, string>>({});
     const [jobTags, setJobTags] = useState<Record<string, string[]>>({});
     const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -84,8 +91,9 @@ function RunsPage() {
             return;
         }
         const params = new URLSearchParams(window.location.search);
-        ['job_id', 'state', 'tag'].forEach((key) => {
-            const value = filters[key as keyof RunsTableFilters];
+        const values: Record<string, string | undefined> = { ...filters, view: view === 'timeline' ? view : undefined };
+        ['job_id', 'state', 'tag', 'view'].forEach((key) => {
+            const value = values[key];
             if (value) {
                 params.set(key, value);
             } else {
@@ -94,9 +102,11 @@ function RunsPage() {
         });
         const query = params.toString();
         window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
-        runs.refresh();
+        if (view === 'table') {
+            runs.refresh(); // the timeline loads its own data
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters]);
+    }, [filters, view]);
 
     const anyActive = (runs.data || []).some((r) => ACTIVE.includes(r.state));
     useEffect(() => setFast(anyActive), [anyActive]);
@@ -111,14 +121,23 @@ function RunsPage() {
     });
 
     return (
-        <PageShell title="Runs">
-            {runs.error && (
+        <PageShell
+            title="Runs"
+            actions={
+                <RadioBar value={view} onChange={(_e: unknown, { value }: { value: unknown }) => setView(value as View)}>
+                    <RadioBar.Option value="table" label="Table" />
+                    <RadioBar.Option value="timeline" label="Timeline" />
+                </RadioBar>
+            }
+        >
+            {view === 'timeline' && <SchedulePanel q={timelineQ} state={filters.state === 'attention' ? undefined : filters.state} onQChange={setTimelineQ} />}
+            {view === 'table' && runs.error && (
                 <Message type="error" appearance="default">
                     {`The runs could not be loaded: ${runs.error.message}`}
                 </Message>
             )}
-            {filters.job_id && <BackfillLines key={filters.job_id} jobId={filters.job_id} />}
-            {runs.loading && !runs.data ? (
+            {view === 'table' && filters.job_id && <BackfillLines key={filters.job_id} jobId={filters.job_id} />}
+            {view === 'timeline' ? null : runs.loading && !runs.data ? (
                 <WaitSpinner size="medium" />
             ) : (
                 <RunsTable

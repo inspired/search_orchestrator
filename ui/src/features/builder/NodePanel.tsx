@@ -20,7 +20,7 @@ import type { Arrange } from './align';
 import SelectionPanel from './SelectionPanel';
 import StepPanel from './StepPanel';
 import { availableTokens } from './tokens';
-import TriggerPanel from './TriggerPanel';
+import TriggerPanel, { TriggerPanelProps } from './TriggerPanel';
 import type { PreviewContext } from './previewLogic';
 import type { PreviewView } from './usePreviews';
 
@@ -58,6 +58,8 @@ export interface NodePanelProps {
     alertActions: AlertAction[] | null;
     jobs: Pick<Job, 'id' | 'name'>[];
     nextSlots?: NextSlots;
+    schedulePreview?: TriggerPanelProps['schedulePreview'];
+    savedJobId?: string | null;
     previewFields: Record<string, string[]>;
     scheduledTime: number;
     resolveTimeRange: BuilderApi['resolveTimeRange'];
@@ -200,6 +202,8 @@ export default function NodePanel(props: NodePanelProps) {
                 index={node.trigger}
                 jobs={props.jobs}
                 nextSlots={props.nextSlots}
+                schedulePreview={props.schedulePreview}
+                savedJobId={props.savedJobId}
                 dispatch={dispatch}
                 onRequestRemove={onRequestRemove}
                 onOpenSettings={props.onOpenSettings}

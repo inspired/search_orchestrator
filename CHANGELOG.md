@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.46.0 (2026-11-20)
+
+- **Merged with Mikael Bjerkeland's 1.4.1 to 1.7.1** from `inspired/search_orchestrator`, so both lines of work are in one app. From his work:
+  - **Runs → Timeline:** every job's past, running and scheduled runs on one axis, over 24 hours or 7 days, with a **Concurrent searches** row and its limit (`GET schedule`).
+  - **Busy-times strip** under a Schedule node: the other jobs' concurrent searches around this schedule's runs, and a quieter start nearby with **Use this time** (`POST schedule/preview`).
+  - **Run when → Days of week:** day buttons with Weekdays, Weekends and Every day shortcuts, in place of the Mondays preset.
+  - **Progress bar** of finished steps on running, paused and blocked runs in the Runs table.
+  - `GET jobs` takes `q`, `limit` and `offset` (one page and `total`, with each page's runs read in one query), and `GET runs` takes `q` (part of a job name).
+  - The engine makes fewer splunkd calls: a hook with nothing to send stores no row, and a run is written only when a pass changed it.
+  - A step's SPL that starts with `search` runs as written instead of as `search search …`; a direct report's job is found again after a dispatch timeout; `so_runs` has KV Store indexes for newest-first reads.
+- **Kept from this line instead:** the Schedule node's preset editor (with the next run times and other jobs in the same minute) rather than the On days / Every / Monthly / Advanced form, which the Triggers tab used before triggers became nodes; and the Jobs and Runs pages' own Find, Show, Tag, grouping and Needs attention filters rather than paging and a search box. The Jobs page still shows each job's newest runs as dots.
+- A late run of a job with no late action leaves only the fallback notification's row, not an empty action row.
+
 ## 1.45.0 (2026-11-20)
 
 - **Troubleshooting in plain words:** errors in What happened, Problems and the run story are said plainly instead of as Splunk's and Python's wording: "alice could not load the runs list: KV Store was still starting up" instead of "alice loaded the runs list — a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{…}'". Also "Splunk could not reach its mail server", "Splunk was not answering", "the receiver did not answer", "the search had already expired", and search ids as "a step search" or "a scheduled search". A failed request reads as what the person could not do. KV Store starting gets its own why and what to do. The line as written stays in each line's details.
@@ -491,6 +504,42 @@ Clearer schedules, durations and time ranges in the job editor.
 - A schedule is picked from presets (hourly, daily, weekly, monthly) or typed as a custom cron. It shows a plain summary and the next runs in the job's time zone. A cron no preset matches opens as Custom and is never rewritten. The time zone is picked from a list, and a stored zone the list lacks stays selected.
 - A step's time range is picked from presets (the hour, day, week or month before, or the last 24 hours), All time or Custom. It shows the window searched for a run scheduled at the preview time. All time shows a warning.
 - Two new REST routes back these readouts: `POST schedule/next` returns the next times a cron fires, and `POST timerange/resolve` returns the window an earliest and latest cover.
+
+## inspired 1.4.1 to 1.7.1 (merged in 1.46.0)
+
+Releases on `inspired/search_orchestrator` after this line split from it at 1.4.0.
+
+### inspired 1.7.1 (2026-11-16)
+
+- **Fixed: Search steps that start with `search` found nothing in runs.** Splunk adds a `search` command to every saved search that doesn't start with `|`, so `search index=main ...` ran as `search search index=main ...` and matched only events containing the word "search", without an error. A leading `search` is now dropped from the step's hidden saved search, and previews add one when the SPL doesn't start with `|` (they used to fail with "Unknown search command 'index'"). A step now means the same in a preview and a run, written with or without `search`. Existing jobs are fixed the next time they are saved.
+
+### inspired 1.7.0 (2026-11-12)
+
+- **Removed: Saved search steps that read the previous step's results** (added in 1.5.0). The report had to be rewritten around `$args.so_input$` and then no longer ran outside a job, so the search belongs in the job as a From previous steps step. The `read_previous` field is now ignored. Saved search steps that run a report unchanged are as before, and finding a direct search's job by the run time in its search ID stays.
+
+### inspired 1.6.0 (2026-11-12)
+
+- **Runs → Timeline**: every job's past, running and scheduled runs on one axis, over 24 hours or 7 days, with a **Concurrent searches** row and its limit (Settings → Concurrent searches), so busy times show before they are scheduled. Scheduled runs are projected from cron schedules (honouring step Run when days) and completion triggers, with lengths estimated from recent runs. Jobs you may not see show anonymously. Very frequent jobs are merged into spans. (`GET schedule?from=&to=`)
+- Schedules are set with **On days**, **Every…**, **Monthly** or **Advanced (cron)** instead of typing cron, with a plain-English summary. They are still stored as cron; existing schedules open in the matching form, or in Advanced, and are never rewritten just by opening them.
+- The Triggers tab shows a **busy-times strip** under each schedule, in the job's time zone (for a monthly schedule, the 7 days around its next run), and may suggest a quieter start nearby. **Use this time** changes only the minute and hour; nothing changes otherwise. (`POST schedule/preview`)
+- The Runs table shows a progress bar of finished steps for running, paused and blocked runs (red when blocked), with the count on hover.
+- Settings call the limits **Concurrent searches** and **Concurrent searches per job**, matching the timeline.
+- Tables no longer stripe alternate rows. The toolkit's stripe colour shows with a red tint in current Chrome.
+
+### inspired 1.5.0 (2026-11-11)
+
+- Run when offers **Days of week**, a row of day buttons with Weekdays, Weekends and Every day shortcuts, in place of the Mondays preset. The step on the canvas reads "Mondays only", "Weekdays only" or "Mon, Wed, Fri only". Steps saved with the Mondays preset, and any cron that only limits the day of the week, open with their days on. The stored value is still a cron, so the server is unchanged.
+- A Saved search step can read the previous step's results: tick **Reads the previous step's results**, and the report receives that step's search ID as `$args.so_input$`. The report must read its input with `| loadjob $args.so_input$` with no quotes around the placeholder, have no other placeholders, and follow exactly one step. Saving the job checks the report and warns if the previous step can be skipped or fail.
+- After a dispatch timeout, a Saved search step that runs the owner's own search directly finds its job by the run time in the job's search ID. Splunk's history doesn't carry it, so recovery used to fall back to the published time. A job from the search's own schedule is never taken for the step's.
+- The Jobs page loads quickly with hundreds of jobs. It shows 50 jobs at a time with **Previous** and **Next**, sorted by name ignoring case, and reads last runs only for the jobs on screen (`GET jobs?limit=&offset=`). If the last runs can't be read, the jobs still show, with Last run as **Unknown** and a warning.
+- Search the Jobs page by any part of a job's name, ignoring case (`q`).
+- Search the Runs page by job name, replacing the Job dropdown (`GET runs?q=`). Runs of a deleted job are found by its exact job ID. The search looks through at most the newest 5,000 runs when more than 100 jobs match, and says so if it stopped early.
+- The Runs page and the job builder no longer read every job's last run just to get job names.
+- `so_runs` has KV Store indexes for reading runs newest first.
+
+### inspired 1.4.1 (2026-11-10)
+
+- The engine makes far fewer calls to splunkd, so steps hold their slots for less time and busy periods drain faster. A run is written only when a pass changed it, a hook with no actions stores no row, a new attempt row takes one write instead of two, and renewing the leader lease takes two calls instead of four.
 
 ## 1.4.0 (2026-11-09)
 

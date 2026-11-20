@@ -12,7 +12,7 @@ import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
-import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
+import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, SchedulePreviewResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
 import SidePanel, { usePanelLayout } from './SidePanel';
@@ -66,6 +66,8 @@ export interface BuilderApi extends PreviewApi {
     listRuns: (filters: RunFilters) => Promise<RunSummary[]>;
     resolveTimeRange: (earliest: string, latest: string, scheduledTime: number) => Promise<{ earliest: number | null; latest: number }>;
     nextSlots: (cron: string, timezone: string | null, count?: number) => Promise<client.NextSlotsResponse>;
+    /** Other jobs' load around a draft's schedules, for the busy-times strip; none hides it. */
+    schedulePreview?: (job: JobDefinition) => Promise<SchedulePreviewResponse>;
 }
 
 const defaultApi: BuilderApi = {
@@ -80,6 +82,7 @@ const defaultApi: BuilderApi = {
     previewDefaults: client.previewDefaults,
     listRuns: client.listRuns,
     nextSlots: client.nextSlots,
+    schedulePreview: client.schedulePreview,
     resolveTimeRange: client.resolveTimeRange,
     startPreview: client.startPreview,
     previewStatus: client.previewStatus,
@@ -443,6 +446,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                 jobs={jobs}
                 destinations={destinations}
                 nextSlots={api.nextSlots}
+                schedulePreview={api.schedulePreview}
+                savedJobId={jobId}
                 scheduledTime={scheduledTime}
                 resolveTimeRange={api.resolveTimeRange}
                 previews={previews.previews}
@@ -518,6 +523,8 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     alertActions={alertActions}
                     jobs={jobs}
                     nextSlots={api.nextSlots}
+                schedulePreview={api.schedulePreview}
+                savedJobId={jobId}
                     previewFields={previewFields}
                     scheduledTime={scheduledTime}
                     resolveTimeRange={api.resolveTimeRange}
