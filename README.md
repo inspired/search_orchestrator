@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="#-try-it-in-5-minutes"><b>Try it</b></a> ·
+  <a href="#try-it-in-5-minutes"><b>Try it</b></a> ·
   <a href="docs/user-guide.md"><b>User guide</b></a> ·
   <a href="docs/admin-guide.md"><b>Admin guide</b></a> ·
   <a href="CHANGELOG.md"><b>Changelog</b></a> ·
@@ -34,40 +34,40 @@
   </picture>
 </p>
 
-## ✨ What it does
+## What it does
 
 <table>
   <tr>
     <td width="33%" valign="top">
-      <h3>🧩 Build</h3>
+      <h3>Build</h3>
       Draw jobs on a canvas or list them top to bottom. Start from <b>18 example jobs</b> that use only data every Splunk has. Preview each step before you save.
     </td>
     <td width="33%" valign="top">
-      <h3>⏱️ Trigger</h3>
+      <h3>Trigger</h3>
       On a schedule, by hand, from SPL with <code>| orchestrate start</code>, from an alert, over REST, or when another job finishes. Backfill any date range.
     </td>
     <td width="33%" valign="top">
-      <h3>🔀 Branch</h3>
+      <h3>Branch</h3>
       Steps wait for their inputs. Branch on success, failure or a condition such as <code>$daily.resultCount$ &gt; 0</code>, and read earlier steps' results with <code>| loadjob</code>.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h3>🛟 Recover</h3>
+      <h3>Recover</h3>
       Retries, delays and deadlines with alerts. Later runs wait for a failed one to be fixed, so a rollup never skips a day. Re-run from any step.
     </td>
     <td valign="top">
-      <h3>📣 Act</h3>
+      <h3>Act</h3>
       Email, webhook, Slack, Teams, PagerDuty, ServiceNow, any alert action, or write to an index or a lookup. Optional approval steps.
     </td>
     <td valign="top">
-      <h3>🔍 Follow</h3>
+      <h3>Follow</h3>
       Live run graphs, a calendar, run comparison, dependencies between jobs, an audit index, and a Troubleshooting page that explains errors in plain words.
     </td>
   </tr>
 </table>
 
-## 🚀 Try it in 5 minutes
+## Try it in 5 minutes
 
 1. **Download** `search_orchestrator-<version>.tgz` from the [latest release](https://github.com/lyderhansen/search_orchestrator/releases/latest).
 2. **Install** it in Splunk: **Apps → Manage Apps → Install app from file**, and restart if asked.
@@ -78,7 +78,7 @@ Roles, the audit index and settings are in the [admin guide](docs/admin-guide.md
 > [!NOTE]
 > This is a test release. Approvals and the Slack, Teams, PagerDuty, ServiceNow and webhook actions are marked **Beta**, and an admin can turn them off under **Settings → Building blocks**. Please [open an issue](https://github.com/lyderhansen/search_orchestrator/issues) when something breaks or reads oddly.
 
-## 🧭 Where it runs
+## Where it runs
 
 | Platform | Status |
 |---|---|
@@ -87,7 +87,7 @@ Roles, the audit index and settings are in the [admin guide](docs/admin-guide.md
 | Search head cluster | 🧪 Designed for it, unit-tested only |
 | Splunk Cloud Platform, Classic Experience | ❌ Not supported |
 
-## 🛠️ Build from source
+## Build from source
 
 ```sh
 scripts/package.sh <version>                               # dist/search_orchestrator-<version>.tgz
@@ -98,6 +98,6 @@ python3 -m pytest -q tests                                 # backend tests
 
 `scripts/package_variant.sh <suffix> <version>` builds a copy named `search_orchestrator_<suffix>` that installs next to the normal app, for testing two versions side by side.
 
-## 🙌 Credits
+## Credits
 
 Based on [**inspired/search_orchestrator**](https://github.com/inspired/search_orchestrator) by **Mikael Bjerkeland**, who wrote the original design, engine and app shell. This repo continues that work together with him.
