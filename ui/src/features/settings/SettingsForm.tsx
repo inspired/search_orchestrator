@@ -11,7 +11,8 @@ import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import type { Destination, Settings } from '../../api/types';
-import { ALWAYS_ON, CATALOG } from '../builder/nodeCatalog';
+import BetaTag from '../builder/BetaTag';
+import { ALWAYS_ON, CATALOG, isBeta } from '../builder/nodeCatalog';
 import { STEP_KINDS } from '../builder/nodeModel';
 
 /** The building blocks an admin can turn off, grouped as the builder shows them. */
@@ -301,7 +302,7 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
             <p data-testid="blocks-intro">
                 What people can add to a job. Turn off what your teams don&apos;t use to keep the builder simple: it is no longer offered in the Flow and Simple
                 editors or the examples, and a save that adds it is refused. Jobs that already use it keep working and can still be edited. Search and Schedule
-                are always on.
+                are always on. Blocks marked <strong>Beta</strong> are still in development and may not work yet.
             </p>
             {BLOCK_GROUPS.map((g) => (
                 <div key={g.label} role="group" aria-label={g.label} style={{ margin: '0 0 12px' }}>
@@ -323,6 +324,7 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                                         onClick={() => set({ turnedOff: on ? [...draft.turnedOff, k] : draft.turnedOff.filter((x) => x !== k) })}
                                     >
                                         {entry ? entry.label : k}
+                                        {isBeta(k) && <BetaTag />}
                                     </Switch>
                                 );
                             })}

@@ -319,7 +319,7 @@ export default function LogsPage({ api = defaultApi }: { api?: LogsApi }) {
                 {result && view !== 'story' && (
                     <p style={{ margin: '0 0 8px', fontSize: '13px', color: t.contentColorMuted }}>
                         {view === 'lines' && lines ? `${lines.lines.length} line${lines.lines.length === 1 ? '' : 's'}, newest first. Click a line for the details. ` : ''}
-                        {view === 'problems' && problems ? 'Errors and warnings grouped by what went wrong, the most serious first. ' : ''}
+                        {view === 'problems' && problems ? 'Errors and warnings grouped by what went wrong, the most serious first; the search below builds this table. ' : ''}
                         <Link to={createURL('/app/search/search', { q: result.spl, earliest: result.earliest, latest: result.latest })} openInNewContext>
                             Open this search in Search
                         </Link>

@@ -123,6 +123,8 @@ A kind that is off:
 
 Jobs that already use it keep running, and can still be edited and saved with it. Turning a kind off never breaks a job. Turn it back on at any time.
 
+**Beta** marks blocks that are still in development and may not work yet: Approval, Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow. The tag shows here and in the builder's add menu.
+
 **Health** shows whether the engine is running, whether the audit index exists, whether a fallback is set and how many commands are waiting, with a warning message for each problem.
 
 ### Webhook destinations

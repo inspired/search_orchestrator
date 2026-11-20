@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.43.0 (2026-11-20)
+
+- **Problems are built in SPL:** the Troubleshooting **Problems** table is the result of its search (`stats` by signature, with the ids and numbers taken out by `replace`), so **Open this search in Search** shows the same table: times, level, problem, area, jobs, runs, last and first seen. The page only adds job names, how long ago, and why and what to do. Every matching line in the range is counted, not just the newest 2000; the 200 most serious problems are shown.
+- **Beta building blocks:** Approval, Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow carry a **Beta** tag (still in development, may not work yet) in Settings > Building blocks and the builder's add menu.
+
 ## 1.42.0 (2026-11-20)
 
 - **Building blocks in Settings:** an admin can turn off any node kind except Search and Schedule (Approval, Saved search, Summary index, Lookup, After another job, and each action: Email, Webhook, Slack, Teams, PagerDuty, ServiceNow, Event, Alert action, Start another job). A kind that is off is not offered in the Flow or Simple editors, examples that use it can't be added, and a save that adds it is refused (`block_turned_off`). Jobs that already use it keep working and can still be saved. New setting `turned_off`, shown to every user in `/me`; new module `so/blocks.py`.

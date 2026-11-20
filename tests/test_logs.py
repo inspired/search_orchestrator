@@ -1,6 +1,7 @@
 """Troubleshooting logs: the log files (so.logs) and the logs route (so.logs_api)."""
 import json
 import logging
+import re
 
 import pytest
 
@@ -256,23 +257,41 @@ def test_breakdown_routes_and_splunkd_calls(w):
     assert out["requests"] == 40 and out["calls"][0]["endpoint"] == "search/jobs/<sid>"
 
 
-def test_problems_group_the_same_failure_with_different_ids(w):
-    def line(sid, run):
-        return {"_time": "2026-11-19T13:0%s:00" % sid[-1],
-                "_raw": "2026-11-19 13:00:00,001 +0000 level=WARNING process=engine logger=so.engine "
-                        "status of search scheduler__alice_%s failed: HTTP 503 for run %s" % (sid, run)}
+def test_problems_are_grouped_in_spl_so_search_shows_the_same_table(w):
     w.gw.search_handler = lambda owner, query: [
-        line("x1", "daily:cron:1"), line("x2", "daily:cron:2"),
-        {"_time": "2026-11-19T12:00:00", "_raw": "2026-11-19 12:00:00,001 +0000 level=INFO "
-         'process=engine logger=so.audit event=action_failed job_id="daily" run_id="daily:cron:1" '
-         'action_type="webhook" error="HTTP 404 Not Found"'}]
+        {"times": "54", "level": "Warning", "problem": "Email failed, will retry: Connection refused",
+         "area": "Action", "jobs": ["daily", "weekly"], "runs": "8", "last_seen": "1763557200",
+         "first_seen": "1763550000", "event": "action_retry", "signature": "action_retry||email|x",
+         "sample": '2026-11-19 13:00:00,001 +0000 level=WARNING process=engine logger=so.audit '
+                   'event=action_retry action_type="email" job_id="daily" run_id="daily:cron:1" '
+                   'error="Connection refused"'},
+        {"times": "2", "level": "Error", "problem": "Engine skipped a tick", "area": "Engine",
+         "jobs": "", "runs": "0", "last_seen": "1763557100", "first_seen": "1763557000",
+         "signature": "|||Engine skipped a tick", "sample": "free text"}]
     status, out = w.call("alice", "GET", "/orchestrator/logs/problems")
     assert status == 200, out
-    first = out["problems"][0]
-    assert first["count"] == 2 and first["level"] == "WARNING"
-    assert "<sid>" in first["signature"] and "<n>" in first["signature"]
-    assert out["problems"][1]["event"] == "action_failed" and out["problems"][1]["jobs"] == ["daily"]
+    first, second = out["problems"]
+    assert (first["count"], first["level"], first["problem"], first["area"]) == (
+        54, "WARNING", "Email failed, will retry: Connection refused", "Action")
+    assert first["jobs"] == ["daily", "weekly"] and first["runs"] == 8
+    assert first["last"].startswith("2025-11-19T") and first["sample"]["run_id"] == "daily:cron:1"
+    assert second["level"] == "ERROR" and second["jobs"] == [] and second["event"] is None
+    spl = out["spl"]
+    assert "| stats count AS times" in spl and "by signature" in spl
+    assert "| sort 0 - sev - times" in spl and "| table times level problem area jobs runs" in spl
     assert "(level IN (ERROR, WARNING) OR event IN" in w.gw.search_log[-1][1]
+
+
+def test_problem_signatures_take_out_what_differs_each_time():
+    def sig(text):
+        for pattern, repl in logs_api.PROBLEM_NOISE:
+            text = re.sub(pattern, repl, text)
+        return text
+    a = sig("status of search scheduler__alice_x1 failed: HTTP 503 for run daily:cron:1 at https://h/x")
+    b = sig("status of search scheduler__alice_x2 failed: HTTP 503 for run daily:cron:22 at https://h/y")
+    assert a == b == "status of search <sid> failed: HTTP <n> for run <run> at <url>"
+    for pattern, _ in logs_api.PROBLEM_NOISE:
+        assert '"' not in pattern  # each goes into an SPL string as is
 
 
 # -- failures are warnings (found in a live instance: failed actions were logged at INFO) --
@@ -294,16 +313,12 @@ def test_audit_copies_stay_out_of_splunkd_log():
 
 
 def test_problems_find_failure_events_logged_at_info_by_older_versions(w):
-    w.gw.search_handler = lambda owner, query: [
-        {"_time": "2026-11-19T13:19:40Z", "_raw": "2026-11-19 13:19:40,000 +0000 level=INFO process=engine "
-         'logger=so.audit event=action_failed action_type="email" attempts=4 error="action search failed: '
-         'command=\\"sendemail\\", [Errno 111] Connection refused while sending mail to: you@example.com" '
-         'job_id="daily" run_id="daily:manual:1"'}]
-    out = w.call("alice", "GET", "/orchestrator/logs/problems")[1]
+    w.call("alice", "GET", "/orchestrator/logs/problems")
     query = w.gw.search_log[-1][1]
     assert "event IN (action_failed, action_retry," in query and 'to="failed"' in query
     assert "level IN (ERROR, WARNING)" in query
-    assert out["problems"][0]["level"] == "WARNING" and out["problems"][0]["event"] == "action_failed"
+    # A failure event counts as a warning whatever level it was logged at.
+    assert 'eval sev=if(level="ERROR" OR level="CRITICAL", 2, 1)' in query
 
 
 def test_event_filter_takes_a_list_and_summary_counts_skipped_schedules(w):

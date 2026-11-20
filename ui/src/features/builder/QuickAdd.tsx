@@ -4,11 +4,12 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { SnippetInfo } from '../../api/snippets';
-import { searchCatalog } from './nodeCatalog';
+import { isBeta, searchCatalog } from './nodeCatalog';
 import type { CatalogEntry } from './nodeCatalog';
 import type { NodeKind } from './nodeModel';
 import { FAMILY_STYLE } from './nodeStyle';
 import type { Family } from './nodeStyle';
+import BetaTag from './BetaTag';
 
 export interface QuickAddProps {
     open: boolean;
@@ -189,7 +190,10 @@ export function NodeSearchList({ kinds, onChoose, onClose, onBack, snippets, sni
                                     onClick={() => onChoose(r.kind)}
                                     style={rowStyle(isActive)}
                                 >
-                                    <div>{r.label}</div>
+                                    <div>
+                                        {r.label}
+                                        {isBeta(r.kind) && <BetaTag />}
+                                    </div>
                                     <div style={{ fontSize: 12, color: theme.contentColorMuted }}>{r.description}</div>
                                 </div>
                             );

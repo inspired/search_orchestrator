@@ -266,7 +266,7 @@ With the canvas focused:
 
 ### Approval steps
 
-An admin can turn approvals off in **Settings > Building blocks**, as they can any other building block except Search and Schedule. The builder then stops offering it, and jobs that already have one keep working.
+Approval is in **Beta**: still in development, so it may not work yet. An admin can turn approvals off in **Settings > Building blocks**, as they can any other building block except Search and Schedule. The builder then stops offering it, and jobs that already have one keep working.
 
 An **Approval** node (an octagon) makes a run wait for a person before going on. It runs no search. Add it from **Add node** and connect it like a step: lines into it say when it is asked, and lines out of it use its own words:
 
@@ -724,7 +724,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
   - a job that waits on another job but was not started (disabled, or the other job's run ended the wrong way).
   - **Skipped schedules** counts the first two.
 - **Searches over the events scanned limit** show as a warning, or as an error when the search was stopped.
-- **Problems:** a table of errors and warnings grouped by what went wrong (ids and numbers taken out), the most serious first, with how many times, the area, the jobs and runs affected and when last seen; expand one for why and what to do.
+- **Problems:** a table of errors and warnings grouped by what went wrong (ids and numbers taken out), built by the search itself (`stats` by problem), so **Open this search in Search** shows the same table. The most serious come first, with how many times, the area, the jobs and runs affected and when last seen; expand one for why and what to do.
 - **Run story:** pick a run (or click **The story of this run**) to read it as a table from created to finished, with the time since the start and the waits explained: "2m 10s: queued: waiting for its turn", "the search for step Count logins was running", "waiting for someone to approve".
 - **Filters:** time (15 minutes to 7 days), job by name, level, part (engine or screens and API), text and run, plus the event or run you clicked (remove them from the chips under the filters). They are kept in the address, so you can share the view. **Live** refreshes every 10 seconds.
 - Opened from a run (**App logs for this run** on the run page, **App logs** in a step's details), it shows that run or step at every level.

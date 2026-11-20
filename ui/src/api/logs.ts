@@ -115,10 +115,15 @@ export interface LogBreakdown {
     searches: Record<string, SearchLink>;
 }
 
+/** One row of the problems table, as the SPL search grouped it (stats by signature). */
 export interface LogProblem {
     signature: string;
     count: number;
     level: string;
+    /** The latest line in words, from the search. */
+    problem?: string;
+    /** Action, Step, Run, Approval, Engine or Screens and API, from the search. */
+    area?: string;
     event?: string | null;
     first: string;
     last: string;

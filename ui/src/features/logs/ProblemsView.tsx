@@ -69,8 +69,8 @@ export default function ProblemsView({ problems, names, onFilter, nowEpoch }: { 
                             <Table.Cell>
                                 <LevelText tone={tone} />
                             </Table.Cell>
-                            <Table.Cell style={{ overflowWrap: 'anywhere' }}>{d.title}</Table.Cell>
-                            <Table.Cell>{CATEGORY_LABEL[d.category]}</Table.Cell>
+                            <Table.Cell style={{ overflowWrap: 'anywhere' }}>{p.problem || d.title}</Table.Cell>
+                            <Table.Cell>{p.area || CATEGORY_LABEL[d.category]}</Table.Cell>
                             <Table.Cell style={{ overflowWrap: 'anywhere' }}>{p.jobs.map((j) => jobName(names, j)).join(', ')}</Table.Cell>
                             <Table.Cell>{p.runs || ''}</Table.Cell>
                             <Table.Cell>{last !== null ? ago(nowEpoch - last) : lineTime(p.last)}</Table.Cell>

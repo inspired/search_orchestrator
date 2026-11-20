@@ -21,7 +21,7 @@ Splunk answers a search of an index the caller may not read with no rows, not an
 no lines comes with a note about access and the log level.
 """
 import re
-from collections import OrderedDict
+from datetime import datetime, timezone
 
 from . import authz, queue_info
 from .api import ApiError
@@ -38,7 +38,6 @@ DEFAULT_LIMIT = 200
 MAX_LIMIT = 1000
 MAX_TEXT = 300
 SEARCH_SECONDS = 20  # within the page's 30-second request timeout
-PROBLEM_LINES = 2000
 TOP_EVENTS = 15
 TOP_ROUTES = 15
 FIELDS = ("_time", "level", "process", "logger", "event", "run_id", "job_id", "step_id", "_raw")
@@ -47,7 +46,8 @@ NOTE_EMPTY = ("No log lines match. Reading them needs read access to the _intern
               "are not written.")
 NOTE_DENIED = "Reading the logs needs read access to the _internal index; ask an admin."
 NOTE_LIMIT = "Only the %s %d lines are shown; narrow the filters to see others."
-NOTE_PROBLEMS_LIMIT = "Grouped from the newest %d errors and warnings." % PROBLEM_LINES
+PROBLEM_GROUPS = 200
+NOTE_PROBLEMS_LIMIT = "Only the %d most serious problems are shown." % PROBLEM_GROUPS
 
 # One line: "<date> <time>,<ms> <zone> level=.. process=.. logger=.. <rest>"
 LINE_RE = re.compile(r"^\S+ \S+ \S+ level=(\S+) process=(\S+) logger=(\S+) ?(.*)$")
@@ -155,14 +155,63 @@ def calls_query(filters):
         % TOP_ROUTES)
 
 
+# Ids and numbers that differ each time a failure happens, taken out (in SPL's replace) so the
+# same failure groups into one problem.
+PROBLEM_NOISE = (
+    (r"https?://\S+", "<url>"),
+    (r"\bscheduler__\S+|\b[0-9]{9,}\.[0-9]+\b|\bmd_[0-9]+\S*", "<sid>"),
+    (r"\b[A-Za-z0-9_.-]+:(manual|cron|completion|backfill|start_job|rerun|selftest)\S*", "<run>"),
+    (r"\b[0-9a-f]{8,}\b", "<id>"),
+    (r"\b\d+(\.\d+)?\b", "<n>"),
+    (r"'[^']*'", "'…'"),
+)
+
+
 def problems_query(filters):
-    """Errors and warnings, and failure events of any level (lines from before 1.33.2
-    logged them at INFO)."""
+    """Errors and warnings (and failure events of any level: lines from before 1.33.2 logged
+    them at INFO), grouped in SPL into problems: the table the page shows is this search's
+    result, so Open in Search shows the same table. ``problem`` is the latest line in words;
+    ``signature`` groups it without the ids and numbers that differ each time."""
     levels = "ERROR" if filters.get("level") == "ERROR" else "ERROR, WARNING"
     failures = ", ".join(sorted(FAILURE_EVENTS))
-    return ("%s (level IN (%s) OR event IN (%s) OR (event IN (run_state, step_state) to=\"failed\")"
-            " OR (event=step_attempt outcome=\"failed\")) | head %d | fields _time _raw"
-            % (base_terms(dict(filters, level="")), levels, failures, PROBLEM_LINES))
+    noise = "".join(' | eval sig=replace(sig, "%s", "%s")' % (pattern, repl)
+                    for pattern, repl in PROBLEM_NOISE)
+    return (
+        "%s (level IN (%s) OR event IN (%s) OR (event IN (run_state, step_state) to=\"failed\")"
+        " OR (event=step_attempt outcome=\"failed\"))"
+        r' | rex field=_raw "^\S+ \S+ \S+ level=\S+ process=\S+ logger=\S+ (?<msg>[^\r\n]*)"'
+        ' | eval what=coalesce(error, if(isnull(event), msg, null()), "")'
+        ' | eval kind=coalesce(action_type, "action"), kind=upper(substr(kind, 1, 1)).substr(kind, 2)'
+        ' | eval said=if(what="", "", ": ".what)'
+        ' | eval problem=case('
+        'event="action_retry", kind." failed, will retry".said,'
+        ' event="action_failed", kind." failed after ".coalesce(attempts, "all")." tries".said,'
+        ' event="run_state", "Run failed".said,'
+        ' event="step_state", "Step failed".said,'
+        ' event="step_attempt", "Step attempt failed".said,'
+        ' event="step_delayed", "Step delayed: still waiting past its delay limit",'
+        ' event="run_late", "Run missed its deadline",'
+        ' event="schedule_missed", "Scheduled runs missed: nothing checked the schedule",'
+        ' event="run_held", "Run held: later runs wait until it is dealt with",'
+        ' event="request", "Request refused (".coalesce(error_code, status, "error").")".said,'
+        ' isnotnull(event), upper(substr(event, 1, 1)).replace(substr(event, 2), "_", " ").said,'
+        ' true(), what)'
+        ' | eval sig=substr(what, 1, 200)%s'
+        ' | eval signature=coalesce(event, "")."|".coalesce(error_code, "")."|".coalesce(action_type, "")."|".sig'
+        ' | eval sev=if(level="ERROR" OR level="CRITICAL", 2, 1)'
+        ' | eval area=case(match(event, "^(action|destination)"), "Action",'
+        ' match(event, "^(step|condition)"), "Step", match(event, "^(run|schedule|hold|chain)"), "Run",'
+        ' match(event, "^approval"), "Approval", process="rest", "Screens and API", true(), "Engine")'
+        ' | stats count AS times max(sev) AS sev latest(problem) AS problem latest(area) AS area'
+        ' values(job_id) AS jobs dc(run_id) AS runs min(_time) AS first_seen max(_time) AS last_seen'
+        ' latest(event) AS event latest(_raw) AS sample by signature'
+        ' | eval level=if(sev=2, "Error", "Warning")'
+        ' | sort 0 - sev - times | head %d'
+        ' | fieldformat last_seen=strftime(last_seen, "%%Y-%%m-%%d %%H:%%M:%%S")'
+        ' | fieldformat first_seen=strftime(first_seen, "%%Y-%%m-%%d %%H:%%M:%%S")'
+        ' | table times level problem area jobs runs last_seen first_seen event signature sample'
+        % (base_terms(dict(filters, level="")), levels, failures, noise, PROBLEM_GROUPS))
+
 
 
 def _filters(body):
@@ -404,59 +453,38 @@ def breakdown(ctx, body):
                               "calls": _spl(calls_query(filters), filters)}}
 
 
-_NOISE = [
-    (re.compile(r"https?://\S+"), "<url>"),
-    (re.compile(r"\bscheduler__\S+|\b[0-9]{9,}\.[0-9]+\b|\bmd_[0-9]+\S*"), "<sid>"),
-    (re.compile(r"\b[A-Za-z0-9_.-]+:(manual|cron|completion|backfill|start_job|rerun|selftest)"
-                r"\S*"), "<run>"),
-    (re.compile(r"\b[0-9a-f]{8,}\b"), "<id>"),
-    (re.compile(r"\b\d+(\.\d+)?\b"), "<n>"),
-    (re.compile(r"'[^']*'"), "'…'"),
-]
+def _iso(value):
+    """An ISO time from an epoch (stats min/max of _time), or the value as it came."""
+    try:
+        return datetime.fromtimestamp(float(value), timezone.utc).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return value
 
 
-def signature(line):
-    """What went wrong, without the ids and numbers that differ each time."""
-    f = line.get("fields") or {}
-    text = f.get("error") or line.get("message") or ""
-    for pattern, repl in _NOISE:
-        text = pattern.sub(repl, text)
-    text = " ".join(text.split())[:200]
-    parts = [line.get("event") or "", f.get("error_code") or "", f.get("action_type") or "", text]
-    return "|".join(parts)
+def _listed(value):
+    if value in (None, ""):
+        return []
+    return [value] if isinstance(value, str) else list(value)
 
 
 def problems(ctx, body):
+    """The problems table, as SPL grouped it (see ``problems_query``); the UI only adds job
+    names, how long ago, and why and what to do from the latest line."""
     filters = _filters(body)
     notes = []
     spl = problems_query(filters)
-    rows = _search(ctx, spl, filters, PROBLEM_LINES, notes)
-    groups = OrderedDict()
-    for row in rows:  # newest first
-        line = _line(row)
-        sig = signature(line)
-        g = groups.get(sig)
-        if g is None:
-            g = groups[sig] = {"signature": sig, "count": 0, "level": line.get("level"),
-                               "event": line.get("event"), "first": line.get("time"),
-                               "last": line.get("time"), "jobs": [], "runs": 0, "sample": line,
-                               "_runs": set()}
-        g["count"] += 1
-        g["first"] = line.get("time")
-        if line.get("level") == "ERROR":
-            g["level"] = "ERROR"
-        elif g["level"] not in ("ERROR", "WARNING"):
-            g["level"] = "WARNING"
-        if line.get("job_id") and line["job_id"] not in g["jobs"]:
-            g["jobs"].append(line["job_id"])
-        if line.get("run_id"):
-            g["_runs"].add(line["run_id"])
+    rows = _search(ctx, spl, filters, PROBLEM_GROUPS, notes)
     out = []
-    for g in groups.values():
-        g["runs"] = len(g.pop("_runs"))
-        out.append(g)
-    out.sort(key=lambda g: (0 if g["level"] == "ERROR" else 1, -g["count"]))
-    if len(rows) >= PROBLEM_LINES:
+    for row in rows:
+        last = _iso(row.get("last_seen"))
+        out.append({"signature": row.get("signature") or "", "count": int(float(row.get("times") or 0)),
+                    "level": "ERROR" if row.get("level") == "Error" else "WARNING",
+                    "problem": row.get("problem") or "", "area": row.get("area") or "",
+                    "event": row.get("event") or None, "first": _iso(row.get("first_seen")),
+                    "last": last, "jobs": _listed(row.get("jobs")),
+                    "runs": int(float(row.get("runs") or 0)),
+                    "sample": _line({"_raw": row.get("sample"), "_time": last})})
+    if len(rows) >= PROBLEM_GROUPS:
         notes.append(NOTE_PROBLEMS_LIMIT)
     job_ids = set()
     for g in out:

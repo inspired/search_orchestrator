@@ -41,6 +41,12 @@ export const CATALOG: CatalogEntry[] = [
     entry('start_job', 'Start another job', ['chain', 'run', 'job', 'trigger'], 'Start a different job when the step or job gets here.'),
 ];
 
+/** Still in development: shown with a Beta tag, as they may not work yet. */
+export const BETA_KINDS: NodeKind[] = ['approval', 'webhook', 'slack', 'teams', 'pagerduty', 'servicenow'];
+export const BETA_NOTE = 'Still in development; it may not work yet.';
+
+export const isBeta = (kind: string): boolean => (BETA_KINDS as string[]).includes(kind);
+
 /** Always on; every other kind an admin can turn off in Settings > Building blocks. */
 export const ALWAYS_ON: NodeKind[] = ['trigger_cron', 'search'];
 

@@ -78,4 +78,11 @@ describe('Building blocks', () => {
         expect(exportFileName(new Date('2026-11-20T10:00:00Z'), 'daily logins')).toBe('search_orchestrator_job_daily_logins_2026-11-20.json');
         expect(exportFileName(new Date('2026-11-20T10:00:00Z'))).toBe('search_orchestrator_jobs_2026-11-20.json');
     });
+
+    test('blocks still in development are tagged Beta in Settings', () => {
+        renderThemed(<SettingsForm settings={SETTINGS} destinations={[]} onSave={jest.fn()} />);
+        ['approval', 'webhook', 'slack', 'teams', 'pagerduty', 'servicenow'].forEach((k) => expect(within(screen.getByTestId(`block-${k}`)).getByTestId('beta-tag')).toBeInTheDocument());
+        expect(within(screen.getByTestId('block-email')).queryByTestId('beta-tag')).toBeNull();
+        expect(screen.getByTestId('blocks-intro')).toHaveTextContent('Beta are still in development');
+    });
 });
