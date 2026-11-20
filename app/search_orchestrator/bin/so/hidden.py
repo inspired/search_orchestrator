@@ -155,8 +155,13 @@ def action_spl(action):
         return ('| makeresults | sendemail to="$args.to$" subject="$args.subject$" '
                 'message="$args.message$"')
     if kind == "event":
-        return ('| makeresults | eval _raw="$args.payload$" | fields _raw _time '
-                '| collect index="$args.index$" marker="so_run=$args.run_id$"')
+        # Source, sourcetype and host only when the action sets them (collect's defaults:
+        # this search's name, stash, this host); _time is the run's scheduled time or now.
+        extra = "".join(' %s="$args.%s$"' % (k, k) for k in ("source", "sourcetype", "host")
+                        if action.get(k))
+        return ('| makeresults | eval _raw="$args.payload$" | eval _time=$args.time$ '
+                '| fields _raw _time | collect index="$args.index$"%s '
+                'marker="so_run=$args.run_id$"' % extra)
     params = "".join(' param.%s="$args.param.%s$"' % (k, k)
                      for k in sorted((action.get("params") or {}).keys()))
     return "| makeresults | sendalert $args.action$%s" % params

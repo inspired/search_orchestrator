@@ -5,6 +5,7 @@ import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Multiselect from '@splunk/react-ui/Multiselect';
+import Select from '@splunk/react-ui/Select';
 import StaticContent from '@splunk/react-ui/StaticContent';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
@@ -81,6 +82,59 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
                             }}
                         />
                     </ControlGroup>
+                    {(['sourcetype', 'host'] as const).map((key) => (
+                        <ControlGroup
+                            key={key}
+                            label={key === 'sourcetype' ? 'Sourcetype' : 'Host'}
+                            labelFor={`${p}-${key}`}
+                            labelPosition="top"
+                            help={
+                                key === 'sourcetype'
+                                    ? 'Optional; stash by default. Any sourcetype other than stash counts against your Splunk license.'
+                                    : 'Optional; this search head by default.'
+                            }
+                        >
+                            <Text
+                                inputId={`${p}-${key}`}
+                                value={output[key] || ''}
+                                placeholder={key === 'sourcetype' ? 'stash' : ''}
+                                onChange={(_e: unknown, { value }: { value: string }) => {
+                                    const next = { ...output } as Record<string, unknown>;
+                                    if (value) {
+                                        next[key] = value;
+                                    } else {
+                                        delete next[key];
+                                    }
+                                    write(next as unknown as StepOutput);
+                                }}
+                            />
+                        </ControlGroup>
+                    ))}
+                    <ControlGroup label="Fields to write" labelFor={`${p}-fields`} labelPosition="top" help="Optional: only these fields, comma or space separated (* allowed). Empty writes every field.">
+                        <Text
+                            inputId={`${p}-fields`}
+                            value={output.fields || ''}
+                            placeholder="All fields"
+                            onChange={(_e: unknown, { value }: { value: string }) => {
+                                const { fields: _old, ...rest } = output;
+                                write(value ? { ...rest, fields: value } : rest);
+                            }}
+                        />
+                    </ControlGroup>
+                    <ControlGroup label="Timestamp" labelFor={`${p}-time`} labelPosition="top" help="The _time each event gets in the index.">
+                        <Select
+                            inputId={`${p}-time`}
+                            value={output.time || 'result'}
+                            onChange={(_e: unknown, { value }: { value: unknown }) => {
+                                const { time: _old, ...rest } = output;
+                                write(value === 'result' ? rest : { ...rest, time: value as 'scheduled' | 'now' });
+                            }}
+                        >
+                            <Select.Option value="result" label="Each result's own _time (default)" />
+                            <Select.Option value="scheduled" label="The run's scheduled time" />
+                            <Select.Option value="now" label="When the step writes" />
+                        </Select>
+                    </ControlGroup>
                     <Switch appearance="toggle" selected={output.add_run_id !== false} onClick={() => write({ ...output, add_run_id: output.add_run_id === false })}>
                         Add the run id
                     </Switch>
@@ -94,6 +148,17 @@ export default function OutputPanel({ job, stepId, dispatch, onRequestRemove, is
                             error={Boolean(problem)}
                             placeholder="hosts.csv"
                             onChange={(_e: unknown, { value }: { value: string }) => write({ ...output, name: value })}
+                        />
+                    </ControlGroup>
+                    <ControlGroup label="Fields to write" labelFor={`${p}-lookup-fields`} labelPosition="top" help="Optional: the lookup's columns, in this order (comma or space separated). Empty writes every field.">
+                        <Text
+                            inputId={`${p}-lookup-fields`}
+                            value={output.fields || ''}
+                            placeholder="All fields"
+                            onChange={(_e: unknown, { value }: { value: string }) => {
+                                const { fields: _old, ...rest } = output;
+                                write(value ? { ...rest, fields: value } : rest);
+                            }}
                         />
                     </ControlGroup>
                     <Switch appearance="toggle" selected={Boolean(output.append)} onClick={() => write({ ...output, append: !output.append })}>

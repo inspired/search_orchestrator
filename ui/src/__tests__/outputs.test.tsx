@@ -33,7 +33,7 @@ describe('outputIssue', () => {
         expect(outputIssue({ kind: 'summary_index', index: 'a b' })).toBe('Use letters, numbers, _ . : or - in the index name');
         expect(outputIssue({ kind: 'lookup', name: '' })).toBe('Type the lookup name to write to');
         expect(outputIssue({ kind: 'lookup', name: 'a/b' })).toBe('Use letters, numbers, _ . : or - in the lookup name');
-        expect(outputIssue({ kind: 'summary_index', index: 'summary', source: 'a\nb' })).toBe('Remove line breaks from the source');
+        expect(outputIssue({ kind: 'summary_index', index: 'summary', source: 'a\nb' })).toBe('Remove line breaks from the source, sourcetype or host');
         expect(outputIssue({ kind: 'summary_index', index: 'summary' })).toBeNull();
         expect(outputIssue({ kind: 'lookup', name: 'hosts.csv' })).toBeNull();
     });
@@ -94,5 +94,38 @@ describe('OutputPanel', () => {
         expect('output' in step()).toBe(false);
         expect(step().spl).toBe('| collect index=summary marker="so_run=$run.id$"');
         expect(nodeKindOfStep(step())).toBe('previous');
+    });
+});
+
+
+describe('output settings: sourcetype, host, fields and timestamp', () => {
+    test('a summary index writes only the chosen fields, with the chosen time, source, sourcetype and host', () => {
+        const { outputSpl } = jest.requireActual('../features/builder/outputs');
+        expect(outputSpl({ kind: 'summary_index', index: 'summary', source: 'daily', sourcetype: 'my:st', host: 'sh1', fields: 'host, count', time: 'scheduled' })).toBe(
+            '| table host count\n| eval _time=$run.scheduled_time$\n| collect index=summary source="daily" sourcetype="my:st" host="sh1" marker="so_run=$run.id$"'
+        );
+        expect(outputSpl({ kind: 'summary_index', index: 'summary', fields: 'count' })).toBe('| table _time count\n| collect index=summary marker="so_run=$run.id$"');
+        expect(outputSpl({ kind: 'summary_index', index: 'summary', time: 'now', add_run_id: false })).toBe('| eval _time=now()\n| collect index=summary');
+        expect(outputSpl({ kind: 'lookup', name: 'hosts.csv', append: true, fields: 'host os' })).toBe('| table host os\n| outputlookup append=true hosts.csv');
+    });
+
+    test('field names are checked', () => {
+        expect(outputIssue({ kind: 'lookup', name: 'x.csv', fields: 'ok, bad|field' })).toMatch(/"bad\|field" isn't a field name/);
+    });
+});
+
+describe('event action fields', () => {
+    test('source, sourcetype, host and timestamp are offered and sent', () => {
+        const React = jest.requireActual('react');
+        const { fireEvent, screen } = jest.requireActual('@testing-library/react');
+        const { ActionFields } = jest.requireActual('../features/builder/ActionsEditor');
+        const { renderThemed } = jest.requireActual('./fixtures');
+        const onChange = jest.fn();
+        renderThemed(React.createElement(ActionFields, { action: { hook: 'on_failure', type: 'event', index: 'main' }, onChange, destinations: [], idPrefix: 'ev' }));
+        fireEvent.change(screen.getByLabelText('Sourcetype'), { target: { value: 'orch:event' } });
+        expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ sourcetype: 'orch:event' }));
+        expect(screen.getByLabelText('Host')).toBeInTheDocument();
+        expect(screen.getByLabelText('Source')).toBeInTheDocument();
+        expect(screen.getByText(/counts against your Splunk license/)).toBeInTheDocument();
     });
 });

@@ -258,6 +258,15 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                 <>
                     {field('index', 'Index', { placeholder: 'main' })}
                     {field('payload', 'Event', { placeholder: 'Empty writes a JSON summary of the run.', multiline: true, tokens: true })}
+                    {field('source', 'Source', { placeholder: 'The action\u2019s own search name', help: 'Optional. Leave empty to find the events with View output.' })}
+                    {field('sourcetype', 'Sourcetype', { placeholder: 'stash', help: 'Optional. Any sourcetype other than stash counts against your Splunk license.' })}
+                    {field('host', 'Host', { placeholder: 'This search head' })}
+                    <ControlGroup label="Timestamp" labelFor={`${idPrefix}-time`} labelPosition="top" help="The event's _time.">
+                        <Select inputId={`${idPrefix}-time`} value={a.time === 'scheduled' ? 'scheduled' : 'now'} onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ ...a, time: value === 'scheduled' ? 'scheduled' : undefined })}>
+                            <Select.Option value="now" label="When the action runs (default)" />
+                            <Select.Option value="scheduled" label="The run's scheduled time" />
+                        </Select>
+                    </ControlGroup>
                 </>
             )}
             {a.type === 'start_job' && field('job', 'Job id', { help: 'The job to start. You need permission to run it.' })}

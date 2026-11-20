@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.40.0 (2026-11-20)
+
+- **Full control of what is written:** a **Summary index** step sets source, sourcetype, host, the fields to write and the timestamp (each result's own, the run's scheduled time, or when it writes); a **Lookup** step sets the fields (columns) to write; an **Event** action sets source, sourcetype, host and timestamp (now or the run's scheduled time). The generated search shows each choice. View output follows a custom source and sourcetype. A sourcetype other than `stash` is flagged as counting against the license.
+
 ## 1.39.0 (2026-11-20)
 
 - **No more "Whole job" node:** actions for the whole job (it fails, succeeds, finishes, starts, a step is delayed, it misses its deadline) are on a new **Job actions** tab next to Flow, each with When, its fields and retries. The canvas holds only triggers, steps, conditions and the steps' own actions; a step action's When lists steps only. The setup checklist and issue links for job actions open the tab. Saved jobs are unchanged (still `job.actions`).

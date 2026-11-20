@@ -73,8 +73,19 @@ export interface Action {
 }
 
 export type StepOutput =
-    | { kind: 'summary_index'; index: string; source?: string; add_run_id?: boolean }
-    | { kind: 'lookup'; name: string; append?: boolean };
+    | {
+          kind: 'summary_index';
+          index: string;
+          source?: string;
+          sourcetype?: string;
+          host?: string;
+          add_run_id?: boolean;
+          /** Only these fields (comma or space separated, * allowed); empty writes every field. */
+          fields?: string;
+          /** The events' _time: the result's own (default), the run's scheduled time, or now. */
+          time?: 'result' | 'scheduled' | 'now';
+      }
+    | { kind: 'lookup'; name: string; append?: boolean; fields?: string };
 
 export interface StepDef {
     id: string;

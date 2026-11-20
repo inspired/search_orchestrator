@@ -444,6 +444,15 @@ def _job_issues(ctx, job):
         elif action["hook"] == "on_approval_requested" and step_id not in approvals:
             issues.append(_issue("error", "bad_action", "Asks for approval only exists on "
                                  "approval steps", step_id))
+        if kind == "event":
+            for key in ("source", "sourcetype", "host"):
+                value = action.get(key)
+                if value is not None and (not isinstance(value, str) or "\n" in value or "\r" in value):
+                    issues.append(_issue("error", "bad_action", "the event's %s must be one line of text" % key,
+                                         step_id))
+            if action.get("time") not in (None, "now", "scheduled"):
+                issues.append(_issue("error", "bad_action", "the event's time must be now or scheduled",
+                                     step_id))
         for key, lo, hi, what in (("retries", 0, 10, "Retries must be a whole number from 0 to 10"),
                                   ("retry_wait", 10, 3600, "Wait before retrying must be from 10 seconds to 1 hour")):
             value = action.get(key)

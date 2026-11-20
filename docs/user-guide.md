@@ -230,6 +230,17 @@ With the canvas focused:
 
 - **Summary index** has **Summary index** (the index to write to), an optional **Source**, and **Add the run id**, which is on by default. The step's search is generated from these settings, for example `| collect index=summary source="daily" marker="so_run=$run.id$"`. The marker lets you tell which run wrote each event.
 - **Lookup** has **Lookup name** (a lookup file such as `hosts.csv`, or a lookup definition) and **Append instead of replace**. The generated search is `| outputlookup hosts.csv`, or `| outputlookup append=true hosts.csv` when append is on. Without append, each run replaces the lookup's contents.
+- **Choose what is written and how:**
+
+  | Setting | Summary index step | Lookup step | Event action |
+  |---|---|---|---|
+  | Source | yes (default: the step's search) | — | yes (default: the action's search) |
+  | Sourcetype | yes (default `stash`) | — | yes (default `stash`) |
+  | Host | yes (default: this search head) | — | yes |
+  | Content | **Fields to write** (empty: every field) | **Fields to write**, in column order | **Event** text, with tokens |
+  | Timestamp | each result's own `_time`, the run's scheduled time, or when the step writes | — | when the action runs, or the run's scheduled time |
+
+  A sourcetype other than `stash` counts against your Splunk license. The step's search shows exactly what runs, for example `| table _time host count` then `| eval _time=$run.scheduled_time$` then `| collect index=summary sourcetype="my:st" marker="so_run=$run.id$"`.
 - Index and lookup names use letters, numbers, `_`, `.`, `:` and `-`. The panel says what to fix if a name is empty or has other characters.
 - **View output** shows what the node wrote:
   - a **lookup**: its contents now;

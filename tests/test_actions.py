@@ -833,3 +833,19 @@ def test_an_action_sets_its_own_retries_and_first_wait():
     w2.submit()
     w2.pump(T)
     assert w2.rows(kind="action")[0]["state"] == "failed"  # no retry at all
+
+
+def test_event_action_sets_source_sourcetype_host_and_time():
+    from so import hidden
+    plain = hidden.action_spl({"type": "event", "index": "main"})
+    assert "sourcetype=" not in plain and "_time=$args.time$" in plain
+    full = hidden.action_spl({"type": "event", "index": "main", "source": "s", "sourcetype": "st", "host": "h"})
+    assert 'source="$args.source$" sourcetype="$args.sourcetype$" host="$args.host$"' in full
+    w = W(actions=[{"hook": "on_failure", "type": "event", "index": "main", "payload": "x",
+                    "sourcetype": "orch:event", "time": "scheduled"}])
+    w.gw.script_job(w.definition["actions"][0]["hidden_search"], ["done"])
+    w.submit()
+    w.pump()
+    args = w.gw.dispatch_log[-1]["args"]
+    assert args["sourcetype"] == "orch:event" and args["time"] == str(T - 100)
+    assert "host" not in args

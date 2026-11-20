@@ -2107,3 +2107,13 @@ def test_delete_keeps_the_jobs_run_history(w):
     assert w.call("alice", "DELETE", "/orchestrator/jobs/daily")[0] == 200
     assert w.store.get_job("daily") is None
     assert w.store.get_run(run_id) is not None  # kept until run retention prunes it
+
+
+def test_event_action_fields_are_checked(w):
+    ok = {"hook": "on_failure", "type": "event", "index": "main", "source": "s", "time": "scheduled"}
+    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", job_body(actions=[ok]))
+    assert out["valid"], out
+    for bad in ({"host": "a\nb"}, {"time": "yesterday"}, {"sourcetype": 5}):
+        status, out = w.call("alice", "POST", "/orchestrator/jobs/validate",
+                             job_body(actions=[dict(ok, **bad)]))
+        assert not out["valid"], bad

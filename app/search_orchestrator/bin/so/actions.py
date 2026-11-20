@@ -603,7 +603,11 @@ class ActionRunner:
                 payload = json.dumps({"job": ctx["job"], "run_id": ctx["run_id"],
                                       "hook": ctx["hook"], "step": ctx["step_id"],
                                       "status": ctx["status"]})
-            args.update(index=action.get("index") or "", payload=payload)
+            when = row.get("scheduled_time") if action.get("time") == "scheduled" else None
+            args.update(index=action.get("index") or "", payload=payload,
+                        time=str(int(when)) if when else str(int(now)),
+                        **{k: str(action.get(k)) for k in ("source", "sourcetype", "host")
+                           if action.get(k)})
         else:
             args["action"] = action.get("action") or ""
             for k, v in (action.get("params") or {}).items():

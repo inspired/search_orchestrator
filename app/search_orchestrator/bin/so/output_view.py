@@ -114,7 +114,10 @@ def output_spl(job, target, run_id=None):
         index = action.get("index") or ""
         if not NAME_RE.fullmatch(index):
             raise _bad("the event index name isn't valid")
-        parts = ["index=%s" % index, "source=%s" % _quote(_action_source(job, target["action"], action))]
+        source = action.get("source") or _action_source(job, target["action"], action)
+        parts = ["index=%s" % index, "source=%s" % _quote(source)]
+        if action.get("sourcetype"):
+            parts.append("sourcetype=%s" % _quote(action["sourcetype"]))
         if run_id:
             parts.append("(so_run=%s OR %s)" % (_quote(run_id), _quote(run_id)))
         return "event", " ".join(parts) + TIDY, sid_step
