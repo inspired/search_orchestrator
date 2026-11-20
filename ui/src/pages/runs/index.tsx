@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Message from '@splunk/react-ui/Message';
 import RadioBar from '@splunk/react-ui/RadioBar';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
-import { bulkRuns, listJobs, listRuns, me as getMe } from '../../api/client';
+import { bulkRuns, listJobsBrief as listJobs, listRuns, me as getMe } from '../../api/client';
 import { RUN_STATES } from '../../api/types';
 import type { RunState, RunSummary } from '../../api/types';
 import PageShell, { queryParam, renderPage } from '../../components/PageShell';

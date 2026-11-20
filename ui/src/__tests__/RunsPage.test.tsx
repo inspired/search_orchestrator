@@ -1,11 +1,11 @@
 import React from 'react';
 import { screen, waitFor } from '@testing-library/react';
-import { listJobs, listRuns } from '../api/client';
+import { listJobsBrief as listJobs, listRuns } from '../api/client';
 import { renderPage } from '../components/PageShell';
 import { NOW, renderThemed, runSummary } from './fixtures';
 
 jest.mock('../api/client', () => ({
-    listJobs: jest.fn(),
+    listJobsBrief: jest.fn(),
     listRuns: jest.fn(),
     bulkRuns: jest.fn(),
     me: jest.fn(() => Promise.resolve({ can_approve: true, can_admin: false })),

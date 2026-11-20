@@ -77,7 +77,7 @@ const defaultApi: BuilderApi = {
     updateJob: client.updateJob,
     listDestinations: client.listDestinations,
     listAlertActions: client.listAlertActions,
-    listJobs: client.listJobs,
+    listJobs: client.listJobsBrief,
     me: client.me,
     previewDefaults: client.previewDefaults,
     listRuns: client.listRuns,

@@ -179,7 +179,7 @@ export function explainError(error?: string, context: 'action' | 'search' | 'any
         [/HTTP 5\d\d/i, 'The other side failed while handling it. This is usually temporary.', 'The app retries; if it keeps failing, check the receiving service.'],
         [/timed? ?out|timeout/i, 'No answer came in time.', 'Usually temporary. If it repeats, check that Splunk or the target is not overloaded.'],
         [/\[Errno 111\]|connection (error|refused|reset)|could not be reached|name or service not known/i, context === 'action' ? 'The app could not connect to the receiver.' : 'Splunk did not answer: splunkd was starting, stopping or overloaded.', 'Check the host name and that the service is up and reachable from Splunk.'],
-        [/concurren|quota|too many searches|max(imum)? number of/i, 'Splunk’s search limit for the user or the server was reached.', 'Lower Searches at once in Settings, or raise the role’s search quota.'],
+        [/concurren|quota|too many searches|max(imum)? number of/i, 'Splunk’s search limit for the user or the server was reached.', 'Lower Concurrent searches in Settings, or raise the role’s search quota.'],
         [/Error in '|Unknown search command|parse|syntax/i, 'The step’s SPL has an error.', 'Open the job and use Preview on the step to see Splunk’s message.'],
         [/expired|reaped|no longer exists/i, 'The search job was removed before the engine read it (it expired or was deleted).', 'Raise Keep step results in Settings, or check for something deleting search jobs.'],
         [/finalized/i, 'Someone stopped the search early outside the app, so its results may be incomplete.', 'Re-run the step.'],
@@ -322,7 +322,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'step_waiting':
             return d('step', 'warning', `Step ${step} is ready but waits for a free search slot`, {
                 result: `${f.running_for_job || '?'}/${f.max_searches_per_job || '?'} for the job · ${f.running || '?'}/${f.max_searches || '?'} in all`,
-                why: 'The search limits in Settings are full: Searches at once, or Searches at once per job.',
+                why: 'The search limits in Settings are full: Concurrent searches, or Concurrent searches per job.',
                 fix: 'It starts when a search ends. If this happens often, raise the limits in Settings.',
             });
         case 'completion_not_fired':

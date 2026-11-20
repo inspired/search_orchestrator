@@ -25,7 +25,7 @@ import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import { createURL } from '@splunk/splunk-utils/url';
-import { listJobs, listRuns } from '../../api/client';
+import { listJobsBrief as listJobs, listRuns } from '../../api/client';
 import { logBreakdown, logProblems, logSummary, searchLogs } from '../../api/logs';
 import type { LogBreakdown, LogFilters, LogNames, LogProblems, LogRange, LogSummary, LogsResponse } from '../../api/logs';
 import type { Job, RunSummary } from '../../api/types';

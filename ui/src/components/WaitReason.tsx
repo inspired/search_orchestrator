@@ -39,8 +39,8 @@ export function stepReasonText(r: StepReason): string {
             return `Waits for ${r.steps.join(', ')} to finish.`;
         case 'search_slots':
             return r.job_running >= r.job_max
-                ? `Waits for a search slot: this job has ${r.job_running} of its ${r.job_max} searches running (Settings → Searches at once per job).`
-                : `Waits for a search slot: ${r.all_running} of ${r.all_max} searches are running across all jobs (Settings → Searches at once).`;
+                ? `Waits for a search slot: this job has ${r.job_running} of its ${r.job_max} searches running (Settings → Concurrent searches per job).`
+                : `Waits for a search slot: ${r.all_running} of ${r.all_max} searches are running across all jobs (Settings → Concurrent searches).`;
         default:
             return 'Starts within a few seconds.';
     }

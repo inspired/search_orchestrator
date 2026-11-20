@@ -158,7 +158,15 @@ export function toDefinition(job: JobDefinition | Job): JobDefinition {
 // Jobs.
 
 /** Every job the user may see, without their next and last runs. */
+/** Every job with its next run, last run, newest runs and warnings (the Jobs and
+ * Dependencies pages). */
 export async function listJobs(): Promise<Job[]> {
+    return (await request<{ jobs: Job[] }>('GET', 'jobs')).jobs;
+}
+
+/** Every job without its runs, which costs a KV Store query per job: for pages that only
+ * need names, tags and definitions. */
+export async function listJobsBrief(): Promise<Job[]> {
     return (await request<{ jobs: Job[] }>('GET', 'jobs', { query: { brief: 1 } })).jobs;
 }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.46.1 (2026-11-20)
+
+- **Fixed: the Jobs page showed every job as "Not scheduled" and "Never run".** The merge took Mikael's change that makes `listJobs` ask for the brief list (no runs), which his Runs page and builder use for names; the Jobs and Dependencies pages need the runs, so `listJobs` reads the full list again and the Runs, Troubleshooting and builder pages use the new `listJobsBrief`.
+- The search limits are called **Concurrent searches** and **Concurrent searches per job** everywhere (wait reasons, Troubleshooting and the user guide), as in Settings.
+
 ## 1.46.0 (2026-11-20)
 
 - **Merged with Mikael Bjerkeland's 1.4.1 to 1.7.1** from `inspired/search_orchestrator`, so both lines of work are in one app. From his work:

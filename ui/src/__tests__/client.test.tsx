@@ -4,6 +4,7 @@ import {
     enc,
     listAlertActions,
     listJobs,
+    listJobsBrief,
     listRuns,
     searchJobs,
     searchRuns,
@@ -87,9 +88,15 @@ describe('client', () => {
         expect(init.body).toBeUndefined();
     });
 
-    test('listJobs asks for the brief listing', async () => {
+    test('listJobs asks for the full listing, with runs, for the Jobs page', async () => {
         const fetch = mockFetch(200, { jobs: [] });
         await expect(listJobs()).resolves.toEqual([]);
+        expect((fetch.mock.calls[0] as FetchCall)[0]).not.toContain('brief');
+    });
+
+    test('listJobsBrief asks for the brief listing', async () => {
+        const fetch = mockFetch(200, { jobs: [] });
+        await expect(listJobsBrief()).resolves.toEqual([]);
         expect((fetch.mock.calls[0] as FetchCall)[0]).toContain('brief=1');
     });
 
