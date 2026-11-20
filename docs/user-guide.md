@@ -714,7 +714,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
   - Point at a graph to show its action bar, under the panel at the right as in Dashboard Studio; the magnifying glass opens the graph's search (the base search and its chain together) in Search in a new tab, as in Dashboard Studio. Graphs refresh every 10 seconds while **Live** is on.
   - The lists (slowest routes, Splunk calls, events) have an **Open in Search** link under them.
   - Small columns at night are half hours with few lines, such as the engine's heartbeat and hourly jobs; point at one for its numbers.
-- **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found" or "joernh could not load the runs list: KV Store was still starting up", with the job, run and step by name, who did it and the result.
+- **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found" or "alice could not load the runs list: KV Store was still starting up", with the job, run and step by name, who did it and the result.
   - Technical errors are said plainly ("KV Store was still starting up", "Splunk could not reach its mail server", "Splunk was not answering"); the line as written, with Splunk's own message, is in its details. **Problems** uses the same words.
   - The **Level** is coloured as in the graphs, with an icon and a word.
   - Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.

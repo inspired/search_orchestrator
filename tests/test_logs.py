@@ -186,13 +186,13 @@ def test_a_full_page_says_there_are_more(w):
 
 RAW = ('2026-11-19 13:46:17,374 +0100 level=INFO process=rest logger=so.rest event=request '
        'method="POST" ms=168 path="/orchestrator/runs/daily%3Amanual%3Aab/approve" status=202 '
-       'user="joernh" error="say \\"no\\""')
+       'user="alice" error="say \\"no\\""')
 
 
 def test_parse_line_reads_fields_messages_and_tracebacks():
     fields, message, trace = logs_api.parse_line(RAW)
     assert fields["event"] == "request" and fields["status"] == "202" and fields["ms"] == "168"
-    assert fields["user"] == "joernh" and fields["error"] == 'say "no"' and message is None
+    assert fields["user"] == "alice" and fields["error"] == 'say "no"' and message is None
     raw = ("2026-11-19 13:00:00,001 +0000 level=WARNING process=engine logger=so.engine "
            "status of search s1 failed: boom\nTraceback (most recent call last):\n  x")
     fields, message, trace = logs_api.parse_line(raw)

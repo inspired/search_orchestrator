@@ -5,7 +5,7 @@ import { logsHref } from '../features/logs/logsHref';
 import type { LogBreakdown, LogProblems, LogSummary, LogsResponse } from '../api/logs';
 import { renderThemed } from './fixtures';
 
-const RAW_REQ = '2026-11-19 13:46:17,374 +0100 level=INFO process=rest logger=so.rest event=request method="POST" ms=168 path="/orchestrator/runs/daily%3Amanual%3Aab/approve" status=202 user="joernh"';
+const RAW_REQ = '2026-11-19 13:46:17,374 +0100 level=INFO process=rest logger=so.rest event=request method="POST" ms=168 path="/orchestrator/runs/daily%3Amanual%3Aab/approve" status=202 user="alice"';
 
 const LINES: LogsResponse = {
     lines: [
@@ -25,7 +25,7 @@ const LINES: LogsResponse = {
             level: 'INFO',
             process: 'rest',
             event: 'request',
-            fields: { event: 'request', method: 'POST', ms: '168', path: '/orchestrator/runs/daily%3Amanual%3Aab/approve', status: '202', user: 'joernh' },
+            fields: { event: 'request', method: 'POST', ms: '168', path: '/orchestrator/runs/daily%3Amanual%3Aab/approve', status: '202', user: 'alice' },
             raw: RAW_REQ,
         },
     ],
@@ -93,7 +93,7 @@ describe('Troubleshooting page', () => {
         expect(first).toHaveTextContent('step Count logins');
         expect(first).toHaveAttribute('data-tone', 'error');
         const second = screen.getByTestId('log-line-1');
-        expect(second).toHaveTextContent('joernh decided an approval in run daily:manual:ab');
+        expect(second).toHaveTextContent('alice decided an approval in run daily:manual:ab');
         expect(second).toHaveTextContent('202 accepted: the engine applies it on its next tick · 168 ms');
         fireEvent.click(within(first).getByRole('button', { expanded: false }));
         const details = screen.getByTestId('line-details');

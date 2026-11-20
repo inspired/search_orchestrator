@@ -156,7 +156,7 @@ export function describeRequest(f: F, names: LogNames, level?: string): Describe
         result: [status ? `${status} ${STATUS_WORD[status] || ''}`.trim() : '', Number.isNaN(ms) ? '' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`].filter(Boolean).join(' · '),
     };
     if (st >= 400 || f.error) {
-        // A failed request as a sentence: "joernh could not load the runs list: KV Store was
+        // A failed request as a sentence: "alice could not load the runs list: KV Store was
         // still starting up". The error as written stays in the line's details.
         const why = plainError(f.error) || (f.error_code ? f.error_code.replace(/_/g, ' ') : STATUS_WORD[status] || `status ${status}`);
         out.title = `${f.user || 'Someone'} could not ${infinitive(text)}: ${why}`;

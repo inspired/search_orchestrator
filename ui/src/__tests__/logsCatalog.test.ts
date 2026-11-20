@@ -177,14 +177,14 @@ describe('errors in plain words', () => {
             event: 'request',
             fields: {
                 event: 'request',
-                user: 'joernh',
+                user: 'alice',
                 method: 'GET',
                 path: '/orchestrator_jlh/runs',
                 status: '502',
                 error: "a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{\"messages\":[{\"type\":\"ERROR\",\"text\":\"KV Store is initializing. Please try again later.\"}]}'",
             },
         } as never);
-        expect(d.title).toBe('joernh could not load the runs list: KV Store was still starting up');
+        expect(d.title).toBe('alice could not load the runs list: KV Store was still starting up');
         expect(d.why).toContain('KV Store needs a minute or two');
         expect(d.fix).toContain('Reload the page');
     });

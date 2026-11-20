@@ -2,7 +2,7 @@
 
 ## 1.45.0 (2026-11-20)
 
-- **Troubleshooting in plain words:** errors in What happened, Problems and the run story are said plainly instead of as Splunk's and Python's wording: "joernh could not load the runs list: KV Store was still starting up" instead of "joernh loaded the runs list — a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{…}'". Also "Splunk could not reach its mail server", "Splunk was not answering", "the receiver did not answer", "the search had already expired", and search ids as "a step search" or "a scheduled search". A failed request reads as what the person could not do. KV Store starting gets its own why and what to do. The line as written stays in each line's details.
+- **Troubleshooting in plain words:** errors in What happened, Problems and the run story are said plainly instead of as Splunk's and Python's wording: "alice could not load the runs list: KV Store was still starting up" instead of "alice loaded the runs list — a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{…}'". Also "Splunk could not reach its mail server", "Splunk was not answering", "the receiver did not answer", "the search had already expired", and search ids as "a step search" or "a scheduled search". A failed request reads as what the person could not do. KV Store starting gets its own why and what to do. The line as written stays in each line's details.
 
 ## 1.44.4 (2026-11-20)
 
