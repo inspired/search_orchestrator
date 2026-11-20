@@ -1,8 +1,8 @@
 /* The log lines in words, as a Splunk table: time, level, what happened, the area of the app,
  * the job, run and step by name, who did it and the result. A row expands to why it
  * happened and what to do (for known failures), every field, the traceback and the line as
- * written, with links to the run, its story, lines like it and Search. Colour only on
- * errors and warnings, with an icon and a word. */
+ * written, with links to the run, its story, lines like it and Search. The level is coloured as
+ * in the charts, always with a word (and an icon, except for routine detail). */
 import React from 'react';
 import Link from '@splunk/react-ui/Link';
 import Message from '@splunk/react-ui/Message';
@@ -44,12 +44,11 @@ export function WhyFix({ d }: { d: Described }) {
 
 const LEVEL_WORD: Record<Tone, string> = { error: 'Error', warning: 'Warning', ok: 'OK', info: 'Info', muted: 'Detail' };
 
-/** The level as plain text with an icon; colour only for errors and warnings. */
+/** The level as a word with its icon, in the level's colour from the page palette. */
 export function LevelText({ tone }: { tone: Tone }) {
     const t = useTheme();
-    const attention = tone === 'error' || tone === 'warning';
     return (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35em', color: attention ? toneColor(t, tone) : undefined }}>
+        <span data-testid="level-text" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35em', color: toneColor(t, tone), fontWeight: tone === 'error' || tone === 'warning' ? 600 : undefined }}>
             <ToneIcon tone={tone} size={14} />
             {LEVEL_WORD[tone]}
         </span>

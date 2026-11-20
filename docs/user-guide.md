@@ -703,13 +703,14 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
 
 **Troubleshooting** in the navigation bar explains what the app itself did and why, from its own log lines: the engine (schedules, runs, searches, conditions, actions, approvals, chained jobs, backfills) and the screens and API (every change, failed request and setting).
 
-- **Health:** a row of single values. A value is coloured, with an icon, only when it needs attention; click one to show those lines.
+- **Colours:** one set for the whole page, the same in the graphs, the single values and the **Level** column: red for errors, orange for warnings, blue for info, green for OK and grey for routine detail. Each also has an icon and a word, so colour is never the only sign. The page uses the graphs' own background: black when Splunk is dark, white when it is light.
+- **Health:** a row of single values, each coloured by its state with its icon (green when fine); click one to show those lines.
   - The engine: running or stopped, and when it last ticked (it logs a heartbeat every 5 minutes).
   - Errors, warnings, failed requests and response time (95% of requests answered within).
   - Failed actions, skipped schedules and failed runs.
 - **Graphs**, one tab each, drawn with Splunk's own charts (as in Dashboard Studio, with their legend and tooltips): **Activity** (lines over time by level, with **Show the errors** and **Show the warnings** under it), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** and **Events** (what the app did most). Engine ticks and Splunk calls are logged at Debug level only.
 - **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found", with the job, run and step by name, who did it and the result.
-  - Errors and warnings are marked.
+  - The **Level** is coloured as in the graphs, with an icon and a word.
   - Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.
 - **Why a job did not start** is always in the lines:
   - a scheduled time skipped because the job is disabled;

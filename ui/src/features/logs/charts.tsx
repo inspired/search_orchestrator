@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import Column from '@splunk/visualizations/Column';
 import Line from '@splunk/visualizations/Line';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import { paletteOf } from './palette';
 
 export type Theme = Record<string, string>;
 export const useTheme = () => useSplunkTheme() as unknown as Theme;
@@ -173,12 +174,14 @@ function colorsByField(series: Series[]): Record<string, string> {
 /** Columns over time, stacked by series: Splunk's own Column chart (as in Dashboard Studio),
  * with its axes, legend and tooltips. */
 export function StackedColumns({ points, series, height = 170, label }: { points: Point[]; series: Series[]; height?: number; long?: boolean; label: string }) {
+    const surface = paletteOf(useTheme()).surface;
     return (
         <div role="img" aria-label={label} data-testid="splunk-chart" data-kind="column" style={{ width: '100%' }}>
             <Column
                 width="100%"
                 height={height + 40}
                 options={{
+                    backgroundColor: surface,
                     stackMode: 'stacked',
                     legendDisplay: series.length > 1 ? 'top' : 'off',
                     seriesColorsByField: colorsByField(series),
@@ -194,6 +197,7 @@ export function StackedColumns({ points, series, height = 170, label }: { points
 /** Lines over time: Splunk's own Line chart; a missing value breaks the line, so quiet
  * periods show as gaps. */
 export function LineChart({ points, series, height = 150, unit, label }: { points: Point[]; series: Series[]; height?: number; unit?: string; long?: boolean; label: string }) {
+    const surface = paletteOf(useTheme()).surface;
     const dashes: Record<string, string> = {};
     series.forEach((x) => {
         if (x.dashed) {
@@ -206,6 +210,7 @@ export function LineChart({ points, series, height = 150, unit, label }: { point
                 width="100%"
                 height={height + 40}
                 options={{
+                    backgroundColor: surface,
                     legendDisplay: series.length > 1 ? 'top' : 'off',
                     seriesColorsByField: colorsByField(series),
                     lineDashStylesByField: dashes,

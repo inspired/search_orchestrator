@@ -11,6 +11,7 @@ import type { Tone } from './catalog';
 import { BarList, LineChart, StackedColumns, useTheme } from './charts';
 import type { Point } from './charts';
 import { ToneIcon, ago, toneColor } from './look';
+import { paletteOf } from './palette';
 
 export interface Pick {
     filters?: Partial<LogFilters>;
@@ -118,21 +119,22 @@ export function tiles(summary: LogSummary | null, breakdown: LogBreakdown | null
     ];
 }
 
-/** Single values in one row, as in a Splunk dashboard: a label, the number and a line under
- * it. Colour only on a value that needs attention (warning or error), never on the rest. */
+/** Single values in one row, as in a Splunk dashboard: a label, the value and a line under it.
+ * Every value is coloured by its state with the page palette (the charts' colours) and has its
+ * state's icon, so green means fine, orange a warning and red an error. */
 export function HealthStrip({ summary, breakdown, onPick, nowEpoch }: { summary: LogSummary | null; breakdown: LogBreakdown | null; onPick: (p: Pick) => void; nowEpoch: number }) {
     const t = useTheme();
     const items = tiles(summary, breakdown, nowEpoch);
     return (
         <div role="list" aria-label="Health" style={{ display: 'flex', flexWrap: 'wrap', margin: '16px 0 20px', borderTop: `1px solid ${t.borderColorWeak || t.borderColor}`, borderBottom: `1px solid ${t.borderColorWeak || t.borderColor}` }}>
             {items.map((x, i) => {
-                const attention = x.tone === 'error' || x.tone === 'warning';
                 return (
                     <button
                         key={x.id}
                         type="button"
                         role="listitem"
                         data-testid={`tile-${x.id}`}
+                        data-tone={x.tone}
                         title={`${x.help} Click to show these lines.`}
                         onClick={() => x.pick && onPick(x.pick)}
                         style={{
@@ -149,8 +151,8 @@ export function HealthStrip({ summary, breakdown, onPick, nowEpoch }: { summary:
                         }}
                     >
                         <div style={{ fontSize: '12px', color: t.contentColorMuted }}>{x.label}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '28px', lineHeight: 1.25, fontWeight: 400, color: attention ? toneColor(t, x.tone) : undefined }}>
-                            {attention && <ToneIcon tone={x.tone} size={18} />}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '28px', lineHeight: 1.25, fontWeight: 400, color: toneColor(t, x.tone) }}>
+                            <ToneIcon tone={x.tone} size={18} />
                             {x.value}
                         </div>
                         <div style={{ fontSize: '12px', color: t.contentColorMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.sub}</div>
@@ -185,7 +187,8 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
     const long = summary ? summary.range === '7d' || summary.range === '24h' : false;
     const debugOff = summary && summary.log_level !== 'DEBUG';
     const muted = t.contentColorMuted;
-    const SEV = { high: '#DC4E41', medium: '#F1813F', info: '#006D9C', low: '#A2A2A2', ok: '#53A051' };
+    const p = paletteOf(t);
+    const SEV = { high: p.error, medium: p.warning, info: p.info, low: p.muted, ok: p.ok };
     const levelPick = (key: string) => {
         const level = ({ error: 'ERROR', warning: 'WARNING', info: 'INFO', debug: 'DEBUG' } as Record<string, string>)[key];
         if (level) {
@@ -258,7 +261,7 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 label: `${r.method} ${r.route || '/'}`,
                                 value: r.p95 || 0,
                                 note: `${r.count} request${r.count === 1 ? '' : 's'}${r.failed ? ` · ${r.failed} failed` : ''} · max ${ms(r.max)}`,
-                                color: r.failed ? t.statusColorMedium : undefined,
+                                color: r.failed ? p.warning : undefined,
                             }))}
                         />
                         <Hint>
@@ -301,7 +304,7 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 label: `${c.method} ${c.endpoint}`,
                                 value: c.p95 || 0,
                                 note: `${c.count} call${c.count === 1 ? '' : 's'}${c.errors ? ` · ${c.errors} failed` : ''} · avg ${ms(c.avg)}`,
-                                color: c.errors ? t.statusColorMedium : undefined,
+                                color: c.errors ? p.warning : undefined,
                             }))}
                         />
                         <Hint>
@@ -320,7 +323,7 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 label: eventLabel(e.event),
                                 value: e.count,
                                 note: e.event,
-                                color: e.levels.ERROR ? t.statusColorHigh : e.levels.WARNING ? t.statusColorMedium : undefined,
+                                color: e.levels.ERROR ? p.error : e.levels.WARNING ? p.warning : undefined,
                             }))}
                         />
                         <Hint>

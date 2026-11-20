@@ -2,10 +2,13 @@
 import React from 'react';
 import PageShell, { renderPage } from '../../components/PageShell';
 import LogsPage from '../../features/logs/LogsPage';
+import LogsSurface from '../../features/logs/Surface';
 
 renderPage(
-    <PageShell title="Troubleshooting">
-        <LogsPage />
-    </PageShell>,
+    <LogsSurface>
+        <PageShell title="Troubleshooting">
+            <LogsPage />
+        </PageShell>
+    </LogsSurface>,
     'Troubleshooting'
 );

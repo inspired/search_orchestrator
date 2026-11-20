@@ -522,11 +522,11 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     troubleshooting: () => (
-        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start.">
+        <Figure caption="Troubleshooting: health values, graphs, and every line in words with why and what to do, including why a job did not start. One colour per level everywhere: red errors, orange warnings, blue info, green OK, grey detail.">
             <Chips
                 items={[
-                    { text: 'Engine: Running', tone: 'muted' },
-                    { text: 'Errors 0', tone: 'muted' },
+                    { text: 'Engine: Running', tone: 'ok' },
+                    { text: 'Errors 0', tone: 'ok' },
                     { text: 'Skipped schedules 4', tone: 'warn' },
                     { text: 'Failed actions 1', tone: 'bad' },
                 ]}

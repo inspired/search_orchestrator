@@ -1,5 +1,5 @@
-/* Shared look for the Troubleshooting page: tone colours (status tokens, always with an icon
- * and a word, never colour alone), category icons and time formats. */
+/* Shared look for the Troubleshooting page: tone colours (from the page palette, always with an
+ * icon and a word, never colour alone), category icons and time formats. */
 import React from 'react';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
 import CrossCircle from '@splunk/react-icons/CrossCircle';
@@ -8,6 +8,7 @@ import Cog from '@splunk/react-icons/Cog';
 import Cylinder from '@splunk/react-icons/Cylinder';
 import ExclamationTriangle from '@splunk/react-icons/ExclamationTriangle';
 import Filter from '@splunk/react-icons/Filter';
+import InformationCircle from '@splunk/react-icons/InformationCircle';
 import LayersTriple from '@splunk/react-icons/LayersTriple';
 import Magnifier from '@splunk/react-icons/Magnifier';
 import Megaphone from '@splunk/react-icons/Megaphone';
@@ -18,26 +19,17 @@ import ArrowClockwise from '@splunk/react-icons/ArrowClockwise';
 import Tag from '@splunk/react-icons/Tag';
 import type { Category, Tone } from './catalog';
 import type { Theme } from './charts';
+import { paletteOf, toneHex } from './palette';
 
+/** The colour of a tone in this colour scheme: the same as the level's colour in the charts. */
 export function toneColor(t: Theme, tone: Tone): string {
-    switch (tone) {
-        case 'error':
-            return t.statusColorHigh;
-        case 'warning':
-            return t.statusColorMedium;
-        case 'ok':
-            return t.statusColorNormal;
-        case 'info':
-            return t.statusColorInfo || t.contentColorActive;
-        default:
-            return t.contentColorMuted;
-    }
+    return toneHex(paletteOf(t), tone);
 }
 
 export const TONE_WORD: Record<Tone, string> = { error: 'Error', warning: 'Warning', ok: 'OK', info: 'Info', muted: 'Detail' };
 
 export function ToneIcon({ tone, size = 16 }: { tone: Tone; size?: number }) {
-    const Icon = tone === 'error' ? CrossCircle : tone === 'warning' ? ExclamationTriangle : tone === 'ok' ? CheckCircle : null;
+    const Icon = tone === 'error' ? CrossCircle : tone === 'warning' ? ExclamationTriangle : tone === 'ok' ? CheckCircle : tone === 'info' ? InformationCircle : null;
     if (!Icon) {
         return null;
     }

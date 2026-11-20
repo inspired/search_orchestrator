@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.41.0 (2026-11-20)
+
+- **One palette on Troubleshooting:** the graphs, the single values and the **Level** column use the same colours for the same level (red errors, orange warnings, blue info, green OK, grey detail), with separate steps for dark and light mode checked for contrast and colour-blind separation. Every single value is coloured by its state with its icon (green when fine), and the Level column colours Info and OK too, with an icon for Info. The whole page now uses the graphs' own background, black in dark mode and white in light mode, for the tables and tiles too.
+
 ## 1.40.0 (2026-11-20)
 
 - **Full control of what is written:** a **Summary index** step sets source, sourcetype, host, the fields to write and the timestamp (each result's own, the run's scheduled time, or when it writes); a **Lookup** step sets the fields (columns) to write; an **Event** action sets source, sourcetype, host and timestamp (now or the run's scheduled time). The generated search shows each choice. View output follows a custom source and sourcetype. A sourcetype other than `stash` is flagged as counting against the license.
