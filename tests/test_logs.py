@@ -332,6 +332,13 @@ def test_event_filter_takes_a_list_and_summary_counts_skipped_schedules(w):
     assert (t["schedules_skipped"], t["schedules_missed"]) == (2, 1)
 
 
+def test_engine_graphs_read_the_heartbeat_too_so_they_show_at_info():
+    spl = logs_api.summary_query({"range": "24h"})
+    assert 'avg(eval(case(event="tick", ms, event="heartbeat", tonumber(avg_ms)))) AS tick_avg' in spl
+    assert 'max(eval(case(event="tick", ms, event="heartbeat", tonumber(slowest_ms)))) AS tick_max' in spl
+    assert 'tonumber(active_runs)' in spl and 'event="heartbeat"' in spl
+
+
 def test_problem_error_keeps_quotes_inside_the_value():
     # Splunk's key=value extraction stops error="..." at the first \" inside it; the problems
     # search takes the whole quoted value with rex. This applies that rex, as SPL reads its

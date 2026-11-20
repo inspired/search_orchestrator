@@ -35,6 +35,8 @@ export interface GraphPanel {
     height: number;
     stacked?: boolean;
     unit?: 'ms';
+    /** Join the points across empty buckets (the engine's heartbeat comes every 5 minutes). */
+    connect?: boolean;
 }
 
 /** Only what these graphs use, so the page doesn't load every Dashboard Studio chart. */
@@ -92,7 +94,7 @@ export function graphDefinition(base: SearchLink, panels: GraphPanel[], surface:
                 yAxisTitleVisibility: p.unit ? 'show' : 'hide',
                 ...(p.unit === 'ms' ? { yAxisTitleText: 'Milliseconds' } : {}),
                 ...(p.kind === 'column' && p.stacked ? { stackMode: 'stacked' } : {}),
-                ...(p.kind === 'line' ? { nullValueDisplay: 'gaps', ...(Object.keys(dashed).length ? { lineDashStylesByField: dashed } : {}) } : {}),
+                ...(p.kind === 'line' ? { nullValueDisplay: p.connect ? 'connect' : 'gaps', ...(Object.keys(dashed).length ? { lineDashStylesByField: dashed } : {}) } : {}),
             },
         };
         structure.push({ item: `viz_${p.id}`, type: 'block', position: { x: 0, y, w: WIDTH, h: p.height } });

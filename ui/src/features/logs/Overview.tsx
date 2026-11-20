@@ -253,9 +253,11 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick, live = fals
                     <>
                         {dashboard('engine', 'The engine over time')}
                         <Hint>
-                            {debugOff
-                                ? 'Ticks are logged at Debug level only: set Log level to Debug in Settings to fill these graphs.'
-                                : 'Each tick advances every active run; a tick normally takes well under a second. A gap means the engine did not tick (stopped, or another engine held the lease); slow ticks mean slow KV Store or Splunk calls (see Splunk calls).'}
+                            {`Each tick advances every active run; a tick normally takes well under a second. Slow ticks mean slow KV Store or Splunk calls (see Splunk calls). ${
+                                debugOff
+                                    ? "At Info level the points are the engine's heartbeat, every 5 minutes: the average and slowest tick and the active runs over those 5 minutes. Set Log level to Debug for every tick."
+                                    : 'At Debug level every tick is a point.'
+                            } Whether the engine ran at all shows on the Activity graph and the Engine value above.`}
                         </Hint>
                     </>
                 )}
@@ -341,13 +343,14 @@ export function graphPanels(p: Palette): Record<'activity' | 'requests' | 'engin
                 title: 'Tick time',
                 kind: 'line',
                 unit: 'ms',
+                connect: true,
                 height: 210,
                 series: [
                     { key: 'tick_avg', label: 'Average', color: p.info },
                     { key: 'tick_max', label: 'Slowest', color: p.warning, dashed: true },
                 ],
             },
-            { id: 'active', title: 'Active runs', kind: 'line', height: 190, series: [{ key: 'active_runs', label: 'Active runs', color: p.info }] },
+            { id: 'active', title: 'Active runs', kind: 'line', connect: true, height: 190, series: [{ key: 'active_runs', label: 'Active runs', color: p.info }] },
         ],
     };
 }

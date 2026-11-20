@@ -157,3 +157,4 @@ def test_the_lease_holder_logs_a_heartbeat_every_five_minutes(caplog):
     beats = lines(caplog, "heartbeat")
     assert len(beats) == 2
     assert "ticks=60" in beats[0] and "slowest_ms=" in beats[0] and "holder=" in beats[0]
+    assert "avg_ms=" in beats[0]  # the average tick, for the Engine graphs at Info level

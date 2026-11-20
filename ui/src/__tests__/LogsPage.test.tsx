@@ -131,7 +131,9 @@ describe('Troubleshooting page', () => {
         fireEvent.click(screen.getByRole('tab', { name: 'Requests' }));
         expect(screen.getByTestId('graph-requests')).toHaveTextContent('POST runs/<id>/approve');
         fireEvent.click(screen.getByRole('tab', { name: 'Engine' }));
-        expect(screen.getByTestId('graph-engine')).toHaveTextContent('Ticks are logged at Debug level only');
+        expect(screen.getByTestId('graph-engine')).toHaveTextContent("At Info level the points are the engine's heartbeat, every 5 minutes");
+        const def = JSON.parse(screen.getByTestId('dashboard').getAttribute('data-definition') || '{}');
+        expect(def.visualizations.viz_ticks.options.nullValueDisplay).toBe('connect');
         expect(window.location.search).toContain('graph=engine');
     });
 

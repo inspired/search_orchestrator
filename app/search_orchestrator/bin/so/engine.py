@@ -300,18 +300,20 @@ class Engine:
 
     def _heartbeat(self, now, ms):
         """Every HEARTBEAT_EVERY seconds the engine holding the lease says it is alive, at
-        INFO, with how many ticks it ran and the slowest: the app's Engine not running alert
-        fires when these stop."""
+        INFO, with how many ticks it ran, their average and the slowest (the Troubleshooting
+        Engine graphs at Info level): the app's Engine not running alert fires when these stop."""
         beat = self._beat
         beat["ticks"] += 1
         beat["slowest"] = max(beat["slowest"], ms)
+        beat["total"] = beat.get("total", 0) + ms
         if beat["at"] is not None and now - beat["at"] < HEARTBEAT_EVERY:
             return
         if beat["at"] is not None:
             logs.event(log, logging.INFO, "heartbeat", holder=self.holder, ticks=beat["ticks"],
+                       avg_ms=int(round(beat.get("total", 0) / max(beat["ticks"], 1))),
                        slowest_ms=beat["slowest"], active_runs=self._tick_runs,
                        jobs=len(self._jobs))
-        self._beat = {"at": now, "ticks": 0, "slowest": 0}
+        self._beat = {"at": now, "ticks": 0, "slowest": 0, "total": 0}
 
     def _skipped(self, err, now):
         """A tick Splunk could not serve: warn once per reason, then count quietly (KV Store

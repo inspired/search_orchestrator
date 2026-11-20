@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.44.2 (2026-11-20)
+
+- **Engine graphs work at Info level:** the Troubleshooting Engine graphs (tick time, active runs) read only the `tick` lines, which are logged at Debug, so they were empty at the default Info level. They now also read the engine's `heartbeat` (every 5 minutes, at Info), which gains `avg_ms`, the average tick over those 5 minutes, beside `ticks`, `slowest_ms` and `active_runs`. The lines join the 5-minute points; whether the engine ran at all shows on the Activity graph and the Engine value. The heartbeat line in What happened says the average too.
+
 ## 1.44.1 (2026-11-20)
 
 - **Open in search opens the whole search:** the dashboard framework hands a panel's action only the data sources that panel uses (its chain search), so Open in search opened just `| fields … | rename …`. It now gets the dashboard's own data sources and opens the base search and the chain together. It is a plain icon button, without the external-link icon a link button added.

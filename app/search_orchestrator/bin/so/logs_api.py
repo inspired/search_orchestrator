@@ -94,7 +94,9 @@ def logs_query(filters):
 
 
 def summary_query(filters):
-    """Per-bucket counts for the graphs; ``timechart`` keeps empty buckets (a quiet engine)."""
+    """Per-bucket counts for the graphs; ``timechart`` keeps empty buckets (a quiet engine).
+    The engine's numbers come from its tick lines (Debug) and its heartbeat every 5 minutes
+    (Info: the average and slowest tick and the active runs), so they show at Info too."""
     return (
         base_terms(filters, levels=False) +
         " | eval st=tonumber(status), ms=tonumber(ms)"
@@ -108,9 +110,10 @@ def summary_query(filters):
         ' count(eval(event="request" AND st>=500)) AS req_5xx'
         ' perc95(eval(if(event="request", ms, null()))) AS req_p95'
         ' count(eval(event="tick")) AS ticks'
-        ' avg(eval(if(event="tick", ms, null()))) AS tick_avg'
-        ' max(eval(if(event="tick", ms, null()))) AS tick_max'
-        ' max(eval(if(event="tick", tonumber(active_runs), null()))) AS active_runs'
+        ' avg(eval(case(event="tick", ms, event="heartbeat", tonumber(avg_ms)))) AS tick_avg'
+        ' max(eval(case(event="tick", ms, event="heartbeat", tonumber(slowest_ms)))) AS tick_max'
+        ' max(eval(if(event="tick" OR event="heartbeat", tonumber(active_runs), null())))'
+        ' AS active_runs'
         % SPANS[filters["range"]])
 
 
