@@ -52,7 +52,7 @@ describe('log catalog', () => {
     });
 
     test('requests become actions with outcomes', () => {
-        expect(routeParts('/servicesNS/nobody/search_orchestrator/orchestrator_jlh/runs/a%3Ab/approve')).toEqual(['runs', 'a:b', 'approve']);
+        expect(routeParts('/servicesNS/nobody/search_orchestrator/orchestrator_dev/runs/a%3Ab/approve')).toEqual(['runs', 'a:b', 'approve']);
         expect(routeName('/orchestrator/jobs/daily/runs')).toBe('jobs/<id>/runs');
         expect(routeName('/orchestrator/preview/abc123/results')).toBe('preview/<sid>/results');
         const saved = describeRequest({ method: 'PUT', path: '/orchestrator/jobs/daily', status: '200', ms: '1234', user: 'alice' }, names);
@@ -149,7 +149,7 @@ describe('heartbeats and actions on many runs', () => {
 describe('app health alerts in Settings', () => {
     test('the app id comes from the page URL, so the test copy links to its own alerts', () => {
         const { appId } = jest.requireActual('../features/settings/HealthPanel');
-        expect(appId('/en-US/app/search_orchestrator_jlh/settings')).toBe('search_orchestrator_jlh');
+        expect(appId('/en-US/app/search_orchestrator_dev/settings')).toBe('search_orchestrator_dev');
         expect(appId('/')).toBe('search_orchestrator');
     });
 });
@@ -179,7 +179,7 @@ describe('errors in plain words', () => {
                 event: 'request',
                 user: 'alice',
                 method: 'GET',
-                path: '/orchestrator_jlh/runs',
+                path: '/orchestrator_dev/runs',
                 status: '502',
                 error: "a call to Splunk failed: KV Store error: HTTP 503 Service Unavailable -- b'{\"messages\":[{\"type\":\"ERROR\",\"text\":\"KV Store is initializing. Please try again later.\"}]}'",
             },

@@ -7,7 +7,7 @@ import { infinitive, plainError } from './plain';
 
 type F = Record<string, string | undefined>;
 
-/** The path below /orchestrator, ids decoded: "/orchestrator_jlh/runs/a%3Ab/approve" → ["runs", "a:b", "approve"]. */
+/** The path below /orchestrator, ids decoded: "/orchestrator_dev/runs/a%3Ab/approve" → ["runs", "a:b", "approve"]. */
 export function routeParts(path?: string): string[] {
     const p = (path || '').split('?')[0];
     const i = p.search(/\/orchestrator[^/]*(\/|$)/);

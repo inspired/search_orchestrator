@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: scripts/package_variant.sh <suffix> [version], e.g. scripts/package_variant.sh jlh 1.13.0.
+# Usage: scripts/package_variant.sh <suffix> [version], e.g. scripts/package_variant.sh dev 1.13.0.
 # Builds dist/search_orchestrator_<suffix>-<version>.tgz: the same package as scripts/package.sh,
 # with every Splunk-wide name suffixed (scripts/variant_rename.py) so it installs next to
 # the normal app on the same server. Prints the path of the .tgz.
