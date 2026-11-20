@@ -1,8 +1,10 @@
-/* Small charts for the Troubleshooting page, drawn as SVG with theme tokens (light and
- * dark): stacked columns over time, a line over time (gaps where there is no value) and a
- * ranked bar list. Each has a legend for two or more series and a hover tooltip; columns
- * and legend items can be clicked to filter. One measure per chart (no second axis). */
+/* Charts for the Troubleshooting page. Over time they are Splunk's own Column and Line
+ * visualizations (@splunk/visualizations, as Dashboard Studio draws them), fed the points as a
+ * search result; the ranked lists are rows that can be clicked to filter. One measure per
+ * chart (no second axis). */
 import React, { useState } from 'react';
+import Column from '@splunk/visualizations/Column';
+import Line from '@splunk/visualizations/Line';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 
 export type Theme = Record<string, string>;
@@ -140,135 +142,80 @@ function xLabels(points: Point[], xOf: (i: number) => number, long: boolean): Ar
     return out;
 }
 
-/** Columns over time, each stacked from the series; click a column part to pick its series. */
-export function StackedColumns({ points, series, height = 170, long = false, onPick, label }: { points: Point[]; series: Series[]; height?: number; long?: boolean; onPick?: (key: string) => void; label: string }) {
-    const t = useTheme();
-    const [hover, setHover] = useState<number | null>(null);
-    const total = (p: Point) => series.reduce((s, x) => s + (Number(p[x.key]) || 0), 0);
-    const max = niceMax(Math.max(0, ...points.map(total)));
-    const plotW = W - PAD_L - PAD_R;
-    const step = plotW / Math.max(points.length, 1);
-    const barW = Math.max(Math.min(step - 2, 28), 1);
-    const plotH = height - PAD_T - PAD_B;
-    const xOf = (i: number) => PAD_L + step * i + step / 2;
+/** The points as a Splunk search result: `_time`, one column per series (named by its label,
+ * which is what Splunk's legend and tooltip show) and `_span` (seconds per bucket). A missing
+ * value is empty, so a line breaks there. */
+export function toDataSource(points: Point[], series: Series[]) {
+    const times = points.map((p) => p.time);
+    const ms = times.map((t) => new Date(t).getTime());
+    const span = ms.length > 1 && !Number.isNaN(ms[1] - ms[0]) ? Math.max(1, Math.round((ms[1] - ms[0]) / 1000)) : 60;
+    const cell = (v: number | string | null | undefined) => (v === null || v === undefined ? '' : String(v));
+    return {
+        primary: {
+            requestParams: { offset: 0, count: points.length },
+            data: {
+                fields: [{ name: '_time' }, ...series.map((x) => ({ name: x.label })), { name: '_span' }],
+                columns: [times, ...series.map((x) => points.map((p) => cell(p[x.key]))), times.map(() => String(span))],
+            },
+            meta: { totalCount: points.length },
+        },
+    };
+}
+
+function colorsByField(series: Series[]): Record<string, string> {
+    const out: Record<string, string> = {};
+    series.forEach((x) => {
+        out[x.label] = x.color;
+    });
+    return out;
+}
+
+/** Columns over time, stacked by series: Splunk's own Column chart (as in Dashboard Studio),
+ * with its axes, legend and tooltips. */
+export function StackedColumns({ points, series, height = 170, label }: { points: Point[]; series: Series[]; height?: number; long?: boolean; label: string }) {
     return (
-        <div style={{ position: 'relative' }}>
-            <Legend series={series} onPick={onPick} />
-            <svg role="img" aria-label={label} viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height: 'auto', display: 'block' }} onMouseLeave={() => setHover(null)}>
-                <Axes max={max} height={height} labels={xLabels(points, xOf, long)} />
-                {points.map((p, i) => (
-                    <rect key={`hit-${p.time}`} x={PAD_L + step * i} y={PAD_T} width={step} height={plotH} fill="transparent" onMouseEnter={() => setHover(i)} />
-                ))}
-                {points.map((p, i) => {
-                    let y = PAD_T + plotH;
-                    const x = xOf(i) - barW / 2;
-                    return (
-                        <g key={p.time} data-testid="chart-column" onMouseEnter={() => setHover(i)}>
-                            {series.map((s) => {
-                                const v = Number(p[s.key]) || 0;
-                                if (!v) {
-                                    return null;
-                                }
-                                const h = Math.max((v / max) * plotH, 1);
-                                y -= h;
-                                return (
-                                    <rect
-                                        key={s.key}
-                                        data-series={s.key}
-                                        x={x}
-                                        y={y + 1}
-                                        width={barW}
-                                        height={Math.max(h - 1, 0.5)}
-                                        rx={Math.min(2, barW / 2)}
-                                        fill={s.color}
-                                        opacity={hover === null || hover === i ? 1 : 0.55}
-                                        style={{ cursor: onPick ? 'pointer' : 'default' }}
-                                        onClick={onPick ? () => onPick(s.key) : undefined}
-                                    />
-                                );
-                            })}
-                        </g>
-                    );
-                })}
-            </svg>
-            {hover !== null && points[hover] && (
-                <Tooltip x={xOf(hover)}>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>{timeLabel(points[hover].time, true)}</div>
-                    {series.map((s) => (
-                        <div key={s.key} style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
-                            <span>
-                                <span style={{ display: 'inline-block', width: 8, height: 8, background: s.color, borderRadius: 2, marginRight: 6 }} />
-                                {s.label}
-                            </span>
-                            <strong>{Number(points[hover][s.key]) || 0}</strong>
-                        </div>
-                    ))}
-                </Tooltip>
-            )}
+        <div role="img" aria-label={label} data-testid="splunk-chart" data-kind="column" style={{ width: '100%' }}>
+            <Column
+                width="100%"
+                height={height + 40}
+                options={{
+                    stackMode: 'stacked',
+                    legendDisplay: series.length > 1 ? 'top' : 'off',
+                    seriesColorsByField: colorsByField(series),
+                    xAxisTitleVisibility: 'hide',
+                    yAxisTitleVisibility: 'hide',
+                }}
+                dataSources={toDataSource(points, series)}
+            />
         </div>
     );
 }
 
-/** Lines over time; a missing value breaks the line, so quiet periods show as gaps. */
-export function LineChart({ points, series, height = 150, unit, long = false, label }: { points: Point[]; series: Series[]; height?: number; unit?: string; long?: boolean; label: string }) {
-    const t = useTheme();
-    const [hover, setHover] = useState<number | null>(null);
-    const values = points.flatMap((p) => series.map((s) => p[s.key]).filter((v): v is number => typeof v === 'number'));
-    const max = niceMax(Math.max(0, ...values));
-    const plotW = W - PAD_L - PAD_R;
-    const plotH = height - PAD_T - PAD_B;
-    const step = plotW / Math.max(points.length - 1, 1);
-    const xOf = (i: number) => PAD_L + (points.length === 1 ? plotW / 2 : step * i);
-    const yOf = (v: number) => PAD_T + plotH * (1 - v / max);
-    const paths = series.map((s) => {
-        let d = '';
-        let open = false;
-        points.forEach((p, i) => {
-            const v = p[s.key];
-            if (typeof v === 'number') {
-                d += `${open ? 'L' : 'M'}${xOf(i)},${yOf(v)} `;
-                open = true;
-            } else {
-                open = false;
-            }
-        });
-        return { s, d };
+/** Lines over time: Splunk's own Line chart; a missing value breaks the line, so quiet
+ * periods show as gaps. */
+export function LineChart({ points, series, height = 150, unit, label }: { points: Point[]; series: Series[]; height?: number; unit?: string; long?: boolean; label: string }) {
+    const dashes: Record<string, string> = {};
+    series.forEach((x) => {
+        if (x.dashed) {
+            dashes[x.label] = 'dash';
+        }
     });
     return (
-        <div style={{ position: 'relative' }}>
-            <Legend series={series} />
-            <svg role="img" aria-label={label} viewBox={`0 0 ${W} ${height}`} style={{ width: '100%', height: 'auto', display: 'block' }} onMouseLeave={() => setHover(null)}>
-                <Axes max={max} height={height} labels={xLabels(points, xOf, long)} unit={unit} />
-                {paths.map(({ s, d }) => (
-                    <path key={s.key} d={d} fill="none" stroke={s.color} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} strokeLinejoin="round" />
-                ))}
-                {points.length === 1 &&
-                    series.map((s) => (typeof points[0][s.key] === 'number' ? <circle key={s.key} cx={xOf(0)} cy={yOf(points[0][s.key] as number)} r={4} fill={s.color} /> : null))}
-                {hover !== null && (
-                    <g>
-                        <line x1={xOf(hover)} x2={xOf(hover)} y1={PAD_T} y2={PAD_T + plotH} stroke={t.contentColorMuted} strokeWidth={1} />
-                        {series.map((s) =>
-                            typeof points[hover][s.key] === 'number' ? (
-                                <circle key={s.key} cx={xOf(hover)} cy={yOf(points[hover][s.key] as number)} r={4} fill={s.color} stroke={t.backgroundColor} strokeWidth={2} />
-                            ) : null
-                        )}
-                    </g>
-                )}
-                {points.map((p, i) => (
-                    <rect key={p.time} x={xOf(i) - step / 2} y={PAD_T} width={Math.max(step, 4)} height={plotH} fill="transparent" onMouseEnter={() => setHover(i)} />
-                ))}
-            </svg>
-            {hover !== null && points[hover] && (
-                <Tooltip x={xOf(hover)}>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>{timeLabel(points[hover].time, true)}</div>
-                    {series.map((s) => (
-                        <div key={s.key} style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
-                            <span>{s.label}</span>
-                            <strong>{typeof points[hover][s.key] === 'number' ? fmt(points[hover][s.key] as number, unit) : 'none'}</strong>
-                        </div>
-                    ))}
-                </Tooltip>
-            )}
+        <div role="img" aria-label={label} data-testid="splunk-chart" data-kind="line" style={{ width: '100%' }}>
+            <Line
+                width="100%"
+                height={height + 40}
+                options={{
+                    legendDisplay: series.length > 1 ? 'top' : 'off',
+                    seriesColorsByField: colorsByField(series),
+                    lineDashStylesByField: dashes,
+                    nullValueDisplay: 'gaps',
+                    xAxisTitleVisibility: 'hide',
+                    yAxisTitleVisibility: unit ? 'show' : 'hide',
+                    yAxisTitleText: unit === 'ms' ? 'Milliseconds' : '',
+                }}
+                dataSources={toDataSource(points, series)}
+            />
         </div>
     );
 }

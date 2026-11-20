@@ -110,7 +110,13 @@ describe('Troubleshooting page', () => {
         expect(screen.getByTestId('tile-errors')).toHaveTextContent('2');
         expect(screen.getByTestId('tile-requests')).toHaveTextContent('of 10 · 1 server error');
         expect(screen.getByTestId('tile-slow')).toHaveTextContent('210 ms');
-        expect(screen.getAllByTestId('chart-column')).toHaveLength(2);
+        // The activity graph is Splunk's Column chart, stacked, fed the buckets as a search result.
+        const chart = screen.getByTestId('splunk-chart');
+        expect(chart.getAttribute('data-kind')).toBe('column');
+        expect(JSON.parse(within(chart).getByTestId('viz-stub').getAttribute('data-options') || '{}').stackMode).toBe('stacked');
+        expect(chart.querySelectorAll('[data-field="_time"]')).toHaveLength(1);
+        expect(chart.querySelector('[data-field="_time"]')!.textContent!.split(',')).toHaveLength(2);
+        expect(chart.querySelector('[data-field="Errors"]')).not.toBeNull();
         await act(async () => {
             fireEvent.click(screen.getByTestId('tile-actions'));
         });

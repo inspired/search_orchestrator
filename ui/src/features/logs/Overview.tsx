@@ -185,6 +185,7 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
     const long = summary ? summary.range === '7d' || summary.range === '24h' : false;
     const debugOff = summary && summary.log_level !== 'DEBUG';
     const muted = t.contentColorMuted;
+    const SEV = { high: '#DC4E41', medium: '#F1813F', info: '#006D9C', low: '#A2A2A2', ok: '#53A051' };
     const levelPick = (key: string) => {
         const level = ({ error: 'ERROR', warning: 'WARNING', info: 'INFO', debug: 'DEBUG' } as Record<string, string>)[key];
         if (level) {
@@ -209,18 +210,28 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                             label="Log lines over time by level"
                             points={points}
                             long={long}
-                            onPick={levelPick}
                             series={[
-                                { key: 'error', label: 'Errors', color: t.statusColorHigh },
-                                { key: 'warning', label: 'Warnings', color: t.statusColorMedium },
-                                { key: 'info', label: 'Info', color: t.contentColorMuted },
-                                { key: 'debug', label: 'Debug', color: t.contentColorDisabled || t.borderColorWeak || t.borderColor },
+                                { key: 'error', label: 'Errors', color: SEV.high },
+                                { key: 'warning', label: 'Warnings', color: SEV.medium },
+                                { key: 'info', label: 'Info', color: SEV.info },
+                                { key: 'debug', label: 'Debug', color: SEV.low },
                             ]}
                         />
                         <Hint>
-                            {`Log lines per ${summary.span}. A spike of errors or warnings shows when something broke; a gap with no lines at all means nothing was running or the engine was down. Click a colour to show those lines. `}
+                            {`Log lines per ${summary.span}. A spike of errors or warnings shows when something broke; a gap with no lines at all means nothing was running or the engine was down. `}
                             <SearchLinkTo link={summary.searches.activity} label="Open in Search" />
                         </Hint>
+                        <div data-testid="level-links" style={{ display: 'flex', gap: '16px', fontSize: '12px', marginTop: '4px' }}>
+                            {[
+                                ['error', 'Show the errors'],
+                                ['warning', 'Show the warnings'],
+                                ['info', 'Show info and above'],
+                            ].map(([key, text]) => (
+                                <Link key={key} onClick={() => levelPick(key)}>
+                                    {text}
+                                </Link>
+                            ))}
+                        </div>
                     </>
                 )}
                 {summary && graph === 'requests' && (
@@ -230,14 +241,14 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                             points={points}
                             long={long}
                             series={[
-                                { key: 'req_5xx', label: 'Server errors (5xx)', color: t.statusColorHigh },
-                                { key: 'req_4xx', label: 'Refused (4xx)', color: t.statusColorMedium },
-                                { key: 'req_ok', label: 'OK', color: t.contentColorMuted },
+                                { key: 'req_5xx', label: 'Server errors (5xx)', color: SEV.high },
+                                { key: 'req_4xx', label: 'Refused (4xx)', color: SEV.medium },
+                                { key: 'req_ok', label: 'OK', color: SEV.ok },
                             ]}
                             height={140}
                         />
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Response time, 95th percentile</div>
-                        <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={[{ key: 'req_p95', label: '95th percentile', color: t.contentColorDefault }]} />
+                        <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={[{ key: 'req_p95', label: '95th percentile', color: SEV.info }]} />
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '12px 0 6px' }}>Slowest routes (95th percentile)</div>
                         <BarList
                             unit="ms"
@@ -266,12 +277,12 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                             unit="ms"
                             height={130}
                             series={[
-                                { key: 'tick_avg', label: 'Average', color: t.contentColorDefault },
-                                { key: 'tick_max', label: 'Slowest', color: muted, dashed: true },
+                                { key: 'tick_avg', label: 'Average', color: SEV.info },
+                                { key: 'tick_max', label: 'Slowest', color: SEV.medium, dashed: true },
                             ]}
                         />
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Active runs</div>
-                        <LineChart label="Active runs over time" points={points} long={long} height={110} series={[{ key: 'active_runs', label: 'Active runs', color: t.contentColorDefault }]} />
+                        <LineChart label="Active runs over time" points={points} long={long} height={110} series={[{ key: 'active_runs', label: 'Active runs', color: SEV.info }]} />
                         <Hint>
                             {debugOff
                                 ? 'Ticks are logged at Debug level only: set Log level to Debug in Settings to fill these graphs. '

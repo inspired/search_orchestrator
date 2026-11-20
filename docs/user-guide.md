@@ -694,7 +694,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
   - The engine: running or stopped, and when it last ticked (it logs a heartbeat every 5 minutes).
   - Errors, warnings, failed requests and response time (95% of requests answered within).
   - Failed actions, skipped schedules and failed runs.
-- **Graphs**, one tab each: **Activity** (lines over time by level; click a colour to filter), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** and **Events** (what the app did most). Engine ticks and Splunk calls are logged at Debug level only.
+- **Graphs**, one tab each, drawn with Splunk's own charts (as in Dashboard Studio, with their legend and tooltips): **Activity** (lines over time by level, with **Show the errors** and **Show the warnings** under it), **Requests** (by result, response time and the slowest routes), **Engine** (tick time and active runs; a gap means the engine did not tick), **Splunk calls** and **Events** (what the app did most). Engine ticks and Splunk calls are logged at Debug level only.
 - **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found", with the job, run and step by name, who did it and the result.
   - Errors and warnings are marked.
   - Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.

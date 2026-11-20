@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.38.0 (2026-11-20)
+
+- **Troubleshooting graphs are Splunk's own charts:** the activity, request, engine and response-time graphs use `@splunk/visualizations` Column and Line (as Dashboard Studio), with Splunk's axes, legend, tooltips and severity colours. Filtering by level moves to **Show the errors** and **Show the warnings** under the activity graph. The library is pinned (28.9.1) and loaded only on the Troubleshooting page.
+
 ## 1.37.3 (2026-11-19)
 
 - **Jobs page says when it is filtered:** the Show and Tag choices are remembered in the browser, so a filter from an earlier visit could hide jobs and look like they were gone. While anything hides jobs, a line says "Showing 3 of 12 jobs: tagged billing" with **Show all jobs**.
