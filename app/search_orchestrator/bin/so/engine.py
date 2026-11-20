@@ -306,14 +306,17 @@ class Engine:
         beat["ticks"] += 1
         beat["slowest"] = max(beat["slowest"], ms)
         beat["total"] = beat.get("total", 0) + ms
+        # The most runs active at any tick in these 5 minutes: active_runs is only this tick's,
+        # and short runs are over long before the next heartbeat.
+        beat["peak"] = max(beat.get("peak", 0), self._tick_runs)
         if beat["at"] is not None and now - beat["at"] < HEARTBEAT_EVERY:
             return
         if beat["at"] is not None:
             logs.event(log, logging.INFO, "heartbeat", holder=self.holder, ticks=beat["ticks"],
                        avg_ms=int(round(beat.get("total", 0) / max(beat["ticks"], 1))),
                        slowest_ms=beat["slowest"], active_runs=self._tick_runs,
-                       jobs=len(self._jobs))
-        self._beat = {"at": now, "ticks": 0, "slowest": 0, "total": 0}
+                       peak_runs=beat.get("peak", 0), jobs=len(self._jobs))
+        self._beat = {"at": now, "ticks": 0, "slowest": 0, "total": 0, "peak": 0}
 
     def _skipped(self, err, now):
         """A tick Splunk could not serve: warn once per reason, then count quietly (KV Store

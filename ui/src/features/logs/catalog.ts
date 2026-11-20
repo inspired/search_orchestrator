@@ -263,7 +263,7 @@ export function describe(line: LogLine, names: LogNames = {}): Described {
         case 'lease_acquired':
             return d('engine', 'ok', `Engine took the lease on ${f.holder || 'this server'} and is now working`);
         case 'heartbeat':
-            return d('engine', 'muted', `Engine is alive: ${num(f.ticks)} ticks in the last 5 minutes, ${f.avg_ms ? `${num(f.avg_ms)} ms on average, ` : ''}the slowest ${num(f.slowest_ms)} ms`, { result: `${num(f.active_runs)} active runs`, why: 'The engine says this every 5 minutes. The app health alert Search Orchestrator - Engine not running fires when it stops.' });
+            return d('engine', 'muted', `Engine is alive: ${num(f.ticks)} ticks in the last 5 minutes${f.peak_runs ? `, up to ${num(f.peak_runs)} runs at once` : ''}, ${f.avg_ms ? `${num(f.avg_ms)} ms on average, ` : ''}the slowest ${num(f.slowest_ms)} ms`, { result: `${num(f.active_runs)} active runs`, why: 'The engine says this every 5 minutes. The app health alert Search Orchestrator - Engine not running fires when it stops.' });
         case 'waiting_for_kvstore':
             return d('engine', 'info', 'Engine waits for KV Store to finish starting', { why: 'Right after Splunk starts, KV Store answers \u201cinitializing\u201d for a minute or so; the engine tries again every tick.' });
         case 'ticks_resumed':

@@ -319,7 +319,7 @@ export const LIFE: { from: number; to: number; text: string }[] = [
     { from: 0, to: 1, text: '11 Follow: GET runs/<id> every 5 s; Approve → so_commands' },
     { from: 3, to: 2, text: '12 Next tick applies the command; the run ends; chained jobs queue' },
     { from: 3, to: 3, text: '13 Anything that did not start says why in the log: skipped or missed schedule, a wait' },
-    { from: 3, to: 4, text: '14 Every 5 min a heartbeat (ticks, average and slowest, active runs); the Engine graphs and the health alerts read it' },
+    { from: 3, to: 4, text: '14 Every 5 min a heartbeat (ticks, average and slowest, most runs at once); the Engine graphs and the health alerts read it' },
 ];
 
 function LifeOfARun() {

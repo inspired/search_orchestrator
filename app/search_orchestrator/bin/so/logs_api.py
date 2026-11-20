@@ -112,8 +112,9 @@ def summary_query(filters):
         ' count(eval(event="tick")) AS ticks'
         ' avg(eval(case(event="tick", ms, event="heartbeat", tonumber(avg_ms)))) AS tick_avg'
         ' max(eval(case(event="tick", ms, event="heartbeat", tonumber(slowest_ms)))) AS tick_max'
-        ' max(eval(if(event="tick" OR event="heartbeat", tonumber(active_runs), null())))'
-        ' AS active_runs'
+        ' max(eval(case(event="tick", tonumber(active_runs),'
+        ' event="heartbeat", tonumber(coalesce(peak_runs, active_runs))))) AS active_runs'
+        ' count(eval(event="run_state" AND to="running")) AS runs_started'
         % SPANS[filters["range"]])
 
 
@@ -375,7 +376,7 @@ def _num(value):
 
 
 BUCKET_FIELDS = ("error", "warning", "info", "debug", "req_ok", "req_4xx", "req_5xx", "req_p95",
-                 "ticks", "tick_avg", "tick_max", "active_runs")
+                 "ticks", "tick_avg", "tick_max", "active_runs", "runs_started")
 
 
 def summary(ctx, body):

@@ -336,7 +336,9 @@ def test_engine_graphs_read_the_heartbeat_too_so_they_show_at_info():
     spl = logs_api.summary_query({"range": "24h"})
     assert 'avg(eval(case(event="tick", ms, event="heartbeat", tonumber(avg_ms)))) AS tick_avg' in spl
     assert 'max(eval(case(event="tick", ms, event="heartbeat", tonumber(slowest_ms)))) AS tick_max' in spl
-    assert 'tonumber(active_runs)' in spl and 'event="heartbeat"' in spl
+    assert 'tonumber(coalesce(peak_runs, active_runs))' in spl and 'event="heartbeat"' in spl
+    # Runs started comes from run_state lines, logged at Info, so every bucket has a value.
+    assert 'count(eval(event="run_state" AND to="running")) AS runs_started' in spl
 
 
 def test_problem_error_keeps_quotes_inside_the_value():

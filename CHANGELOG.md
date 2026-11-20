@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.44.4 (2026-11-20)
+
+- **Engine graphs show real data at every range:** Active runs read the heartbeat's `active_runs`, a snapshot every 5 minutes; runs that take seconds were never caught, so it was always 0, and in 30-second or 1-minute buckets 4 in 5 buckets were empty, so Search drew nothing. The panel is now **Runs started**, counted from `run_state` (logged at Info) in every bucket. The tick time panel keeps only the buckets with a value, so its 5-minute points join in Search too. The heartbeat gains `peak_runs`, the most runs at once in its 5 minutes.
+
 ## 1.44.3 (2026-11-20)
 
 - **Line graphs show single points:** the response time and engine lines have markers (`markerDisplay: filled`), so a half hour with a value between empty ones still shows. At Info level requests are logged only when they change something or fail, so the response time line is mostly single points.

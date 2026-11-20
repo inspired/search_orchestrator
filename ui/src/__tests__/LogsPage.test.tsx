@@ -131,10 +131,14 @@ describe('Troubleshooting page', () => {
         fireEvent.click(screen.getByRole('tab', { name: 'Requests' }));
         expect(screen.getByTestId('graph-requests')).toHaveTextContent('POST runs/<id>/approve');
         fireEvent.click(screen.getByRole('tab', { name: 'Engine' }));
-        expect(screen.getByTestId('graph-engine')).toHaveTextContent("At Info level the points are the engine's heartbeat, every 5 minutes");
+        expect(screen.getByTestId('graph-engine')).toHaveTextContent("At Info level the tick time comes from the engine's heartbeat, every 5 minutes");
         const def = JSON.parse(screen.getByTestId('dashboard').getAttribute('data-definition') || '{}');
         expect(def.visualizations.viz_ticks.options.nullValueDisplay).toBe('connect');
         expect(def.visualizations.viz_ticks.options.markerDisplay).toBe('filled');
+        // Sparse heartbeat points: only the buckets with data, so they join in Search too.
+        expect(def.dataSources.ds_ticks.options.query).toBe('| fields _time _span tick_avg tick_max | where isnotnull(tick_avg) OR isnotnull(tick_max) | rename tick_avg AS "Average", tick_max AS "Slowest"');
+        expect(def.visualizations.viz_runs.type).toBe('splunk.column');
+        expect(def.dataSources.ds_runs.options.query).toBe('| fields _time _span runs_started | rename runs_started AS "Runs started"');
         expect(window.location.search).toContain('graph=engine');
     });
 

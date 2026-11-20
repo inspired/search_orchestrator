@@ -253,9 +253,9 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick, live = fals
                     <>
                         {dashboard('engine', 'The engine over time')}
                         <Hint>
-                            {`Each tick advances every active run; a tick normally takes well under a second. Slow ticks mean slow KV Store or Splunk calls (see Splunk calls). ${
+                            {`Runs started counts the runs that began running in each bucket. Each tick advances every active run; a tick normally takes well under a second. Slow ticks mean slow KV Store or Splunk calls (see Splunk calls). ${
                                 debugOff
-                                    ? "At Info level the points are the engine's heartbeat, every 5 minutes: the average and slowest tick and the active runs over those 5 minutes. Set Log level to Debug for every tick."
+                                    ? "At Info level the tick time comes from the engine's heartbeat, every 5 minutes: the average and slowest tick over those 5 minutes. Set Log level to Debug for every tick."
                                     : 'At Debug level every tick is a point.'
                             } Whether the engine ran at all shows on the Activity graph and the Engine value above.`}
                         </Hint>
@@ -344,13 +344,14 @@ export function graphPanels(p: Palette): Record<'activity' | 'requests' | 'engin
                 kind: 'line',
                 unit: 'ms',
                 connect: true,
+                onlyWithData: true,
                 height: 210,
                 series: [
                     { key: 'tick_avg', label: 'Average', color: p.info },
                     { key: 'tick_max', label: 'Slowest', color: p.warning, dashed: true },
                 ],
             },
-            { id: 'active', title: 'Active runs', kind: 'line', connect: true, height: 190, series: [{ key: 'active_runs', label: 'Active runs', color: p.info }] },
+            { id: 'runs', title: 'Runs started', kind: 'column', height: 190, series: [{ key: 'runs_started', label: 'Runs started', color: p.info }] },
         ],
     };
 }

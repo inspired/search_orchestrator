@@ -64,6 +64,8 @@ export interface LogBucket {
     tick_avg: number | null;
     tick_max: number | null;
     active_runs: number | null;
+    /** Runs that started in the bucket (run_state to running, logged at Info). */
+    runs_started?: number | null;
 }
 
 export interface LogTotals {

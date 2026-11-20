@@ -37,6 +37,9 @@ export interface GraphPanel {
     unit?: 'ms';
     /** Join the points across empty buckets (the engine's heartbeat comes every 5 minutes). */
     connect?: boolean;
+    /** Keep only the buckets with a value, so the points join in Search too (sparse data:
+     * a heartbeat every 5 minutes in 30-second or 1-minute buckets). */
+    onlyWithData?: boolean;
 }
 
 /** Only what these graphs use, so the page doesn't load every Dashboard Studio chart. */
@@ -78,7 +81,7 @@ export function graphDefinition(base: SearchLink, panels: GraphPanel[], surface:
             name: p.title,
             options: {
                 extend: BASE_ID,
-                query: `| fields _time _span ${keys.join(' ')} | rename ${p.series.map((s) => `${s.key} AS "${s.label}"`).join(', ')}`,
+                query: `| fields _time _span ${keys.join(' ')}${p.onlyWithData ? ` | where ${keys.map((k) => `isnotnull(${k})`).join(' OR ')}` : ''} | rename ${p.series.map((s) => `${s.key} AS "${s.label}"`).join(', ')}`,
             },
         };
         const dashed = Object.fromEntries(p.series.filter((s) => s.dashed).map((s) => [s.label, 'dash']));
