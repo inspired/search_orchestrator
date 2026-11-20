@@ -39,28 +39,34 @@
 <table>
   <tr>
     <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/build-dark.svg"><img src="docs/images/icons/build-light.svg" width="40" height="40" alt=""></picture>
       <h3>Build</h3>
       Draw jobs on a canvas or list them top to bottom. Start from <b>18 example jobs</b> that use only data every Splunk has. Preview each step before you save.
     </td>
     <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/trigger-dark.svg"><img src="docs/images/icons/trigger-light.svg" width="40" height="40" alt=""></picture>
       <h3>Trigger</h3>
       On a schedule, by hand, from SPL with <code>| orchestrate start</code>, from an alert, over REST, or when another job finishes. Backfill any date range.
     </td>
     <td width="33%" valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/branch-dark.svg"><img src="docs/images/icons/branch-light.svg" width="40" height="40" alt=""></picture>
       <h3>Branch</h3>
       Steps wait for their inputs. Branch on success, failure or a condition such as <code>$daily.resultCount$ &gt; 0</code>, and read earlier steps' results with <code>| loadjob</code>.
     </td>
   </tr>
   <tr>
     <td valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/recover-dark.svg"><img src="docs/images/icons/recover-light.svg" width="40" height="40" alt=""></picture>
       <h3>Recover</h3>
       Retries, delays and deadlines with alerts. Later runs wait for a failed one to be fixed, so a rollup never skips a day. Re-run from any step.
     </td>
     <td valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/act-dark.svg"><img src="docs/images/icons/act-light.svg" width="40" height="40" alt=""></picture>
       <h3>Act</h3>
       Email, webhook, Slack, Teams, PagerDuty, ServiceNow, any alert action, or write to an index or a lookup. Optional approval steps.
     </td>
     <td valign="top">
+      <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/follow-dark.svg"><img src="docs/images/icons/follow-light.svg" width="40" height="40" alt=""></picture>
       <h3>Follow</h3>
       Live run graphs, a calendar, run comparison, dependencies between jobs, an audit index, and a Troubleshooting page that explains errors in plain words.
     </td>
