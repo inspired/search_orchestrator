@@ -3,7 +3,8 @@ import { render, screen } from '@testing-library/react';
 import SplunkThemeProvider from '@splunk/themes/SplunkThemeProvider';
 import { PALETTES, paletteOf, schemeOf, toneHex } from '../features/logs/palette';
 import { LevelText } from '../features/logs/LinesTable';
-import { ChartFrame, StackedColumns, chartSearchUrl } from '../features/logs/charts';
+import GraphDashboard, { graphDefinition, panelSearch } from '../features/logs/GraphDashboard';
+import { graphPanels } from '../features/logs/Overview';
 import LogsSurface from '../features/logs/Surface';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 
@@ -57,10 +58,13 @@ describe('Troubleshooting palette', () => {
         expect(info.querySelector('[role="img"]')).not.toBeNull();
     });
 
-    test.each(['dark', 'light'] as const)('the charts draw on the page surface (%s)', (scheme) => {
-        inScheme(scheme, <StackedColumns label="x" points={[]} series={[{ key: 'a', label: 'A', color: '#123456' }]} />);
-        const options = JSON.parse(screen.getByTestId('viz-stub').getAttribute('data-options') || '{}');
-        expect(options.backgroundColor).toBe(PALETTES[scheme].surface);
+    test.each(['dark', 'light'] as const)('the graphs draw on the page surface (%s)', (scheme) => {
+        const def = graphDefinition({ spl: 'search x', earliest: '-24h', latest: 'now' }, graphPanels(PALETTES[scheme]).activity, PALETTES[scheme].surface) as {
+            visualizations: Record<string, { options: { backgroundColor: string } }>;
+            layout: { layoutDefinitions: Record<string, { options: { backgroundColor: string } }> };
+        };
+        expect(def.visualizations.viz_levels.options.backgroundColor).toBe(PALETTES[scheme].surface);
+        expect(def.layout.layoutDefinitions.layout_1.options.backgroundColor).toBe(PALETTES[scheme].surface);
     });
 
     test('the page surface paints the body and tells Splunk components', () => {
@@ -81,23 +85,48 @@ describe('Troubleshooting palette', () => {
         expect(screen.getByTestId('page-bg').textContent).toBe(`${scheme} ${PALETTES[scheme].surface}`);
     });
 
-    test('the magnifying glass opens a graph in Search as the same chart, with only its series', () => {
-        const url = decodeURIComponent(
-            chartSearchUrl(
-                { spl: 'search index=_internal | timechart span=30m count AS error count AS info', earliest: '-24h', latest: 'now' },
-                { kind: 'column', stacked: true, series: [{ key: 'error', label: 'Errors', color: '#E8473C' }] }
-            ).replace(/\+/g, ' ')
-        );
-        expect(url).toContain('/app/search/search');
-        expect(url).toContain('| fields _time _span error | rename error AS "Errors"');
-        expect(url).toContain('display.visualizations.charting.chart=column');
-        expect(url).toContain('display.visualizations.charting.chart.stackMode=stacked');
-        expect(url).toContain('"Errors":0xE8473C');
-        expect(url).toContain('earliest=-24h');
-        inScheme('light', <ChartFrame href="/x">chart</ChartFrame>);
+    test('the graphs are a Dashboard Studio definition: one base search, a chain search per panel', () => {
+        const panels = graphPanels(PALETTES.dark);
+        const def = graphDefinition({ spl: 'search index=_internal | timechart count AS error', earliest: '-7d', latest: 'now' }, panels.requests, '#000000', true) as {
+            dataSources: Record<string, { type: string; options: Record<string, unknown> }>;
+            visualizations: Record<string, { type: string; title: string; dataSources: { primary: string }; options: Record<string, unknown> }>;
+            layout: { tabs: { options: { showTabBar: boolean } }; layoutDefinitions: Record<string, { type: string; structure: Array<{ item: string; position: { y: number } }> }> };
+        };
+        expect(def.dataSources.ds_base).toEqual({
+            type: 'ds.search',
+            name: 'Troubleshooting timechart',
+            options: { query: 'index=_internal | timechart count AS error', queryParameters: { earliest: '-7d', latest: 'now' }, refresh: '10s', refreshType: 'delay' },
+        });
+        expect(def.dataSources.ds_requests.type).toBe('ds.chain');
+        expect(def.dataSources.ds_requests.options).toEqual({
+            extend: 'ds_base',
+            query: '| fields _time _span req_5xx req_4xx req_ok | rename req_5xx AS "Server errors (5xx)", req_4xx AS "Refused (4xx)", req_ok AS "OK"',
+        });
+        expect(def.visualizations.viz_requests.type).toBe('splunk.column');
+        expect(def.visualizations.viz_requests.options.stackMode).toBe('stacked');
+        expect(def.visualizations.viz_p95.type).toBe('splunk.line');
+        expect(def.visualizations.viz_p95.dataSources.primary).toBe('ds_p95');
+        expect(def.layout.tabs.options.showTabBar).toBe(false);
+        expect(def.layout.layoutDefinitions.layout_1.type).toBe('grid');
+        expect(def.layout.layoutDefinitions.layout_1.structure.map((x) => x.item)).toEqual(['viz_requests', 'viz_p95']);
+    });
+
+    test("a panel's Open in search follows the chain back to the base search, as Dashboard Studio does", () => {
+        const dataSources = {
+            ds_base: { type: 'ds.search', options: { query: 'index=_internal | timechart count AS error', queryParameters: { earliest: '-24h', latest: 'now' } } },
+            ds_x: { type: 'ds.chain', options: { extend: 'ds_base', query: '| fields _time error' } },
+        };
+        expect(panelSearch({ dataSources: { primary: 'ds_x' } }, dataSources)).toEqual({ spl: 'index=_internal | timechart count AS error | fields _time error', earliest: '-24h', latest: 'now' });
+        expect(panelSearch({ dataSources: { primary: 'nope' } }, dataSources)).toBeNull();
+        inScheme('light', <GraphDashboard base={{ spl: 'search index=_internal | timechart count AS error', earliest: '-24h', latest: 'now' }} panels={graphPanels(PALETTES.light).activity} label="Activity" />);
+        const panel = screen.getByTestId('panel-viz_levels');
+        expect(panel).toHaveTextContent('Log lines over time by level');
         const button = screen.getByTestId('open-in-search');
-        expect(button.getAttribute('aria-label')).toBe('Open in Search');
-        expect(button.getAttribute('href')).toBe('/x');
+        expect(button.getAttribute('aria-label')).toBe('Open in search');
         expect(button.getAttribute('target')).toBe('_blank');
+        const href = decodeURIComponent((button.getAttribute('href') || '').replace(/\+/g, ' '));
+        expect(href).toContain('/app/search/search');
+        expect(href).toContain('q=index=_internal | timechart count AS error | fields _time _span error warning info debug | rename error AS "Errors"');
+        expect(href).toContain('earliest=-24h');
     });
 });

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.44.0 (2026-11-20)
+
+- **Troubleshooting graphs are a Dashboard Studio dashboard:** Splunk's own dashboard framework (`@splunk/dashboard-core` 29.9.0, pinned) draws them from a definition: the page's timechart as the base search (`ds.search`, run by Splunk from the browser) and a chain search (`ds.chain`) per graph. Each panel has the framework's hover action bar with **Open in search**, which, as in Dashboard Studio, opens the panel's base and chain search together. The framework leaves that action to the app (Dashboard Studio ships its own), so the app supplies it. Only the grid layout, the two search types and the Column and Line charts are loaded. With **Live**, the graphs rerun every 10 seconds.
+- The emulated magnifying glass is gone; the lists (slowest routes, Splunk calls, events) have an **Open in Search** link again.
+- The `@splunk/visualizations` family is pinned to 28.9.1 throughout (`overrides`), so nested packages no longer pull in 28.10.0.
+- The Troubleshooting page script grows from about 8.5 MB to about 17 MB with the dashboard framework.
+
 ## 1.43.0 (2026-11-20)
 
 - **Problems are built in SPL:** the Troubleshooting **Problems** table is the result of its search (`stats` by signature, with the ids and numbers taken out by `replace`), so **Open this search in Search** shows the same table: times, level, problem, area, jobs, runs, last and first seen. The page only adds job names, how long ago, and why and what to do. Every matching line in the range is counted, not just the newest 2000; the 200 most serious problems are shown.

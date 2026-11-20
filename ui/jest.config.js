@@ -4,7 +4,14 @@ module.exports = {
     testMatch: ['**/__tests__/**/*.test.ts?(x)'],
     setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
     // Splunk's charts need a canvas; tests use a stand-in (jest/vizStub.js).
-    moduleNameMapper: { '^@splunk/visualizations/(.*)$': '<rootDir>/jest/vizStub.js' },
+    // Splunk's dashboard framework likewise (jest/dashboardStub.js).
+    moduleNameMapper: {
+        '^@splunk/visualizations/(.*)$': '<rootDir>/jest/vizStub.js',
+        '^@splunk/dashboard-core$': '<rootDir>/jest/dashboardStub.js',
+        '^@splunk/dashboard-context$': '<rootDir>/jest/dashboardStub.js',
+        '^@splunk/dashboard-layouts/(.*)$': '<rootDir>/jest/vizStub.js',
+        '^@splunk/datasources/(.*)$': '<rootDir>/jest/vizStub.js',
+    },
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'md'],
     transform: {
         '\\.md$': '<rootDir>/jest/rawTransform.js',

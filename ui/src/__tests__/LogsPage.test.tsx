@@ -110,13 +110,13 @@ describe('Troubleshooting page', () => {
         expect(screen.getByTestId('tile-errors')).toHaveTextContent('2');
         expect(screen.getByTestId('tile-requests')).toHaveTextContent('of 10 · 1 server error');
         expect(screen.getByTestId('tile-slow')).toHaveTextContent('210 ms');
-        // The activity graph is Splunk's Column chart, stacked, fed the buckets as a search result.
-        const chart = screen.getByTestId('splunk-chart');
-        expect(chart.getAttribute('data-kind')).toBe('column');
-        expect(JSON.parse(within(chart).getByTestId('viz-stub').getAttribute('data-options') || '{}').stackMode).toBe('stacked');
-        expect(chart.querySelectorAll('[data-field="_time"]')).toHaveLength(1);
-        expect(chart.querySelector('[data-field="_time"]')!.textContent!.split(',')).toHaveLength(2);
-        expect(chart.querySelector('[data-field="Errors"]')).not.toBeNull();
+        // The activity graph is a Dashboard Studio panel: Splunk's stacked Column chart on a chain
+        // of the summary's own search, with Open in search in its action bar.
+        const def = JSON.parse(screen.getByTestId('dashboard').getAttribute('data-definition') || '{}');
+        expect(def.dataSources.ds_base.options.query).toBe('x');
+        expect(def.visualizations.viz_levels.type).toBe('splunk.column');
+        expect(def.visualizations.viz_levels.options.stackMode).toBe('stacked');
+        expect(within(screen.getByTestId('panel-viz_levels')).getByTestId('open-in-search')).toBeInTheDocument();
         await act(async () => {
             fireEvent.click(screen.getByTestId('tile-actions'));
         });

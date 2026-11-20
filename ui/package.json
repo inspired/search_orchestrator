@@ -14,6 +14,11 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "1.1.5",
+    "@splunk/dashboard-context": "29.9.0",
+    "@splunk/dashboard-core": "29.9.0",
+    "@splunk/dashboard-layouts": "29.9.0",
+    "@splunk/dashboard-state": "29.9.0",
+    "@splunk/datasources": "29.9.0",
     "@splunk/react-icons": "^5.17.0",
     "@splunk/react-page": "^8.4.0",
     "@splunk/react-ui": "^5.18.0",
@@ -46,5 +51,19 @@
     "typescript": "^5.9.3",
     "webpack": "^5.112.2",
     "webpack-cli": "^5.1.4"
+  },
+  "overrides": {
+    "@splunk/async-dynamic-options-evaluator": "28.9.1",
+    "@splunk/charting-bundle": "28.9.1",
+    "@splunk/visualizations-shared": "28.9.1",
+    "@splunk/react-field-summary": "28.9.1",
+    "@splunk/visualization-color-palettes": "28.9.1",
+    "@splunk/visualization-encoding": "28.9.1",
+    "@splunk/visualization-icons": "28.9.1",
+    "@splunk/visualization-migrations": "28.9.1",
+    "@splunk/visualization-schemas": "28.9.1",
+    "@splunk/visualization-themes": "28.9.1",
+    "@splunk/react-events-viewer": "28.9.1",
+    "@splunk/visualization-canvas": "28.9.1"
   }
 }

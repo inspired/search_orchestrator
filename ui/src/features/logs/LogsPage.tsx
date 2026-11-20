@@ -298,7 +298,7 @@ export default function LogsPage({ api = defaultApi }: { api?: LogsApi }) {
                 </div>
             )}
             <HealthStrip summary={summary} breakdown={breakdown} onPick={onPick} nowEpoch={loadedAt} />
-            <Graphs summary={summary} breakdown={breakdown} graph={graph} onGraph={(g) => { setGraph(g); writeAddress(draft, view, g); }} onPick={onPick} />
+            <Graphs summary={summary} breakdown={breakdown} live={live} graph={graph} onGraph={(g) => { setGraph(g); writeAddress(draft, view, g); }} onPick={onPick} />
             <TabBar activeTabId={view} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => apply({}, (selectedTabId as View) || 'lines')}>
                 <TabBar.Tab label="What happened" tabId="lines" />
                 <TabBar.Tab label={problems ? `Problems (${problems.problems.length})` : 'Problems'} tabId="problems" />

@@ -1,16 +1,19 @@
 /* The top of the Troubleshooting page: health tiles (engine, errors, warnings, failed
  * requests, slow requests, failed actions, failed runs), each a filter when clicked, and the
  * graphs to switch between (activity, requests, engine, Splunk calls, events). */
-import React from 'react';
+import React, { useMemo } from 'react';
 import Link from '@splunk/react-ui/Link';
 import TabBar from '@splunk/react-ui/TabBar';
+import { createURL } from '@splunk/splunk-utils/url';
 import type { LogBreakdown, LogFilters, LogSummary, SearchLink } from '../../api/logs';
 import { eventLabel } from './catalog';
 import type { Tone } from './catalog';
-import { BarList, ChartFrame, LineChart, StackedColumns, chartSearchUrl, useTheme } from './charts';
-import type { Point, Series } from './charts';
+import { BarList, useTheme } from './charts';
+import GraphDashboard from './GraphDashboard';
+import type { GraphPanel } from './GraphDashboard';
 import { ToneIcon, ago, toneColor } from './look';
 import { paletteOf } from './palette';
+import type { Palette } from './palette';
 
 export interface Pick {
     filters?: Partial<LogFilters>;
@@ -169,14 +172,21 @@ function Hint({ children }: { children: React.ReactNode }) {
     return <p style={{ color: t.contentColorMuted, fontSize: '12px', margin: '6px 0 0' }}>{children}</p>;
 }
 
-export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary: LogSummary | null; breakdown: LogBreakdown | null; graph: GraphId; onGraph: (g: GraphId) => void; onPick: (p: Pick) => void }) {
+function SearchText({ link }: { link?: SearchLink }) {
+    if (!link) {
+        return null;
+    }
+    return (
+        <Link to={createURL('/app/search/search', { q: link.spl, earliest: link.earliest, latest: link.latest })} openInNewContext>
+            Open in Search
+        </Link>
+    );
+}
+
+export function Graphs({ summary, breakdown, graph, onGraph, onPick, live = false }: { summary: LogSummary | null; breakdown: LogBreakdown | null; graph: GraphId; onGraph: (g: GraphId) => void; onPick: (p: Pick) => void; live?: boolean }) {
     const t = useTheme();
-    const points: Point[] = (summary ? summary.buckets : []).map((b) => ({ ...b }) as unknown as Point);
-    const long = summary ? summary.range === '7d' || summary.range === '24h' : false;
     const debugOff = summary && summary.log_level !== 'DEBUG';
-    const muted = t.contentColorMuted;
     const p = paletteOf(t);
-    const SEV = { high: p.error, medium: p.warning, info: p.info, low: p.muted, ok: p.ok };
     const levelPick = (key: string) => {
         const level = ({ error: 'ERROR', warning: 'WARNING', info: 'INFO', debug: 'DEBUG' } as Record<string, string>)[key];
         if (level) {
@@ -184,26 +194,10 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
         }
     };
     const box: React.CSSProperties = { margin: '0 0 24px' };
+    const panels = useMemo(() => graphPanels(p), [p]);
     const activity = summary ? summary.searches.activity : undefined;
-    const over = (kind: 'column' | 'line', series: Series[], stacked = false) => (activity ? chartSearchUrl(activity, { kind, series, stacked }) : undefined);
-    const plain = (link?: SearchLink) => (link ? chartSearchUrl(link) : undefined);
-    const levelSeries: Series[] = [
-        { key: 'error', label: 'Errors', color: SEV.high },
-        { key: 'warning', label: 'Warnings', color: SEV.medium },
-        { key: 'info', label: 'Info', color: SEV.info },
-        { key: 'debug', label: 'Debug', color: SEV.low },
-    ];
-    const requestSeries: Series[] = [
-        { key: 'req_5xx', label: 'Server errors (5xx)', color: SEV.high },
-        { key: 'req_4xx', label: 'Refused (4xx)', color: SEV.medium },
-        { key: 'req_ok', label: 'OK', color: SEV.ok },
-    ];
-    const p95Series: Series[] = [{ key: 'req_p95', label: '95th percentile', color: SEV.info }];
-    const tickSeries: Series[] = [
-        { key: 'tick_avg', label: 'Average', color: SEV.info },
-        { key: 'tick_max', label: 'Slowest', color: SEV.medium, dashed: true },
-    ];
-    const activeSeries: Series[] = [{ key: 'active_runs', label: 'Active runs', color: SEV.info }];
+    const dashboard = (id: 'activity' | 'requests' | 'engine', label: string) =>
+        activity ? <GraphDashboard base={activity} panels={panels[id]} live={live} label={label} /> : null;
     return (
         <section aria-label="Graphs" style={box}>
             <TabBar activeTabId={graph} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onGraph((selectedTabId as GraphId) || 'activity')}>
@@ -217,11 +211,9 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                 {!summary && <Hint>Loading…</Hint>}
                 {summary && graph === 'activity' && (
                     <>
-                        <ChartFrame href={over('column', levelSeries, true)}>
-                            <StackedColumns label="Log lines over time by level" points={points} long={long} series={levelSeries} />
-                        </ChartFrame>
+                        {dashboard('activity', 'Log lines over time by level')}
                         <Hint>
-                            {`Log lines per ${summary.span}. A spike of errors or warnings shows when something broke; a gap with no lines at all means nothing was running or the engine was down. The low, steady bars are the engine's heartbeat: one Info line every 5 minutes. The magnifying glass opens the graph in Search.`}
+                            {`Log lines per ${summary.span}. A spike of errors or warnings shows when something broke; a gap with no lines at all means nothing was running or the engine was down. Point at a column for its numbers; point at the graph and use the magnifying glass at its top right to open it in Search.`}
                         </Hint>
                         <div data-testid="level-links" style={{ display: 'flex', gap: '16px', fontSize: '12px', marginTop: '4px' }}>
                             {[
@@ -238,15 +230,8 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                 )}
                 {summary && graph === 'requests' && (
                     <>
-                        <ChartFrame href={over('column', requestSeries, true)}>
-                            <StackedColumns label="Requests over time by result" points={points} long={long} series={requestSeries} height={140} />
-                        </ChartFrame>
-                        <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Response time, 95th percentile</div>
-                        <ChartFrame href={over('line', p95Series)}>
-                            <LineChart label="95th percentile response time over time" points={points} long={long} unit="ms" height={120} series={p95Series} />
-                        </ChartFrame>
+                        {dashboard('requests', 'Requests over time')}
                         <div style={{ fontSize: '12px', fontWeight: 600, margin: '12px 0 6px' }}>Slowest routes (95th percentile)</div>
-                        <ChartFrame href={plain(breakdown ? breakdown.searches.routes : undefined)}>
                         <BarList
                             unit="ms"
                             empty="No requests in this range."
@@ -258,30 +243,24 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 color: r.failed ? p.warning : undefined,
                             }))}
                         />
-                        </ChartFrame>
-                        <Hint>{'Info level logs only changes and failed requests; at Debug every request is logged, reads too.'}</Hint>
+                        <Hint>
+                            {'Info level logs only changes and failed requests; at Debug every request is logged, reads too. '}
+                            <SearchText link={breakdown ? breakdown.searches.routes : undefined} />
+                        </Hint>
                     </>
                 )}
                 {summary && graph === 'engine' && (
                     <>
-                        <div style={{ fontSize: '12px', fontWeight: 600, margin: '0 0 2px' }}>Tick time</div>
-                        <ChartFrame href={over('line', tickSeries)}>
-                            <LineChart label="Engine tick time over time" points={points} long={long} unit="ms" height={130} series={tickSeries} />
-                        </ChartFrame>
-                        <div style={{ fontSize: '12px', fontWeight: 600, margin: '10px 0 2px' }}>Active runs</div>
-                        <ChartFrame href={over('line', activeSeries)}>
-                            <LineChart label="Active runs over time" points={points} long={long} height={110} series={activeSeries} />
-                        </ChartFrame>
+                        {dashboard('engine', 'The engine over time')}
                         <Hint>
                             {debugOff
-                                ? 'Ticks are logged at Debug level only: set Log level to Debug in Settings to fill these graphs. '
+                                ? 'Ticks are logged at Debug level only: set Log level to Debug in Settings to fill these graphs.'
                                 : 'Each tick advances every active run; a tick normally takes well under a second. A gap means the engine did not tick (stopped, or another engine held the lease); slow ticks mean slow KV Store or Splunk calls (see Splunk calls).'}
                         </Hint>
                     </>
                 )}
                 {summary && graph === 'calls' && (
                     <>
-                        <ChartFrame href={plain(breakdown ? breakdown.searches.calls : undefined)}>
                         <BarList
                             unit="ms"
                             empty={debugOff ? 'Splunk calls are logged at Debug level only: set Log level to Debug in Settings.' : 'No Splunk calls in this range.'}
@@ -293,13 +272,14 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 color: c.errors ? p.warning : undefined,
                             }))}
                         />
-                        </ChartFrame>
-                        <Hint>{'Every call the app makes to splunkd (KV Store, saved searches, search jobs), slowest first by 95th percentile. Slow KV Store calls slow down every tick and every page.'}</Hint>
+                        <Hint>
+                            {'Every call the app makes to splunkd (KV Store, saved searches, search jobs), slowest first by 95th percentile. Slow KV Store calls slow down every tick and every page. '}
+                            <SearchText link={breakdown ? breakdown.searches.calls : undefined} />
+                        </Hint>
                     </>
                 )}
                 {summary && graph === 'events' && (
                     <>
-                        <ChartFrame href={plain(summary.searches.counts)}>
                         <BarList
                             empty="No events in this range."
                             onPick={(key) => onPick({ filters: key === '(no event)' ? { event: '', level: 'WARNING' } : { event: key, level: 'DEBUG' } })}
@@ -311,11 +291,63 @@ export function Graphs({ summary, breakdown, graph, onGraph, onPick }: { summary
                                 color: e.levels.ERROR ? p.error : e.levels.WARNING ? p.warning : undefined,
                             }))}
                         />
-                        </ChartFrame>
-                        <Hint>{'What the app did most, in this range. Click one to show its lines.'}</Hint>
+                        <Hint>
+                            {'What the app did most, in this range. Click one to show its lines. '}
+                            <SearchText link={summary.searches.counts} />
+                        </Hint>
                     </>
                 )}
             </div>
         </section>
     );
+}
+
+/** The panels of each graph tab, in the page palette's colours. */
+export function graphPanels(p: Palette): Record<'activity' | 'requests' | 'engine', GraphPanel[]> {
+    return {
+        activity: [
+            {
+                id: 'levels',
+                title: 'Log lines over time by level',
+                kind: 'column',
+                stacked: true,
+                height: 260,
+                series: [
+                    { key: 'error', label: 'Errors', color: p.error },
+                    { key: 'warning', label: 'Warnings', color: p.warning },
+                    { key: 'info', label: 'Info', color: p.info },
+                    { key: 'debug', label: 'Debug', color: p.muted },
+                ],
+            },
+        ],
+        requests: [
+            {
+                id: 'requests',
+                title: 'Requests over time by result',
+                kind: 'column',
+                stacked: true,
+                height: 230,
+                series: [
+                    { key: 'req_5xx', label: 'Server errors (5xx)', color: p.error },
+                    { key: 'req_4xx', label: 'Refused (4xx)', color: p.warning },
+                    { key: 'req_ok', label: 'OK', color: p.ok },
+                ],
+            },
+            { id: 'p95', title: 'Response time, 95th percentile', kind: 'line', unit: 'ms', height: 200, series: [{ key: 'req_p95', label: '95th percentile', color: p.info }] },
+        ],
+        engine: [
+            {
+                id: 'ticks',
+                title: 'Tick time',
+                kind: 'line',
+                unit: 'ms',
+                height: 210,
+                series: [
+                    { key: 'tick_avg', label: 'Average', color: p.info },
+                    { key: 'tick_max', label: 'Slowest', color: p.warning, dashed: true },
+                ],
+            },
+            { id: 'active', title: 'Active runs', kind: 'line', height: 190, series: [{ key: 'active_runs', label: 'Active runs', color: p.info }] },
+        ],
+    };
 }
