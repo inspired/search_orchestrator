@@ -19,6 +19,7 @@ import SidePanel, { usePanelLayout } from './SidePanel';
 import SimpleView from '../simple/SimpleView';
 import { standardGraph, standardLineLabels } from './standardGraph';
 import StandardAddStep from './StandardAddStep';
+import TriggersTab from './TriggersTab';
 import { readSimple } from '../simple/simpleModel';
 import { ViewSwitch, useBuilderView } from '../simple/useBuilderView';
 import useCompactPref from './useCompactPref';
@@ -227,7 +228,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const { selection, removing, requestRemove, confirmRemove } = picked;
     const grouping = useGroups({ job, graph, positions, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
     const goToIssue = (issue: Issue) => {
-        setActiveTab(tabForIssue(issue));
+        setActiveTab(tabForIssue(issue, view));
         const key = nodeForIssue(job, issue);
         if (key) {
             selectNode(key);
@@ -638,6 +639,19 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                         owner={owner}
                         roles={me ? me.roles : []}
                         steps={stepsTab}
+                        view={view}
+                        triggers={
+                            <TriggersTab
+                                job={job}
+                                jobs={jobs}
+                                dispatch={dispatch}
+                                nextSlots={api.nextSlots}
+                                schedulePreview={api.schedulePreview}
+                                savedJobId={jobId}
+                                onOpenSettings={() => setActiveTab('settings')}
+                                onRequestRemove={requestRemove}
+                            />
+                        }
                         issues={issues}
                         canEdit={meta.canEdit}
                         knownTags={knownTags}

@@ -21,6 +21,7 @@ import ParamsTab from './ParamsTab';
 import HistoryTab from './HistoryTab';
 import type { HistoryProps } from './HistoryTab';
 import SourceTab from './SourceTab';
+import type { BuilderView } from '../simple/useBuilderView';
 import type { BuilderAction } from './reducer';
 import { BUILTIN_DEFAULTS } from './previewLogic';
 import { DurationField } from './StepPanel';
@@ -29,10 +30,11 @@ import { issueCounts } from './issueTabs';
 import { timeZoneOptions } from './schedule';
 import { cleanTags, tagsProblem } from '../jobs/tags';
 
-export type TabId = 'steps' | 'actions' | 'params' | 'access' | 'settings' | 'source' | 'history';
+export type TabId = 'steps' | 'triggers' | 'actions' | 'params' | 'access' | 'settings' | 'source' | 'history';
 
 export const TAB_LABELS: Record<TabId, string> = {
     steps: 'Flow',
+    triggers: 'Triggers',
     actions: 'Job actions',
     params: 'Parameters',
     access: 'Access',
@@ -48,8 +50,12 @@ export interface JobTabsProps {
     dispatch: (action: BuilderAction) => void;
     owner: string;
     roles: string[];
-    /** The Flow tab: canvas and side panel. */
+    /** The first tab (Steps, or Flow in Advanced): canvas and side panel. */
     steps: React.ReactNode;
+    /** The Triggers tab, shown in the Standard view only. */
+    triggers?: React.ReactNode;
+    /** Which builder view is on: it names the first tab and decides the Triggers tab. */
+    view?: BuilderView;
     /** Every current issue; each tab shows how many errors it holds. */
     issues?: Issue[];
     /** False for a viewer: the Source tab is read only. */
@@ -207,17 +213,21 @@ function SettingsTab({ job, dispatch, knownTags }: Pick<JobTabsProps, 'job' | 'd
     );
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
-    const counts = issueCounts(issues);
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, triggers, view = 'advanced', issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
+    const counts = issueCounts(issues, view);
+    // Triggers have their own tab only in Standard; Advanced draws them as nodes and Simple shows its one.
+    const tabs = (Object.keys(TAB_LABELS) as TabId[]).filter((id) => id !== 'triggers' || view === 'standard');
+    const label = (id: TabId) => (id === 'steps' ? (view === 'advanced' ? 'Flow' : 'Steps') : TAB_LABELS[id]);
     return (
         <div>
             <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onTabChange((selectedTabId || 'steps') as TabId)}>
-                {(Object.keys(TAB_LABELS) as TabId[]).map((id) => (
-                    <TabBar.Tab key={id} label={TAB_LABELS[id]} tabId={id} count={counts[id] || undefined} />
+                {tabs.map((id) => (
+                    <TabBar.Tab key={id} label={label(id)} tabId={id} count={counts[id] || undefined} />
                 ))}
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
+                {tab === 'triggers' && view === 'standard' && triggers}
                 {tab === 'params' && (
                     <ParamsTab params={job.params || []} onChange={(value) => dispatch({ type: 'setJobField', field: 'params', value })} />
                 )}

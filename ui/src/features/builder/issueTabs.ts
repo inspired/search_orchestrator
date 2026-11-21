@@ -2,6 +2,7 @@
 import type { Action, Issue, JobDefinition } from '../../api/types';
 import type { TabId } from './JobTabs';
 import { actionKey, condKey, stepKey, triggerKey } from './nodeModel';
+import type { BuilderView } from '../simple/useBuilderView';
 
 /** Warnings about the jobs a job starts (a whole-job Start job action). */
 const JOB_LINK_CODES = ['missing_target_job', 'disabled_target_job'];
@@ -11,7 +12,11 @@ const ACTION_CODES = ['bad_action', 'unknown_destination', 'no_failure_notificat
 const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes'];
 const SETTINGS_CODES = ['bad_timezone', 'timezone_fallback', 'bad_deadline'];
 
-export function tabForIssue(issue: Issue): TabId {
+export function tabForIssue(issue: Issue, view: BuilderView = 'advanced'): TabId {
+    // In Standard, triggers have their own tab.
+    if (view === 'standard' && (TRIGGER_CODES.includes(issue.code) || issue.code === 'trigger_starts_nothing')) {
+        return 'triggers';
+    }
     if (SETTINGS_CODES.includes(issue.code)) {
         return 'settings';
     }
@@ -139,11 +144,11 @@ export function nodeForIssue(job: JobDefinition, issue: Issue): string | null {
     return null;
 }
 
-export function issueCounts(issues: Issue[]): Partial<Record<TabId, number>> {
+export function issueCounts(issues: Issue[], view: BuilderView = 'advanced'): Partial<Record<TabId, number>> {
     const out: Partial<Record<TabId, number>> = {};
     issues.forEach((i) => {
         if (i.level === 'error') {
-            const tab = tabForIssue(i);
+            const tab = tabForIssue(i, view);
             out[tab] = (out[tab] || 0) + 1;
         }
     });

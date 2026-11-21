@@ -129,4 +129,16 @@ describe('Standard view', () => {
         expect(sent.layout.nodes['trigger:0']).toEqual({ x: 0, y: 0 });
         expect(sent.layout.nodes['action:daily:0']).toEqual({ x: 300, y: 200 });
     });
+
+    test('a trigger is removed from the Triggers tab after confirming', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.click(screen.getByRole('tab', { name: /Triggers/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Remove trigger' }));
+        const dialog = await screen.findByRole('dialog');
+        fireEvent.click(within(dialog).getByRole('button', { name: /^Remove/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
+        expect((api.updateJob as jest.Mock).mock.calls[0][1].triggers).toEqual([]);
+    });
 });
