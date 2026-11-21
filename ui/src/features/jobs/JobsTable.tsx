@@ -20,7 +20,9 @@ import type { Job, Me } from '../../api/types';
 import StatusText, { isRunDelayed, srOnly } from '../../components/StatusText';
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
+import JobsBulk, { JobsBulkApi } from './JobsBulk';
 import JobsEmpty from './JobsEmpty';
+import Message from '@splunk/react-ui/Message';
 import { filterJobs, jobSummary } from './jobSummary';
 import RecentRuns from './RecentRuns';
 import { allTags, hasTag } from './tags';
@@ -66,6 +68,8 @@ export interface JobsTableProps {
     onExport?: (shown: Job[]) => void;
     /** Epoch seconds for "in 6 min" and running times; defaults to the clock. */
     now?: number;
+    /** Tick boxes and actions on many jobs at once; without it the rows have no tick boxes. */
+    bulk?: JobsBulkApi;
 }
 
 function nextRunText(job: Job): string {
@@ -104,7 +108,21 @@ function DurationCell({ job, now, theme }: { job: Job; now: number; theme: Recor
     );
 }
 
-export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples, onExport, onFollow, now }: JobsTableProps) {
+export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples, onExport, onFollow, now, bulk }: JobsTableProps) {
+    const [picked, setPicked] = useState<Record<string, boolean>>({});
+    const [result, setResult] = useState<string[] | null>(null);
+    const setMany = (ids: string[], on: boolean) =>
+        setPicked((p) => {
+            const next = { ...p };
+            ids.forEach((id) => {
+                if (on) {
+                    next[id] = true;
+                } else {
+                    delete next[id];
+                }
+            });
+            return next;
+        });
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const at = now ?? Math.floor(Date.now() / 1000);
     const [query, setQuery] = useState('');
@@ -130,6 +148,10 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
     const tag = tags.some((t) => t.toLowerCase() === view.tag.toLowerCase()) ? view.tag : '';
     const filtersOn = [query.trim() ? `matching "${query.trim()}"` : '', view.show !== 'all' ? SHOW_LABEL[view.show].toLowerCase() : '', tag ? `tagged ${tag}` : ''].filter(Boolean);
     const shown = sortJobs(showJobs(filterJobs(jobs, query), view.show, me), view.sort).filter((j) => hasTag(j, tag));
+    // Ticked jobs that are still shown: a filter that hides one leaves it out of what an action does.
+    const selected = shown.filter((j) => picked[j.id]);
+    const ticked = shown.filter((j) => picked[j.id]).length;
+    const allTick = !ticked ? 'none' : ticked === shown.length ? 'all' : 'some';
     return (
         <>
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -188,9 +210,29 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                     </Link>
                 </div>
             )}
+            {result && (
+                <Message type={result.some((l) => / failed: /.test(l)) ? 'warning' : 'success'} appearance="default" onRequestRemove={() => setResult(null)}>
+                    {result.map((line) => (
+                        <div key={line}>{line}</div>
+                    ))}
+                </Message>
+            )}
+            {bulk && selected.length > 0 && (
+                <JobsBulk
+                    selected={selected}
+                    me={me}
+                    api={bulk}
+                    onExport={onExport}
+                    onClear={() => setPicked({})}
+                    onResult={setResult}
+                />
+            )}
             {!shown.length && <p>{query.trim() ? `No jobs match "${query.trim()}".` : tag ? `No jobs tagged ${tag} here.` : `No jobs here: ${SHOW_LABEL[view.show].toLowerCase()}.`}</p>}
             {shown.length > 0 && (
-                <Table>
+                <Table
+                    onRequestToggleAllRows={bulk ? () => setMany(shown.map((j) => j.id), allTick !== 'all') : undefined}
+                    rowSelection={bulk ? allTick : undefined}
+                >
                     <Table.Head>
                         <Table.HeadCell>Name</Table.HeadCell>
                         <Table.HeadCell>Owner</Table.HeadCell>
@@ -210,7 +252,11 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                             const canEdit = job.permissions.can_edit;
                             const canRun = job.permissions.can_run && (!me || me.can_run || me.can_admin);
                             return (
-                                <Table.Row key={job.id}>
+                                <Table.Row
+                                    key={job.id}
+                                    onRequestToggle={bulk ? () => setMany([job.id], !picked[job.id]) : undefined}
+                                    selected={bulk ? Boolean(picked[job.id]) : undefined}
+                                >
                                     <Table.Cell>
                                         {/* One block, so the name and its summary stack instead of running together. */}
                                         <div>

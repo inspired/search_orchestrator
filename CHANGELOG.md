@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.48.0 (2026-11-21)
+
+- **Actions on many jobs:** the Jobs page has tick boxes (the header's picks every job shown) and, while any are ticked, **Run now**, **Enable**, **Disable**, **Export**, **Add tag** and **Delete** (asks first, naming the jobs). Each job is handled as if done on its own; the ones an action doesn't apply to are skipped with the reason, and a message lists what was done, skipped and failed. **Add tag** skips other people's jobs, since saving one makes you its owner.
+- **Standard view:** a step's **+** works as in Advanced (click for when, then a step; drag to empty canvas; drag onto a step), offering steps only.
+- **Triggers tab in every view.** Trigger problems are counted on it; in Advanced the triggers are still nodes on the canvas too.
+- **A new job opens in Standard**, whatever view was chosen last; the remembered choice is for jobs you open.
+
 ## 1.47.0 (2026-11-21)
 
 - **Three builder views: Simple, Standard and Advanced.** The first tab switches between three views of the same job; switching never changes it.

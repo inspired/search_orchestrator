@@ -53,12 +53,12 @@ Where you put nodes is saved with the job. Nodes you never moved are placed for 
 
 ### Simple, Standard and Advanced
 
-The first tab has three views of the same job, switched with **Simple**, **Standard** and **Advanced** above it. Switching never changes the job. The choice is remembered in this browser; with none yet, **Standard** opens.
+The first tab has three views of the same job, switched with **Simple**, **Standard** and **Advanced** above it. Switching never changes the job. The choice is remembered in this browser for jobs you open; a new job, and a job with no choice yet, opens in **Standard**.
 
 | View | What it shows | Good for |
 |---|---|---|
 | **Simple** | The searches top to bottom, each starting when the one above succeeds | A chain of searches with a few saves and messages |
-| **Standard** | The steps on a canvas with the lines between them; triggers on a **Triggers** tab and each step's actions in its panel | Most jobs: everything Advanced can do, with less on the canvas |
+| **Standard** | The steps on a canvas with the lines between them; triggers on the **Triggers** tab and each step's actions in its panel | Most jobs: everything Advanced can do, with less on the canvas |
 | **Advanced** | Every trigger, step, condition and action as a node on the **Flow** tab | Seeing and wiring the whole job at once |
 
 **Simple is locked** for a job it can't show, such as one with an approval step, more than one trigger or a line that runs on failure. Its button shows a lock; clicking it says why ("Simple can't show this job: an approval step. Use Standard or Advanced.") and keeps the view you are in.
@@ -66,11 +66,14 @@ The first tab has three views of the same job, switched with **Simple**, **Stand
 #### Standard
 
 - **The canvas** shows only the steps: searches, saved searches, results of earlier steps, summary index and lookup writes, and approvals. A line between two steps makes the second wait for the first. A line on failure reads **✗ Fails**, either way **∞ Either way**, and a condition reads **◇** and the condition. Click a line to change when it runs or its condition, test the condition, or remove it.
-- **Connect steps** by dragging from a step's handle onto another step; the line starts as *on success*. **Add step** above the canvas adds a step of any kind your admin hasn't turned off.
+- **Add and connect steps** with a step's **+**, as in Advanced, but it offers steps only (actions are added in the step's panel): click it and pick when (Succeeds, Fails, Finishes either way, If…) and then a step; drag it onto empty canvas to add a step there; or drag it onto another step to connect them. **Add step** above the canvas adds a step on its own. Only kinds your admin hasn't turned off are offered.
 - **Small marks on a step** show what is off the canvas: **⚡** a trigger starts it, **✉ 2** it has two actions, **⌛** it has a delay alert.
 - **A step's panel** has its settings and, below them, **Actions**: each action with when it fires (Starts, Succeeds, Fails, Finishes either way, Is delayed; on an approval, Approved, Rejected and Asks for approval) and what it does. **Add action** picks when and what; click an action to change its fields and retries, move it, or remove it.
-- **The Triggers tab** has a card for each schedule or *after another job* trigger, with the same settings as in Advanced (the next run times, the busy-times strip and the quieter-time hint), and **Starts**: the first steps it starts. **Add schedule** and **Add after another job** add one.
 - Whole-job actions are on the **Job actions** tab, as in the other views.
+
+#### The Triggers tab
+
+In every view, the **Triggers** tab has a card for each schedule or *after another job* trigger, with the same settings as a trigger node in Advanced (the next run times, the busy-times strip and the quieter-time hint), and **Starts**: the first steps it starts. **Add schedule** and **Add after another job** add one. Trigger problems are counted on this tab. In Advanced, the triggers are also nodes on the canvas.
 
 #### Simple
 
@@ -585,6 +588,7 @@ Above the table:
 
 - **Find jobs** searches names, ids, owners, descriptions and tags.
 - **Show** narrows to jobs whose last run failed, jobs with warnings, disabled, scheduled or your own; **Tag** to one tag; **Sort by** orders by name, next run, last run or failed first. All are remembered in this browser, so while any of them hides jobs a line says so ("Showing 3 of 12 jobs: tagged billing") with **Show all jobs**.
+- **Tick boxes** pick jobs (the one in the header picks every job shown). While any are ticked, a bar offers **Run now**, **Enable**, **Disable**, **Export** (downloads the ticked jobs), **Add tag** and **Delete** (it asks first and names the jobs). Each job is handled as if done on its own, one after another: jobs it doesn't apply to are skipped with the reason (already disabled, you can't edit or run it, or, for **Add tag**, another person's job, since saving it would make you its owner), and a message says what was done, skipped and failed.
 - **Export** downloads the jobs shown, and **⋯ > Export** downloads one job; see [Export and import many jobs](#export-and-import-many-jobs). **Create job**, **Import jobs** and **Browse examples** are at the top of the page.
 
 ### Tags

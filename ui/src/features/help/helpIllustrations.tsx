@@ -331,7 +331,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'the-jobs-page': () => (
-        <Figure caption="Each job with how soon it runs next, its newest runs, how long the last one took against the usual, and warnings about jobs it starts or follows.">
+        <Figure caption="Each job with how soon it runs next, its newest runs, how long the last one took against the usual, and warnings; tick jobs to act on many at once.">
             <MiniTable
                 head={['Job', 'Next run', 'Last runs', 'Duration']}
                 rows={[
@@ -339,6 +339,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     ['Weekly rollup ⚠ starts job “gone”, which doesn’t exist', 'Mon 06:00 · in 4 days', '✓ ✓ ✓ ✓ ✓', '1m 2s · usually 58s'],
                 ]}
             />
+            <Chips items={[{ text: '2 jobs selected', tone: 'info' }, { text: 'Run now', tone: 'muted', hollow: true }, { text: 'Enable', tone: 'muted', hollow: true }, { text: 'Disable', tone: 'muted', hollow: true }, { text: 'Export', tone: 'muted', hollow: true }, { text: 'Add tag', tone: 'muted', hollow: true }, { text: 'Delete', tone: 'bad', hollow: true }]} />
         </Figure>
     ),
     tags: () => (
