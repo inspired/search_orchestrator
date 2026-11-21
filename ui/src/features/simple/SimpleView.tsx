@@ -50,7 +50,7 @@ export interface SimpleViewProps {
     previews: Record<string, PreviewView | undefined>;
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview: (stepId: string) => void;
-    onOpenFlow: () => void;
+    onOpenAdvanced: () => void;
     onOpenSettings: () => void;
     onRequestRemove: (key: string) => void;
     /** Field names seen in previews, by step: offered as tokens in messages. */
@@ -140,7 +140,7 @@ export default function SimpleView(p: SimpleViewProps) {
             {simple.reasons.length > 0 && (
                 <Message type="warning" appearance="fill">
                     {`This job uses things Simple can't change: ${simple.reasons.join('; ')}. `}
-                    <Button appearance="secondary" label="Edit in Flow" onClick={p.onOpenFlow} />
+                    <Button appearance="secondary" label="Edit in Advanced" onClick={p.onOpenAdvanced} />
                 </Message>
             )}
 

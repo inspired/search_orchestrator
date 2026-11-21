@@ -17,6 +17,7 @@ import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
 import SidePanel, { usePanelLayout } from './SidePanel';
 import SimpleView from '../simple/SimpleView';
+import { readSimple } from '../simple/simpleModel';
 import { ViewSwitch, useBuilderView } from '../simple/useBuilderView';
 import useCompactPref from './useCompactPref';
 import useFlowLayout from './useFlowLayout';
@@ -436,7 +437,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             onOpenRuns={() => loadRuns(jobId)}
             resultRetention={resultRetention}
         />
-        <ViewSwitch view={view} onView={setView} />
+        <ViewSwitch view={view} onView={setView} lockedReasons={readSimple(job).reasons} />
         {view === 'simple' ? (
             <SimpleView
                 job={job}
@@ -453,7 +454,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                 previews={previews.previews}
                 onPreview={meta.canEdit ? (id, opts) => void previews.preview(id, opts) : undefined}
                 onCancelPreview={previews.cancel}
-                onOpenFlow={() => setView('flow')}
+                onOpenAdvanced={() => setView('advanced')}
                 onOpenSettings={() => setActiveTab('settings')}
                 onRequestRemove={requestRemove}
                 previewFields={previewFields}

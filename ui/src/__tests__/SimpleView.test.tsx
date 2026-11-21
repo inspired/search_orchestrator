@@ -27,7 +27,7 @@ function add(i: number, when: string, what: string) {
 }
 
 describe('Simple view', () => {
-    it('lists the searches in order and switches to Flow and back', async () => {
+    it('lists the searches in order and switches to Advanced and back', async () => {
         await show(<BuilderPage api={fakeApi()} jobId="rollups" />);
         expect(searches().map((li) => li.querySelector('button')!.textContent)).toEqual([
             expect.stringContaining('Daily summary'),
@@ -35,10 +35,10 @@ describe('Simple view', () => {
             expect.stringContaining('Monthly rollup'),
         ]);
         expect(screen.getByRole('region', { name: 'Starts' })).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Flow' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
         expect(screen.queryByTestId('simple-view')).toBeNull();
         expect(document.querySelectorAll('[data-node-key^="step:"]')).toHaveLength(3);
-        expect(window.localStorage.getItem('so.builder.view')).toBe('flow');
+        expect(window.localStorage.getItem('so.builder.view')).toBe('advanced');
         fireEvent.click(screen.getByRole('button', { name: 'Simple' }));
         expect(screen.getByTestId('simple-view')).toBeInTheDocument();
     });
@@ -136,12 +136,13 @@ describe('Simple view', () => {
         expect(save.run_when).toEqual({ kind: 'expression', value: '$daily.resultCount$ > 100' });
     });
 
-    it('shows a job it cannot edit read only, with the reason and Edit in Flow', async () => {
+    it("opens Standard for a job Simple can't show, and Simple says why", async () => {
         const job = rollupJob({ edges: [{ from: 'daily', to: 'weekly', condition: 'on_failure' }, { from: 'weekly', to: 'monthly', condition: 'on_success' }] });
         await show(<BuilderPage api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} jobId="rollups" />);
-        expect(screen.getByText(/uses things Simple can't change/)).toBeInTheDocument();
-        expect(screen.queryByText('+ Add search')).toBeNull();
-        fireEvent.click(screen.getByRole('button', { name: 'Edit in Flow' }));
+        expect(screen.queryByTestId('simple-view')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Standard' })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', { name: /Simple/ }));
+        expect(screen.getByText(/Simple can't show this job: a line that runs on failure/)).toBeInTheDocument();
         expect(screen.queryByTestId('simple-view')).toBeNull();
     });
 });
