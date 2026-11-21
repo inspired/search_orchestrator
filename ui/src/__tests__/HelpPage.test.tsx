@@ -1,7 +1,7 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
 import { act, fireEvent } from '@testing-library/react';
-import HelpPage, { HELP_TABS, docLink, guideSections, slugify, splitGuide, tabOf } from '../features/help/HelpPage';
+import HelpPage, { HELP_TABS, docLink, guideSections, slugify, splitGuide, tabOf, withoutGithubOnly } from '../features/help/HelpPage';
 import { FEATURES } from '../features/help/HelpOverview';
 import { ILLUSTRATIONS } from '../features/help/helpIllustrations';
 import LearnMore, { helpHref } from '../components/LearnMore';
@@ -174,5 +174,18 @@ describe('Learn more anchors', () => {
     it('every in-guide link points at a heading', () => {
         const links = all(/\]\(#([^)]+)\)/g, guide as string);
         links.forEach((l) => expect(headings.has(l)).toBe(true));
+    });
+});
+
+describe('GitHub-only parts of the guide', () => {
+    test('withoutGithubOnly drops the marked blocks and keeps the rest', () => {
+        const text = ['# Guide', '<!-- github-only -->', '<p><img src="x.svg"></p>', '<!-- /github-only -->', 'Intro.', '## A', 'Text.', '<!-- github-only -->', '![fig](y.svg)', '<!-- /github-only -->', 'More.'].join('\n');
+        expect(withoutGithubOnly(text)).toBe(['# Guide', 'Intro.', '## A', 'Text.', 'More.'].join('\n'));
+    });
+
+    test('splitGuide never shows a GitHub-only block in the app', () => {
+        const { intro, parts } = splitGuide('# G\n<!-- github-only -->\n<img src="b.svg">\n<!-- /github-only -->\nHello\n## One\n<!-- github-only -->\n![x](x.svg)\n<!-- /github-only -->\nBody');
+        expect(intro).toBe('Hello');
+        expect(parts[0].text).toBe('## One\nBody');
     });
 });

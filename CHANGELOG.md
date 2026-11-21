@@ -1,4 +1,31 @@
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/header-changelog-dark.svg"><img alt="Search Orchestrator changelog: every release, newest first" src="docs/images/header-changelog-light.svg" width="100%"></picture></p>
+
+<p align="center">
+  <a href="README.md"><b>Home</b></a> ·
+  <a href="docs/user-guide.md"><b>User guide</b></a> ·
+  <a href="docs/admin-guide.md"><b>Admin guide</b></a> ·
+  <b>Changelog</b>
+</p>
+
 # Changelog
+
+Every release of Search Orchestrator, newest first. Download a release from the [releases page](https://github.com/lyderhansen/search_orchestrator/releases).
+
+> [!NOTE]
+> This line split from [inspired/search_orchestrator](https://github.com/inspired/search_orchestrator) at 1.4.0 and merged its 1.4.1 to 1.7.1 back in 1.46.0; those releases are listed at the end, under [inspired 1.4.1 to 1.7.1](#inspired-141-to-171-merged-in-1460).
+
+| Latest releases | Date |
+|---|---|
+| [1.48.1](#1481-2026-11-21) | 2026-11-21 |
+| [1.48.0](#1480-2026-11-21) | 2026-11-21 |
+| [1.47.0](#1470-2026-11-21) | 2026-11-21 |
+| [1.46.1](#1461-2026-11-20) | 2026-11-20 |
+| [1.46.0](#1460-2026-11-20) | 2026-11-20 |
+
+## 1.48.1 (2026-11-21)
+
+- **Documentation:** the user guide, admin guide and changelog have a banner, links between them, a contents table and figures (the three builder views, a run's states, where the parts run), in light and dark. The figures are drawn by `scripts/docs_art.py`. The README lists the documentation and the license (Apache 2.0, as the original project set it).
+- The in-app Help leaves out the guide's GitHub-only parts (banner, links, contents and figures), which it has its own versions of.
 
 ## 1.48.0 (2026-11-21)
 

@@ -1,6 +1,29 @@
+<!-- github-only -->
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/header-user-dark.svg"><img alt="Search Orchestrator user guide: build and run jobs" src="images/header-user-light.svg" width="100%"></picture></p>
+
+<p align="center">
+  <a href="../README.md"><b>Home</b></a> ·
+  <b>User guide</b> ·
+  <a href="admin-guide.md"><b>Admin guide</b></a> ·
+  <a href="../CHANGELOG.md"><b>Changelog</b></a>
+</p>
+<!-- /github-only -->
+
 # Search Orchestrator: user guide
 
 Search Orchestrator makes dependent searches run as one unit, so a weekly rollup never runs on top of an unfinished daily summary. Admins: see the [admin guide](admin-guide.md).
+
+<!-- github-only -->
+> [!TIP]
+> The same guide is built into the app: **Help** in the app bar, with an illustration under every section and **Learn more** links from the pages.
+
+| Get started | Build jobs | Follow runs | Reference |
+|---|---|---|---|
+| [Words used](#words-used) | [Build a job](#build-a-job) | [Follow runs](#follow-runs) | [The `\| orchestrate` command](#the--orchestrate-command) |
+| [Example jobs](#example-jobs) | [Simple, Standard and Advanced](#simple-standard-and-advanced) | [Dependencies](#dependencies) | [Audit events](#audit-events) |
+| | [Triggers](#triggers) · [Actions](#actions) | [Calendar](#calendar) · [Backfill](#backfill) | [How it works](#how-it-works) |
+| | [Conditions](#conditions) · [Deadline](#deadline) | [Re-run from a step](#re-run-from-a-step) · [Troubleshooting](#troubleshooting) | [Help in the app](#help-in-the-app) |
+<!-- /github-only -->
 
 ## Words used
 
@@ -52,6 +75,10 @@ The first tab shows the job in one of three views (see [Simple, Standard and Adv
 Where you put nodes is saved with the job. Nodes you never moved are placed for you. Moving nodes does not count as changing the job when you re-run a step.
 
 ### Simple, Standard and Advanced
+
+<!-- github-only -->
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/views-dark.svg"><img alt="The same job in the Simple, Standard and Advanced views" src="images/views-light.svg" width="100%"></picture></p>
+<!-- /github-only -->
 
 The first tab has three views of the same job, switched with **Simple**, **Standard** and **Advanced** above it. Switching never changes the job. The choice is remembered in this browser for jobs you open; a new job, and a job with no choice yet, opens in **Standard**.
 
@@ -550,6 +577,10 @@ The **History** tab, the last tab in the builder after Source, lists every saved
 
 ## Follow runs
 
+<!-- github-only -->
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/run-lifecycle-dark.svg"><img alt="A run's states: queued, running, then succeeded, failed or cancelled; a failed run holds later runs until it is re-run or dismissed" src="images/run-lifecycle-light.svg" width="100%"></picture></p>
+<!-- /github-only -->
+
 - **Jobs** lists every job you may see; see [The Jobs page](#the-jobs-page).
 - **Runs** lists the runs, grouped by job; a running, paused or blocked run shows a progress bar of its steps (finished out of all, including skipped ones; red when blocked). See [The Runs page](#the-runs-page).
 - **Runs → Timeline** shows every job's past, running and scheduled runs on one time axis, over 24 hours or 7 days (**Timeline** at the top right of the Runs page) (**Earlier**, **Now**, **Later** move the window). The top row, **Concurrent searches**, counts the searches running at each moment across all jobs, with a dashed line at the limit; scheduled time above the limit is drawn in the warning colour, because those searches would queue. Grey bars succeeded, red failed or were cancelled, amber were delayed, dark are running, hatched were queued, and dashed outlines are scheduled. A scheduled run's length is estimated from each step's last successful run (60 seconds for a step that never ran); steps whose Run when skips that day are left out, and steps with an expression condition are counted. A job started by another job's completion is indented under it. Jobs you may not see show as **Hidden job N**, with no name or links, so the load is the real one. Click a past run to open it.
@@ -825,6 +856,10 @@ Every change is written to the `orchestrator` index, one JSON event per change w
 A technical drawing of the app: every part, which files hold it and how the parts call each other. Click a part in the first drawing to see what it does and what it talks to. The second drawing follows one run from saving the job to its last action; the table lists every Python module.
 
 In short: the pages in your browser call one REST endpoint (`/orchestrator`), which checks who you are and saves jobs in KV Store and each step as a hidden saved search. A separate engine process ticks every 5 seconds: it creates runs when a schedule is due, starts each step's saved search, checks it until it finishes, decides from the lines and conditions what runs next, and sends the actions. The pages follow along by reading the same KV Store records. Every change is an audit event in `index=orchestrator` and a line in the app's log in `_internal`.
+
+<!-- github-only -->
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the orchestrator index" src="images/architecture-light.svg" width="100%"></picture></p>
+<!-- /github-only -->
 
 ## Help in the app
 

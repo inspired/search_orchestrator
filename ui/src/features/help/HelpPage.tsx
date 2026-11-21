@@ -98,9 +98,27 @@ export interface GuidePart {
     tab: HelpTab;
 }
 
+/** The guide without its GitHub-only blocks (between `<!-- github-only -->` and
+ * `<!-- /github-only -->`): the banner, figures and contents the repository page shows,
+ * which the app has its own versions of. */
+export function withoutGithubOnly(text: string): string {
+    const out: string[] = [];
+    let skipping = false;
+    text.split('\n').forEach((line) => {
+        if (/^<!-- github-only -->\s*$/.test(line)) {
+            skipping = true;
+        } else if (/^<!-- \/github-only -->\s*$/.test(line)) {
+            skipping = false;
+        } else if (!skipping) {
+            out.push(line);
+        }
+    });
+    return out.join('\n');
+}
+
 /** The guide cut at its ## headings; the text before the first one is `intro`. */
 export function splitGuide(text: string): { intro: string; parts: GuidePart[] } {
-    const lines = text.split('\n');
+    const lines = withoutGithubOnly(text).split('\n');
     const intro: string[] = [];
     const parts: GuidePart[] = [];
     let fence = false;

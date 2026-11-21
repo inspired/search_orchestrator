@@ -11,6 +11,7 @@
   <img alt="Splunk Cloud Victoria" src="https://img.shields.io/badge/Splunk%20Cloud-Victoria-0B6FA4?style=flat-square">
   <img alt="AppInspect: 0 failures" src="https://img.shields.io/badge/AppInspect-0%20failures-2E7D32?style=flat-square">
   <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%E2%80%933.13-6B7078?style=flat-square">
+  <a href="app/search_orchestrator/LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-6B7078?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -41,7 +42,7 @@
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/build-dark.svg"><img src="docs/images/icons/build-light.svg" width="40" height="40" alt=""></picture>
       <h3>Build</h3>
-      Draw jobs on a canvas or list them top to bottom. Start from <b>18 example jobs</b> that use only data every Splunk has. Preview each step before you save.
+      Three views of one job: <b>Simple</b> (searches in order), <b>Standard</b> (steps on a canvas) or <b>Advanced</b> (every node). Start from <b>18 example jobs</b>, preview each step, and act on many jobs at once.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/trigger-dark.svg"><img src="docs/images/icons/trigger-light.svg" width="40" height="40" alt=""></picture>
@@ -84,6 +85,14 @@ Roles, the audit index and settings are in the [admin guide](docs/admin-guide.md
 > [!NOTE]
 > This is a test release. Email, webhook, Slack, Teams, PagerDuty and ServiceNow notifications and approval steps are planned but not ready yet. You may find some of them in the app marked **Beta**; an admin can turn them off under **Settings → Building blocks**. Please [open an issue](../../issues) when something breaks or reads oddly.
 
+## Documentation
+
+| | |
+|---|---|
+| [**User guide**](docs/user-guide.md) | Build jobs, follow runs, troubleshoot. Also built into the app under **Help**. |
+| [**Admin guide**](docs/admin-guide.md) | Install, roles, settings, security, the REST API and known limits. |
+| [**Changelog**](CHANGELOG.md) | What changed in every release. |
+
 ## Where it runs
 
 | Platform | Status |
@@ -107,3 +116,7 @@ python3 -m pytest -q tests                                 # backend tests
 ## Credits
 
 Made by [Mikael Bjerkeland](https://github.com/inspired), who wrote the original design, engine and app shell, and [lyderhansen](https://github.com/lyderhansen). The original repo is [inspired/search_orchestrator](https://github.com/inspired/search_orchestrator).
+
+## License
+
+[Apache License 2.0](app/search_orchestrator/LICENSE), as set by the original project.

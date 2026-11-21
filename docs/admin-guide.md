@@ -1,6 +1,22 @@
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/header-admin-dark.svg"><img alt="Search Orchestrator admin guide: install and run it" src="images/header-admin-light.svg" width="100%"></picture></p>
+
+<p align="center">
+  <a href="../README.md"><b>Home</b></a> ·
+  <a href="user-guide.md"><b>User guide</b></a> ·
+  <b>Admin guide</b> ·
+  <a href="../CHANGELOG.md"><b>Changelog</b></a>
+</p>
+
 # Search Orchestrator: admin guide
 
-Version 1.19.0. This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs.
+This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs, and the [changelog](../CHANGELOG.md) what each version changed.
+
+| Set up | Secure | Run and watch | Reference |
+|---|---|---|---|
+| [Supported platforms](#supported-platforms) | [Roles and capabilities](#roles-and-capabilities) | [Settings page](#settings-page) | [REST API](#rest-api) |
+| [Install](#install) | [How steps run](#how-steps-run-security) | [Audit index](#audit-index) · [Run health dashboard](#run-health-dashboard) | [Known limits](#known-limits) |
+| [Upgrading from 1.0.x](#upgrading-from-10x) | [Deleting jobs](#deleting-jobs) · [Orphaned owners](#orphaned-owners) | [Logs and troubleshooting](#logs-and-troubleshooting) · [Self-test](#self-test) | [Search head clusters](#search-head-clusters) |
+
 
 ## Supported platforms
 
@@ -11,7 +27,8 @@ Version 1.19.0. This guide covers installing, securing and running the app. The 
 | Splunk Cloud Platform, Classic Experience | **Not supported.** |
 | Search head cluster | Designed for it but **unit-tested only**. See [Search head clusters](#search-head-clusters). |
 
-The app needs Python 3 (3.9 to 3.13), which ships with every supported version.
+> [!NOTE]
+> The app needs Python 3 (3.9 to 3.13), which ships with every supported version of Splunk.
 
 ### Custom page templates (Splunk 10.4 and later)
 
@@ -19,14 +36,17 @@ The app's pages use custom Mako page templates so they work on Splunk Enterprise
 
 ## Install
 
-1. Install `search_orchestrator-1.1.0.tgz` through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
+1. Install `search_orchestrator-<version>.tgz` (from the [latest release](https://github.com/lyderhansen/search_orchestrator/releases/latest)) through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
 2. Restart Splunk if asked.
 3. Create the audit index if it doesn't exist (see [Audit index](#audit-index)).
 4. Give people roles (see [Roles and capabilities](#roles-and-capabilities)).
 5. Open **Search Orchestrator > Settings** and set a fallback notification.
 6. Check the health messages on the Settings page are gone.
 
-The engine is a modular input, `orchestrator_engine://main`, enabled by default. It starts on its own; there is no external scheduler.
+> [!TIP]
+> The engine is a modular input, `orchestrator_engine://main`, enabled by default. It starts on its own; there is no external scheduler. Run `| orchestrate selftest` as an admin to check the install (see [Self-test](#self-test)).
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the orchestrator index" src="images/architecture-light.svg" width="100%"></picture></p>
 
 ## Upgrading from 1.0.x
 
@@ -55,6 +75,9 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 **Who sees what.** Admins see everything. Anyone else sees the jobs they own or may run, including those jobs' SPL and run history.
 
 ## How steps run (security)
+
+> [!IMPORTANT]
+> Every step runs as its job's owner, with exactly the owner's roles and index access. Members of a job's "Who may run" roles start searches **as the owner**, but only the SPL the owner saved.
 
 - **Steps run as the job owner.** Each step is a hidden private saved search owned by the job owner (named `_so_<job>_<step>_<hash>`), so it gets exactly the owner's roles and index access, never more. SPL conditions on lines (1.17.0) work the same way: `_so_<job>_cond_<hash>`, run as the owner when the line's source finishes, stopped after 300 seconds, and counted toward the running-search limits. They can't use writing commands.
 - **"Who may run" lends the owner's access.** A job can list roles that may start it. Members of those roles (who also hold `orchestrator_run`) start searches that run **as the owner**, with the owner's access. They can only run the SPL the owner saved, and run parameters are type-checked. Every token, including values taken from search results, is substituted as one escaped, quoted SPL string, so it can't inject SPL commands or field names. The builder says this next to the setting.
