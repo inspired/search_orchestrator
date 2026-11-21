@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.47.0 (2026-11-21)
+
+- **Three builder views: Simple, Standard and Advanced.** The first tab switches between three views of the same job; switching never changes it.
+  - **Standard** (new, and the view that opens by default) keeps the canvas to the steps and the lines between them. A condition is a label on its line (**◇** and the condition), and clicking a line opens its settings. Marks on a step show what is elsewhere: **⚡** a trigger starts it, **✉ N** actions, **⌛** a delay alert. Triggers are on a new **Triggers** tab (schedule with next runs and busy times, after another job, and the first steps each starts), and a step's actions are listed under its panel with **Add action**. **Add step** offers every step kind an admin hasn't turned off.
+  - **Advanced** is the node editor, called Flow before. Its tab is still called **Flow**; in Simple and Standard the tab is **Steps**.
+  - **Simple** is locked for a job it can't show: its button shows a lock and clicking it says why, instead of opening the job read only.
+- **Create job opens a blank job.** The template picker is gone; **Browse examples** on the Jobs page offers ready-made jobs, and the empty Jobs page shows **Create job** and **Browse examples**.
+
 ## 1.46.1 (2026-11-20)
 
 - **Fixed: the Jobs page showed every job as "Not scheduled" and "Never run".** The merge took Mikael's change that makes `listJobs` ask for the brief list (no runs), which his Runs page and builder use for names; the Jobs and Dependencies pages need the runs, so `listJobs` reads the full list again and the Runs, Troubleshooting and builder pages use the new `listJobsBrief`.

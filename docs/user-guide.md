@@ -35,16 +35,11 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 Open **Jobs**, then **Create job**.
 
-A new job starts from a template. Pick one and its steps are filled in, and one undo takes them back out:
-
-- **Daily, weekly and monthly rollup:** three steps, each starting when the one before it succeeds.
-- **One search after another:** a chain of steps.
-- **Run searches side by side, then combine:** two searches run at once, and a third works on both their results.
-- **Blank job:** an empty canvas.
+A new job starts blank. To start from a ready-made job instead, use **Browse examples** on the Jobs page (see [Example jobs](#example-jobs)).
 
 Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button that opens the right tab and selects the node to change; for a job with no schedule yet, it opens the add-node box with the two trigger nodes. It goes away once the job is ready, or sooner with **Hide checklist**; the choice is remembered per job in this browser, and **Show checklist** brings it back while the job is not ready.
 
-The job is drawn on the **Flow** tab as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor).
+The first tab shows the job in one of three views (see [Simple, Standard and Advanced](#simple-standard-and-advanced)). In **Advanced**, the tab is called **Flow** and the job is drawn as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor). The steps below are for Advanced.
 
 1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from the **+** handle on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
 2. **Connect nodes** by dragging from a node's **+** handle onto another node. A line between two steps makes the second depend on the first; a line to an action says when the action fires. Keyboard and screen-reader users can use **Depends on** in a step's panel, and **When** in an action's panel.
@@ -56,9 +51,28 @@ The job is drawn on the **Flow** tab as nodes and lines, read from left to right
 
 Where you put nodes is saved with the job. Nodes you never moved are placed for you. Moving nodes does not count as changing the job when you re-run a step.
 
-### Simple and Flow
+### Simple, Standard and Advanced
 
-The Flow tab has two views, switched with **Simple** and **Flow** above it; the choice is remembered in this browser, and with none yet, Simple opens every job it can edit.
+The first tab has three views of the same job, switched with **Simple**, **Standard** and **Advanced** above it. Switching never changes the job. The choice is remembered in this browser; with none yet, **Standard** opens.
+
+| View | What it shows | Good for |
+|---|---|---|
+| **Simple** | The searches top to bottom, each starting when the one above succeeds | A chain of searches with a few saves and messages |
+| **Standard** | The steps on a canvas with the lines between them; triggers on a **Triggers** tab and each step's actions in its panel | Most jobs: everything Advanced can do, with less on the canvas |
+| **Advanced** | Every trigger, step, condition and action as a node on the **Flow** tab | Seeing and wiring the whole job at once |
+
+**Simple is locked** for a job it can't show, such as one with an approval step, more than one trigger or a line that runs on failure. Its button shows a lock; clicking it says why ("Simple can't show this job: an approval step. Use Standard or Advanced.") and keeps the view you are in.
+
+#### Standard
+
+- **The canvas** shows only the steps: searches, saved searches, results of earlier steps, summary index and lookup writes, and approvals. A line between two steps makes the second wait for the first. A line on failure reads **✗ Fails**, either way **∞ Either way**, and a condition reads **◇** and the condition. Click a line to change when it runs or its condition, test the condition, or remove it.
+- **Connect steps** by dragging from a step's handle onto another step; the line starts as *on success*. **Add step** above the canvas adds a step of any kind your admin hasn't turned off.
+- **Small marks on a step** show what is off the canvas: **⚡** a trigger starts it, **✉ 2** it has two actions, **⌛** it has a delay alert.
+- **A step's panel** has its settings and, below them, **Actions**: each action with when it fires (Starts, Succeeds, Fails, Finishes either way, Is delayed; on an approval, Approved, Rejected and Asks for approval) and what it does. **Add action** picks when and what; click an action to change its fields and retries, move it, or remove it.
+- **The Triggers tab** has a card for each schedule or *after another job* trigger, with the same settings as in Advanced (the next run times, the busy-times strip and the quieter-time hint), and **Starts**: the first steps it starts. **Add schedule** and **Add after another job** add one.
+- Whole-job actions are on the **Job actions** tab, as in the other views.
+
+#### Simple
 
 - **Simple** lists the searches top to bottom. Each starts when the one above succeeds. Click a search to change its name, what it searches (its own data, or the results of the search above), the search and the time range, and to preview it, move it or remove it. **+ Add search** adds one at the end.
 - **+ Add…** under a search adds what happens, and when: pick **When this search…** **Succeeds**, **If a condition is true**, **Fails**, **Finishes either way**, **Starts** or **Is delayed** (the same choices as the + in Flow), then **Save to summary index**, **Save to lookup**, **Email**, **Post to Slack**, **Post to Teams**, **Page PagerDuty**, **Open a ServiceNow incident** or **Write an event**. Saves are offered only for **Succeeds** and a condition; the others send messages. The items are listed under a heading for each choice.
@@ -67,7 +81,7 @@ The Flow tab has two views, switched with **Simple** and **Flow** above it; the 
 - A failed search stops the run. Slack, Teams, PagerDuty and ServiceNow need a destination your admin has set up.
 - **Settings** on a row opens all its fields: an email's subject and message (with **Insert value** for tokens), a webhook's destination and its PagerDuty or ServiceNow options, an event's payload, a summary index's source and run id marker, or a lookup's append. **View output** shows what it wrote.
 - **Starts** is the job's schedule, or another job it runs after. **If any step fails** tells someone about any failure in the run. **When done** starts another job, so jobs chain.
-- **Flow** is the node editor, for everything else: conditions, approval steps, steps side by side, retries and delay alerts. Both views edit the same job. A job that uses something Simple can't show opens read only in Simple, with what it is and **Edit in Flow**.
+- Use **Edit in Advanced** for what Simple can't show.
 
 ### The flow editor
 

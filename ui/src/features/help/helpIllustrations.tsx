@@ -42,7 +42,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'build-a-job': () => (
-        <Figure caption="Create job opens the builder: the canvas on the left, the selected node's settings on the right.">
+        <Figure caption="Create job opens a blank job in the builder: the canvas on the left, the selected node's settings on the right.">
             <Flow
                 label="The builder canvas with a trigger, a search and a lookup"
                 width={460}
@@ -56,10 +56,20 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             <Panel title="Count errors" rows={[['Name', 'Count errors'], ['Search', 'index=_internal log_level=ERROR'], ['Time range', 'Last 24 hours'], ['', '[Preview step]']]} />
         </Figure>
     ),
-    'simple-and-flow': () => (
-        <Figure caption="Simple: searches top to bottom, each with what happens to its results. Flow: the same job as nodes.">
-            <Panel title="1  Count errors" rows={[['', '→ Save to summary index · summary'], ['', '→ Email · ops@example.com · only if it found results']]} width={300} />
-            <Panel title="2  Top components" rows={[['', '→ Save to lookup · top_components.csv'], ['', '[+ Then…]']]} width={260} />
+    'simple-standard-and-advanced': () => (
+        <Figure caption="Standard: only the steps on the canvas, a condition on its line, marks for what is in the tabs. Simple is locked for a job it can't show.">
+            <Chips items={[{ text: '🔒 Simple', tone: 'muted' }, { text: 'Standard', tone: 'info' }, { text: 'Advanced', tone: 'muted' }]} />
+            <Flow
+                label="Three steps on the Standard canvas, with a condition on one line"
+                width={500}
+                height={120}
+                nodes={[n('a', 'search', 'Count errors ⚡ ✉ 1', 0, 45, { w: 150 }), n('b', 'search', 'Investigate', 300, 0), n('c', 'write', 'Save to lookup', 300, 90)]}
+                lines={[
+                    { from: 'a', to: 'b', port: 'if', label: '◇ $count.resultCount$ > 0' },
+                    { from: 'a', to: 'c' },
+                ]}
+            />
+            <Panel title="Count errors · Actions" rows={[['Fails', 'Email · ops@example.com'], ['', '[Add action]']]} width={240} />
         </Figure>
     ),
     'the-flow-editor': () => (
