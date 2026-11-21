@@ -105,6 +105,8 @@ export interface FlowMenusOptions {
     compact?: boolean;
     /** Save as snippet on the menus, and a Snippets section in a quick-add opened on the canvas. */
     snippets?: Snippets;
+    /** Only these kinds can be added from the + and the quick-add box (the Standard view: steps). */
+    onlyKinds?: NodeKind[];
 }
 
 /** Whether a quick-add box offers snippets: opened at a canvas point, not for a line. */
@@ -129,7 +131,8 @@ function insertKinds(job: JobDefinition, graph: FlowGraph, link: FlowLink): Node
 }
 
 export default function useFlowMenus(opts: FlowMenusOptions) {
-    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context, compact, snippets } = opts;
+    const { job, graph, positions, dispatch, select, focusNode, connectLine, returnFocus, rememberFocus, canvas, context, compact, snippets, onlyKinds } = opts;
+    const allow = (kinds: NodeKind[]): NodeKind[] => (onlyKinds ? kinds.filter((k) => onlyKinds.includes(k)) : kinds);
     const [menu, setMenu] = useState<Menu | null>(null);
     const snippetsOn = Boolean(snippets && snippets.canUse);
     const snippetItem = (keys: string[]): MenuItem[] => (snippetsOn && hasCopyable(keys) ? [{ id: 'snippet', label: 'Save as snippet' }] : []);
@@ -175,7 +178,8 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
         rememberFocus();
         setMenu(next);
     };
-    const openQuick = (state: QuickAddState) => {
+    const openQuick = (asked: QuickAddState) => {
+        const state = onlyKinds ? { ...asked, kinds: allow(asked.kinds || onlyKinds) } : asked;
         if (!state.kinds || state.kinds.length) {
             open({ kind: 'quick', ...state });
         }
@@ -421,14 +425,15 @@ export default function useFlowMenus(opts: FlowMenusOptions) {
     } else if (menu && menu.kind === 'when') {
         const { from, to, at } = menu;
         const fromKind = kindOf(from) || null;
-        const options = whenOptions(job, from, to);
+        // Outcomes that lead to something this view can add (or, for a line, connect).
+        const options = whenOptions(job, from, to).filter((o) => to || allow(targetKinds(o.outcome, fromKind)).length > 0);
         const height = WHEN_CHROME + Math.max(1, options.length) * ROW_H + (to ? 0 : SEARCH_H);
         overlay = (
             <WhenMenu
                 open
                 at={clampInto(menu.screen, POPUP_W, height, canvas())}
                 options={options}
-                withSearch={to ? undefined : { kinds: (o: Outcome) => targetKinds(o, fromKind) }}
+                withSearch={to ? undefined : { kinds: (o: Outcome) => allow(targetKinds(o, fromKind)) }}
                 onChoose={(o, kind) => {
                     if (to) {
                         connectLine(from, o, to);

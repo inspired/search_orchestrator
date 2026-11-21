@@ -11,9 +11,9 @@ const mk = (code: string, step: string | null = null, level: 'error' | 'warning'
 
 describe('tabForIssue', () => {
     it.each([
-        ['bad_cron', null, 'steps'],
-        ['bad_trigger', null, 'steps'],
-        ['job_chain_cycle', null, 'steps'],
+        ['bad_cron', null, 'triggers'],
+        ['bad_trigger', null, 'triggers'],
+        ['job_chain_cycle', null, 'triggers'],
         ['bad_timezone', null, 'settings'],
         ['bad_deadline', null, 'settings'],
         ['timezone_fallback', null, 'settings'],
@@ -23,7 +23,7 @@ describe('tabForIssue', () => {
         ['no_failure_notification', null, 'actions'],
         ['missing_target_job', null, 'actions'],
         ['whatever', null, 'steps'],
-        ['bad_cron', 'a', 'steps'],
+        ['bad_cron', 'a', 'triggers'],
         ['bad_action', 'a', 'steps'],
     ])('%s (step %s) goes to %s', (code, step, tab) => {
         expect(tabForIssue(mk(code, step))).toBe(tab);
@@ -148,7 +148,8 @@ describe('nodeForIssue', () => {
 describe('issueCounts', () => {
     it('counts errors only, per tab', () => {
         expect(issueCounts([mk('bad_cron'), mk('bad_timezone'), mk('bad_param'), mk('x', 'a'), mk('bad_action', null, 'warning')])).toEqual({
-            steps: 2,
+            triggers: 1,
+            steps: 1,
             settings: 1,
             params: 1,
         });
@@ -163,7 +164,7 @@ describe('IssueSummary', () => {
         expect(screen.getByText('Fix 2 problems before saving')).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Go to Alpha: m-x' }));
         expect(onGo).toHaveBeenCalledWith(issues[0]);
-        expect(screen.getByRole('button', { name: 'Go to Flow: m-bad_cron' })).toHaveTextContent('Go to Flow');
+        expect(screen.getByRole('button', { name: 'Go to Triggers: m-bad_cron' })).toHaveTextContent('Go to Triggers');
     });
 
     it('uses the singular title for one error', () => {
@@ -188,14 +189,14 @@ describe('BuilderPage issue feedback', () => {
         return api;
     };
 
-    it('counts trigger errors on Flow and selects the schedule node', async () => {
+    it('counts trigger errors on Triggers and opens that tab', async () => {
         await open();
-        expect(screen.getByRole('tab', { name: /Flow/ })).toHaveTextContent('2');
+        expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveTextContent('1');
+        expect(screen.getByRole('tab', { name: /Flow/ })).toHaveTextContent('1');
         fireEvent.click(screen.getByRole('tab', { name: /Settings/ }));
-        fireEvent.click(screen.getByRole('button', { name: 'Go to Flow: Bad cron' }));
-        expect(screen.getByRole('tab', { name: /Flow/ })).toHaveAttribute('aria-selected', 'true');
-        expect(screen.getByTestId('node-trigger:0')).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.getByRole('region', { name: 'Trigger' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Go to Triggers: Bad cron' }));
+        expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveAttribute('aria-selected', 'true');
+        expect(screen.getByRole('region', { name: 'Trigger 1' })).toBeInTheDocument();
     });
 
     it('omits the count on a tab with no errors', async () => {
@@ -216,10 +217,10 @@ describe('BuilderPage issue feedback', () => {
         await screen.findByText('Fix 1 problem before saving');
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });
         expect(screen.getByText('Fix 1 problem before saving')).toBeInTheDocument();
-        expect(screen.getByRole('tab', { name: /Flow/ })).toHaveTextContent('1');
+        expect(screen.getByRole('tab', { name: /Triggers/ })).toHaveTextContent('1');
         await waitFor(() => expect(screen.queryByText(/before saving/)).not.toBeInTheDocument(), { timeout: 3000 });
         expect(validateJob).toHaveBeenCalledWith(expect.objectContaining({ name: 'Renamed' }));
-        expect(screen.getByRole('tab', { name: /Flow/ })).not.toHaveTextContent(/\d/);
+        expect(screen.getByRole('tab', { name: /Triggers/ })).not.toHaveTextContent(/\d/);
     });
 
     it('selects the step for a step issue', async () => {

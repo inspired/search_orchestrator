@@ -149,4 +149,28 @@ describe('Standard view', () => {
         expect(screen.getByRole('tab', { name: /^Triggers/, selected: true })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Add schedule' })).toBeInTheDocument();
     });
+
+    test('a line from + dropped on empty canvas adds a step, and offers only steps', async () => {
+        const api = fakeApi();
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        const canvas = screen.getByRole('group', { name: /^Job flow/ });
+        fireEvent.pointerDown(screen.getByTestId('plus-step:daily'), { clientX: 0, clientY: 0 });
+        fireEvent.pointerMove(canvas, { clientX: 3000, clientY: 3000 });
+        fireEvent.pointerUp(canvas, { clientX: 3000, clientY: 3000 });
+        expect(screen.queryByRole('option', { name: /^Starts/ })).toBeNull();
+        fireEvent.click(screen.getByRole('option', { name: /^Fails/ }));
+        const box = screen.getByRole('combobox', { name: 'Add a node' });
+        fireEvent.change(box, { target: { value: 'email' } });
+        expect(screen.queryByRole('option', { name: /^Email/ })).toBeNull();
+        fireEvent.change(box, { target: { value: 'search' } });
+        fireEvent.keyDown(box, { key: 'Enter' });
+        expect(nodeKeys().filter((k) => k && k.startsWith('step:'))).toHaveLength(4);
+        expect(document.querySelector('[data-link-key^="step:daily-failure->step:"]')).not.toBeNull();
+    });
+
+    test('a new job opens in Standard even when Advanced was chosen last', async () => {
+        window.localStorage.setItem('so.builder.view', 'advanced');
+        await show(<BuilderPage api={fakeApi()} />);
+        expect(screen.getByRole('button', { name: 'Standard' })).toHaveAttribute('aria-pressed', 'true');
+    });
 });

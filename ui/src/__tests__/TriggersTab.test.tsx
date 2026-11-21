@@ -73,20 +73,20 @@ describe('Triggers tab', () => {
         expect(screen.getByRole('button', { name: 'Add schedule' })).toBeInTheDocument();
     });
 
-    test('Triggers tab only in Standard', () => {
+    test('Triggers tab in every view, after the first tab', () => {
         const base = { activeTab: 'steps' as const, onTabChange: jest.fn(), job: job(), dispatch: jest.fn(), owner: 'alice', roles: [], steps: <div /> };
-        const { unmount } = renderThemed(<JobTabs {...base} view="advanced" triggers={<div />} />);
-        expect(screen.queryByRole('tab', { name: /Triggers/ })).toBeNull();
-        expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Flow');
-        unmount();
-        renderThemed(<JobTabs {...base} view="standard" triggers={<div />} />);
-        expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Steps');
-        expect(screen.getAllByRole('tab')[1]).toHaveTextContent('Triggers');
+        (['simple', 'standard', 'advanced'] as const).forEach((view) => {
+            const { unmount } = renderThemed(<JobTabs {...base} view={view} triggers={<div />} />);
+            expect(screen.getAllByRole('tab')[0]).toHaveTextContent(view === 'advanced' ? 'Flow' : 'Steps');
+            expect(screen.getAllByRole('tab')[1]).toHaveTextContent('Triggers');
+            unmount();
+        });
     });
 
-    test('trigger issues count on Triggers in Standard', () => {
+    test('trigger issues count on the Triggers tab in every view', () => {
         const issues: Issue[] = [{ level: 'error', code: 'bad_cron', message: 'bad cron' } as Issue];
         expect(issueCounts(issues, 'standard')).toEqual({ triggers: 1 });
-        expect(issueCounts(issues, 'advanced')).toEqual({ steps: 1 });
+        expect(issueCounts(issues, 'advanced')).toEqual({ triggers: 1 });
+        expect(issueCounts(issues, 'simple')).toEqual({ triggers: 1 });
     });
 });

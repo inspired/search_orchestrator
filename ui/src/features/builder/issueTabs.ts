@@ -13,8 +13,8 @@ const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes']
 const SETTINGS_CODES = ['bad_timezone', 'timezone_fallback', 'bad_deadline'];
 
 export function tabForIssue(issue: Issue, view: BuilderView = 'advanced'): TabId {
-    // In Standard, triggers have their own tab.
-    if (view === 'standard' && (TRIGGER_CODES.includes(issue.code) || issue.code === 'trigger_starts_nothing')) {
+    // Triggers have their own tab in every view.
+    if (view && (TRIGGER_CODES.includes(issue.code) || issue.code === 'trigger_starts_nothing')) {
         return 'triggers';
     }
     if (SETTINGS_CODES.includes(issue.code)) {

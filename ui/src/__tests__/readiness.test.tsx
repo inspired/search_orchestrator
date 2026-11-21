@@ -113,6 +113,7 @@ async function show(ui: React.ReactElement) {
 describe('BuilderPage checklist', () => {
     it('shows for a new blank job; the schedule item opens quick-add with the two trigger kinds', async () => {
         await show(<BuilderPage api={fakeApi()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
         expect(screen.getByText('0 of 5 done')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Hide checklist' })).toBeNull();
         fireEvent.click(screen.getByRole('tab', { name: /^Settings/ }));

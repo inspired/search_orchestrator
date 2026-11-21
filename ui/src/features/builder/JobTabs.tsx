@@ -52,7 +52,7 @@ export interface JobTabsProps {
     roles: string[];
     /** The first tab (Steps, or Flow in Advanced): canvas and side panel. */
     steps: React.ReactNode;
-    /** The Triggers tab, shown in the Standard view only. */
+    /** The Triggers tab (every view; Advanced also draws triggers as nodes). */
     triggers?: React.ReactNode;
     /** Which builder view is on: it names the first tab and decides the Triggers tab. */
     view?: BuilderView;
@@ -220,8 +220,7 @@ export function tabLabel(id: TabId, view: BuilderView = 'advanced'): string {
 
 export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, triggers, view = 'advanced', issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
     const counts = issueCounts(issues, view);
-    // Triggers have their own tab only in Standard; Advanced draws them as nodes and Simple shows its one.
-    const tabs = (Object.keys(TAB_LABELS) as TabId[]).filter((id) => id !== 'triggers' || view === 'standard');
+    const tabs = Object.keys(TAB_LABELS) as TabId[];
     const label = (id: TabId) => tabLabel(id, view);
     return (
         <div>
@@ -232,7 +231,7 @@ export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, ow
             </TabBar>
             <div style={{ paddingTop: '12px' }}>
                 {tab === 'steps' && steps}
-                {tab === 'triggers' && view === 'standard' && triggers}
+                {tab === 'triggers' && triggers}
                 {tab === 'params' && (
                     <ParamsTab params={job.params || []} onChange={(value) => dispatch({ type: 'setJobField', field: 'params', value })} />
                 )}

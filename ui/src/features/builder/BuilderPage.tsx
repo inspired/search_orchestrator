@@ -30,7 +30,7 @@ import JobTabs, { TabId } from './JobTabs';
 import { ChecklistItem, readiness } from './readiness';
 import IssueSummary from './IssueSummary';
 import { nodeForIssue, tabForIssue } from './issueTabs';
-import { buildGraph, stepKey } from './nodeModel';
+import { buildGraph, stepKey, STEP_KINDS } from './nodeModel';
 import type { PortId } from './nodeModel';
 import NodePanel from './NodePanel';
 import RemoveNodeModal from './RemoveNodeModal';
@@ -212,7 +212,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     const errorIssues = errorsIn(issues);
     const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
     const graph = useMemo(() => buildGraph(job), [job]);
-    const [view, setView] = useBuilderView(job);
+    const [view, setView] = useBuilderView(job, !initialId);
     const standard = view === 'standard';
     // Standard draws the steps only; triggers and actions are in tabs and the step's panel.
     const shownGraph = useMemo(() => (standard ? standardGraph(job) : graph), [standard, job, graph]);
@@ -376,6 +376,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
         positions,
         compact,
         snippets,
+        onlyKinds: standard ? STEP_KINDS : undefined,
         dispatch,
         select: setSelectedState,
         focusNode: (key) => setFocusNext({ key }),
@@ -508,9 +509,9 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     onSelect={setSelected}
                     onMove={move}
                     onConnect={standard ? (from, _port, to) => connectSteps(from, to) : connectLine}
-                    onPlus={standard ? undefined : menus.onPlus}
-                    onDropOnNode={standard ? (from, to) => connectSteps(from, to) : menus.onDropOnNode}
-                    onDropOnCanvas={standard ? undefined : menus.onDropOnCanvas}
+                    onPlus={menus.onPlus}
+                    onDropOnNode={menus.onDropOnNode}
+                    onDropOnCanvas={menus.onDropOnCanvas}
                     onLineMenu={standard ? undefined : menus.onLineMenu}
                     onContext={standard ? undefined : menus.onContext}
                     onSplice={standard ? undefined : menus.onSplice}
@@ -521,7 +522,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     onCopy={clipboard.onCopy}
                     onDuplicate={clipboard.onDuplicate}
                     onPaste={clipboard.onPaste}
-                    onQuickAdd={standard ? undefined : (at, screen) => menus.openQuick({ at, screen })}
+                    onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
                     onTidy={() => (standard ? dispatch({ type: 'tidyLayout', keys: shownGraph.nodes.map((n) => n.key), compact }) : tidy())}
                     overlay={menus.overlay}
                     height={canvasHeight}
