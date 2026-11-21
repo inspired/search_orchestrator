@@ -20,53 +20,14 @@ async function show(ui: React.ReactElement) {
 
 const nodes = () => document.querySelectorAll('[data-node-key^="step:"]');
 
-describe('BuilderPage templates', () => {
-    it('shows the picker for a new job', async () => {
+describe('BuilderPage new job', () => {
+    it('new job opens blank with no template picker', async () => {
         await show(<BuilderPage api={fakeApi()} />);
-        expect(screen.getByRole('heading', { name: 'Start a new job' })).toBeInTheDocument();
-        ['Daily, weekly and monthly rollup', 'One search after another', 'Run searches side by side, then combine', 'Blank job'].forEach((t) =>
-            expect(screen.getByText(t)).toBeInTheDocument()
-        );
-        expect(screen.queryByRole('tab')).toBeNull();
-    });
-
-    it('choosing a template shows its steps, as one undo step', async () => {
-        await show(<BuilderPage api={fakeApi()} />);
-        fireEvent.click(screen.getByText('Daily, weekly and monthly rollup'));
         expect(screen.queryByRole('heading', { name: 'Start a new job' })).toBeNull();
-        expect(nodes()).toHaveLength(3);
-        fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.getByLabelText('Job name')).toHaveValue('');
+        expect(screen.getAllByRole('tab').length).toBeGreaterThan(0);
         expect(nodes()).toHaveLength(0);
-        expect(screen.queryByRole('heading', { name: 'Start a new job' })).toBeNull();
-        expect(screen.getByRole('button', { name: 'Undo' })).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('lists each template as a button named by its title', async () => {
-        await show(<BuilderPage api={fakeApi()} />);
-        ['Daily, weekly and monthly rollup', 'One search after another', 'Run searches side by side, then combine', 'Blank job'].forEach((t) =>
-            expect(screen.getByRole('button', { name: new RegExp(t) })).toBeInTheDocument()
-        );
-    });
-
-    it('opens a template from the keyboard and selects its first step', async () => {
-        await show(<BuilderPage api={fakeApi()} />);
-        const card = screen.getByRole('button', { name: /Daily, weekly and monthly rollup/ });
-        card.focus();
-        expect(card).toHaveFocus();
-        await userEvent.keyboard('{Enter}');
-        expect(nodes()).toHaveLength(3);
-        expect(screen.getByRole('region', { name: /Daily summary/ })).toBeInTheDocument();
-    });
-
-    it('skips the picker for a known template', async () => {
-        await show(<BuilderPage api={fakeApi()} template="rollup" />);
-        expect(screen.queryByRole('heading', { name: 'Start a new job' })).toBeNull();
-        expect(nodes()).toHaveLength(3);
-    });
-
-    it('shows the picker for an unknown template', async () => {
-        await show(<BuilderPage api={fakeApi()} template="nope" />);
-        expect(screen.getByRole('heading', { name: 'Start a new job' })).toBeInTheDocument();
     });
 
     it('never shows the picker when editing a job', async () => {
@@ -97,8 +58,9 @@ describe('BuilderPage unsaved changes', () => {
         expect(leave().defaultPrevented).toBe(false);
     });
 
-    it('treats a template that was never saved as unsaved', async () => {
-        await show(<BuilderPage api={fakeApi()} template="rollup" />);
+    it('treats a new job named but never saved as unsaved', async () => {
+        await show(<BuilderPage api={fakeApi()} />);
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Mine' } });
         expect(leave().defaultPrevented).toBe(true);
     });
 });

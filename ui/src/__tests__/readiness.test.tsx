@@ -111,13 +111,8 @@ async function show(ui: React.ReactElement) {
 }
 
 describe('BuilderPage checklist', () => {
-    it('is hidden while the template picker shows', async () => {
-        await show(<BuilderPage api={fakeApi()} />);
-        expect(screen.queryByText(/of 5 done/)).toBeNull();
-    });
-
     it('shows for a new blank job; the schedule item opens quick-add with the two trigger kinds', async () => {
-        await show(<BuilderPage api={fakeApi()} template="blank" />);
+        await show(<BuilderPage api={fakeApi()} />);
         expect(screen.getByText('0 of 5 done')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Hide checklist' })).toBeNull();
         fireEvent.click(screen.getByRole('tab', { name: /^Settings/ }));
@@ -133,8 +128,9 @@ describe('BuilderPage checklist', () => {
         expect(screen.getByText('1 of 5 done')).toBeInTheDocument();
     });
 
-    it('a templated job named by the user keeps the notice item until hidden', async () => {
-        await show(<BuilderPage api={fakeApi()} template="rollup" />);
+    it('a new job with steps, named by the user, keeps the notice item until hidden', async () => {
+        const { id: _id, ...draft } = rollupJob({ name: '', actions: [] });
+        await show(<BuilderPage api={fakeApi()} imported={draft as never} />);
         fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Mine' } });
         expect(screen.getByRole('button', { name: `Go to Job actions: ${NOTIFY}` })).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Hide checklist' }));

@@ -53,8 +53,6 @@ import usePreviews, { PreviewApi } from './usePreviews';
 import usePreviewViews from './usePreviewViews';
 import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
-import TemplatePicker from './TemplatePicker';
-import { templateByKey } from './templates';
 import { allTags } from '../jobs/tags';
 
 export interface BuilderApi extends PreviewApi {
@@ -97,8 +95,6 @@ const defaultApi: BuilderApi = {
 export interface BuilderPageProps {
     /** From ?job_id=; none means a new job. */
     jobId?: string | null;
-    /** From ?template=; a known key skips the picker. */
-    template?: string | null;
     /** From Import jobs: a new, unsaved job to start from. */
     imported?: JobDefinition | null;
     api?: BuilderApi;
@@ -112,12 +108,11 @@ const MIN_CANVAS = 480;
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
-export default function BuilderPage({ jobId: initialId = null, template = null, imported = null, api = defaultApi }: BuilderPageProps) {
+export default function BuilderPage({ jobId: initialId = null, imported = null, api = defaultApi }: BuilderPageProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
-    const startJob = initialId ? null : imported || templateByKey(template || null)?.build() || null;
+    const startJob = initialId ? null : imported || null;
     const [state, dispatch] = useReducer(reducer, startJob, (j: JobDefinition | null) => initialState(j || blankJob(), blankJob()));
-    const [choosingTemplate, setChoosingTemplate] = useState(!initialId && !startJob);
     const [activeTab, setActiveTab] = useState<TabId>('steps');
     const checklistPref = useChecklistHidden(initialId);
     const checklistDismissed = checklistPref.hidden;
@@ -149,7 +144,7 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
 
     // The job is checked against the server as it is edited, once it is ready to edit.
     const checkJob = useCallback((j: JobDefinition) => api.validateJob({ ...j, id: jobId || undefined }), [api, jobId]);
-    const auto = useAutoValidate(job, checkJob, { enabled: !loading && !loadError && !choosingTemplate });
+    const auto = useAutoValidate(job, checkJob, { enabled: !loading && !loadError });
     const serverIssues = auto.issues;
     const checkedJob = auto.checkedJob;
 
@@ -208,10 +203,10 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const allReady = checklist.every((i) => i.done);
     // Once everything is done the checklist stays away until the page reloads.
     useEffect(() => {
-        if (allReady && !loading && !choosingTemplate) {
+        if (allReady && !loading) {
             checklistPref.hideQuietly();
         }
-    }, [allReady, loading, choosingTemplate]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [allReady, loading]); // eslint-disable-line react-hooks/exhaustive-deps
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
     const errorIssues = errorsIn(issues);
@@ -610,17 +605,6 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             <IssueList issues={jobLevel} />
             {loading ? (
                 <WaitSpinner size="medium" />
-            ) : choosingTemplate ? (
-                <TemplatePicker
-                    onChoose={(t) => {
-                        const built = t.build();
-                        dispatch({ type: 'applyTemplate', job: built });
-                        setChoosingTemplate(false);
-                        if (built.steps.length) {
-                            selectNode(stepKey(built.steps[0].id));
-                        }
-                    }}
-                />
             ) : (
                 <>
                     <ControlGroup label="Job name" labelFor="job-name" labelPosition="top">

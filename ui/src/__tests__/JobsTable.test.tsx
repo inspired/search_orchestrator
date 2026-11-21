@@ -237,16 +237,14 @@ describe('JobsTable summary, search and empty state', () => {
         expect(screen.getByText('No jobs match "zzz".')).toBeInTheDocument();
     });
 
-    test('no search when there are no jobs; builders see templates', () => {
-        renderThemed(<JobsTable jobs={[]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+    test('no search when there are no jobs; builders see Create job and examples', () => {
+        renderThemed(<JobsTable jobs={[]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onBrowseExamples={jest.fn()} />);
         expect(screen.queryByRole('searchbox')).toBeNull();
         expect(screen.getByText('Build your first job')).toBeInTheDocument();
-        const link = screen.getByRole('link', { name: /Blank job/ });
-        expect(link.getAttribute('href')).toContain('template=blank');
-        ['rollup', 'serial', 'parallel', 'blank'].forEach((key) => {
-            const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href') || '');
-            expect(hrefs.some((h) => h.includes(`template=${key}`))).toBe(true);
-        });
+        const create = screen.getByRole('link', { name: 'Create job' });
+        expect(create.getAttribute('href')).not.toContain('template=');
+        expect(screen.getByRole('button', { name: 'Browse examples' })).toBeInTheDocument();
+        expect(screen.getAllByRole('link').map((a) => a.getAttribute('href') || '').some((h) => h.includes('template='))).toBe(false);
         expect(screen.queryByText(/selftest/)).toBeNull();
     });
 
