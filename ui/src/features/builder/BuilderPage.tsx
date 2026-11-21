@@ -601,7 +601,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     {notice.text}
                 </Message>
             )}
-            {showSummary && errorIssues.length > 0 && <IssueSummary issues={errorIssues} stepNames={stepNames} onGo={goToIssue} />}
+            {showSummary && errorIssues.length > 0 && <IssueSummary issues={errorIssues} stepNames={stepNames} onGo={goToIssue} view={view} />}
             <IssueList issues={jobLevel} />
             {loading ? (
                 <WaitSpinner size="medium" />
@@ -614,7 +614,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                             onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'name', value })}
                         />
                     </ControlGroup>
-                    {!allReady && (checklistDismissed ? <Button appearance="subtle" label="Show checklist" onClick={checklistPref.show} /> : <SetupChecklist items={checklist} onGo={goToItem} onHide={checklistPref.hide} />)}
+                    {!allReady && (checklistDismissed ? <Button appearance="subtle" label="Show checklist" onClick={checklistPref.show} /> : <SetupChecklist items={standard ? checklist.map((i) => (i.key === 'schedule' ? { ...i, tab: 'triggers' as const, node: undefined, addKinds: undefined } : i)) : checklist} onGo={goToItem} onHide={checklistPref.hide} view={view} />)}
                     <JobTabs
                         activeTab={activeTab}
                         onTabChange={setActiveTab}

@@ -7,7 +7,8 @@ import Typography from '@splunk/react-ui/Typography';
 import CheckCircle from '@splunk/react-icons/CheckCircle';
 import Circle from '@splunk/react-icons/Circle';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import { TAB_LABELS } from './JobTabs';
+import { tabLabel } from './JobTabs';
+import type { BuilderView } from '../simple/useBuilderView';
 import type { ChecklistItem } from './readiness';
 
 export interface SetupChecklistProps {
@@ -17,7 +18,7 @@ export interface SetupChecklistProps {
     onHide?: () => void;
 }
 
-export default function SetupChecklist({ items, onGo, onHide }: SetupChecklistProps) {
+export default function SetupChecklist({ items, onGo, onHide, view = 'advanced' }: SetupChecklistProps & { view?: BuilderView }) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const count = items.filter((i) => i.done).length;
     const requiredDone = items.every((i) => i.optional || i.done);
@@ -37,8 +38,8 @@ export default function SetupChecklist({ items, onGo, onHide }: SetupChecklistPr
                                 <ScreenReaderContent>{item.done ? 'Done' : 'Not done'}</ScreenReaderContent>
                                 <span>{item.label}</span>
                                 {!item.done && (
-                                    <Button appearance="subtle" label={`Go to ${TAB_LABELS[item.tab]}`}
-                                        aria-label={`Go to ${TAB_LABELS[item.tab]}: ${item.label}`} onClick={() => onGo(item)} />
+                                    <Button appearance="subtle" label={`Go to ${tabLabel(item.tab, view)}`}
+                                        aria-label={`Go to ${tabLabel(item.tab, view)}: ${item.label}`} onClick={() => onGo(item)} />
                                 )}
                             </span>
                         </li>

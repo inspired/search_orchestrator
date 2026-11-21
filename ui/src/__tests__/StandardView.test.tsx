@@ -141,4 +141,12 @@ describe('Standard view', () => {
         await waitFor(() => expect(api.updateJob).toHaveBeenCalled());
         expect((api.updateJob as jest.Mock).mock.calls[0][1].triggers).toEqual([]);
     });
+
+    test('the checklist names the Steps tab and sends the schedule item to the Triggers tab', async () => {
+        await show(<BuilderPage api={fakeApi()} />);
+        expect(screen.getByRole('button', { name: 'Go to Steps: Give the job a name' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /^Go to Triggers: / }));
+        expect(screen.getByRole('tab', { name: /^Triggers/, selected: true })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add schedule' })).toBeInTheDocument();
+    });
 });
