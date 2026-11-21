@@ -17,6 +17,8 @@ import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
 import SidePanel, { usePanelLayout } from './SidePanel';
 import SimpleView from '../simple/SimpleView';
+import { standardGraph, standardLineLabels } from './standardGraph';
+import StandardAddStep from './StandardAddStep';
 import { readSimple } from '../simple/simpleModel';
 import { ViewSwitch, useBuilderView } from '../simple/useBuilderView';
 import useCompactPref from './useCompactPref';
@@ -48,7 +50,7 @@ import useSelection from './useSelection';
 import useGroups from './useGroups';
 import usePreviews, { PreviewApi } from './usePreviews';
 import usePreviewViews from './usePreviewViews';
-import { blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
+import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
 import { IssueList } from './StepPanel';
 import TemplatePicker from './TemplatePicker';
 import { templateByKey } from './templates';
@@ -214,9 +216,14 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const errorIssues = errorsIn(issues);
     const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
     const graph = useMemo(() => buildGraph(job), [job]);
+    const [view, setView] = useBuilderView(job);
+    const standard = view === 'standard';
+    // Standard draws the steps only; triggers and actions are in tabs and the step's panel.
+    const shownGraph = useMemo(() => (standard ? standardGraph(job) : graph), [standard, job, graph]);
+    const standardLabels = useMemo(() => (standard ? standardLineLabels(job) : undefined), [standard, job]);
     const [compact, toggleCompact] = useCompactPref();
     const { positions, move, tidy, arrange } = useFlowLayout(job, graph, compact, dispatch);
-    const picked = useSelection({ job, graph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
+    const picked = useSelection({ job, graph: shownGraph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
     const { selection, removing, requestRemove, confirmRemove } = picked;
     const grouping = useGroups({ job, graph, positions, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
     const goToIssue = (issue: Issue) => {
@@ -417,7 +424,18 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
     const canvasHeight = useFillHeight(() => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'), MIN_CANVAS, fullScreen);
     const panelRef = useRef<HTMLDivElement | null>(null);
     const panel = usePanelLayout();
-    const [view, setView] = useBuilderView(job);
+    const removeStandardLine = (key: string) => {
+        const link = shownGraph.links.find((l) => l.key === key);
+        if (link) {
+            dispatch({ type: 'disconnect', from: link.from.slice('step:'.length), to: link.to.slice('step:'.length) });
+            setSelected(null);
+        }
+    };
+    const connectSteps = (from: string, to: string) => {
+        if (from.startsWith('step:') && to.startsWith('step:') && from !== to) {
+            connectLine(from, 'success', to);
+        }
+    };
     const panelHeight = useFillHeight(() => panelRef.current, MIN_CANVAS, fullScreen);
 
     const stepsTab = (
@@ -469,10 +487,22 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             }
         >
         {menus.notice}
+        {standard && meta.canEdit && (
+            <StandardAddStep
+                onAdd={(kind) => {
+                    const key = addNodeKey(job, kind);
+                    dispatch({ type: 'addNode', kind });
+                    if (key) {
+                        setSelected({ kind: 'node', key });
+                    }
+                }}
+            />
+        )}
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
             <div ref={canvasArea} style={{ flex: 1, minWidth: 0 }}>
                 <FlowCanvas
-                    graph={graph}
+                    graph={shownGraph}
+                    lineLabels={standardLabels}
                     positions={positions}
                     selected={selection}
                     issues={issues}
@@ -481,22 +511,22 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
                     onToggleCompact={toggleCompact}
                     onSelect={setSelected}
                     onMove={move}
-                    onConnect={connectLine}
-                    onPlus={menus.onPlus}
-                    onDropOnNode={menus.onDropOnNode}
-                    onDropOnCanvas={menus.onDropOnCanvas}
-                    onLineMenu={menus.onLineMenu}
-                    onContext={menus.onContext}
-                    onSplice={menus.onSplice}
-                    canSpliceNode={menus.canSpliceNode}
+                    onConnect={standard ? (from, _port, to) => connectSteps(from, to) : connectLine}
+                    onPlus={standard ? undefined : menus.onPlus}
+                    onDropOnNode={standard ? (from, to) => connectSteps(from, to) : menus.onDropOnNode}
+                    onDropOnCanvas={standard ? undefined : menus.onDropOnCanvas}
+                    onLineMenu={standard ? undefined : menus.onLineMenu}
+                    onContext={standard ? undefined : menus.onContext}
+                    onSplice={standard ? undefined : menus.onSplice}
+                    canSpliceNode={standard ? undefined : menus.canSpliceNode}
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
-                    onRemoveLink={menus.removeLink}
+                    onRemoveLink={standard ? removeStandardLine : menus.removeLink}
                     onCopy={clipboard.onCopy}
                     onDuplicate={clipboard.onDuplicate}
                     onPaste={clipboard.onPaste}
-                    onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
-                    onTidy={() => tidy()}
+                    onQuickAdd={standard ? undefined : (at, screen) => menus.openQuick({ at, screen })}
+                    onTidy={() => (standard ? dispatch({ type: 'tidyLayout', keys: shownGraph.nodes.map((n) => n.key), compact }) : tidy())}
                     overlay={menus.overlay}
                     height={canvasHeight}
                     fullScreen={fullScreen}
@@ -509,14 +539,15 @@ export default function BuilderPage({ jobId: initialId = null, template = null, 
             <SidePanel ref={panelRef} open={panel.open} width={panel.width} onOpen={panel.setOpen} onWidth={panel.setWidth} maxHeight={panelHeight}>
                 <NodePanel
                     job={job}
-                    graph={graph}
+                    graph={shownGraph}
+                    standard={standard}
                     selection={selection}
                     byStep={byStep}
                     dispatch={dispatch}
                     onSelect={setSelected}
                     onRequestRemove={requestRemove}
                     onRequestRemoveNodes={picked.requestRemoveNodes}
-                    onRemoveLink={menus.removeLink}
+                    onRemoveLink={standard ? removeStandardLine : menus.removeLink}
                     onArrange={arrange}
                     onTidy={tidy}
                     onOpenSettings={() => setActiveTab('settings')}

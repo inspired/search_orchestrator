@@ -21,6 +21,7 @@ import SelectionPanel from './SelectionPanel';
 import StepPanel from './StepPanel';
 import { availableTokens } from './tokens';
 import TriggerPanel, { TriggerPanelProps } from './TriggerPanel';
+import StepActions from './StepActions';
 import type { PreviewContext } from './previewLogic';
 import type { PreviewView } from './usePreviews';
 
@@ -59,6 +60,8 @@ export interface NodePanelProps {
     jobs: Pick<Job, 'id' | 'name'>[];
     nextSlots?: NextSlots;
     schedulePreview?: TriggerPanelProps['schedulePreview'];
+    /** The Standard view: a step's actions are listed under its panel (no action nodes). */
+    standard?: boolean;
     savedJobId?: string | null;
     previewFields: Record<string, string[]>;
     scheduledTime: number;
@@ -143,8 +146,22 @@ export default function NodePanel(props: NodePanelProps) {
     if (node && node.stepId) {
         // An approval node gets the step panel too, which shows its ApprovalPanel in place of a search.
         const id = node.stepId;
+        const actions = props.standard ? (
+            <StepActions
+                key={`${node.key}-actions`}
+                job={job}
+                stepId={id}
+                destinations={props.destinations}
+                alertActions={props.alertActions}
+                tokenGroups={availableTokens(job, id, previewFields)}
+                issues={byStep[id] || []}
+                dispatch={dispatch}
+                onRequestRemove={onRequestRemove}
+            />
+        ) : null;
         if (node.kind === 'summary_index' || node.kind === 'lookup') {
             return (
+                <>
                 <OutputPanel
                     key={node.key}
                     job={job}
@@ -154,9 +171,12 @@ export default function NodePanel(props: NodePanelProps) {
                     onRequestRemove={(stepId) => onRequestRemove(stepKey(stepId))}
                     live={props.previewLive}
                 />
+                {actions}
+                </>
             );
         }
         return (
+            <>
             <StepPanel
                 key={node.key}
                 job={job}
@@ -174,6 +194,8 @@ export default function NodePanel(props: NodePanelProps) {
                 previewFields={previewFields}
                 roles={props.roles}
             />
+            {actions}
+            </>
         );
     }
     if (node && node.action) {

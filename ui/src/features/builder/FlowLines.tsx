@@ -121,7 +121,9 @@ export function FlowLines({ lines, graph, theme, zoom, spliceLink, isSelected, m
                 const { l, mid } = geo;
                 const text = (lineLabels && lineLabels[l.key]) || flowLinkLabel(graph, l);
                 const isSel = isSelected(l);
-                const wanted = isSel || showLabels || (!!(lineLabels && lineLabels[l.key]) && !!lineStates && lineStates[l.key] === 'flowing');
+                // A given label shows always (the Standard view's conditions), or while its line is flowing
+                // when the canvas follows a run (lineStates).
+                const wanted = isSel || showLabels || (!!(lineLabels && lineLabels[l.key]) && (!lineStates || lineStates[l.key] === 'flowing'));
                 if (!text || !wanted || (zoom < LABEL_ZOOM && !isSel)) {
                     return null;
                 }
