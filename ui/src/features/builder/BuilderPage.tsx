@@ -27,15 +27,12 @@ import useFlowLayout from './useFlowLayout';
 import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
-import { ChecklistItem, readiness } from './readiness';
 import IssueSummary from './IssueSummary';
 import { nodeForIssue, tabForIssue } from './issueTabs';
 import { buildGraph, stepKey, STEP_KINDS } from './nodeModel';
 import type { PortId } from './nodeModel';
 import NodePanel from './NodePanel';
 import RemoveNodeModal from './RemoveNodeModal';
-import SetupChecklist from './SetupChecklist';
-import useChecklistHidden from './useChecklistHidden';
 import PreviewBar from './PreviewBar';
 import { previewRefusal } from './previewLogic';
 import type { PreviewContext } from './previewLogic';
@@ -114,8 +111,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     const startJob = initialId ? null : imported || null;
     const [state, dispatch] = useReducer(reducer, startJob, (j: JobDefinition | null) => initialState(j || blankJob(), blankJob()));
     const [activeTab, setActiveTab] = useState<TabId>('steps');
-    const checklistPref = useChecklistHidden(initialId);
-    const checklistDismissed = checklistPref.hidden;
     const [fullScreen, setFullScreen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
     const [showSummary, setShowSummary] = useState(false);
@@ -136,7 +131,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
         setSelectedState(sel);
     };
     const setSelectedState = (sel: FlowSelection) => picked.setSelected(sel);
-    // A node hidden in a collapsed group (the issue list, the checklist) shows its group first.
+    // A node hidden in a collapsed group (from the issue list) shows its group first.
     const selectNode = (key: string) => (grouping.reveal({ kind: 'node', key }), setSelected({ kind: 'node', key }));
 
     const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
@@ -199,14 +194,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
         const local = findIssues(job).filter((i) => !server.some((s) => sameIssue(s, i)));
         return [...server, ...local];
     }, [job, serverIssues, checkedJob]);
-    const checklist = useMemo(() => readiness(job), [job]);
-    const allReady = checklist.every((i) => i.done);
-    // Once everything is done the checklist stays away until the page reloads.
-    useEffect(() => {
-        if (allReady && !loading) {
-            checklistPref.hideQuietly();
-        }
-    }, [allReady, loading]); // eslint-disable-line react-hooks/exhaustive-deps
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
     const errorIssues = errorsIn(issues);
@@ -227,14 +214,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
         const key = nodeForIssue(job, issue);
         if (key) {
             selectNode(key);
-        }
-    };
-    const goToItem = (item: ChecklistItem) => {
-        setActiveTab(item.tab);
-        if (item.node) {
-            selectNode(item.node);
-        } else if (item.addKinds) {
-            menus.openQuick({ kinds: item.addKinds, screen: { left: 8, top: 8 } });
         }
     };
     // The list stays until the next save attempt or until nothing is left to fix: no live
@@ -615,7 +594,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                             onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'setJobField', field: 'name', value })}
                         />
                     </ControlGroup>
-                    {!allReady && (checklistDismissed ? <Button appearance="subtle" label="Show checklist" onClick={checklistPref.show} /> : <SetupChecklist items={standard ? checklist.map((i) => (i.key === 'schedule' ? { ...i, tab: 'triggers' as const, node: undefined, addKinds: undefined } : i)) : checklist} onGo={goToItem} onHide={checklistPref.hide} view={view} />)}
                     <JobTabs
                         activeTab={activeTab}
                         onTabChange={setActiveTab}

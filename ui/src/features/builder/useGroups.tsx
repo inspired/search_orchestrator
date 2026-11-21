@@ -1,7 +1,7 @@
 /* The Flow tab's groups: the props FlowCanvas needs to draw and edit them, making a group from
  * the selected nodes (Ctrl/Cmd+G, the toolbar or the right-click menu), the group panel and the
  * confirm before removing one. `reveal` expands a collapsed group before one of its hidden nodes
- * is selected (from the issue list or the setup checklist), so the selection can be seen. */
+ * is selected (from the issue list), so the selection can be seen. */
 import React, { useEffect, useMemo, useState } from 'react';
 import type { JobDefinition } from '../../api/types';
 import type { FlowSelection } from './FlowCanvas';

@@ -16,11 +16,15 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.48.2](#1482-2026-11-21) | 2026-11-21 |
 | [1.48.1](#1481-2026-11-21) | 2026-11-21 |
 | [1.48.0](#1480-2026-11-21) | 2026-11-21 |
 | [1.47.0](#1470-2026-11-21) | 2026-11-21 |
 | [1.46.1](#1461-2026-11-20) | 2026-11-20 |
-| [1.46.0](#1460-2026-11-20) | 2026-11-20 |
+
+## 1.48.2 (2026-11-21)
+
+- **The setup checklist is gone.** The "Set up this job" list above the builder's tabs is removed; the issue list and each tab's problem count still say what a job needs before it can be saved.
 
 ## 1.48.1 (2026-11-21)
 

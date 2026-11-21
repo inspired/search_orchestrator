@@ -60,8 +60,6 @@ Open **Jobs**, then **Create job**.
 
 A new job starts blank. To start from a ready-made job instead, use **Browse examples** on the Jobs page (see [Example jobs](#example-jobs)).
 
-Above the tabs, a **setup checklist** shows what the job still needs: a name, a step, each step's search, when it runs and who hears about failures. Each open item has a button that opens the right tab and selects the node to change; for a job with no schedule yet, it opens the add-node box with the two trigger nodes. It goes away once the job is ready, or sooner with **Hide checklist**; the choice is remembered per job in this browser, and **Show checklist** brings it back while the job is not ready.
-
 The first tab shows the job in one of three views (see [Simple, Standard and Advanced](#simple-standard-and-advanced)). In **Advanced**, the tab is called **Flow** and the job is drawn as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor). The steps below are for Advanced.
 
 1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from the **+** handle on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
