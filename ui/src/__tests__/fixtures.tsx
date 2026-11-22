@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import SplunkThemeProvider from '@splunk/themes/SplunkThemeProvider';
 import type { Job, Me, RunDetail, RunSummary } from '../api/types';
 
@@ -20,6 +20,7 @@ export const me: Me = {
     can_admin: false,
     can_build: true,
     can_run: true,
+    can_approve: false,
 };
 
 export function job(over: Partial<Job> = {}): Job {
@@ -90,4 +91,40 @@ export function rollupRun(over: Partial<RunDetail> = {}): RunDetail {
         permissions: { can_run: true },
         ...over,
     };
+}
+
+/** window.matchMedia answering `prefers-reduced-motion: reduce` with `reduce`; delete window.matchMedia to undo. */
+export function mockReducedMotion(reduce: boolean) {
+    Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: (query: string) => ({
+            matches: reduce && query.includes('prefers-reduced-motion: reduce'),
+            media: query,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+            addListener: () => undefined,
+            removeListener: () => undefined,
+        }),
+    });
+}
+
+/** The canvas toolbar's View menu: opens it and clicks the toggle named `label`. */
+export function toggleView(label: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: label }));
+}
+
+/** Whether the View menu's toggle `label` is on (opens and closes the menu to look). */
+export function viewIsOn(label: string): boolean {
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const on = screen.getByRole('menuitemcheckbox', { name: label }).getAttribute('aria-checked') === 'true';
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    return on;
+}
+
+/** The canvas toolbar's Arrange menu: opens it and clicks `label`. */
+export function arrangeMenu(label: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'Arrange' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: label }));
 }

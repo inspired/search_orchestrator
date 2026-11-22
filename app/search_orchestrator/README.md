@@ -1,8 +1,8 @@
 # Search Orchestrator
 
-Version 1.0.1.
+Runs dependent Splunk searches as one job. A job is a flow of search steps: a step starts only when the steps it depends on have finished. Jobs have schedules, conditions, retries, delay alerts, deadlines, ordered queuing, re-run from a step, approvals and actions such as email and webhooks. All logic and state live inside Splunk; there is no external scheduler.
 
-Makes dependent Splunk searches run as one unit. A job is a graph of search steps; a step starts only when the steps it depends on have finished. Jobs have schedules, delay alerts, deadlines, retries, ordered queuing, re-run from a step, and actions such as webhooks and email. All logic and state live inside Splunk.
+Build jobs in three views of the same job: **Simple** (searches in order), **Standard** (the steps on a canvas, triggers and actions in tabs and panels) and **Advanced** (every node on a canvas). The Jobs page acts on many jobs at once, and the Troubleshooting page explains errors in plain words.
 
 ## Supported platforms
 

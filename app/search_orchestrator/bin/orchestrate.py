@@ -3,9 +3,13 @@
 
     | orchestrate start job=<id> [param.<name>=<value>]... [scheduled_time=<epoch>]
     | orchestrate status [run=<run id>] [job=<id>] [limit=<n, at most 20>]
+    | orchestrate status backfill=<backfill id>
     | orchestrate cancel run=<run id>
     | orchestrate rerun run=<run id> step=<step> [definition=latest|original]
                         [restart_downstream_jobs=true|false]
+    | orchestrate approve run=<run id> step=<step> decision=approve|reject [comment=<text>]
+    | orchestrate backfill job=<id> from=<time> to=<time> [step=<n>m|<n>h|<n>d|<seconds>]
+                          [concurrency=<n>] [param.<name>=<value>]...
     | orchestrate jobs
     | orchestrate selftest [scenario=basic|rollup_late|rollup_fail|probe]
                            [slow_n=<number>] [delayed_after=<seconds>] [scheduled_time=<epoch>]
@@ -16,9 +20,12 @@ and work exactly as for the screens. A search command has no system session,
 and KV Store needs one. Nothing here writes files or starts processes.
 
 ``status`` returns a row per step with ``STATUS_FIELDS``, after one row for
-the run itself (``step = "(run)"``, the run's state and times).
+the run itself (``step = "(run)"``, the run's state and times); with ``backfill``,
+one row per run of that backfill (``run_id``, ``state``, ``scheduled_time``).
+``backfill`` without ``step`` follows the job's schedule.
 """
 import os
+import re
 import sys
 import time
 
@@ -32,20 +39,27 @@ from splunklib.searchcommands.decorators import ConfigurationSetting  # noqa: E4
 from so import model, selftest  # noqa: E402
 from so.gateway import SplunkGateway  # noqa: E402
 
-ACTIONS = ("start", "status", "cancel", "rerun", "jobs", "selftest")
+ACTIONS = ("start", "status", "cancel", "rerun", "approve", "backfill", "jobs", "selftest")
 STATUS_FIELDS = ["run_id", "job", "step", "state", "skip_kind", "delayed", "attempts", "sid",
                  "result_count", "error", "scheduled_time", "started_at", "ended_at"]
-OPTIONS = {"start": ("job", "scheduled_time"), "status": ("run", "job", "limit"),
+OPTIONS = {"start": ("job", "scheduled_time"), "status": ("run", "job", "limit", "backfill"),
            "cancel": ("run",), "rerun": ("run", "step", "definition", "restart_downstream_jobs"),
+           "approve": ("run", "step", "decision", "comment"),
+           "backfill": ("job", "from", "to", "step", "concurrency"),
            "jobs": (), "selftest": ("scenario", "slow_n", "delayed_after", "scheduled_time")}
-REQUIRED = {"start": ("job",), "cancel": ("run",), "rerun": ("run", "step")}
+REQUIRED = {"start": ("job",), "cancel": ("run",), "rerun": ("run", "step"),
+            "approve": ("run", "step", "decision"),
+            "backfill": ("job", "from", "to")}
+PARAM_ACTIONS = ("start", "backfill")  # take param.<name>=<value>
 STATUS_LIMIT = 5
 STATUS_MAX_RUNS = 20  # each run is one more loopback call
 STATUS_DEADLINE = 120  # seconds; no further run is fetched after this
-PATH_OPTIONS = ("job", "run")  # their values become part of a URL path
+PATH_OPTIONS = ("job", "run", "backfill")  # their values become part of a URL path
 RUN_ROW = "(run)"
 _TRUE = ("1", "true", "t", "yes", "y")
 _FALSE = ("0", "false", "f", "no", "n")
+STEP_RE = re.compile(r"^(\d+)([mhd]?)$")
+STEP_UNITS = {"": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 class CommandError(Exception):
@@ -69,7 +83,7 @@ def parse_args(argv):
         if not sep or not name:
             raise CommandError("orchestrate: expected name=value, got %r" % arg)
         value = _unquote(value)
-        if action == "start" and name.startswith("param.") and len(name) > len("param."):
+        if action in PARAM_ACTIONS and name.startswith("param.") and len(name) > len("param."):
             target, key = params, name[len("param."):]
         elif name in OPTIONS[action]:
             target, key = options, name
@@ -169,6 +183,8 @@ def _run_path(run_id):
 
 
 def _status(call, options, warn):
+    if options.get("backfill"):
+        return _backfill_runs(call, options["backfill"])
     if options.get("run"):
         return status_rows(_fields(call("GET", _run_path(options["run"]), None), "run")["run"])
     started = time.monotonic()
@@ -191,6 +207,36 @@ def _status(call, options, warn):
             continue
         rows.extend(status_rows(_fields(reply, "run")["run"]))
     return rows
+
+
+def _step(text):
+    """``30m``, ``1h``, ``1d`` or plain seconds as seconds."""
+    match = STEP_RE.match(text.strip())
+    if not match:
+        raise CommandError("step must be like 30m, 1h or 1d")
+    return int(match.group(1)) * STEP_UNITS[match.group(2)]
+
+
+def _backfill(call, options, params):
+    body = {"from": options["from"], "to": options["to"], "source": "schedule"}
+    if options.get("step"):
+        body.update(source="step", step=_step(options["step"]))
+    if options.get("concurrency"):
+        text = options["concurrency"].strip()
+        body["concurrency"] = int(text) if text.isdigit() else text  # the server says why
+    if params:
+        body["params"] = params
+    out = _fields(call("POST", "jobs/%s/backfills" % options["job"], body), "backfill")
+    doc = _fields((200, out["backfill"]), "id")
+    slots = doc.get("slots") or []
+    return [{"ok": 1, "backfill_id": doc["id"], "runs": doc.get("count", len(slots)),
+             "first": slots[0] if slots else None, "last": slots[-1] if slots else None}]
+
+
+def _backfill_runs(call, backfill_id):
+    runs = _fields(call("GET", "backfills/" + backfill_id, None), "runs")["runs"]
+    return [{"run_id": r.get("id"), "state": r.get("state"),
+             "scheduled_time": r.get("scheduled_time")} for r in _dicts(runs)]
 
 
 def _selftest(call, options):
@@ -246,6 +292,16 @@ def execute(argv, gateway, warn=lambda text: None):
         return [{"ok": 1, "run_id": options["run"], "step": options["step"],
                  "definition": out.get("definition"), "command_id": out.get("command_id"),
                  "message": "re-run requested; the engine applies it on its next tick"}]
+    if action == "approve":
+        body = {"step_id": options["step"], "decision": options["decision"]}
+        if "comment" in options:
+            body["comment"] = options["comment"]
+        out = _fields(call("POST", _run_path(options["run"]) + "/approve", body))
+        return [{"ok": 1, "run_id": options["run"], "step": options["step"],
+                 "decision": options["decision"], "command_id": out.get("command_id"),
+                 "message": "decision sent; the engine applies it on its next tick"}]
+    if action == "backfill":
+        return _backfill(call, options, params)
     if action == "jobs":
         jobs = _fields(call("GET", "jobs", {"brief": "1"}), "jobs")["jobs"]
         return [{"job": j.get("id"), "name": j.get("name"), "enabled": _flag(j.get("enabled"))}

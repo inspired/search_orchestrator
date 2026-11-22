@@ -1,0 +1,126 @@
+{
+  "id": "example_rollup",
+  "name": "Example: daily, weekly and monthly rollup",
+  "description": "Every night counts yesterday's _internal events by sourcetype and appends them to so_example_daily_rollup.csv. On Mondays a weekly step sums the last 7 days from that lookup, and on the 1st a monthly step sums the month before. Both work from the run's scheduled time through $run.scheduled_time$.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "branches"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "15 1 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "daily",
+      "name": "Daily events by sourcetype",
+      "type": "inline",
+      "spl": "index=_internal\n| stats count AS events BY sourcetype\n| eval day=strftime(tonumber($run.scheduled_time$) - 86400, \"%Y-%m-%d\")",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "save_daily",
+      "name": "Append to lookup",
+      "type": "previous",
+      "spl": "| outputlookup append=true so_example_daily_rollup.csv",
+      "output": {
+        "kind": "lookup",
+        "name": "so_example_daily_rollup.csv",
+        "append": true
+      }
+    },
+    {
+      "id": "weekly",
+      "name": "Weekly rollup",
+      "type": "inline",
+      "spl": "| inputlookup so_example_daily_rollup.csv\n| where strptime(day, \"%Y-%m-%d\") >= relative_time(tonumber($run.scheduled_time$), \"-7d@d\")\n| stats sum(events) AS events BY sourcetype\n| eval week_ending=strftime(tonumber($run.scheduled_time$), \"%Y-%m-%d\")",
+      "earliest": "-7d@d",
+      "latest": "@d",
+      "run_when": {
+        "kind": "cron",
+        "value": "* * * * 1"
+      }
+    },
+    {
+      "id": "monthly",
+      "name": "Monthly rollup",
+      "type": "inline",
+      "spl": "| inputlookup so_example_daily_rollup.csv\n| eval t=strptime(day, \"%Y-%m-%d\")\n| where t >= relative_time(tonumber($run.scheduled_time$), \"-1mon@mon\") AND t < relative_time(tonumber($run.scheduled_time$), \"@mon\")\n| stats sum(events) AS events BY sourcetype",
+      "earliest": "-1mon@mon",
+      "latest": "@mon",
+      "run_when": {
+        "kind": "cron",
+        "value": "* * 1 * *"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "daily",
+      "to": "save_daily",
+      "condition": "on_success"
+    },
+    {
+      "from": "save_daily",
+      "to": "weekly",
+      "condition": "on_success"
+    },
+    {
+      "from": "weekly",
+      "to": "monthly",
+      "condition": "on_success"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 120
+      },
+      "step:daily": {
+        "x": 320,
+        "y": 20
+      },
+      "step:save_daily": {
+        "x": 600,
+        "y": 20
+      },
+      "step:weekly": {
+        "x": 880,
+        "y": 20
+      },
+      "step:monthly": {
+        "x": 1160,
+        "y": 20
+      }
+    },
+    "groups": [
+      {
+        "id": "g1",
+        "title": "Every night",
+        "color": "categoricalA1",
+        "x": 296,
+        "y": -32,
+        "w": 528,
+        "h": 152
+      },
+      {
+        "id": "g2",
+        "title": "Rollups",
+        "color": "categoricalA2",
+        "x": 856,
+        "y": -32,
+        "w": 528,
+        "h": 152
+      }
+    ]
+  }
+}

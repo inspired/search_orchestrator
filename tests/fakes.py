@@ -67,22 +67,26 @@ class FakeGateway:
         self.api_handler = None  # (method, path, body) -> (status, payload)
         self.search_handler = None  # (owner, query) -> rows
         self.search_log = []
+        self.search_max_times = []
+        self.times = {}  # (time string, now) -> epoch; a value not listed is one Splunk rejects
         self.preview_log = []  # preview_dispatch calls, oldest first
 
     # Scripting.
 
     def script_job(self, name, states, result_count=0, first=None, error="scripted failure",
-                   truncated=None, rows=None, run_duration=None):
+                   truncated=None, rows=None, run_duration=None, perf=None):
         """Each dispatch of ``name`` makes a job whose status steps through ``states``
         ("running", "done", "failed", "missing", "finalized"); the last state sticks.
         "finalized" is a job stopped early outside the app (done with isFinalized).
         ``truncated``: the subsearch truncation message its status reports.
         Previews: ``preview_dispatch`` uses the script whose name is the sid, else the
         longest name the sid starts with (``"so_preview_"`` scripts every preview).
-        ``rows`` are its ``preview_results``, ``run_duration`` its ``preview_info``'s."""
+        ``rows`` are its ``preview_results``, ``run_duration`` its ``preview_info``'s.
+        ``perf``: the runtime and counts its status reports (none when not given)."""
         self._scripts[name] = {"states": list(states), "result_count": result_count,
                                "first": first, "error": error, "truncated": truncated,
-                               "rows": list(rows or []), "run_duration": run_duration}
+                               "rows": list(rows or []), "run_duration": run_duration,
+                               "perf": perf}
 
     def add_job(self, sid, state="done", result_count=1, first=None, owner=None):
         """A search job splunkd has under ``sid`` that no dispatch here made (a run's
@@ -137,10 +141,14 @@ class FakeGateway:
         finalized = state == "finalized"
         if finalized:
             state = "done"
-        return {"state": state, "result_count": job["result_count"] if state == "done" else 0,
-                "error": job["error"] if state == "failed" else None,
-                "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
-                "truncated": job.get("truncated")}
+        status = {"state": state,
+                  "result_count": job["result_count"] if state == "done" else 0,
+                  "error": job["error"] if state == "failed" else None,
+                  "finalized": finalized, "zombie": False, "ttl": job.get("ttl", 0),
+                  "truncated": job.get("truncated")}
+        if job.get("perf") and (state != "running" or job.get("perf_while_running")):
+            status["perf"] = dict(job["perf"])
+        return status
 
     def preview_dispatch(self, user, spl, earliest, latest, now_epoch, sid):
         script = self._scripts.get(sid)
@@ -300,6 +308,14 @@ class FakeGateway:
         self.alert_action_log.append(user)
         return list(self.alert_action_list)
 
+    def parse_times(self, user, times, now_epoch):
+        out = {}
+        for value in times:
+            if (value, now_epoch) not in self.times:
+                raise GatewayError("Splunk cannot read the time %r" % value, 400)
+            out[value] = self.times[(value, now_epoch)]
+        return out
+
     def read_secret(self, name):
         return self.secrets.get(name)
 
@@ -314,8 +330,9 @@ class FakeGateway:
             raise GatewayError("no REST endpoint in this fake", status=None, transient=True)
         return self.api_handler(method, path, body)
 
-    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
+    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10, max_time=None):
         self.search_log.append((owner, query, earliest, latest))
+        self.search_max_times.append(max_time)
         rows = self.search_handler(owner, query) if self.search_handler else []
         return copy.deepcopy(rows[:count])
 

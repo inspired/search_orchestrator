@@ -6,6 +6,7 @@ import Message from '@splunk/react-ui/Message';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import * as client from '../../api/client';
 import type { Destination, DestinationInput, Health, Me, Settings } from '../../api/types';
+import { CAP_ADMIN } from '../../appNames';
 import PageShell from '../../components/PageShell';
 import usePoll from '../../hooks/usePoll';
 import Destinations from './Destinations';
@@ -122,7 +123,7 @@ export default function SettingsPage({ api = defaultApi }: { api?: SettingsApi }
             <Message type="info" appearance="default">
                 {error
                     ? `Your access could not be checked: ${error}`
-                    : 'Settings are only for orchestrator admins (the orchestrator_admin capability).'}
+                    : `Settings are only for orchestrator admins (the ${CAP_ADMIN} capability).`}
             </Message>
         );
     } else {

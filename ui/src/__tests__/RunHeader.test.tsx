@@ -12,10 +12,10 @@ const header = (run: ReturnType<typeof rollupRun>, canRun = true) =>
 describe('RunHeader', () => {
     test('dismiss only on held run', () => {
         const { unmount } = header(rollupRun({ state: 'failed', held: false }));
-        expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Dismiss run' })).toBeNull();
         unmount();
         header(rollupRun({ state: 'failed', held: true }));
-        expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Dismiss run' })).toBeInTheDocument();
     });
 
     test('pause toggles to resume', () => {

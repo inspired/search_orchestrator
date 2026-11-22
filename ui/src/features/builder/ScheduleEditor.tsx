@@ -1,187 +1,308 @@
-/* One cron schedule as a friendly form: On days, Every…, Monthly, or Advanced (cron). It
- * is stored as cron; the form only writes a new cron when a field changes, so opening a
- * job never rewrites its schedules. A plain-English line says what the schedule means. */
-import React, { useEffect, useState } from 'react';
+/* One cron schedule: a preset (hourly, daily, weekly, monthly) or a custom cron, a plain
+ * summary, and the next few run times from the server. A cron no preset matches opens as
+ * Custom and keeps its text until edited. */
+import React, { useEffect, useRef, useState } from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
-import RadioBar from '@splunk/react-ui/RadioBar';
-import Select from '@splunk/react-ui/Select';
-import Text from '@splunk/react-ui/Text';
+import DefinitionList from '@splunk/react-ui/DefinitionList';
+import Link from '@splunk/react-ui/Link';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import DayPicker from './DayPicker';
-import {
-    cronOfForm,
-    describeForm,
-    formOfCron,
-    hhmm,
-    HOUR_STEPS,
-    MINUTE_STEPS,
-    Mode,
-    parseTime,
-    ScheduleForm,
-    switchMode,
-} from './scheduleForm';
+import { joinNames } from '../../format';
+import Multiselect from '@splunk/react-ui/Multiselect';
+import NumberInput from '@splunk/react-ui/Number';
+import RadioBar from '@splunk/react-ui/RadioBar';
+import Text from '@splunk/react-ui/Text';
+import { pad, parseTime } from './PreviewBar';
+import type { NextSlotsResponse } from '../../api/client';
+import { DAY_NAMES, SchedulePreset, describeSchedule, fromCron, toCron } from './schedule';
+
+export type NextSlots = (cron: string, timezone: string | null, count?: number, opts?: { clashes?: boolean; jobId?: string }) => Promise<NextSlotsResponse>;
 
 export interface ScheduleEditorProps {
     id: string;
     cron: string;
-    onChange: (cron: string) => void;
-    /** The job's time zone, for the summary; empty means the server's. */
+    /** The job's time zone; empty is the server's. */
     timezone?: string;
+    onChange: (cron: string) => void;
+    nextSlots?: NextSlots;
+    /** The job's id, left out when looking for other jobs at the same times. */
+    jobId?: string;
 }
 
-const HOURS = Array.from({ length: 24 }, (_x, h) => h);
-const DOMS = Array.from({ length: 31 }, (_x, d) => d + 1);
+const FEW = 3;
+const MANY = 10;
 
-function TimeField({ id, hour, minute, onChange }: { id: string; hour: number; minute: number; onChange: (h: number, m: number) => void }) {
-    const [text, setText] = useState(hhmm(hour, minute));
-    useEffect(() => setText(hhmm(hour, minute)), [hour, minute]);
-    const parsed = parseTime(text);
-    return (
-        <ControlGroup label="At" labelFor={id} labelPosition="top" help={parsed ? undefined : 'Use HH:MM, such as 06:00.'} error={!parsed}>
-            <Text
-                inputId={id}
-                value={text}
-                placeholder="06:00"
-                style={{ width: '90px' }}
-                onChange={(_e: unknown, { value }: { value: string }) => {
-                    setText(value);
-                    const t = parseTime(value);
-                    if (t) {
-                        onChange(t[0], t[1]);
-                    }
-                }}
-            />
-        </ControlGroup>
-    );
+const KINDS: SchedulePreset['kind'][] = ['hourly', 'daily', 'weekly', 'monthly', 'custom'];
+const KIND_LABELS: Record<SchedulePreset['kind'], string> = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', custom: 'Custom' };
+const DEBOUNCE_MS = 400;
+
+/** An epoch as wall time at `offset` seconds east of UTC, the offset the server scheduled it in. */
+export function formatSlot(epoch: number, offset: number): string {
+    const opts: Intl.DateTimeFormatOptions = {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'UTC',
+    };
+    return new Intl.DateTimeFormat('en-GB', opts).format(new Date((epoch + offset) * 1000));
 }
 
-export default function ScheduleEditor({ id, cron, onChange, timezone }: ScheduleEditorProps) {
+/** Where the times are: the job's zone by name, or the server's with its offset when known. */
+export function zoneLabel(timezone: string | null, offset: number | null): string {
+    if (timezone) {
+        return `in ${timezone}`;
+    }
+    if (offset === null) {
+        return "in the server's time zone";
+    }
+    const abs = Math.abs(offset);
+    const hhmm = `${pad(Math.floor(abs / 3600))}:${pad(Math.floor((abs % 3600) / 60))}`;
+    return `in the server's time zone (UTC${offset < 0 ? '-' : '+'}${hhmm})`;
+}
+
+/** A preset of `kind`, keeping the time of the one being left. */
+function switchKind(from: SchedulePreset, kind: SchedulePreset['kind']): SchedulePreset {
+    const hour = 'hour' in from ? from.hour : 1;
+    const minute = 'minute' in from ? from.minute : 0;
+    switch (kind) {
+        case 'hourly':
+            return { kind, minute };
+        case 'daily':
+            return { kind, hour, minute };
+        case 'weekly':
+            return { kind, days: from.kind === 'weekly' ? from.days : [1], hour, minute };
+        case 'monthly':
+            return { kind, dayOfMonth: from.kind === 'monthly' ? from.dayOfMonth : 1, hour, minute };
+        default:
+            return { kind, cron: toCron(from) };
+    }
+}
+
+export default function ScheduleEditor({ id, cron, timezone, onChange, nextSlots, jobId }: ScheduleEditorProps) {
+    const [many, setMany] = useState(false);
     const theme = useSplunkTheme() as unknown as Record<string, string>;
-    const [form, setForm] = useState<ScheduleForm>(() => formOfCron(cron));
-    // A cron changed from outside (such as "Use this time") reopens the form, unless the
-    // user chose Advanced: then it stays Advanced.
+    const [preset, setPreset] = useState<SchedulePreset>(() => fromCron(cron));
+    const [timeDraft, setTimeDraft] = useState('');
+    const [next, setNext] = useState<NextSlotsResponse | null>(null);
+    const [cronError, setCronError] = useState<string | null>(null);
+    // The cron this editor last sent up; only a different one from outside resets the preset.
+    const sent = useRef(cron);
     useEffect(() => {
-        if (form.mode === 'cron') {
-            if (form.cron !== cron) {
-                setForm({ mode: 'cron', cron });
-            }
-        } else if (cronOfForm(form) !== cron) {
-            setForm(formOfCron(cron));
+        if (cron === sent.current) {
+            return;
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        sent.current = cron;
+        setPreset(fromCron(cron));
     }, [cron]);
+    const hasTime = preset.kind === 'daily' || preset.kind === 'weekly' || preset.kind === 'monthly';
+    useEffect(() => {
+        if (hasTime) {
+            const p = preset as { hour: number; minute: number };
+            setTimeDraft((draft) => {
+                const t = parseTime(draft);
+                return t && t.hour === p.hour && t.minute === p.minute ? draft : `${pad(p.hour)}:${pad(p.minute)}`;
+            });
+        }
+    }, [preset, hasTime]);
 
-    const set = (next: ScheduleForm) => {
-        setForm(next);
-        const out = cronOfForm(next);
-        if (out !== cron) {
-            onChange(out);
+    const apply = (next: SchedulePreset) => {
+        setPreset(next);
+        const out = toCron(next);
+        if (next.kind === 'weekly' && !next.days.length) {
+            return;
+        }
+        sent.current = out;
+        onChange(out);
+    };
+
+    // Next runs, 400 ms after the last change; a reply for an older cron is dropped.
+    useEffect(() => {
+        setCronError(null);
+        if (!nextSlots || !cron.trim()) {
+            setNext(null);
+            return undefined;
+        }
+        let stale = false;
+        const timer = setTimeout(() => {
+            nextSlots(cron, timezone || null, many ? MANY : FEW, { clashes: true, jobId }).then(
+                (r) => {
+                    if (!stale) {
+                        setNext(r);
+                    }
+                },
+                (e: { code?: string; message?: string }) => {
+                    if (stale) {
+                        return;
+                    }
+                    setNext(null);
+                    if (e && e.code === 'bad_cron') {
+                        setCronError(e.message || 'This cron expression is not valid.');
+                    }
+                }
+            );
+        }, DEBOUNCE_MS);
+        return () => {
+            stale = true;
+            clearTimeout(timer);
+        };
+    }, [cron, timezone, nextSlots, many, jobId]);
+
+    const timeError = hasTime && !parseTime(timeDraft);
+    const setTime = (text: string) => {
+        setTimeDraft(text);
+        const t = parseTime(text);
+        if (t && hasTime) {
+            apply({ ...(preset as { kind: 'daily' }), hour: t.hour, minute: t.minute });
         }
     };
-    const row: React.CSSProperties = { display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-start' };
-    const days = (value: number[], change: (d: number[]) => void) => (
-        <ControlGroup label="Days" labelPosition="top" help="Keep at least one day.">
-            <DayPicker days={value} onChange={change} />
-        </ControlGroup>
-    );
 
     return (
-        <div data-testid="schedule-editor">
-            <ControlGroup label="Repeat" labelPosition="top">
-                <RadioBar value={form.mode} onChange={(_e: unknown, { value }: { value: unknown }) => set(switchMode(form, value as Mode, cron))}>
-                    <RadioBar.Option value="days" label="On days" />
-                    <RadioBar.Option value="every" label="Every…" />
-                    <RadioBar.Option value="monthly" label="Monthly" />
-                    <RadioBar.Option value="cron" label="Advanced (cron)" />
+        <div>
+            <ControlGroup label="Repeats" labelPosition="top">
+                <RadioBar
+                    aria-label="Repeats"
+                    value={preset.kind}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => {
+                        const kind = value as SchedulePreset['kind'];
+                        if (kind !== preset.kind) {
+                            apply(switchKind(preset, kind));
+                        }
+                    }}
+                >
+                    {KINDS.map((k) => (
+                        <RadioBar.Option key={k} label={KIND_LABELS[k]} value={k} />
+                    ))}
                 </RadioBar>
             </ControlGroup>
-
-            {form.mode === 'days' && (
-                <>
-                    {days(form.days, (d) => set({ ...form, days: d }))}
-                    <TimeField id={`${id}-time`} hour={form.hour} minute={form.minute} onChange={(hour, minute) => set({ ...form, hour, minute })} />
-                </>
-            )}
-
-            {form.mode === 'every' && (
-                <>
-                    <div style={row}>
-                        <ControlGroup label="Every" labelFor={`${id}-every`} labelPosition="top">
-                            <Select
-                                inputId={`${id}-every`}
-                                value={`${form.every}${form.unit === 'minutes' ? 'm' : 'h'}`}
-                                onChange={(_e: unknown, { value }: { value: unknown }) => {
-                                    const v = String(value);
-                                    set({ ...form, every: parseInt(v, 10), unit: v.endsWith('m') ? 'minutes' : 'hours' });
-                                }}
-                            >
-                                {MINUTE_STEPS.map((n) => (
-                                    <Select.Option key={`${n}m`} label={`${n} minutes`} value={`${n}m`} />
-                                ))}
-                                {HOUR_STEPS.map((n) => (
-                                    <Select.Option key={`${n}h`} label={n === 1 ? '1 hour' : `${n} hours`} value={`${n}h`} />
-                                ))}
-                            </Select>
-                        </ControlGroup>
-                        <ControlGroup label="From" labelFor={`${id}-from`} labelPosition="top">
-                            <Select
-                                inputId={`${id}-from`}
-                                value={form.fromHour}
-                                onChange={(_e: unknown, { value }: { value: unknown }) => {
-                                    const from = Number(value);
-                                    set({ ...form, fromHour: from, toHour: Math.max(from, form.toHour) });
-                                }}
-                            >
-                                {HOURS.map((h) => (
-                                    <Select.Option key={h} label={hhmm(h, 0)} value={h} />
-                                ))}
-                            </Select>
-                        </ControlGroup>
-                        <ControlGroup label="Last hour" labelFor={`${id}-to`} labelPosition="top">
-                            <Select
-                                inputId={`${id}-to`}
-                                value={form.toHour}
-                                onChange={(_e: unknown, { value }: { value: unknown }) => {
-                                    const to = Number(value);
-                                    set({ ...form, toHour: to, fromHour: Math.min(to, form.fromHour) });
-                                }}
-                            >
-                                {HOURS.map((h) => (
-                                    <Select.Option key={h} label={hhmm(h, 0)} value={h} />
-                                ))}
-                            </Select>
-                        </ControlGroup>
-                    </div>
-                    {days(form.days, (d) => set({ ...form, days: d }))}
-                </>
-            )}
-
-            {form.mode === 'monthly' && (
-                <div style={row}>
-                    <ControlGroup label="On day" labelFor={`${id}-dom`} labelPosition="top">
-                        <Select inputId={`${id}-dom`} value={form.dom} onChange={(_e: unknown, { value }: { value: unknown }) => set({ ...form, dom: Number(value) })}>
-                            {DOMS.map((d) => (
-                                <Select.Option key={d} label={String(d)} value={d} />
-                            ))}
-                        </Select>
-                    </ControlGroup>
-                    <TimeField id={`${id}-time`} hour={form.hour} minute={form.minute} onChange={(hour, minute) => set({ ...form, hour, minute })} />
-                </div>
-            )}
-
-            {form.mode === 'cron' && (
-                <ControlGroup label="Cron" labelFor={`${id}-cron`} labelPosition="top" help="minute hour day-of-month month day-of-week.">
-                    <Text inputId={`${id}-cron`} value={form.cron} placeholder="0 1 * * *" onChange={(_e: unknown, { value }: { value: string }) => set({ mode: 'cron', cron: value })} />
+            {preset.kind === 'hourly' && (
+                <ControlGroup label="Minutes past the hour" labelFor={`${id}-minute`} labelPosition="top">
+                    <NumberInput
+                        inputId={`${id}-minute`}
+                        min={0}
+                        max={59}
+                        step={1}
+                        roundTo={0}
+                        value={preset.minute}
+                        onChange={(_e: unknown, { value }: { value?: number }) => {
+                            if (value !== undefined && !Number.isNaN(value) && value >= 0 && value <= 59) {
+                                apply({ kind: 'hourly', minute: value });
+                            }
+                        }}
+                    />
                 </ControlGroup>
             )}
-
-            <div
-                data-testid="schedule-summary"
-                style={{ margin: '6px 0', padding: '6px 8px', borderRadius: '4px', background: theme.backgroundColorSection, fontSize: '13px' }}
-            >
-                {`${describeForm(form)} (${timezone || "server's time zone"})`}
-                <span style={{ color: theme.contentColorMuted, marginLeft: '8px', fontSize: '12px' }}>{`cron ${cronOfForm(form)}`}</span>
-            </div>
+            {preset.kind === 'weekly' && (
+                <ControlGroup
+                    label="Days"
+                    labelFor={`${id}-days`}
+                    labelPosition="top"
+                    error={!preset.days.length}
+                    help={preset.days.length ? undefined : 'Pick at least one day.'}
+                >
+                    <Multiselect
+                        inputId={`${id}-days`}
+                        values={preset.days.map(String)}
+                        error={!preset.days.length}
+                        onChange={(_e: unknown, { values }: { values: unknown[] }) =>
+                            apply({ ...preset, days: values.map((v) => Number(v)).sort((a, b) => a - b) })
+                        }
+                    >
+                        {DAY_NAMES.map((d, i) => (
+                            <Multiselect.Option key={d} label={d} value={String(i)} />
+                        ))}
+                    </Multiselect>
+                </ControlGroup>
+            )}
+            {preset.kind === 'monthly' && (
+                <ControlGroup
+                    label="Day of month"
+                    labelFor={`${id}-dom`}
+                    labelPosition="top"
+                    help={preset.dayOfMonth > 28 ? 'Months without this day are skipped.' : undefined}
+                >
+                    <NumberInput
+                        inputId={`${id}-dom`}
+                        min={1}
+                        max={31}
+                        step={1}
+                        roundTo={0}
+                        value={preset.dayOfMonth}
+                        onChange={(_e: unknown, { value }: { value?: number }) => {
+                            if (value !== undefined && !Number.isNaN(value) && value >= 1 && value <= 31) {
+                                apply({ ...preset, dayOfMonth: value });
+                            }
+                        }}
+                    />
+                </ControlGroup>
+            )}
+            {hasTime && (
+                <ControlGroup label="Time (HH:MM)" labelFor={`${id}-time`} labelPosition="top" error={timeError} help={timeError ? 'Use HH:MM, 24-hour.' : undefined}>
+                    <Text
+                        inputId={`${id}-time`}
+                        value={timeDraft}
+                        error={timeError}
+                        style={{ width: '90px' }}
+                        onBlur={() => {
+                            const p = preset as { hour: number; minute: number };
+                            setTimeDraft(`${pad(p.hour)}:${pad(p.minute)}`);
+                        }}
+                        onChange={(_e: unknown, { value }: { value: string }) => setTime(value)}
+                    />
+                </ControlGroup>
+            )}
+            {preset.kind === 'custom' && (
+                <ControlGroup
+                    label="Cron"
+                    labelFor={`${id}-cron`}
+                    labelPosition="top"
+                    error={!!cronError}
+                    help={cronError || "minute hour day-of-month month day-of-week, in the job's time zone."}
+                >
+                    <Text
+                        inputId={`${id}-cron`}
+                        value={preset.cron}
+                        error={!!cronError}
+                        placeholder="0 1 * * *"
+                        onChange={(_e: unknown, { value }: { value: string }) => apply({ kind: 'custom', cron: value })}
+                    />
+                </ControlGroup>
+            )}
+            {/* With no days the cron sent up is still the old one, so don't describe it. */}
+            <p>
+                {preset.kind === 'weekly' && !preset.days.length
+                    ? 'Pick at least one day.'
+                    : `${describeSchedule(cron)}, ${next ? zoneLabel(next.timezone, next.utc_offsets[0] ?? null) : zoneLabel(timezone || null, null)}`}
+            </p>
+            {next && next.timezone_status !== 'ok' && <p>Unknown time zone; times are shown in server time.</p>}
+            {next && next.slots.length > 0 && (
+                <DefinitionList termWidth="90px">
+                    <DefinitionList.Term>Next runs</DefinitionList.Term>
+                    <DefinitionList.Description>
+                        {next.slots.map((s, i) => {
+                            const others = (next.clashes && next.clashes[i]) || [];
+                            return (
+                                <div key={s} data-testid="next-slot">
+                                    {formatSlot(s, next.utc_offsets[i] ?? 0)}
+                                    {others.length > 0 && (
+                                        <span data-testid="slot-clash" style={{ color: theme.contentColorMuted }}>
+                                            {` · same minute as ${others.length > 3 ? `${others.slice(0, 3).map((o) => o.name).join(', ')} and ${others.length - 3} more` : joinNames(others.map((o) => o.name))}`}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {next.clashes && next.clashes.some((c) => c.length > 0) && (
+                            <div style={{ fontSize: '12px', color: theme.contentColorMuted, marginTop: '4px' }}>
+                                Jobs that start in the same minute compete for search slots; moving this one a few minutes spreads the load.
+                            </div>
+                        )}
+                        <Link onClick={() => setMany(!many)}>{many ? `Show the next ${FEW}` : `Show the next ${MANY}`}</Link>
+                    </DefinitionList.Description>
+                </DefinitionList>
+            )}
         </div>
     );
 }

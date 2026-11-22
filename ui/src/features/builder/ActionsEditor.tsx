@@ -1,26 +1,21 @@
-/* Step or job actions: a hook (on_start ... on_delayed) and one of webhook, email, event,
- * start_job or alert_action with its fields (see bin/so/actions.py). Webhooks pick a named
- * destination; the URL and headers stay on the server and are never shown. */
+/* The fields of one action: webhook, email, event, start_job or alert_action (see
+ * bin/so/actions.py). When it fires is the action node's line, set in ActionPanel. Webhooks
+ * pick a named destination; the URL and headers stay on the server and are never shown. */
 import React, { useState } from 'react';
-import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import useSplunkTheme from '@splunk/themes/useSplunkTheme';
+import { TokenInput } from './InsertToken';
+import type { TokenGroup } from './tokens';
 import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
 
-const HOOKS: { value: Action['hook']; label: string }[] = [
-    { value: 'on_start', label: 'On start' },
-    { value: 'on_success', label: 'On success' },
-    { value: 'on_failure', label: 'On failure' },
-    { value: 'on_complete', label: 'On complete' },
-    { value: 'on_delayed', label: 'On delayed' },
-];
-
-const TYPES: { value: Action['type']; label: string }[] = [
+/** A webhook with the Slack, Teams, PagerDuty or ServiceNow preset is shown, and picked, as its own type. */
+const CHANNELS: Record<string, string> = { slack: 'Slack', teams: 'Microsoft Teams', pagerduty: 'PagerDuty', servicenow: 'ServiceNow' };
+const TYPES: { value: string; label: string }[] = [
     { value: 'email', label: 'Email' },
     { value: 'webhook', label: 'Webhook' },
+    ...Object.entries(CHANNELS).map(([value, label]) => ({ value, label })),
     { value: 'event', label: 'Event to an index' },
     { value: 'start_job', label: 'Start another job' },
     { value: 'alert_action', label: 'Alert action' },
@@ -135,16 +130,6 @@ function AlertParams({ id, action, value, onChange }: { id: string; action?: Ale
     );
 }
 
-export interface ActionsEditorProps {
-    actions: Action[];
-    onChange: (actions: Action[]) => void;
-    destinations: Destination[];
-    /** The alert actions to pick from. Null while unknown: the name is typed instead. */
-    alertActions?: AlertAction[] | null;
-    /** Prefix for input ids, unique per editor on the page. */
-    idPrefix: string;
-}
-
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 
 /** One option per alert action. A saved action missing from the list stays selectable. */
@@ -156,18 +141,46 @@ export function alertActionOptions(alertActions: AlertAction[], current: string)
     return options;
 }
 
-export default function ActionsEditor({ actions, onChange, destinations, alertActions = null, idPrefix }: ActionsEditorProps) {
-    const theme = useSplunkTheme() as unknown as Record<string, string>;
-    const update = (i: number, next: Action) => onChange(actions.map((a, j) => (j === i ? next : a)));
-    const remove = (i: number) => onChange(actions.filter((_a, j) => j !== i));
-    const add = () => onChange([...actions, { hook: 'on_failure', type: 'email', to: '' }]);
+export interface ActionFieldsProps {
+    action: Action;
+    onChange: (next: Action) => void;
+    destinations: Destination[];
+    alertActions?: AlertAction[] | null;
+    /** Prefix for input ids, unique per editor on the page. */
+    idPrefix: string;
+    tokenGroups?: TokenGroup[];
+}
 
-    const field = (i: number, a: Action, key: string, label: string, opts: { placeholder?: string; multiline?: boolean; help?: string } = {}) => {
-        const id = `${idPrefix}-${i}-${key}`;
-        const onValue = (_e: unknown, { value }: { value: string }) => update(i, { ...a, [key]: value });
+/** One action's kind and the fields that kind needs (everything but its hook). */
+export function ActionFields({ action: a, onChange, destinations, alertActions = null, idPrefix, tokenGroups }: ActionFieldsProps) {
+    const channel = a.type === 'webhook' && typeof a.preset === 'string' && CHANNELS[a.preset] ? a.preset : null;
+    // Slack keeps every destination; the other channels need one of their own format (PagerDuty's holds its key).
+    const filtered = channel && channel !== 'slack';
+    const choices = filtered ? destinations.filter((d) => d.preset === channel) : destinations;
+    const noChoices = filtered
+        ? `No ${CHANNELS[channel as string]} destinations yet; ask an admin to add one in Settings`
+        : 'No destinations yet. An admin adds them in Settings.';
+    const typeId = `${idPrefix}-type`;
+    const destId = `${idPrefix}-destination`;
+    const presetId = `${idPrefix}-preset`;
+    const paramsId = `${idPrefix}-params`;
+    const alertId = `${idPrefix}-action`;
+    const field = (key: string, label: string, opts: { placeholder?: string; multiline?: boolean; help?: string; tokens?: boolean } = {}) => {
+        const id = `${idPrefix}-${key}`;
+        const onValue = (_e: unknown, { value }: { value: string }) => onChange({ ...a, [key]: value });
         return (
             <ControlGroup label={label} labelFor={id} labelPosition="top" help={opts.help || (opts.multiline ? opts.placeholder : undefined)}>
-                {opts.multiline ? (
+                {tokenGroups && opts.tokens ? (
+                    <TokenInput
+                        inputId={id}
+                        fieldLabel={label}
+                        multiline={opts.multiline}
+                        value={str(a[key])}
+                        placeholder={opts.placeholder}
+                        groups={tokenGroups}
+                        onValue={(value) => onChange({ ...a, [key]: value })}
+                    />
+                ) : opts.multiline ? (
                     <TextArea inputId={id} value={str(a[key])} onChange={onValue} />
                 ) : (
                     <Text inputId={id} value={str(a[key])} placeholder={opts.placeholder} onChange={onValue} />
@@ -177,134 +190,121 @@ export default function ActionsEditor({ actions, onChange, destinations, alertAc
     };
 
     return (
-        <div>
-            {actions.length === 0 && <p style={{ color: theme.contentColorMuted }}>No actions.</p>}
-            {actions.map((a, i) => {
-                const hookId = `${idPrefix}-${i}-hook`;
-                const typeId = `${idPrefix}-${i}-type`;
-                const destId = `${idPrefix}-${i}-destination`;
-                const presetId = `${idPrefix}-${i}-preset`;
-                const paramsId = `${idPrefix}-${i}-params`;
-                const alertId = `${idPrefix}-${i}-action`;
-                return (
-                    // Keyed by count too, so drafts re-read their action after a removal.
-                    <div
-                        key={`${actions.length}-${i}`}
-                        style={{ borderTop: `1px solid ${theme.borderColor}`, padding: '8px 0', marginBottom: '4px' }}
+        <>
+            <ControlGroup label="Do" labelFor={typeId} labelPosition="top">
+                <Select
+                    inputId={typeId}
+                    value={channel || a.type}
+                    onChange={(_e: unknown, { value }: { value: unknown }) =>
+                        onChange(
+                            value === 'slack'
+                                ? { hook: a.hook, type: 'webhook', preset: 'slack', destination: str(a.destination) }
+                                : CHANNELS[String(value)]
+                                  ? { hook: a.hook, type: 'webhook', preset: value as Action['preset'], destination: '' }
+                                  : { hook: a.hook, type: value as Action['type'] }
+                        )
+                    }
+                >
+                    {TYPES.map((t) => (
+                        <Select.Option key={t.value} label={t.label} value={t.value} />
+                    ))}
+                </Select>
+            </ControlGroup>
+            {a.type === 'email' && (
+                <>
+                    {field('to', 'To', { placeholder: 'ops@example.com' })}
+                    {field('subject', 'Subject', { placeholder: '{{job}}: {{hook}}', tokens: true })}
+                    {field('message', 'Message', { placeholder: 'Empty sends the default message.', multiline: true, tokens: true })}
+                </>
+            )}
+            {a.type === 'webhook' && (
+                <>
+                    <ControlGroup
+                        label="Destination"
+                        labelFor={destId}
+                        labelPosition="top"
+                        help={choices.length ? undefined : noChoices}
                     >
-                        <ControlGroup label="When" labelFor={hookId} labelPosition="top">
+                        <Select
+                            inputId={destId}
+                            value={str(a.destination)}
+                            placeholder="Pick a destination"
+                            onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ ...a, destination: String(value) })}
+                        >
+                            {choices.map((d) => (
+                                <Select.Option key={d.name} label={d.name} value={d.name} />
+                            ))}
+                        </Select>
+                    </ControlGroup>
+                    {!channel && (
+                        <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
                             <Select
-                                inputId={hookId}
-                                value={a.hook}
-                                onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, hook: value as Action['hook'] })}
+                                inputId={presetId}
+                                value={str(a.preset)}
+                                onChange={(_e: unknown, { value }: { value: unknown }) => {
+                                    const { preset: _old, ...rest } = a;
+                                    onChange(value ? { ...rest, preset: value as Action['preset'] } : (rest as Action));
+                                }}
                             >
-                                {HOOKS.map((h) => (
-                                    <Select.Option key={h.value} label={h.label} value={h.value} />
+                                <Select.Option label="The destination's default" value="" />
+                                <Select.Option label="Slack" value="slack" />
+                                <Select.Option label="Generic JSON" value="generic" />
+                            </Select>
+                        </ControlGroup>
+                    )}
+                </>
+            )}
+            {a.type === 'event' && (
+                <>
+                    {field('index', 'Index', { placeholder: 'main' })}
+                    {field('payload', 'Event', { placeholder: 'Empty writes a JSON summary of the run.', multiline: true, tokens: true })}
+                    {field('source', 'Source', { placeholder: 'The action\u2019s own search name', help: 'Optional. Leave empty to find the events with View output.' })}
+                    {field('sourcetype', 'Sourcetype', { placeholder: 'stash', help: 'Optional. Any sourcetype other than stash counts against your Splunk license.' })}
+                    {field('host', 'Host', { placeholder: 'This search head' })}
+                    <ControlGroup label="Timestamp" labelFor={`${idPrefix}-time`} labelPosition="top" help="The event's _time.">
+                        <Select inputId={`${idPrefix}-time`} value={a.time === 'scheduled' ? 'scheduled' : 'now'} onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ ...a, time: value === 'scheduled' ? 'scheduled' : undefined })}>
+                            <Select.Option value="now" label="When the action runs (default)" />
+                            <Select.Option value="scheduled" label="The run's scheduled time" />
+                        </Select>
+                    </ControlGroup>
+                </>
+            )}
+            {a.type === 'start_job' && field('job', 'Job id', { help: 'The job to start. You need permission to run it.' })}
+            {a.type === 'alert_action' && (
+                <>
+                    {alertActions ? (
+                        <ControlGroup
+                            label="Alert action"
+                            labelFor={alertId}
+                            labelPosition="top"
+                            help={alertActions.length ? undefined : 'No alert actions are available to this app.'}
+                        >
+                            <Select
+                                inputId={alertId}
+                                filter
+                                value={str(a.action)}
+                                placeholder="Pick an alert action"
+                                onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ ...a, action: String(value), params: {} })}
+                            >
+                                {alertActionOptions(alertActions, str(a.action)).map((o) => (
+                                    <Select.Option key={o.value} label={o.label} value={o.value} />
                                 ))}
                             </Select>
                         </ControlGroup>
-                        <ControlGroup label="Do" labelFor={typeId} labelPosition="top">
-                            <Select
-                                inputId={typeId}
-                                value={a.type}
-                                onChange={(_e: unknown, { value }: { value: unknown }) =>
-                                    update(i, { hook: a.hook, type: value as Action['type'] })
-                                }
-                            >
-                                {TYPES.map((t) => (
-                                    <Select.Option key={t.value} label={t.label} value={t.value} />
-                                ))}
-                            </Select>
-                        </ControlGroup>
-                        {a.type === 'email' && (
-                            <>
-                                {field(i, a, 'to', 'To', { placeholder: 'ops@example.com' })}
-                                {field(i, a, 'subject', 'Subject', { placeholder: '{{job}}: {{hook}}' })}
-                                {field(i, a, 'message', 'Message', { placeholder: 'Empty sends the default message.', multiline: true })}
-                            </>
-                        )}
-                        {a.type === 'webhook' && (
-                            <>
-                                <ControlGroup
-                                    label="Destination"
-                                    labelFor={destId}
-                                    labelPosition="top"
-                                    help={destinations.length ? undefined : 'No destinations yet. An admin adds them in Settings.'}
-                                >
-                                    <Select
-                                        inputId={destId}
-                                        value={str(a.destination)}
-                                        placeholder="Pick a destination"
-                                        onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, destination: String(value) })}
-                                    >
-                                        {destinations.map((d) => (
-                                            <Select.Option key={d.name} label={d.name} value={d.name} />
-                                        ))}
-                                    </Select>
-                                </ControlGroup>
-                                <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
-                                    <Select
-                                        inputId={presetId}
-                                        value={str(a.preset)}
-                                        onChange={(_e: unknown, { value }: { value: unknown }) => {
-                                            const { preset: _old, ...rest } = a;
-                                            update(i, value ? { ...rest, preset: String(value) } : (rest as Action));
-                                        }}
-                                    >
-                                        <Select.Option label="The destination's default" value="" />
-                                        <Select.Option label="Slack" value="slack" />
-                                        <Select.Option label="Generic JSON" value="generic" />
-                                    </Select>
-                                </ControlGroup>
-                            </>
-                        )}
-                        {a.type === 'event' && (
-                            <>
-                                {field(i, a, 'index', 'Index', { placeholder: 'main' })}
-                                {field(i, a, 'payload', 'Event', { placeholder: 'Empty writes a JSON summary of the run.', multiline: true })}
-                            </>
-                        )}
-                        {a.type === 'start_job' && field(i, a, 'job', 'Job id', { help: 'The job to start. You need permission to run it.' })}
-                        {a.type === 'alert_action' && (
-                            <>
-                                {alertActions ? (
-                                    <ControlGroup
-                                        label="Alert action"
-                                        labelFor={alertId}
-                                        labelPosition="top"
-                                        help={alertActions.length ? undefined : 'No alert actions are available to this app.'}
-                                    >
-                                        <Select
-                                            inputId={alertId}
-                                            filter
-                                            value={str(a.action)}
-                                            placeholder="Pick an alert action"
-                                            onChange={(_e: unknown, { value }: { value: unknown }) => update(i, { ...a, action: String(value), params: {} })}
-                                        >
-                                            {alertActionOptions(alertActions, str(a.action)).map((o) => (
-                                                <Select.Option key={o.value} label={o.label} value={o.value} />
-                                            ))}
-                                        </Select>
-                                    </ControlGroup>
-                                ) : (
-                                    field(i, a, 'action', 'Alert action name', {
-                                        placeholder: 'e.g. logevent',
-                                        help: 'The list of alert actions is not available, so type the name.',
-                                    })
-                                )}
-                                <AlertParams
-                                    id={paramsId}
-                                    action={alertActions ? alertActions.find((x) => x.name === a.action) : undefined}
-                                    value={a.params}
-                                    onChange={(params) => update(i, { ...a, params })}
-                                />
-                            </>
-                        )}
-                        <Button appearance="subtle" label="Remove action" onClick={() => remove(i)} />
-                    </div>
-                );
-            })}
-            <Button appearance="secondary" label="Add action" onClick={add} />
-        </div>
+                    ) : (
+                        field('action', 'Alert action name', {
+                            placeholder: 'e.g. logevent',
+                            help: 'The list of alert actions is not available, so type the name.',
+                        })
+                    )}
+                    <AlertParams
+                        id={paramsId}
+                        action={alertActions ? alertActions.find((x) => x.name === a.action) : undefined}
+                        value={a.params}
+                        onChange={(params) => onChange({ ...a, params })}
+                    />
+                </>
+            )}
+        </>
     );
 }

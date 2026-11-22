@@ -204,7 +204,10 @@ def test_kv_409_on_update_raises_kv_error():
 
 def test_parse_user_access():
     body = ('{"entry":[{"content":{"roles":["ops"],"capabilities":["orchestrator_run"]}}]}')
-    assert g.parse_user_access(body) == {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
+    assert g.parse_user_access(body) == {"roles": ["ops"], "capabilities": ["orchestrator_run"],
+                                         "email": ""}
+    body = '{"entry":[{"content":{"roles":[],"capabilities":[],"email":"a@example.com"}}]}'
+    assert g.parse_user_access(body)["email"] == "a@example.com"
 
 
 def test_parse_saved_search_info():
@@ -367,6 +370,9 @@ def test_search_oneshot_uses_search_jobs_exec_mode():
     assert rows == [{"a": "1"}]
     path, kw = calls[0]
     assert str(path).endswith("search/jobs") and kw.get("exec_mode") == "oneshot"
+    assert "max_time" not in kw
+    gw.search_oneshot("bob", "search x", max_time=30)
+    assert calls[1][1]["max_time"] == 30
 
 
 def _status_body(**content):
@@ -541,6 +547,67 @@ def test_alert_actions_failure_is_a_gateway_error():
     with pytest.raises(g.GatewayError) as err:
         g.SplunkGateway(StubService(down)).alert_actions("alice")
     assert err.value.status == 503 and err.value.transient
+
+
+def test_parse_timeparser():
+    assert g.parse_timeparser(fx("timeparser.json")) == {"-1d@d": 1762300800, "@d": 1762387200}
+
+
+def test_parse_times_asks_splunk_to_resolve_against_now():
+    seen = []
+
+    def handler(method, path, kw):
+        seen.append((method, path, kw))
+        return Resp(fx("timeparser.json"))
+    out = g.SplunkGateway(StubService(handler)).parse_times("alice", ["-1d@d", "@d"], 1762390800)
+    assert out == {"-1d@d": 1762300800, "@d": 1762387200}
+    method, path, kw = seen[0]
+    assert (method, path) == ("get", "search/timeparser")
+    assert kw["time"] == ["-1d@d", "@d"] and kw["now"] == 1762390800
+    assert kw["output_time_format"] == "%s" and kw["owner"] == "alice"
+
+
+def test_parse_times_rejection_is_a_400_naming_the_value():
+    def handler(method, path, kw):
+        raise FakeHTTPError(400)
+    with pytest.raises(g.GatewayError) as err:
+        g.SplunkGateway(StubService(handler)).parse_times("alice", ["-1x"], 1762390800)
+    assert err.value.status == 400 and "-1x" in str(err.value)
+
+
+def test_preview_dispatch_adds_search_unless_the_spl_starts_with_a_pipe():
+    from so.gateway import preview_dispatch_params
+    assert preview_dispatch_params("index=_internal | stats count", None, None, 0, "x")["search"] \
+        == "search index=_internal | stats count"
+    assert preview_dispatch_params("  | makeresults", None, None, 0, "x")["search"] == "  | makeresults"
+    assert preview_dispatch_params("\nindex=a", None, None, 0, "x")["search"] == "search index=a"
+
+
+def _status_body(**content):
+    content.setdefault("dispatchState", "DONE")
+    content.setdefault("isDone", "1")
+    return json.dumps({"entry": [{"content": content}]})
+
+
+def test_status_parses_perf_numbers():
+    s = g.parse_job_status(_status_body(runDuration="1.5", scanCount="1000", eventCount="10",
+                                        resultCount="3", diskUsage="2048"))
+    assert s["perf"] == {"run_duration": 1.5, "scan_count": 1000, "event_count": 10,
+                         "result_count": 3, "disk_usage": 2048}
+
+
+def test_status_perf_leaves_out_unparsable_and_missing_numbers():
+    s = g.parse_job_status(_status_body(runDuration="1.5", scanCount="x", eventCount="10",
+                                        resultCount="3"))
+    assert s["perf"] == {"run_duration": 1.5, "event_count": 10, "result_count": 3}
+
+
+def test_oneshot_search_adds_search_unless_it_starts_with_a_pipe_or_search():
+    from so.gateway import oneshot_search
+    assert oneshot_search("index=_audit action=search") == "search index=_audit action=search"
+    assert oneshot_search("  | makeresults") == "  | makeresults"
+    assert oneshot_search("search index=main") == "search index=main"
+    assert oneshot_search("searchfoo=1") == "search searchfoo=1"
 
 
 # Splunk prepends "search " to a saved search that doesn't start with "|", and runs ad hoc

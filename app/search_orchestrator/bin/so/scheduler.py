@@ -14,11 +14,13 @@
 ``create_run`` inserts a queued run with a deterministic key, so a restart can
 never create one slot or one chained trigger twice: ``job:scheduled_time`` for
 cron, ``job:upstream_run_id:trigger`` for chained runs (start_job actions add
-``:a<action index>``), and a random suffix
+``:a<action index>``), ``job:backfill-<backfill id>:scheduled_time`` for backfill runs
+(which also store ``backfill``, the backfill id), and a random suffix
 otherwise. A re-run with "start downstream jobs again" ticked deliberately
 starts them once more: its chained keys add ``:rerun<rerun_count>``, which is
 still deterministic, so a restart cannot create that run twice either. It snapshots the job definition (spec section 4) and enforces the
-per-job queue cap: a rejected run is audited and reported through the job's
+per-job queue cap, and stores the run's ``deadline_at`` (``deadline.py``; None for
+runs without a deadline) and ``late_at: None``. A rejected run is audited and reported through the job's
 ``on_failure`` actions. While the job is held, rejections fold into the held
 run's daily hold alert instead (keyed per day), so they never notify per slot.
 """
@@ -29,12 +31,14 @@ import time
 import uuid
 
 from . import cron as cronmod
+from . import deadline as deadlinemod
 from . import tokens
 from .store import ACTIVE_RUN_STATES
 
 log = logging.getLogger(__name__)
 
 CATCHUP_CAP = 7
+SLOT_COUNT_CAP = 1000  # missed slots counted after a long stop; more is reported as "at least"
 ONTIME_GRACE = 300
 WINDOW = 86400
 DAY = 86400
@@ -62,18 +66,59 @@ def cron_specs(job):
     return specs
 
 
+def entry_of(triggers):
+    """The steps a run started by ``triggers`` (all fired at once) begins with: the union
+    of their ``steps``, or None (every step with no line into it) when any of them has
+    no ``steps`` list. A job saved before triggers had ``steps`` keeps starting them all."""
+    out = set()
+    for t in triggers:
+        steps = t.get("steps") if isinstance(t, dict) else None
+        if not isinstance(steps, list):
+            return None
+        out.update(s for s in steps if isinstance(s, str))
+    return sorted(out)
+
+
+def cron_entry(job, slot):
+    """``entry_of`` the enabled cron triggers that fire at ``slot``."""
+    fired = []
+    for t in job.get("triggers") or []:
+        if t.get("type") != "cron" or t.get("enabled") is False:
+            continue
+        try:
+            spec = cronmod.parse(t.get("cron"))
+        except cronmod.CronError:
+            continue
+        if cronmod.matches(spec, int(slot), job.get("timezone")):
+            fired.append(t)
+    return entry_of(fired) if fired else None
+
+
 def due_runs(job, last_checked, now):
     """Slots in (last_checked, now] to create runs for, oldest first."""
     if last_checked is None or job.get("enabled") is False:
         return []
-    specs = cron_specs(job)
-    if not specs:
-        return []
     now = int(now)
-    lo, hi = int(last_checked) + 1, now + 1
+    lo = int(last_checked) + 1
     policy = job.get("catchup") or "all"
     want = 1 if policy == "latest" else CATCHUP_CAP
     floor = max(lo, now - ONTIME_GRACE) if policy == "none" else lo
+    return _newest_slots(job, floor, now, want)
+
+
+def slots_in(job, last_checked, now, cap=SLOT_COUNT_CAP):
+    """Up to ``cap`` (newest) slots in (last_checked, now], whatever the job's catch-up
+    policy and whether it is enabled: what ``due_runs`` leaves out is what was missed."""
+    if last_checked is None:
+        return []
+    return _newest_slots(job, int(last_checked) + 1, int(now), cap)
+
+
+def _newest_slots(job, floor, now, want):
+    specs = cron_specs(job)
+    if not specs:
+        return []
+    hi = now + 1
     tz = job.get("timezone")
     found = []
     end = hi
@@ -94,9 +139,13 @@ def is_catchup(slot, now):
     return int(now) - int(slot) > ONTIME_GRACE
 
 
-def run_key(job_id, trigger, scheduled_time, upstream=None, rerun=None, action_index=None):
+def run_key(job_id, trigger, scheduled_time, upstream=None, rerun=None, action_index=None,
+            backfill=None):
     """``rerun`` (a re-run count, chained runs only) restarts downstream jobs.
-    ``action_index`` (start_job actions) keeps two actions to one target apart."""
+    ``action_index`` (start_job actions) keeps two actions to one target apart.
+    ``backfill`` (a backfill id) gives one key per backfill slot."""
+    if backfill:
+        return "%s:backfill-%s:%d" % (job_id, backfill, int(scheduled_time))
     if upstream:
         key = "%s:%s:%s" % (job_id, upstream, trigger)
         if action_index is not None:
@@ -158,16 +207,21 @@ def _report_rejected(store, job, run, queue_cap, now, audit, actions):
 
 def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=None,
                catchup=False, audit=None, actions=None, queue_cap=None, chain_depth=0,
-               rerun=None, action_index=None):
+               rerun=None, action_index=None, backfill=None, started_by=None, upstream_run=None,
+               entry=None):
     """Insert a queued run and return its ID, or None if it already exists or the
-    job's queue is full. Raises tokens.TokenError for invalid parameters.
+    job's queue is full. Raises tokens.TokenError for invalid parameters. ``started_by``:
+    the user who started a manual run (they may decide its approval steps).
+    ``upstream_run``: the run (or outbox row) that started a chained run; a chained run
+    gets a deadline only when it was eligible (``deadline.eligible``). ``entry``: the steps
+    the run begins with (``entry_of``); None starts every step with no line into it.
 
     KV Store has no transactions, so the cap is checked again after the insert: a run
     that finds the queue over the cap removes itself. Two exactly simultaneous starts can
     both do so; a false "queue full" is safe, a queue over its cap is not."""
     now = int(time.time() if now is None else now)
     job_id = job.get("id") or job.get("_key")
-    key = run_key(job_id, trigger, scheduled_time, upstream, rerun, action_index)
+    key = run_key(job_id, trigger, scheduled_time, upstream, rerun, action_index, backfill)
     if store.get_run(key) is not None:
         return None
     clean = validate_params(job, params)
@@ -179,6 +233,11 @@ def create_run(store, job, trigger, scheduled_time, params, upstream=None, now=N
            "started_at": None, "ended_at": None, "delay_base": None, "giveup_base": None,
            "paused_seconds": 0, "paused_at": None, "hooks_fired": [], "delay_alerted": False,
            "held": False, "gave_up": False, "rerun_count": 0, "chain_depth": int(chain_depth),
+           "deadline_eligible": deadlinemod.eligible(trigger, catchup, upstream_run),
+           "deadline_at": deadlinemod.deadline_at(definition, scheduled_time, trigger, catchup,
+                                                  upstream_run),
+           "late_at": None, "backfill": backfill, "started_by": started_by,
+           "entry_steps": list(entry) if entry is not None else None,
            "steps": {s["id"]: {"state": "waiting"} for s in definition.get("steps") or []}}
     if queue_cap is None:
         queue_cap = (store.get_settings() or {}).get("queue_cap") or QUEUE_CAP

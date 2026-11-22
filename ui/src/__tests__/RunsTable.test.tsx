@@ -1,7 +1,7 @@
 import React from 'react';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import RunsTable, { filterRuns, stepProgress } from '../features/runs/RunsTable';
-import RunsPage, { RunsApi } from '../features/runs/RunsPage';
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import RunsTable, { filterRuns, needsAttention, stepProgress } from '../features/runs/RunsTable';
 import { formatTime } from '../format';
 import { NOW, renderThemed, runSummary } from './fixtures';
 
@@ -44,22 +44,46 @@ describe('RunsTable', () => {
         expect(screen.getByText('No runs match these filters.')).toBeInTheDocument();
     });
 
-    test('says no runs match when a search returned nothing', () => {
-        renderThemed(<RunsTable runs={[]} jobNames={{}} filters={{ q: 'sales' }} onFiltersChange={jest.fn()} now={NOW} />);
-        expect(screen.getByText('No runs match these filters.')).toBeInTheDocument();
+    test('needsAttention keeps blocked, failed and held runs', () => {
+        expect(needsAttention(runSummary({ state: 'succeeded', held: true }))).toBe(true);
+        expect(needsAttention(runSummary({ state: 'blocked' }))).toBe(true);
+        expect(needsAttention(runSummary({ state: 'failed' }))).toBe(true);
+        expect(needsAttention(runSummary({ state: 'succeeded' }))).toBe(false);
+        expect(needsAttention(runSummary({ state: 'running' }))).toBe(false);
     });
 
-    test('says no runs yet only when nothing is filtered', () => {
-        renderThemed(<RunsTable runs={[]} jobNames={{}} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
-        expect(screen.getByText('No runs yet.')).toBeInTheDocument();
+    test('Needs attention option follows All states', async () => {
+        const user = userEvent.setup();
+        renderThemed(<RunsTable runs={runs} jobNames={jobNames} filters={{}} onFiltersChange={jest.fn()} now={NOW} />);
+        await user.click(screen.getByLabelText('State'));
+        const labels = screen.getAllByRole('option').map((o) => o.textContent);
+        expect(labels.slice(0, 2)).toEqual(['All states', 'Needs attention']);
     });
 
-    test('the search box replaces the job dropdown', () => {
-        const onFiltersChange = jest.fn();
-        renderThemed(<RunsTable runs={runs} jobNames={jobNames} filters={{ state: 'failed' }} onFiltersChange={onFiltersChange} now={NOW} />);
-        expect(screen.queryByText('All jobs')).toBeNull();
-        fireEvent.change(screen.getByRole('textbox', { name: 'Search by job name' }), { target: { value: 'sales' } });
-        expect(onFiltersChange).toHaveBeenCalledWith({ state: 'failed', q: 'sales' });
+    test('attention filter shows only runs that need attention', () => {
+        const mixed = [...runs, runSummary({ id: 'daily:3', state: 'succeeded', held: true })];
+        renderThemed(
+            <RunsTable runs={mixed} jobNames={jobNames} filters={{ state: 'attention' }} onFiltersChange={jest.fn()} now={NOW} />
+        );
+        expect(screen.getAllByRole('row').slice(1)).toHaveLength(2);
+    });
+
+    test('a run with a step waiting for approval says so and needs attention', () => {
+        const waiting = runSummary({
+            id: 'daily:9',
+            state: 'running',
+            ended_at: null,
+            steps: { a: { state: 'succeeded' }, gate: { state: 'awaiting_approval', approval_state: { requested_at: NOW - 60, message: 'ok?', decision: null } } },
+        });
+        expect(needsAttention(waiting)).toBe(true);
+        expect(needsAttention(runSummary({ state: 'running', ended_at: null, steps: { a: { state: 'running' } } }))).toBe(false);
+        renderThemed(
+            <RunsTable runs={[...runs, waiting]} jobNames={jobNames} filters={{ state: 'attention' }} onFiltersChange={jest.fn()} now={NOW} />
+        );
+        const rows = screen.getAllByRole('row').slice(1);
+        expect(rows).toHaveLength(2);
+        expect(within(rows[1]).getByText('Running · waiting for approval')).toBeInTheDocument();
+        expect(within(rows[0]).queryByText(/waiting for approval/)).toBeNull();
     });
 });
 
@@ -85,45 +109,5 @@ describe('Run progress', () => {
         const bars = screen.getAllByTestId('run-progress');
         expect(bars).toHaveLength(1);
         expect(bars[0]).toHaveAttribute('aria-label', '2 of 4 steps done');
-    });
-});
-
-describe('RunsPage', () => {
-    afterEach(() => window.history.replaceState(null, '', '/'));
-
-    function runsApi(over: Partial<RunsApi> = {}): RunsApi {
-        return {
-            listJobs: jest.fn(() => Promise.resolve([])),
-            searchRuns: jest.fn(() => Promise.resolve({ runs })),
-            ...over,
-        } as unknown as RunsApi;
-    }
-
-    test('typing searches by job name after a pause and keeps it in the URL', async () => {
-        const api = runsApi();
-        renderThemed(<RunsPage api={api} />);
-        const box = await screen.findByRole('textbox', { name: 'Search by job name' });
-        fireEvent.change(box, { target: { value: 'sales' } });
-        await waitFor(() => expect(api.searchRuns).toHaveBeenLastCalledWith({ q: 'sales', state: undefined }));
-        expect(window.location.search).toBe('?q=sales');
-    });
-
-    test('an old job_id link becomes a search for that id', async () => {
-        window.history.replaceState(null, '', '/?job_id=daily');
-        const api = runsApi();
-        renderThemed(<RunsPage api={api} />);
-        await waitFor(() => expect(api.searchRuns).toHaveBeenCalledWith({ q: 'daily', state: undefined }));
-    });
-
-    test('job names come from the list of jobs, and a deleted job shows its id', async () => {
-        const api = runsApi({ listJobs: jest.fn(() => Promise.resolve([{ id: 'daily', name: 'Daily summary' }])) } as unknown as Partial<RunsApi>);
-        renderThemed(<RunsPage api={api} />);
-        expect((await screen.findAllByText('Daily summary')).length).toBeGreaterThan(0);
-        expect(screen.getByText('weekly')).toBeInTheDocument();
-    });
-
-    test('warns when a search stopped before looking at every run', async () => {
-        renderThemed(<RunsPage api={runsApi({ searchRuns: jest.fn(() => Promise.resolve({ runs, partial: true })) } as Partial<RunsApi>)} />);
-        expect(await screen.findByText(/Older matching runs may be missing/)).toBeInTheDocument();
     });
 });

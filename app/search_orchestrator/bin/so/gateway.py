@@ -27,16 +27,18 @@ Rulings proven on the real server (docs/m1-procedure.md):
   (the self-test reads its audit event back with it).
 """
 import json
+import logging
 import re
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol
 from urllib.parse import quote, urlsplit
 
-from . import alert_forms
+from . import alert_forms, logs
 
 APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
@@ -139,7 +141,26 @@ def parse_job_status(body):
         ttl = 0
     return {"state": state, "result_count": count, "error": error,
             "finalized": _truthy(c.get("isFinalized")), "zombie": zombie, "ttl": ttl,
-            "truncated": _truncation(texts)}
+            "truncated": _truncation(texts), "perf": _perf(c)}
+
+
+_PERF_FIELDS = (("run_duration", "runDuration", float), ("scan_count", "scanCount", int),
+                ("event_count", "eventCount", int), ("result_count", "resultCount", int),
+                ("disk_usage", "diskUsage", int))
+
+
+def _perf(content):
+    """The job's runtime, scan, event and result counts and disk use; a missing or
+    unparsable number is left out, never zero."""
+    perf = {}
+    for key, field, kind in _PERF_FIELDS:
+        try:
+            value = kind(content[field])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if value == value and value not in (float("inf"), float("-inf")):
+            perf[key] = value
+    return perf
 
 
 def _truncation(texts):
@@ -192,6 +213,15 @@ def parse_preview_results(body):
     return {"fields": fields, "rows": list(data.get("results") or [])}
 
 
+def oneshot_search(query):
+    """search/jobs needs a leading ``search`` unless the SPL starts with ``|`` (as
+    ``preview_dispatch_params``); a query that already starts with ``search`` is kept."""
+    stripped = query.lstrip()
+    if stripped.startswith("|") or re.match(r"(?i)search\b", stripped):
+        return query
+    return "search " + stripped
+
+
 _LEADING_SEARCH = re.compile(r"\s*search\s+", re.IGNORECASE)
 
 
@@ -207,9 +237,11 @@ def preview_dispatch_params(spl, earliest, latest, now_epoch, sid):
     """POST search/jobs parameters for a preview: a normal (asynchronous) job with our own
     sid, ``now`` as the time base, cancelled 180 s after the last poll stops, kept 1800 s.
     An ad hoc job runs as written, so the search gets the ``search`` command a run's saved
-    search gets from Splunk: a step means the same in a preview and a run."""
+    search gets from Splunk: a step means the same in a preview and a run. (search/jobs,
+    unlike a saved search, needs that leading ``search`` unless the SPL starts with a pipe,
+    else Splunk reports "Unknown search command 'index'".)"""
     if not spl.lstrip().startswith("|"):
-        spl = "search " + _without_search_command(spl)
+        spl = "search " + _without_search_command(spl).lstrip()
     params = {"search": spl, "id": sid, "now": int(now_epoch), "auto_cancel": 180,
               "timeout": 1800, "exec_mode": "normal"}
     if earliest:
@@ -314,6 +346,15 @@ def saved_search_params(search, earliest, latest, description=""):
             "dispatch.latest_time": latest, "is_visible": 0, "description": description}
 
 
+def parse_timeparser(body):
+    """``{time string: epoch seconds}`` from a ``search/timeparser`` reply."""
+    try:
+        data = json.loads(body)
+        return {str(k): int(v) for k, v in data.items()}
+    except (ValueError, TypeError, AttributeError) as err:
+        raise GatewayError("unreadable time parser reply: {}".format(err))
+
+
 def parse_alert_actions(body, forms_body=None):
     """Alert actions JSON and alert form JSON (or None) -> ``[{"name", "label", "params"}]``
     by label (``params``: see ``alert_forms``). Only enabled custom actions:
@@ -331,9 +372,11 @@ def parse_alert_actions(body, forms_body=None):
 
 
 def parse_user_access(body):
-    """User JSON -> ``{"roles": [...], "capabilities": [...]}`` (effective, from all roles)."""
+    """User JSON -> ``{"roles": [...], "capabilities": [...], "email"}`` (effective roles and
+    capabilities, from all roles; ``email`` is the account's address or "")."""
     c = json.loads(body)["entry"][0].get("content", {})
-    return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or [])}
+    return {"roles": list(c.get("roles") or []), "capabilities": list(c.get("capabilities") or []),
+            "email": str(c.get("email") or "")}
 
 
 MISSING_SAVED_SEARCH = {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
@@ -414,6 +457,7 @@ class Gateway(Protocol):
     def saved_search_info(self, owner: str, name: str) -> Dict[str, Any]: ...
     def index_exists(self, name: str) -> bool: ...
     def alert_actions(self, user: str) -> List[Dict[str, str]]: ...
+    def parse_times(self, user: str, times: List[str], now_epoch: int) -> Dict[str, int]: ...
     def read_secret(self, name: str) -> Optional[str]: ...
     def write_secret(self, name: str, value: str) -> None: ...
     def delete_secret(self, name: str) -> None: ...
@@ -421,11 +465,23 @@ class Gateway(Protocol):
     def orchestrator_api(self, method: str, path: str,
                          body: Optional[Dict[str, Any]] = None) -> Any: ...
     def search_oneshot(self, owner: str, query: str, earliest: str = "-1h",
-                       latest: str = "+1h", count: int = 10) -> List[Dict[str, Any]]: ...
+                       latest: str = "+1h", count: int = 10,
+                       max_time: Optional[int] = None) -> List[Dict[str, Any]]: ...
     def preview_dispatch(self, user: str, spl: str, earliest: Optional[str],
                          latest: Optional[str], now_epoch: int, sid: str) -> str: ...
     def preview_info(self, sid: str) -> Dict[str, Any]: ...
     def preview_results(self, sid: str, count: int) -> Dict[str, Any]: ...
+
+
+_call_log = logging.getLogger("so.splunkd")
+
+
+def _log_call(method, path, owner, started, status=None, error=None):
+    """DEBUG: each splunkd call (method, path, owner, status, time; never its parameters,
+    which can hold SPL or message text). A failed call is logged by the caller that
+    handles it, so it stays DEBUG here too."""
+    logs.event(_call_log, logging.DEBUG, "splunkd_call", method=method.upper(), path=path,
+               owner=owner, status=status, ms=int((time.time() - started) * 1000), error=error)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -460,10 +516,17 @@ class SplunkGateway:
 
     def _call(self, method, path, owner="nobody", app=APP, **params):
         func = getattr(self.service, method)
+        started = time.time()
         try:
             response = func(path, owner=owner, app=app, output_mode="json", **params)
         except (socket.error, ssl.SSLError) as err:
+            _log_call(method, path, owner, started, error="connection error: %s" % err)
             raise GatewayError("connection error: {}".format(err), transient=True)
+        except Exception as err:
+            _log_call(method, path, owner, started, status=getattr(err, "status", None),
+                      error=type(err).__name__)
+            raise
+        _log_call(method, path, owner, started, status=getattr(response, "status", 200))
         return response.body.read().decode("utf-8")
 
     @staticmethod
@@ -665,6 +728,23 @@ class SplunkGateway:
             forms = None
         return parse_alert_actions(body, forms)
 
+    def parse_times(self, user, times, now_epoch):
+        """Epoch seconds for each Splunk time string (``-1d@d``, ``@d``), resolved against
+        ``now_epoch``. A value Splunk rejects is a 400 GatewayError naming it."""
+        try:
+            body = self._call("get", "search/timeparser", user, time=list(times), now=now_epoch,
+                              output_time_format="%s")
+        except GatewayError:
+            raise
+        except Exception as err:
+            status = self._status(err)
+            if status == 400:
+                raise GatewayError("Splunk cannot read the time {}".format(
+                    " or ".join(repr(t) for t in times)), 400)
+            raise GatewayError("time parse failed: {}".format(err), status,
+                               is_transient_status(status))
+        return parse_timeparser(body)
+
     # KV Store.
 
     def kv_get(self, collection, key):
@@ -750,12 +830,15 @@ class SplunkGateway:
                                  "message": "HTTP {}: {}".format(status, text[:200])}}
         return status, payload
 
-    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10):
-        """Result rows of a blocking read-only search run as ``owner`` in this app."""
+    def search_oneshot(self, owner, query, earliest="-1h", latest="+1h", count=10, max_time=None):
+        """Result rows of a blocking read-only search run as ``owner`` in this app;
+        ``max_time`` (seconds) stops the search after that long."""
+        extra = {"max_time": max_time} if max_time else {}
+        query = oneshot_search(query)
         try:
             body = self._call("post", "search/jobs", owner, search=query, exec_mode="oneshot",
                               earliest_time=earliest, latest_time=latest,
-                              count=count)
+                              count=count, **extra)
         except GatewayError:
             raise
         except Exception as err:

@@ -1,0 +1,75 @@
+{
+  "id": "example_deadline",
+  "name": "Example: finish by 07:00",
+  "description": "Starts at 06:00 and must be done by 07:00. Two searches build a morning report of yesterday's skipped scheduled searches. If the run is still going at 07:00 it is late: the whole-job Is late line sends an email, and the run carries on.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "reliability"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "0 6 * * *"
+    }
+  ],
+  "deadline": {
+    "finish_by": "07:00"
+  },
+  "steps": [
+    {
+      "id": "skipped",
+      "name": "Skipped scheduled searches",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=scheduler status=skipped\n| stats count BY savedsearch_name, reason\n| sort - count",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "report",
+      "name": "Morning report",
+      "type": "previous",
+      "spl": "| stats sum(count) AS skipped, dc(savedsearch_name) AS searches"
+    }
+  ],
+  "edges": [
+    {
+      "from": "skipped",
+      "to": "report",
+      "condition": "on_success"
+    }
+  ],
+  "actions": [
+    {
+      "hook": "on_late",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} missed its 07:00 deadline",
+      "message": "{{message}}\n\n{{run_url}}"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 180
+      },
+      "step:skipped": {
+        "x": 320,
+        "y": 20
+      },
+      "step:report": {
+        "x": 600,
+        "y": 20
+      },
+      "action:job:0": {
+        "x": 320,
+        "y": 170
+      }
+    }
+  }
+}

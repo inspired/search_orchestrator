@@ -16,9 +16,10 @@ with its own ``state`` (``pending``, ``running``, ``done``, ``failed``),
 
 Action definitions (``job["actions"]`` and ``step["actions"]``, read from the
 run's definition snapshot): ``{"hook", "type", ...}`` with
-* ``webhook``: ``destination`` (a name), optional ``preset`` (``slack`` or
-  ``generic``) and ``body`` (a JSON template; ``{{job}}``, ``{{run_id}}``,
-  ``{{message}}`` and the other ctx names are filled in)
+* ``webhook``: ``destination`` (a name), optional ``preset`` (``slack``,
+  ``generic``, ``teams``, ``pagerduty`` or ``servicenow``), ``options`` (per preset,
+  ``presets.PRESET_OPTIONS``) and ``body`` (a JSON template; ``{{job}}``, ``{{run_id}}``,
+  ``{{message}}`` and the other ctx names are filled in; a body ignores ``options``)
 
 Templates (webhook body, email subject and message, event payload, alert
 action parameters) also take the SPL tokens ``$run.*$`` and ``$<step>.*$``
@@ -30,21 +31,31 @@ are SPL-string escaped.
 * ``event``: ``index``, optional ``payload`` (template)
 * ``start_job``: ``job`` (target job ID) and optional ``params``
 * ``alert_action``: ``action`` (name) and ``params``
+
+Any step action may have ``only_if_results: true``: it is left out of the hook's firing
+when the step's ``result_count`` is 0 (the Simple view's "only if it found results"), and
+an optional ``condition`` (a simple comparison over tokens, as on an If… line, such as
+``$count.resultCount$ > 100``): the action is left out when it doesn't hold.
 Email, event and alert_action dispatch a hidden search as the run's owner,
 named by the action's ``hidden_search`` in the run's definition snapshot
 (content-addressed, written at job save; see ``hidden.py`` for the args contract).
 
 Webhook destinations live in ``so_settings`` document ``destinations``:
-``{"destinations": [{"name", "url_secret_ref", "headers_secret_ref", "preset"}]}``.
-The URL (and optional headers JSON) are read from the credential store and are
-never logged or audited: only scheme and host are reported.
+``{"destinations": [{"name", "url_secret_ref", "headers_secret_ref", "body_secret_ref",
+"preset"}]}``. The URL (and optional headers JSON) are read from the credential store and
+are never logged or audited: only scheme and host are reported. A PagerDuty destination's
+``body_secret_ref`` (a JSON object holding its routing key) is merged into the body at
+send time; its values are scrubbed from every error text like the URL.
 
 Retries: a failing action is retried 3 times (4 attempts) after ``state.backoff``
-seconds. A non-transient error (https rule, 4xx, unknown destination, no
+seconds (30 s, doubling, at most 15 minutes). An action may set its own ``retries``
+(0 to 10) and ``retry_wait`` (the first wait, 10 to 3600 seconds; it doubles each time, at
+most an hour). A non-transient error (https rule, 4xx, unknown destination, no
 permission) fails at once.
 
 Fallback (spec section 10, decided here, on the job-scope event only): the run
-failing (``on_failure``) or being delayed (``on_delayed``) is sent to
+failing (``on_failure``), being delayed (``on_delayed``) or missing its deadline
+(``on_late``) is sent to
 ``settings.fallback`` (``{"type": "webhook", "destination": name}`` or
 ``{"type": "email", "to": address}``) unless the job has a job-level action for
 the hook, or (failure) an unhandled failed step has a step-level on_failure
@@ -54,8 +65,8 @@ retries sends it too. The key is ``run_id:fallback:hook:occurrence``, so one
 event sends at most one fallback.
 
 Rows snapshot everything they need (action definitions, owner, scheduled time,
-ctx, chain depth, ``chain_rerun``) at submit, so ``pump`` never re-reads the run (a queue-cap
-rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease()``
+ctx, chain depth, ``chain_rerun``, ``deadline_eligible``) at submit, so ``pump``
+never re-reads the run (a queue-cap rejected run is never saved). ``pump(now, keep_lease)`` calls ``keep_lease()``
 between rows and ``keep_lease(force=True)`` right before each send, and starts
 no new action after ``PUMP_BUDGET`` seconds.
 Fallback rows have ``kind="fallback"`` and ``scope="fallback"``. Content is only job,
@@ -71,7 +82,8 @@ import logging
 import time
 from urllib.parse import quote, urlsplit
 
-from . import authz, hidden, presets, scheduler, tokens
+from . import authz, expr as exprmod, follows, hidden, presets, scheduler, tokens
+from . import deadline as deadlinemod
 from .gateway import DispatchError, GatewayError, check_webhook_url
 from .state import backoff
 
@@ -80,11 +92,31 @@ log = logging.getLogger(__name__)
 ACTION_RUNS = "so_action_runs"
 SETTINGS = "so_settings"
 MAX_RETRIES = 3
+RETRIES_MAX = 10
+RETRY_WAIT_MIN, RETRY_WAIT_MAX = 10, 3600
+RETRY_WAIT_CAP = 3600
+
+
+def retry_plan(action):
+    """``(retries, first_wait or None)`` for an action: its own settings, else the defaults
+    (None: ``state.backoff``). Out-of-range values (checked at save) fall back too."""
+    action = action or {}
+    retries, wait = action.get("retries"), action.get("retry_wait")
+    ok = lambda v, lo, hi: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+    return (retries if ok(retries, 0, RETRIES_MAX) else MAX_RETRIES,
+            wait if ok(wait, RETRY_WAIT_MIN, RETRY_WAIT_MAX) else None)
+
+
+def retry_delay(attempts, first_wait):
+    """Seconds to wait after the ``attempts``-th failure."""
+    if first_wait is None:
+        return backoff(attempts)
+    return min(first_wait * 2 ** (max(attempts, 1) - 1), RETRY_WAIT_CAP)
 PUMP_BUDGET = 5.0
 CHAIN_LIMIT = 10
 RUNNING_LIMIT = 600  # seconds a hidden action search may run
 BATCH = 100
-FALLBACK_HOOKS = ("on_delayed", "on_failure")
+FALLBACK_HOOKS = ("on_delayed", "on_failure", "on_late")
 SEARCH_TYPES = ("email", "event", "alert_action")
 
 
@@ -127,9 +159,12 @@ def _entry(index, action):
             "error": None, "next_at": 0, "sid": None, "started_at": None}
 
 
-def _scrub(text, url):
-    """Remove a webhook URL (and its path, query and credentials) from an error text."""
+def _scrub(text, url, secrets=()):
+    """Remove a webhook URL (and its path, query and credentials) and the body secret's
+    values from an error text."""
     text = str(text)
+    for value in sorted(set(v for v in secrets if v), key=len, reverse=True):
+        text = text.replace(value, "[secret]")
     parts = urlsplit(url)
     bits = [url, parts.path if len(parts.path) > 1 else "", parts.query,
             parts.netloc.rpartition("@")[0]]
@@ -162,6 +197,56 @@ def _needs_delay_fallback(run, definition):
     return True
 
 
+def _needs_late_fallback(run, definition):
+    return not any(a.get("hook") == "on_late" for a in definition.get("actions") or [])
+
+
+def _run_lookup(run, now):
+    """A token lookup over ``run`` for ``expr.evaluate``, as the evaluator's (state.py)."""
+    steps = run.get("steps") or {}
+
+    def lookup(name):
+        parts = name.split(".")
+        if parts[0] == "run":
+            if name == "run.id":
+                return run.get("id") or run.get("_key")
+            if name == "run.scheduled_time":
+                return run.get("scheduled_time")
+            if name == "run.now":
+                return now
+            if len(parts) == 3 and parts[1] == "param":
+                return (run.get("params") or {}).get(parts[2])
+            return None
+        st = steps.get(parts[0])
+        if st is None or len(parts) < 2:
+            return None
+        if parts[1] == "status":
+            return st.get("state")
+        if parts[1] == "sid":
+            return st.get("sid")
+        if st.get("state") != "succeeded":
+            return None
+        if parts[1] == "resultCount" and len(parts) == 2:
+            return st.get("result_count")
+        if parts[1] == "first" and len(parts) == 3:
+            row = st.get("first")
+            return row.get(parts[2]) if isinstance(row, dict) else None
+        return None
+    return lookup
+
+
+def _condition_holds(action, run, now):
+    """An action's optional ``condition`` (a simple comparison, as on an If… line): True
+    when it has none or it holds; an expression that can't be read counts as false."""
+    text = action.get("condition")
+    if not isinstance(text, str) or not text.strip():
+        return True
+    try:
+        return bool(exprmod.evaluate(exprmod.parse(text), _run_lookup(run, now)))
+    except exprmod.ExprError:
+        return False
+
+
 class ActionRunner:
     def __init__(self, gateway, store=None, audit=None, clock=time.time,
                  monotonic=time.monotonic):
@@ -185,23 +270,31 @@ class ActionRunner:
         run_id = run.get("_key") or run.get("id")
         key = idempotency_key(run_id, scope, hook, step_id, occurrence)
         definition = run.get("definition") or {}
+        found = (((run.get("steps") or {}).get(step_id) or {}).get("result_count") or 0) \
+            if scope == "step" else None
         matching = [(i, a) for i, s, sid, a in indexed_actions(definition)
-                    if s == scope and sid == step_id and a.get("hook") == hook]
+                    if s == scope and sid == step_id and a.get("hook") == hook
+                    and not (a.get("only_if_results") is True and scope == "step" and not found)
+                    and _condition_holds(a, run, int(self.clock()))]
         ctx = self._ctx(run, hook, scope, step_id)
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),
                "scope": scope, "hook": hook, "step_id": step_id, "occurrence": occurrence,
-               "ctx": ctx, "tokens": tokens.run_context(run) if matching else None,
+               "ctx": ctx, "tokens": tokens.run_context(run, int(self.clock())) if matching else None,
                "chain_depth": int(run.get("chain_depth") or 0),
                "chain_rerun": chain_rerun(run),
+               "deadline_eligible": deadlinemod.run_eligible(run),
                "actions": [_entry(i, a) for i, a in matching],
                "state": "pending", "attempts": 0, "error": None,
                "fallback": False, "created_at": int(self.clock())}
         new = bool(matching) and self.gw.kv_insert(ACTION_RUNS, doc)  # nothing to send, no row
         needs = {"on_failure": _needs_failure_fallback,
-                 "on_delayed": _needs_delay_fallback}.get(hook)
+                 "on_delayed": _needs_delay_fallback,
+                 "on_late": _needs_late_fallback}.get(hook)
         if scope == "job" and needs and needs(run, definition):
             self._ensure_fallback(doc)  # also on replay: the insert is idempotent
+        if scope == "job" and hook in follows.HOOK_EVENT:
+            self._ensure_follows(doc)  # idempotent too: one row per follow and occurrence
         return new
 
     @staticmethod
@@ -215,10 +308,14 @@ class ActionRunner:
         if scope == "step" and step_id in steps:
             status = steps[step_id].get("state")
         job_id = run.get("job_id")
-        return {"job": definition.get("name") or job_id, "job_id": job_id,
-                "run_id": run.get("_key") or run.get("id"), "hook": hook, "scope": scope,
-                "step_id": step_id, "step": names.get(step_id, step_id) if step_id else None,
-                "status": status, "failed": failed}
+        ctx = {"job": definition.get("name") or job_id, "job_id": job_id,
+               "run_id": run.get("_key") or run.get("id"), "hook": hook, "scope": scope,
+               "step_id": step_id, "step": names.get(step_id, step_id) if step_id else None,
+               "status": status, "failed": failed}
+        if hook == "on_approval_requested":
+            ctx["approval_message"] = ((steps.get(step_id) or {}).get("approval_state")
+                                       or {}).get("message") or ""
+        return ctx
 
     def _ensure_fallback(self, row):
         key = fallback_key(row["run_id"], row["hook"], row["occurrence"])
@@ -229,6 +326,28 @@ class ActionRunner:
                "actions": [_entry(None, {"type": "fallback"})], "state": "pending",
                "attempts": 0, "error": None, "fallback": True, "created_at": int(self.clock())}
         return self.gw.kv_insert(ACTION_RUNS, doc)
+
+    def _ensure_follows(self, row):
+        """One ``kind="follow"`` row per person following the job about this hook. It never
+        triggers the fallback (``fallback`` is True)."""
+        try:
+            found = follows.for_hook(self.gw, row["job_id"], row["hook"])
+        except GatewayError as err:
+            log.warning("follows of job %s could not be read: %s", row["job_id"], err)
+            return
+        for f in found:
+            fkey = f.get("_key") or follows.follow_key(f.get("job_id"), f.get("user"))
+            doc = {"_key": "%s:follow:%s:%s:%s" % (row["run_id"], fkey[:16], row["hook"],
+                                                    row["occurrence"]),
+                   "kind": "follow", "run_id": row["run_id"], "job_id": row["job_id"],
+                   "owner": row.get("owner"), "scheduled_time": row.get("scheduled_time"),
+                   "scope": "follow", "hook": row["hook"], "step_id": None,
+                   "occurrence": row["occurrence"], "ctx": row["ctx"],
+                   "actions": [_entry(None, {"type": "follow", "user": f.get("user"),
+                                             "notify": f.get("notify") or {"type": "email"}})],
+                   "state": "pending", "attempts": 0, "error": None, "fallback": True,
+                   "created_at": int(self.clock())}
+            self.gw.kv_insert(ACTION_RUNS, doc)
 
     # -- pump -----------------------------------------------------------------
 
@@ -319,18 +438,20 @@ class ActionRunner:
                          "is_fallback": row["kind"] == "fallback"}, **extra), now)
 
     def _failed(self, row, entry, error, transient, now, **extra):
-        final = not transient or entry["attempts"] > MAX_RETRIES
+        retries, first_wait = retry_plan(entry.get("action"))
+        final = not transient or entry["attempts"] > retries
         entry["error"] = error[:500]
         entry["sid"] = None
         if final:
             entry["state"] = "failed"
         else:
-            entry.update(state="pending", next_at=int(now) + backoff(entry["attempts"]))
+            entry.update(state="pending", next_at=int(now) + retry_delay(entry["attempts"], first_wait))
         self._emit(dict({"type": "action_failed" if final else "action_retry",
                          "run_id": row["run_id"], "job_id": row["job_id"], "hook": row["hook"],
                          "scope": row["scope"], "step_id": row["step_id"],
                          "action_type": entry["type"], "action_index": entry["index"],
                          "attempts": entry["attempts"], "error": entry["error"],
+                         "preset": (entry.get("action") or {}).get("preset"),
                          "is_fallback": row["kind"] == "fallback"}, **extra), now)
 
     # -- executors ------------------------------------------------------------
@@ -339,6 +460,8 @@ class ActionRunner:
         ctx = self._links(row["ctx"], settings)
         if row["kind"] == "fallback":
             return self._fallback(row, entry, ctx, settings, now)
+        if row["kind"] == "follow":
+            return self._follow(row, entry, ctx, now)
         action = entry.get("action") or {}
         kind = entry["type"]
         if row.get("tokens"):
@@ -368,12 +491,24 @@ class ActionRunner:
                 return dest
         raise _Fail("unknown webhook destination %r" % (name,))
 
-    def _post(self, row, entry, dest_name, preset, body_template, ctx, now):
+    def _body_secret(self, dest):
+        """The destination's body secret (PagerDuty only) as a dict of strings, or {}."""
+        if dest.get("preset") != "pagerduty" or not dest.get("body_secret_ref"):
+            return {}
+        raw = self.gw.read_secret(dest["body_secret_ref"])
+        try:
+            extra = json.loads(raw) if raw else {}
+            return {str(k): str(v) for k, v in extra.items()}
+        except (ValueError, AttributeError):
+            raise _Fail("destination %r body secret is not a JSON object" % dest.get("name"))
+
+    def _post(self, row, entry, dest_name, preset, body_template, ctx, now, options=None):
         dest = self._destination(dest_name)
         url = self.gw.read_secret(dest.get("url_secret_ref") or "")
         if not url:
             raise _Fail("destination %r has no URL secret" % dest_name)
         headers = {"Content-Type": "application/json"}
+        secret = {}
         try:
             check_webhook_url(url)
             if dest.get("headers_secret_ref"):
@@ -390,24 +525,30 @@ class ActionRunner:
                     else body_template
                 body = presets.fill(template, ctx)
             else:
-                body = presets.render(preset or dest.get("preset") or "generic", ctx)
+                body = presets.render(preset or dest.get("preset") or "generic", ctx, options)
+            secret = self._body_secret(dest)
+            if secret and isinstance(body, dict):
+                body = dict(body, **secret)
             parts = urlsplit(url)
-            where = {"destination": dest_name, "scheme": parts.scheme, "host": parts.hostname}
+            where = {"destination": dest_name, "scheme": parts.scheme, "host": parts.hostname,
+                     "preset": None if body_template else (preset or dest.get("preset") or "generic")}
             try:
                 status = self.gw.post_webhook(url, headers, json.dumps(body))
             except GatewayError as err:
-                raise GatewayError(_scrub(err, url), status=err.status, transient=err.transient)
+                raise GatewayError(_scrub(err, url, secret.values()), status=err.status,
+                                   transient=err.transient)
         except _Fail:
             raise
         except GatewayError as err:
-            raise _Fail(_scrub(err, url), err.transient)
+            raise _Fail(_scrub(err, url, secret.values()), err.transient)
         except Exception as err:  # e.g. http.client.InvalidURL, whose text has the URL
-            raise _Fail("bad webhook request (%s): %s" % (type(err).__name__, _scrub(err, url)))
+            raise _Fail("bad webhook request (%s): %s" % (type(err).__name__,
+                                                          _scrub(err, url, secret.values())))
         self._done(row, entry, now, http_status=status, **where)
 
     def _webhook(self, row, entry, action, ctx, now):
         self._post(row, entry, action.get("destination"), action.get("preset"),
-                   action.get("body"), ctx, now)
+                   action.get("body"), ctx, now, action.get("options"))
 
     def _fallback(self, row, entry, ctx, settings, now):
         fb = settings.get("fallback") or {}
@@ -420,6 +561,28 @@ class ActionRunner:
             return self._dispatch(row, entry, hidden.FALLBACK_OWNER, hidden.FALLBACK_EMAIL_SEARCH,
                                   args, now)
         raise _Fail("no fallback notification destination is configured")
+
+    def _follow(self, row, entry, ctx, now):
+        """Tell a follower: checked as them at send time (they may no longer see the job, or
+        have an email address); email goes to their account's address."""
+        action = entry.get("action") or {}
+        user = action.get("user")
+        job = self.store.get_job(row["job_id"])
+        access = self.gw.user_access(user) if user else {"roles": [], "capabilities": []}
+        if job is None or not authz.can_view(user, job, access["roles"], access["capabilities"]):
+            raise _Fail("follower %r may no longer see the job" % (user,))
+        notify = action.get("notify") or {}
+        if notify.get("type") == "webhook":
+            return self._post(row, entry, notify.get("destination"), None, None, ctx, now)
+        to = access.get("email")
+        if not to:
+            raise _Fail("follower %r has no email address in Splunk" % (user,))
+        args = {"to": to, "subject": "Search Orchestrator: %s %s (you follow this job)" % (
+            ctx["job"], presets._VERB.get(ctx["hook"], ctx["hook"])),
+            "message": presets.default_message(ctx) + "\n\nYou get this because you follow "
+                       "the job. To stop, open the Jobs page and choose Unfollow."}
+        return self._dispatch(row, entry, hidden.FALLBACK_OWNER, hidden.FALLBACK_EMAIL_SEARCH,
+                              args, now)
 
     def _search(self, row, entry, action, ctx, now):
         kind = entry["type"]
@@ -440,7 +603,11 @@ class ActionRunner:
                 payload = json.dumps({"job": ctx["job"], "run_id": ctx["run_id"],
                                       "hook": ctx["hook"], "step": ctx["step_id"],
                                       "status": ctx["status"]})
-            args.update(index=action.get("index") or "", payload=payload)
+            when = row.get("scheduled_time") if action.get("time") == "scheduled" else None
+            args.update(index=action.get("index") or "", payload=payload,
+                        time=str(int(when)) if when else str(int(now)),
+                        **{k: str(action.get(k)) for k in ("source", "sourcetype", "host")
+                           if action.get(k)})
         else:
             args["action"] = action.get("action") or ""
             for k, v in (action.get("params") or {}).items():
@@ -488,7 +655,7 @@ class ActionRunner:
         created = scheduler.create_run(self.store, target, "start_job", row.get("scheduled_time"),
                                        action.get("params") or {}, upstream=row["run_id"],
                                        now=now, audit=self.audit, chain_depth=depth, rerun=rerun,
-                                       action_index=entry["index"])
+                                       action_index=entry["index"], upstream_run=row)
         if created is None and self.store.get_run(key) is None:
             raise _Fail("run of job %r was not created (queue is full)" % target_id)
         self._done(row, entry, now, target_job=target_id, target_run_id=key)

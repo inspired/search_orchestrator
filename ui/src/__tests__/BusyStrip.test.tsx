@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import type { JobDefinition, SchedulePreviewResponse } from '../api/types';
-import TriggersTab from '../features/builder/TriggersTab';
+import TriggerPanel from '../features/builder/TriggerPanel';
 import { NOW, renderThemed } from './fixtures';
 
 function response(over: Partial<SchedulePreviewResponse> = {}): SchedulePreviewResponse {
@@ -45,7 +45,7 @@ describe('Busy-times strip', () => {
     test('shows the strip and a suggestion, and changes only minute and hour', async () => {
         const preview = jest.fn(() => Promise.resolve(response()));
         const dispatch = jest.fn();
-        renderThemed(<TriggersTab job={job} jobs={[]} dispatch={dispatch} jobId="daily" schedulePreview={preview} />);
+        renderThemed(<TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()} job={job} jobs={[]} dispatch={dispatch} savedJobId="daily" schedulePreview={preview} />);
         await act(async () => {
             jest.advanceTimersByTime(1000);
         });
@@ -58,16 +58,12 @@ describe('Busy-times strip', () => {
         expect(screen.getAllByTestId('load-overlay')).toHaveLength(1);
         expect(screen.getByText('03:00')).toBeInTheDocument(); // the server's ticks, in the job's zone
         fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
-        expect(dispatch).toHaveBeenCalledWith({
-            type: 'setJobField',
-            field: 'triggers',
-            value: [{ type: 'cron', cron: '40 2 * * 1-5' }],
-        });
+        expect(dispatch).toHaveBeenCalledWith({ type: 'updateTrigger', index: 0, changes: { cron: '40 2 * * 1-5' } });
     });
 
     test('dismiss hides the hint but keeps the strip', async () => {
         renderThemed(
-            <TriggersTab job={job} jobs={[]} dispatch={jest.fn()} schedulePreview={() => Promise.resolve(response())} />
+            <TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()} job={job} jobs={[]} dispatch={jest.fn()} schedulePreview={() => Promise.resolve(response())} />
         );
         await act(async () => {
             jest.advanceTimersByTime(1000);
@@ -81,7 +77,7 @@ describe('Busy-times strip', () => {
     test('no suggestion, no hint; a failed request shows no strip', async () => {
         const none = response({ schedules: [{ index: 0, runs: [], suggestion: null }] });
         const { unmount } = renderThemed(
-            <TriggersTab job={job} jobs={[]} dispatch={jest.fn()} schedulePreview={() => Promise.resolve(none)} />
+            <TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()} job={job} jobs={[]} dispatch={jest.fn()} schedulePreview={() => Promise.resolve(none)} />
         );
         await act(async () => {
             jest.advanceTimersByTime(1000);
@@ -90,7 +86,7 @@ describe('Busy-times strip', () => {
         expect(screen.queryByRole('status')).toBeNull();
         unmount();
         renderThemed(
-            <TriggersTab job={job} jobs={[]} dispatch={jest.fn()} schedulePreview={() => Promise.reject(new Error('x'))} />
+            <TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()} job={job} jobs={[]} dispatch={jest.fn()} schedulePreview={() => Promise.reject(new Error('x'))} />
         );
         await act(async () => {
             jest.advanceTimersByTime(1000);
@@ -100,7 +96,7 @@ describe('Busy-times strip', () => {
 
     test('a job without a time zone says it uses the server time zone', async () => {
         renderThemed(
-            <TriggersTab
+            <TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()}
                 job={{ ...job, timezone: undefined }}
                 jobs={[]}
                 dispatch={jest.fn()}
@@ -115,7 +111,7 @@ describe('Busy-times strip', () => {
 
     test('a far-off monthly run shows the days around it', async () => {
         renderThemed(
-            <TriggersTab
+            <TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()}
                 job={job}
                 jobs={[]}
                 dispatch={jest.fn()}
@@ -130,7 +126,7 @@ describe('Busy-times strip', () => {
 
     test('no cron schedule, no request', async () => {
         const preview = jest.fn(() => Promise.resolve(response()));
-        renderThemed(<TriggersTab job={{ ...job, triggers: [] }} jobs={[]} dispatch={jest.fn()} schedulePreview={preview} />);
+        renderThemed(<TriggerPanel index={0} onRequestRemove={jest.fn()} onOpenSettings={jest.fn()} job={{ ...job, triggers: [] }} jobs={[]} dispatch={jest.fn()} schedulePreview={preview} />);
         await act(async () => {
             jest.advanceTimersByTime(1000);
         });

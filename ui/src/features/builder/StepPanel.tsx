@@ -1,33 +1,34 @@
 /* The side panel for the selected step: search, time range, "Depends on" (so steps can be
- * connected without a pointer), run when, delayed after, give up after, max runtime,
- * retries and step actions, with the step's issues from the client check and the server. */
-import React, { useEffect, useState } from 'react';
+ * connected without a pointer), run when, delayed after, give up after, max runtime and
+ * retries, with the step's issues from the client check and the server. Its actions are
+ * nodes of their own. An approval step has no search, time range, max runtime or retries:
+ * its own settings (ApprovalPanel) take their place. */
+import React, { useEffect, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Multiselect from '@splunk/react-ui/Multiselect';
+import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
-import TextArea from '@splunk/react-ui/TextArea';
 import Heading from '@splunk/react-ui/Heading';
 import StaticContent from '@splunk/react-ui/StaticContent';
 import Typography from '@splunk/react-ui/Typography';
-import type { AlertAction, Destination, Issue, JobDefinition, StepDef } from '../../api/types';
-import ActionsEditor from './ActionsEditor';
-import DayPicker from './DayPicker';
+import type { Issue, JobDefinition, StepDef } from '../../api/types';
+import { DURATION_UNITS, DurationUnit, formatDuration, splitDuration, toSeconds } from './duration';
+import type { BuilderApi } from './BuilderPage';
+import TimeRangeField from './TimeRangeField';
+import { TokenInput } from './InsertToken';
+import { availableTokens } from './tokens';
+import LearnMore from '../../components/LearnMore';
 import PreviewResult from './PreviewResult';
 import type { PreviewView } from './usePreviews';
+import DayPicker from './DayPicker';
 import { daysCron, daysOfCron, isStepId, parentsOf, RUN_WHEN_PRESETS, runWhenChoice, runWhenPreset, wouldCycle } from './graphLogic';
-import { BUILTIN_DEFAULTS, generatedInput } from './previewLogic';
+import { BUILTIN_DEFAULTS, generatedInput, previewRefusal } from './previewLogic';
 import type { BuilderAction } from './reducer';
 import { stepLabel } from './GraphView';
-
-export function formatMinutes(seconds: number): string {
-    if (seconds % 3600 === 0 && seconds >= 3600) {
-        return `${seconds / 3600} h`;
-    }
-    return `${Math.round(seconds / 60)} min`;
-}
+import ApprovalPanel from './ApprovalPanel';
 
 export interface DurationFieldProps {
     id: string;
@@ -38,40 +39,91 @@ export interface DurationFieldProps {
     inherited: number;
     inheritedFrom: string;
     help?: string;
+    /** Replaces the "<inheritedFrom> (<inherited>)" placeholder. */
+    placeholder?: string;
     onChange: (seconds: number | null) => void;
 }
 
 const MIN_DURATION_ERROR = 'At least 1 minute.';
 
-/** Whole minutes in the field; seconds in the job. Empty inherits. Zero is refused (a
+const UNIT_LABELS: Record<DurationUnit, string> = { minutes: 'Minutes', hours: 'Hours', days: 'Days' };
+
+/** An amount and a unit in the field; seconds in the job. Empty inherits. Zero is refused (a
  * give-up of 0 would give up at once): the field shows an error and the job keeps its
- * previous value. */
-export function DurationField({ id, label, value, inherited, inheritedFrom, help, onChange }: DurationFieldProps) {
-    const shown = value === null || value === undefined ? '' : String(Math.round(value / 60));
-    const [zero, setZero] = useState<string | null>(null);
+ * previous value. A value that is not whole minutes keeps its seconds until edited. */
+export function DurationField({ id, label, value, inherited, inheritedFrom, help, placeholder, onChange }: DurationFieldProps) {
+    const initial = value === null || value === undefined ? null : splitDuration(value);
+    const [unit, setUnit] = useState<DurationUnit>(initial ? initial.unit : 'minutes');
+    const [amount, setAmount] = useState<number | undefined>(initial ? initial.amount : undefined);
+    const [zero, setZero] = useState(false);
+    // What this field last sent up, so only an outside change resets the amount and unit.
+    const sent = useRef<number | null | undefined>(value);
+    useEffect(() => {
+        if (value === sent.current) {
+            return;
+        }
+        sent.current = value;
+        const next = value === null || value === undefined ? null : splitDuration(value);
+        setAmount(next ? next.amount : undefined);
+        if (next) {
+            setUnit(next.unit);
+        }
+        setZero(false);
+    }, [value]);
+
+    const emit = (seconds: number | null) => {
+        sent.current = seconds;
+        onChange(seconds);
+    };
+
     return (
         <ControlGroup
-            label={`${label} (minutes)`}
+            label={label}
             labelFor={id}
             labelPosition="top"
-            help={zero !== null ? MIN_DURATION_ERROR : help}
-            error={zero !== null}
+            help={zero ? MIN_DURATION_ERROR : help}
+            error={zero}
+            controlsLayout="fillJoin"
         >
-            <Text
+            <NumberInput
                 inputId={id}
-                value={zero !== null ? zero : shown}
-                error={zero !== null}
-                placeholder={`${inheritedFrom} (${formatMinutes(inherited)})`}
-                onChange={(_e: unknown, { value: text }: { value: string }) => {
-                    const digits = text.replace(/[^0-9]/g, '');
-                    if (digits !== '' && parseInt(digits, 10) === 0) {
-                        setZero(digits);
+                min={0}
+                step={1}
+                roundTo={0}
+                value={amount}
+                error={zero}
+                {...{ placeholder: placeholder ?? `${inheritedFrom} (${formatDuration(inherited)})` }}
+                onChange={(_e: unknown, { value: next }: { value?: number }) => {
+                    if (next === undefined || Number.isNaN(next)) {
+                        setZero(false);
+                        setAmount(undefined);
+                        emit(null);
                         return;
                     }
-                    setZero(null);
-                    onChange(digits === '' ? null : parseInt(digits, 10) * 60);
+                    setAmount(next);
+                    if (next < 1) {
+                        setZero(true);
+                        return;
+                    }
+                    setZero(false);
+                    emit(toSeconds(next, unit));
                 }}
             />
+            <Select
+                aria-label={`${label} unit`}
+                value={unit}
+                onChange={(_e: unknown, { value: next }: { value: unknown }) => {
+                    const u = next as DurationUnit;
+                    setUnit(u);
+                    if (amount !== undefined && amount >= 1) {
+                        emit(toSeconds(amount, u));
+                    }
+                }}
+            >
+                {DURATION_UNITS.map((u) => (
+                    <Select.Option key={u} label={UNIT_LABELS[u]} value={u} />
+                ))}
+            </Select>
         </ControlGroup>
     );
 }
@@ -98,14 +150,21 @@ export interface StepPanelProps {
     stepId: string;
     issues: Issue[];
     dispatch: (action: BuilderAction) => void;
-    destinations: Destination[];
-    alertActions?: AlertAction[] | null;
     onRename?: (from: string, to: string) => void;
     onRequestRemove?: (id: string) => void;
     /** Shows "Preview step" and the step's preview result when given. */
     onPreview?: (stepId: string, opts?: { anyway?: boolean }) => void;
     onCancelPreview?: (stepId: string) => void;
     preview?: PreviewView;
+    /** "Input from" is live (the default): upstream steps run first in a preview. */
+    live?: boolean;
+    /** The preview's "as if scheduled at" time, epoch seconds. */
+    scheduledTime: number;
+    resolveTimeRange: BuilderApi['resolveTimeRange'];
+    /** Field names of each step's current preview, for the first-row tokens. */
+    previewFields?: Record<string, string[]>;
+    /** Roles an approval step's Who may approve offers. */
+    roles?: string[];
 }
 
 export default function StepPanel({
@@ -113,13 +172,16 @@ export default function StepPanel({
     stepId,
     issues,
     dispatch,
-    destinations,
-    alertActions,
     onRename,
     onRequestRemove,
     onPreview,
     onCancelPreview,
     preview,
+    scheduledTime,
+    resolveTimeRange,
+    previewFields = {},
+    live = true,
+    roles = [],
 }: StepPanelProps) {
     const steps = job.steps || [];
     const edges = job.edges || [];
@@ -129,7 +191,9 @@ export default function StepPanel({
     if (!step) {
         return null;
     }
+    const refusal = onPreview ? previewRefusal(job, stepId, live) : null;
     const p = `step-${stepId}`;
+    const tokenGroups = availableTokens(job, stepId, previewFields);
     const set = (changes: Partial<StepDef>) => dispatch({ type: 'updateStep', id: stepId, changes });
     const onValue = (key: keyof StepDef) => (_e: unknown, { value }: { value: string }) => set({ [key]: value });
 
@@ -176,6 +240,7 @@ export default function StepPanel({
         return d === undefined || d === null ? BUILTIN_DEFAULTS[key] : d;
     };
     const retries = step.retries === null || step.retries === undefined ? inherit('retries') : step.retries;
+    const approval = step.type === 'approval';
 
     return (
         <section aria-label={`Step ${stepLabel(step)}`}>
@@ -188,7 +253,7 @@ export default function StepPanel({
                 label="Step id"
                 labelFor={`${p}-id`}
                 labelPosition="top"
-                help={idError || 'Used in tokens such as $' + (idDraft || 'id') + '.sid$.'}
+                help={idError || 'Short name used in tokens, such as $' + (idDraft || 'id') + '.sid$. Lowercase letters, numbers and _.'}
                 error={Boolean(idError)}
             >
                 <Text
@@ -204,71 +269,104 @@ export default function StepPanel({
                     }}
                 />
             </ControlGroup>
-            <ControlGroup label="Type" labelFor={`${p}-type`} labelPosition="top">
-                <Select
-                    inputId={`${p}-type`}
-                    data-testid="type-select"
-                    value={step.type}
-                    onChange={(_e: unknown, { value }: { value: unknown }) => set({ type: value as StepDef['type'] })}
-                >
-                    <Select.Option label="Search" value="inline" />
-                    <Select.Option label="Saved search" value="saved_search" />
-                    <Select.Option label="From previous steps" value="previous" />
-                </Select>
-            </ControlGroup>
-            {step.type === 'saved_search' ? (
-                <ControlGroup
-                    label="Saved search"
-                    labelFor={`${p}-ref`}
-                    labelPosition="top"
-                    help="Runs directly if it is your private search with dispatchAs = owner; otherwise through a wrapper, without its own summary indexing and actions."
-                >
-                    <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
-                </ControlGroup>
-            ) : step.type === 'previous' ? (
-                <>
-                    <ControlGroup label="Input (added for you)" labelPosition="top">
-                        <StaticContent>
-                            <Typography as="span" variant="monoBody">
-                                {generatedInput(job, stepId)}
-                            </Typography>
-                        </StaticContent>
-                    </ControlGroup>
-                    <ControlGroup
-                        label="Search"
-                        labelFor={`${p}-spl`}
-                        labelPosition="top"
-                        help="Starts with |. Results of the steps before this one come first."
-                    >
-                        <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
-                    </ControlGroup>
-                </>
+            {approval ? (
+                <ApprovalPanel step={step} roles={roles} dispatch={dispatch} tokenGroups={tokenGroups} giveUpAfter={step.give_up_after ?? inherit('give_up_after')} />
             ) : (
-                <ControlGroup label="Search" labelFor={`${p}-spl`} labelPosition="top">
-                    <TextArea inputId={`${p}-spl`} value={step.spl || ''} rowsMin={4} onChange={onValue('spl')} />
+            <>
+                <ControlGroup
+                    label="Type"
+                    labelFor={`${p}-type`}
+                    labelPosition="top"
+                    help={step.type === 'previous' ? 'Works on the rows the steps before it found, with no search of its own.' : undefined}
+                >
+                    <Select
+                        inputId={`${p}-type`}
+                        data-testid="type-select"
+                        value={step.type}
+                        onChange={(_e: unknown, { value }: { value: unknown }) => set({ type: value as StepDef['type'] })}
+                    >
+                        <Select.Option label="Search" value="inline" />
+                        <Select.Option label="Saved search" value="saved_search" />
+                        <Select.Option label="Results of earlier steps" value="previous" />
+                    </Select>
                 </ControlGroup>
-            )}
-            {onPreview && (
-                <div style={{ marginBottom: '12px' }}>
-                    <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
-                    <PreviewResult
-                        preview={preview}
-                        onCancel={() => onCancelPreview && onCancelPreview(stepId)}
-                        onAnyway={() => onPreview(stepId, { anyway: true })}
+                {step.type === 'previous' && <LearnMore anchor="results-of-earlier-steps" topic="Results of earlier steps" />}
+                {step.type === 'saved_search' ? (
+                    <>
+                    <ControlGroup
+                        label="Saved search"
+                        labelFor={`${p}-ref`}
+                        labelPosition="top"
+                        help="If this is your own private search, it runs as saved. Otherwise its own alerts and summary indexing don't run; add collect to the step if you need them."
+                    >
+                        <Text inputId={`${p}-ref`} value={step.saved_search_ref || ''} onChange={onValue('saved_search_ref')} />
+                    </ControlGroup>
+                    <LearnMore anchor="steps" topic="saved search steps" />
+                    </>
+                ) : (
+                    <>
+                        {step.type === 'previous' && (
+                            <ControlGroup label="Reads results from" labelPosition="top">
+                                <StaticContent>
+                                    <Typography as="span" variant="monoBody">
+                                        {generatedInput(job, stepId)}
+                                    </Typography>
+                                </StaticContent>
+                            </ControlGroup>
+                        )}
+                        <ControlGroup
+                            label="Search"
+                            labelFor={`${p}-spl`}
+                            labelPosition="top"
+                            help={step.type === 'previous' ? 'Starts with |. Results of the steps before this one come first.' : undefined}
+                        >
+                            <TokenInput
+                                inputId={`${p}-spl`}
+                                fieldLabel="Search"
+                                multiline
+                                expandable
+                                value={step.spl || ''}
+                                rowsMin={4}
+                                groups={tokenGroups}
+                                onValue={(spl) => set({ spl })}
+                            />
+                        </ControlGroup>
+                        <LearnMore anchor="tokens" topic="tokens" />
+                    </>
+                )}
+                {onPreview && (
+                    <div style={{ marginBottom: '12px' }}>
+                        {refusal ? (
+                            <>
+                                <Button appearance="secondary" label="Preview step" disabled="dimmed" />
+                                <Typography as="p" variant="body">
+                                    {refusal}
+                                </Typography>
+                            </>
+                        ) : (
+                            <Button appearance="secondary" label="Preview step" onClick={() => onPreview(stepId)} />
+                        )}
+                        <PreviewResult
+                            preview={preview}
+                            onCancel={() => onCancelPreview && onCancelPreview(stepId)}
+                            onAnyway={() => onPreview(stepId, { anyway: true })}
+                        />
+                    </div>
+                )}
+                {step.type !== 'previous' && (
+                    <TimeRangeField
+                        idPrefix={p}
+                        earliest={step.earliest}
+                        latest={step.latest}
+                        scheduledTime={scheduledTime}
+                        timezone={job.timezone}
+                        resolve={resolveTimeRange}
+                        onChange={(earliest, latest) => set({ earliest, latest })}
                     />
-                </div>
+                )}
+            </>
             )}
-            {step.type !== 'previous' && (
-                <>
-                    <ControlGroup label="Earliest" labelFor={`${p}-earliest`} labelPosition="top" help="Relative to the run's scheduled time.">
-                        <Text inputId={`${p}-earliest`} value={step.earliest || ''} placeholder="-1d@d" onChange={onValue('earliest')} />
-                    </ControlGroup>
-                    <ControlGroup label="Latest" labelFor={`${p}-latest`} labelPosition="top">
-                        <Text inputId={`${p}-latest`} value={step.latest || ''} placeholder="@d" onChange={onValue('latest')} />
-                    </ControlGroup>
-                </>
-            )}
-            <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Runs after these steps succeed. Steps that would make a loop are not listed.">
+            <ControlGroup label="Depends on" labelFor={`${p}-depends`} labelPosition="top" help="Starts after these steps succeed. Steps that would make a loop aren't listed.">
                 <Multiselect inputId={`${p}-depends`} values={parents} onChange={onDepends} noOptionsMessage="No other steps can come before this one.">
                     {candidates.map((s) => (
                         <Multiselect.Option key={s.id} label={stepLabel(s)} value={s.id} />
@@ -323,39 +421,47 @@ export default function StepPanel({
                 help="From the scheduled time."
                 onChange={(v) => set({ give_up_after: v })}
             />
-            <DurationField
-                id={`${p}-maxrt`}
-                label="Max runtime"
-                value={step.max_runtime}
-                inherited={inherit('max_runtime')}
-                inheritedFrom="Job default"
-                help="Per attempt. Longer counts as a failed attempt."
-                onChange={(v) => set({ max_runtime: v })}
-            />
-            <ControlGroup label="Retries" labelFor={`${p}-retries`} labelPosition="top">
-                <Text
-                    inputId={`${p}-retries`}
-                    value={step.retries === null || step.retries === undefined ? '' : String(step.retries)}
-                    placeholder={`Job default (${inherit('retries')})`}
-                    onChange={(_e: unknown, { value }: { value: string }) => {
-                        const digits = value.replace(/[^0-9]/g, '');
-                        set({ retries: digits === '' ? null : parseInt(digits, 10) });
-                    }}
+            {!approval && (
+            <>
+                <DurationField
+                    id={`${p}-maxrt`}
+                    label="Max runtime"
+                    value={step.max_runtime}
+                    inherited={inherit('max_runtime')}
+                    inheritedFrom="Job default"
+                    help="Per attempt. Longer counts as a failed attempt."
+                    onChange={(v) => set({ max_runtime: v })}
                 />
-            </ControlGroup>
-            {retries > 0 && (
-                <Message type="warning" appearance="default">
-                    A retry runs the search again, which can write duplicates to a summary index.
-                </Message>
+                <ControlGroup label="Events scanned limit" labelFor={`${p}-maxscan`} labelPosition="top" help="How many events this step's search may scan. Empty uses the limit in Settings (if any); over it, the search is warned about or stopped, as Settings says.">
+                    <Text
+                        inputId={`${p}-maxscan`}
+                        value={typeof step.max_scan === 'number' ? String(step.max_scan) : ''}
+                        placeholder="Settings default"
+                        onChange={(_e: unknown, { value }: { value: string }) => {
+                            const digits = value.replace(/[^0-9]/g, '');
+                            const n = digits === '' ? null : parseInt(digits, 10);
+                            set({ max_scan: n && n > 0 ? n : null });
+                        }}
+                    />
+                </ControlGroup>
+                <ControlGroup label="Retries" labelFor={`${p}-retries`} labelPosition="top">
+                    <Text
+                        inputId={`${p}-retries`}
+                        value={step.retries === null || step.retries === undefined ? '' : String(step.retries)}
+                        placeholder={`Job default (${inherit('retries')})`}
+                        onChange={(_e: unknown, { value }: { value: string }) => {
+                            const digits = value.replace(/[^0-9]/g, '');
+                            set({ retries: digits === '' ? null : parseInt(digits, 10) });
+                        }}
+                    />
+                </ControlGroup>
+                {retries > 0 && (
+                    <Message type="warning" appearance="default">
+                        A retry runs the search again, which can write duplicates to a summary index.
+                    </Message>
+                )}
+            </>
             )}
-            <Heading level={3}>Step actions</Heading>
-            <ActionsEditor
-                idPrefix={`${p}-action`}
-                actions={step.actions || []}
-                destinations={destinations}
-                alertActions={alertActions}
-                onChange={(actions) => set({ actions })}
-            />
             {onRequestRemove && (
                 <div style={{ marginTop: '12px' }}>
                     <Button appearance="destructive" label="Remove this step" onClick={() => onRequestRemove(stepId)} />

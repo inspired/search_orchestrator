@@ -55,6 +55,59 @@ export function checkParam(decl: ParamDecl, value: string): string | null {
     return null;
 }
 
+export interface ParamFieldsProps {
+    params: ParamDecl[];
+    values: Record<string, string>;
+    errors: Record<string, string>;
+    /** Field ids are `<idPrefix>-<name>`. */
+    idPrefix: string;
+    onChange: (name: string, value: string) => void;
+}
+
+/** One field per declared parameter: a list for an enum, else a text field. */
+export function ParamFields({ params, values, errors, idPrefix, onChange }: ParamFieldsProps) {
+    return (
+        <>
+            {params.map((p) => {
+                const id = `${idPrefix}-${p.name}`;
+                const error = errors[p.name];
+                const help = error || p.description;
+                const label = p.label || p.name;
+                return (
+                    <ControlGroup
+                        key={p.name}
+                        label={label}
+                        labelFor={id}
+                        labelPosition="top"
+                        help={help}
+                        error={Boolean(error)}
+                    >
+                        {p.type === 'enum' ? (
+                            <Select
+                                inputId={id}
+                                value={values[p.name] || ''}
+                                onChange={(_e: unknown, { value }: { value: unknown }) => onChange(p.name, String(value))}
+                            >
+                                {(p.values || []).map((v) => (
+                                    <Select.Option key={v} label={v} value={v} />
+                                ))}
+                            </Select>
+                        ) : (
+                            <Text
+                                inputId={id}
+                                value={values[p.name] || ''}
+                                placeholder={p.type === 'time' ? 'e.g. -1d@d' : undefined}
+                                error={Boolean(error)}
+                                onChange={(_e: unknown, { value }: { value: string }) => onChange(p.name, value)}
+                            />
+                        )}
+                    </ControlGroup>
+                );
+            })}
+        </>
+    );
+}
+
 export default function RunNowDialog({
     job,
     open,
@@ -132,42 +185,7 @@ export default function RunNowDialog({
                     </Message>
                 )}
                 {params.length === 0 && <p>This job has no parameters.</p>}
-                {params.map((p) => {
-                    const id = `run-now-param-${p.name}`;
-                    const error = errors[p.name];
-                    const help = error || p.description;
-                    const label = p.label || p.name;
-                    return (
-                        <ControlGroup
-                            key={p.name}
-                            label={label}
-                            labelFor={id}
-                            labelPosition="top"
-                            help={help}
-                            error={Boolean(error)}
-                        >
-                            {p.type === 'enum' ? (
-                                <Select
-                                    inputId={id}
-                                    value={values[p.name] || ''}
-                                    onChange={(_e: unknown, { value }: { value: unknown }) => setValue(p.name, String(value))}
-                                >
-                                    {(p.values || []).map((v) => (
-                                        <Select.Option key={v} label={v} value={v} />
-                                    ))}
-                                </Select>
-                            ) : (
-                                <Text
-                                    inputId={id}
-                                    value={values[p.name] || ''}
-                                    placeholder={p.type === 'time' ? 'e.g. -1d@d' : undefined}
-                                    error={Boolean(error)}
-                                    onChange={(_e: unknown, { value }: { value: string }) => setValue(p.name, value)}
-                                />
-                            )}
-                        </ControlGroup>
-                    );
-                })}
+                <ParamFields params={params} values={values} errors={errors} idPrefix="run-now-param" onChange={setValue} />
             </Modal.Body>
             <Modal.Footer>
                 <Button appearance="secondary" label="Cancel" onClick={onClose} />

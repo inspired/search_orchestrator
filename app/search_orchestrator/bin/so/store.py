@@ -10,6 +10,7 @@ JOBS = "so_jobs"
 RUNS = "so_runs"
 STEP_RUNS = "so_step_runs"
 COMMANDS = "so_commands"
+ACTION_RUNS = "so_action_runs"
 SETTINGS = "so_settings"
 SETTINGS_KEY = "settings"
 ENGINE_STATE_KEY = "engine_state"
@@ -83,7 +84,7 @@ class Store:
         return self.gw.kv_query(STEP_RUNS, {"run_id": run_id})
 
     def prune_runs(self, before, limit=0, between=None):
-        """Delete ended runs (and their attempt rows) that ended before ``before``,
+        """Delete ended runs (and their attempt and action rows) that ended before ``before``,
         oldest first, at most ``limit`` (0 = all). ``between()`` is called after each
         run is deleted (the engine renews its lease there). Returns the number deleted.
 
@@ -95,6 +96,7 @@ class Store:
         for run in old:
             run_id = run["_key"]
             self.gw.kv_delete_query(STEP_RUNS, {"run_id": run_id})
+            self.gw.kv_delete_query(ACTION_RUNS, {"run_id": run_id})
             self.gw.kv_delete(RUNS, run_id)
             if between is not None:
                 between()

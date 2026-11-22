@@ -222,6 +222,22 @@ def test_only_referenced_first_row_fields_are_stored():
 
 # --- delays, failure, re-run ----------------------------------------------------
 
+def test_a_delayed_step_is_audited_once_even_without_a_delay_action():
+    # The Run health dashboard counts delays from step_delayed events.
+    w = World()
+    j = w.add_job(make_job(steps=["daily", "weekly"], edges=[("daily", "weekly")]),
+                  scripts={"daily": {"states": ["running"]}})
+    run_id = cron_run(w, j)
+    w.tick(at=T0 + 3599)
+    assert not w.audit.of("step_delayed")
+    w.tick(at=T0 + 3600)
+    for _ in range(3):
+        w.tick(advance=60)
+    events = w.audit.of("step_delayed")
+    assert [(e["run_id"], e["step_id"], e["state"]) for e in events] == [
+        (run_id, "daily", "running"), (run_id, "weekly", "waiting")]
+
+
 def test_late_daily_weekly_waits_delay_hook_once_then_starts():
     w = World()
     j = w.add_job(make_job(steps=["daily", "weekly"], edges=[("daily", "weekly")]),
@@ -849,7 +865,8 @@ def test_engine_loop_survives_unexpected_errors():
 def test_settings_defaults():
     assert enginemod.DEFAULT_SETTINGS == {
         "max_searches": 10, "max_searches_per_job": 4, "queue_cap": 20,
-        "result_retention": 86400, "run_retention_days": 90}
+        "result_retention": 86400, "run_retention_days": 90, "log_level": "INFO",
+        "scan_limit": None, "scan_limit_action": "warn"}
 
 
 # --- review fix round 1 ------------------------------------------------------------
@@ -1531,6 +1548,118 @@ def test_previous_step_dispatch_sends_no_time_range_override():
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("a")] == [("-1d", "now")]
     assert [(d["earliest"], d["latest"]) for d in w.dispatched("p")] == [(None, None)]
     assert w.step(run_id, "p")["state"] == "succeeded"
+
+
+# --- search performance (1.23.0) -----------------------------------------------
+
+PERF = {"run_duration": 1.5, "scan_count": 1000, "event_count": 10, "result_count": 3,
+        "disk_usage": 2048}
+
+
+def _attempt_rows(w, run_id, step_id):
+    rows = w.gw.kv.get("so_step_runs", {}).values()
+    return [r for r in rows if r["run_id"] == run_id and r["step_id"] == step_id]
+
+
+def test_finished_step_records_perf():
+    w = World()
+    j = w.add_job(make_job(steps=["a"]),
+                  scripts={"a": {"states": ["done"], "result_count": 3, "perf": PERF}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "succeeded" and a["perf"] == PERF
+    assert _attempt_rows(w, run_id, "a")[-1]["perf"] == PERF
+    ev = w.audit.of("step_attempt", run_id=run_id, step_id="a")[-1]
+    assert ev["run_duration"] == 1.5 and ev["scan_count"] == 1000 and ev["disk_usage"] == 2048
+
+
+def test_failed_step_attempt_records_perf():
+    w = World()
+    j = w.add_job(make_job(steps=["a"]),
+                  scripts={"a": {"states": ["failed"], "perf": PERF}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    ev = w.audit.of("step_attempt", run_id=run_id, step_id="a", outcome="failed")[0]
+    assert ev["run_duration"] == 1.5 and ev["scan_count"] == 1000
+    assert _attempt_rows(w, run_id, "a")[0]["perf"] == PERF
+
+
+def test_step_without_perf_has_no_perf_key():
+    w = World()
+    j = w.add_job(make_job(steps=["a"]), scripts={"a": {"states": ["done"], "result_count": 1}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "succeeded" and "perf" not in a
+    assert "perf" not in _attempt_rows(w, run_id, "a")[-1]
+    ev = w.audit.of("step_attempt", run_id=run_id, step_id="a")[-1]
+    assert "run_duration" not in ev and "scan_count" not in ev
+
+
+def test_retry_attempt_does_not_keep_the_previous_attempts_perf():
+    w = World()
+    j = w.add_job(make_job(steps=[{"id": "a", "retries": 1}]),
+                  scripts={"a": {"states": ["failed"], "perf": PERF}})
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "retrying"
+    w.gw.script_job(j["steps"][0]["hidden_search"], ["running"])
+    w.tick(advance=30)
+    a = w.step(run_id, "a")
+    assert a["attempt"] == 2 and a["state"] in ("starting", "running") and "perf" not in a
+    second = [r for r in w.store.list_step_runs(run_id) if r["attempt"] == 2]
+    assert second and all("perf" not in r for r in second)
+
+
+# --- events scanned limit ------------------------------------------------------
+
+def _scan_world(action, step_limit=None, settings_limit=1000):
+    w = World()
+    step = {"id": "a"}
+    if step_limit:
+        step["max_scan"] = step_limit
+    j = w.add_job(make_job(steps=[step]), scripts={"a": {"states": ["running"] * 5 + ["done"],
+                                                         "result_count": 3,
+                                                         "perf": {"scan_count": 5000}}})
+    settings = {"_key": "settings"}
+    if settings_limit:
+        settings.update(scan_limit=settings_limit, scan_limit_action=action)
+    w.gw.kv_insert("so_settings", settings)
+    run_id = cron_run(w, j)
+    for job in w.gw.jobs.values():
+        job["perf_while_running"] = True
+    return w, run_id
+
+
+def test_a_search_over_the_scan_limit_is_stopped_and_the_step_fails():
+    w, run_id = _scan_world("stop")
+    for _ in range(3):
+        w.tick(advance=5)
+    st = w.step(run_id, "a")
+    assert st["state"] == "failed"
+    assert "scanned 5000 events, more than its limit of 1000" in (st.get("error") or "")
+    [ev] = w.audit.of("step_scan_limit")
+    assert (ev["action"], ev["scanned"], ev["limit"]) == ("stop", 5000, 1000)
+
+
+def test_warn_says_so_once_and_lets_the_search_finish():
+    w, run_id = _scan_world("warn")
+    for _ in range(10):
+        w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "succeeded"
+    assert len(w.audit.of("step_scan_limit", action="warn")) == 1
+
+
+def test_a_step_limit_overrides_settings_and_no_limit_means_nothing_happens():
+    w, run_id = _scan_world("stop", step_limit=10000)
+    for _ in range(10):
+        w.tick(advance=5)
+    assert w.step(run_id, "a")["state"] == "succeeded" and not w.audit.of("step_scan_limit")
+    w2, run2 = _scan_world("stop", settings_limit=None)
+    for _ in range(10):
+        w2.tick(advance=5)
+    assert w2.step(run2, "a")["state"] == "succeeded"
 
 
 # --- KV writes per pass ----------------------------------------------------------

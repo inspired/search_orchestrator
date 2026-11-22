@@ -33,7 +33,32 @@ access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 [collections/so_selftest]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 
+[collections/so_job_versions]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
+[collections/so_backfills]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
+[collections/so_snippets]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
+[collections/so_follows]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+
 [savedsearches/_so_fallback_email]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
+
+# The app health alerts (savedsearches.conf): admins see them and their Triggered Alerts.
+[savedsearches/Search%20Orchestrator%20-%20Engine%20not%20running]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
+
+[savedsearches/Search%20Orchestrator%20-%20Missed%20schedules]
+access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
+export = none
+
+[savedsearches/Search%20Orchestrator%20-%20Errors]
 access = read : [ admin, sc_admin ], write : [ admin, sc_admin ]
 export = none
 

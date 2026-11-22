@@ -231,9 +231,10 @@ def test_saved_search_outside_app_context_is_clear_error():
     errors = {i["step"]: i for i in issues if i["level"] == "error"}
     assert sorted(errors) == ["n", "s"]
     assert errors["n"]["code"] == "saved_search_not_visible"
-    assert errors["n"]["message"] == ("Saved search 'nightly' must be shared globally or saved in "
-                                      "the Search Orchestrator app to be used as a step.")
-    assert errors["s"]["message"].startswith("Saved search 'shared_in_search' must be shared")
+    assert errors["n"]["message"] == ("saved search 'nightly' must be shared globally or saved in "
+                                      "the Search Orchestrator app to be used as a step; change its "
+                                      "sharing, or save a copy in this app")
+    assert errors["s"]["message"].startswith("saved search 'shared_in_search' must be shared")
     assert planned["steps"][2]["mode"] == "wrapped"
 
 
@@ -316,3 +317,39 @@ def test_previous_step_drops_earliest_and_latest():
     same = job(steps=[j["steps"][0], {"id": "b", "type": "previous", "spl": "| stats count"}],
                edges=j["edges"])
     assert hidden.plan(gw, same)[0]["steps"][1]["hidden_search"] == b["hidden_search"]
+
+
+def test_plan_writes_nothing_for_approval_steps():
+    gw = FakeGateway()
+    j = job()
+    j["steps"].append({"id": "gate", "type": "approval", "approval": {"message": "ok?"},
+                       "hidden_search": "_so_daily_gate_forged", "mode": "inline"})
+    j["edges"] = [{"from": "a", "to": "gate"}]
+    planned, searches, issues = hidden.plan(gw, j)
+    assert [s["name"] for s in searches] == [planned["steps"][0]["hidden_search"]]
+    gate = planned["steps"][1]
+    assert "hidden_search" not in gate and "mode" not in gate and not issues
+    assert hidden.used(planned, "alice") == {("alice", planned["steps"][0]["hidden_search"])}
+
+
+HEALTH_ALERTS = ("Search Orchestrator - Engine not running", "Search Orchestrator - Missed schedules",
+                 "Search Orchestrator - Errors")
+
+
+def test_app_health_alerts_shipped_off_scheduled_and_tracked():
+    conf = configparser.RawConfigParser(strict=True, interpolation=None)
+    conf.optionxform = str
+    conf.read(APP / "default" / "savedsearches.conf")
+    meta = (APP / "metadata" / "default.meta").read_text()
+    for name in HEALTH_ALERTS:
+        st = conf[name]
+        assert st["disabled"] == "1"  # an admin turns each on
+        assert st["enableSched"] == "1" and st["alert.track"] == "1"
+        assert st["search"].startswith("`orchestrator_logs`")
+        assert (st["counttype"], st["relation"], st["quantity"]) == \
+            ("number of events", "greater than", "0")
+        assert "| where " in st["search"]  # results only when something is wrong
+        assert st["dispatch.earliest_time"] == "-15m"
+        assert "[savedsearches/%s]" % name.replace(" ", "%20") in meta
+    # The engine alert looks for the heartbeat the engine logs every 5 minutes.
+    assert "event=heartbeat" in conf[HEALTH_ALERTS[0]]["search"]

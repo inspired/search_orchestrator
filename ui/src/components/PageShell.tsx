@@ -1,6 +1,7 @@
 /* The frame every page shares: a heading, optional header actions and the content.
  * renderPage mounts a page with Splunk's layout and the user's theme. */
 import React from 'react';
+import ApprovalAlert from './ApprovalAlert';
 import layout from '@splunk/react-page/18';
 import { username } from '@splunk/splunk-utils/config';
 import { getThemeOptions, getUserTheme } from '@splunk/splunk-utils/themes';
@@ -24,6 +25,7 @@ export default function PageShell({ title, description, actions, children }: Pag
                 {actions && <div style={{ display: 'flex', gap: '8px' }}>{actions}</div>}
             </div>
             {description && <div style={{ marginBottom: '16px' }}>{description}</div>}
+            <ApprovalAlert />
             {children}
         </div>
     );
@@ -76,11 +78,12 @@ export async function resolveColorScheme(): Promise<ColorScheme> {
     }
 }
 
-/** Mounts a page into Splunk's layout, themed to the user's Splunk theme. */
+/** Mounts a page into Splunk's layout, themed to the user's Splunk theme. `navLayout: 'auto'`
+ * uses the side navigation where Splunk has it (10.4+) and the classic app bar elsewhere. */
 export function renderPage(element: React.ReactElement, pageTitle: string): void {
     resolveColorScheme()
-        .then((theme) => layout(element, { pageTitle, theme }))
-        .catch(() => layout(element, { pageTitle }));
+        .then((theme) => layout(element, { pageTitle, theme, navLayout: 'auto' }))
+        .catch(() => layout(element, { pageTitle, navLayout: 'auto' }));
 }
 
 /** The link to a page of this app, relative to the current page (/app/search_orchestrator/<page>). */

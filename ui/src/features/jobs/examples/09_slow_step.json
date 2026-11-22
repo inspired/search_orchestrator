@@ -1,0 +1,87 @@
+{
+  "id": "example_slow_step",
+  "name": "Example: a slow step and a delay alert",
+  "description": "A deliberately slow makeresults step (three million rows hashed) counts as delayed 30 seconds after the scheduled time, which emails you@example.com once, and is stopped after 10 minutes (max runtime). Run it now and watch the run graph update live.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "reliability"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "20 3 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "slow_step",
+      "name": "Slow makeresults",
+      "type": "inline",
+      "spl": "| makeresults count=3000000\n| eval hash=md5(tostring(random()))\n| stats dc(hash) AS distinct_hashes",
+      "earliest": "-1d@d",
+      "latest": "@d",
+      "delayed_after": 30,
+      "max_runtime": 600,
+      "actions": [
+        {
+          "hook": "on_delayed",
+          "type": "email",
+          "to": "you@example.com",
+          "subject": "{{job}} is running late",
+          "message": "{{message}}\n\n{{run_url}}"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "name": "Report",
+      "type": "previous",
+      "spl": "| eval finished=strftime(now(), \"%Y-%m-%d %H:%M:%S\")"
+    }
+  ],
+  "edges": [
+    {
+      "from": "slow_step",
+      "to": "report",
+      "condition": "on_success"
+    }
+  ],
+  "actions": [
+    {
+      "hook": "on_failure",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} failed",
+      "message": "{{message}}\n\n{{run_url}}"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 89
+      },
+      "job": {
+        "x": 20,
+        "y": 183
+      },
+      "step:slow_step": {
+        "x": 320,
+        "y": 73
+      },
+      "step:report": {
+        "x": 600,
+        "y": 20
+      },
+      "action:job:0": {
+        "x": 320,
+        "y": 189
+      },
+      "action:slow_step:0": {
+        "x": 600,
+        "y": 136
+      }
+    }
+  }
+}

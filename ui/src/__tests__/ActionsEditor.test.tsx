@@ -1,7 +1,7 @@
 import React from 'react';
 import { fireEvent, screen } from '@testing-library/react';
 import type { Action, AlertAction } from '../api/types';
-import ActionsEditor, { alertActionOptions } from '../features/builder/ActionsEditor';
+import { ActionFields, alertActionOptions } from '../features/builder/ActionsEditor';
 import { renderThemed } from './fixtures';
 
 const INSTALLED: AlertAction[] = [
@@ -30,8 +30,8 @@ const INSTALLED: AlertAction[] = [
 
 function renderEditor(action: Partial<Action>, alertActions?: AlertAction[] | null) {
     const onChange = jest.fn();
-    const actions = [{ hook: 'on_failure', type: 'alert_action', ...action } as Action];
-    renderThemed(<ActionsEditor actions={actions} onChange={onChange} destinations={[]} alertActions={alertActions} idPrefix="t" />);
+    const a = { hook: 'on_failure', type: 'alert_action', ...action } as Action;
+    renderThemed(<ActionFields action={a} onChange={onChange} destinations={[]} alertActions={alertActions} idPrefix="t" />);
     return onChange;
 }
 
@@ -49,12 +49,12 @@ describe('alertActionOptions', () => {
     });
 });
 
-describe('ActionsEditor alert action', () => {
+describe('ActionFields alert action', () => {
     it('picks an alert action from the list and clears the old action\'s parameters', () => {
         const onChange = renderEditor({ action: 'bare', params: { a: '1' } }, INSTALLED);
         fireEvent.click(screen.getByText('bare'));
         fireEvent.click(screen.getByText('Log Event (logevent)'));
-        expect(onChange).toHaveBeenCalledWith([{ hook: 'on_failure', type: 'alert_action', params: {}, action: 'logevent' }]);
+        expect(onChange).toHaveBeenCalledWith({ hook: 'on_failure', type: 'alert_action', params: {}, action: 'logevent' });
     });
 
     it('shows the saved action', () => {
@@ -75,20 +75,20 @@ describe('ActionsEditor alert action', () => {
     it('sets a parameter and keeps the others', () => {
         const onChange = renderEditor({ action: 'logevent', params: { event: 'hello', other: 'x' } }, INSTALLED);
         fireEvent.change(screen.getByLabelText('Source'), { target: { value: 's1' } });
-        expect(onChange.mock.calls[0][0][0].params).toEqual({ event: 'hello', other: 'x', source: 's1' });
+        expect(onChange.mock.calls[0][0].params).toEqual({ event: 'hello', other: 'x', source: 's1' });
     });
 
     it('leaves a cleared parameter out so the default applies', () => {
         const onChange = renderEditor({ action: 'logevent', params: { event: 'hello' } }, INSTALLED);
         fireEvent.change(screen.getByLabelText('Event (required)'), { target: { value: '' } });
-        expect(onChange.mock.calls[0][0][0].params).toEqual({});
+        expect(onChange.mock.calls[0][0].params).toEqual({});
     });
 
     it('picks a parameter value from its options', () => {
         const onChange = renderEditor({ action: 'logevent' }, INSTALLED);
         fireEvent.click(screen.getByText('Default (Beta)'));
         fireEvent.click(screen.getByText('Alpha'));
-        expect(onChange.mock.calls[0][0][0].params).toEqual({ mode: 'a' });
+        expect(onChange.mock.calls[0][0].params).toEqual({ mode: 'a' });
     });
 
     it('keeps a saved value that is not one of the options', () => {
@@ -101,7 +101,7 @@ describe('ActionsEditor alert action', () => {
         const box = screen.getByLabelText('Other parameters') as HTMLTextAreaElement;
         expect(box.value).toBe('extra=1');
         fireEvent.change(box, { target: { value: 'extra=2\nmore=3' } });
-        expect(onChange.mock.calls[0][0][0].params).toEqual({ event: 'hello', extra: '2', more: '3' });
+        expect(onChange.mock.calls[0][0].params).toEqual({ event: 'hello', extra: '2', more: '3' });
     });
 
     it('asks for typed parameters when the action lists none', () => {
@@ -113,6 +113,22 @@ describe('ActionsEditor alert action', () => {
         const onChange = renderEditor({ action: 'log' }, null);
         const input = screen.getByLabelText('Alert action name');
         fireEvent.change(input, { target: { value: 'logevent' } });
-        expect(onChange).toHaveBeenCalledWith([{ hook: 'on_failure', type: 'alert_action', action: 'logevent' }]);
+        expect(onChange).toHaveBeenCalledWith({ hook: 'on_failure', type: 'alert_action', action: 'logevent' });
+    });
+});
+
+describe('ActionFields insert value', () => {
+    it('names each insert-value control after its field', () => {
+        renderThemed(
+            <ActionFields
+                action={{ hook: 'on_failure', type: 'email', to: 'a@b.c' } as Action}
+                onChange={jest.fn()}
+                destinations={[]}
+                idPrefix="t"
+                tokenGroups={[{ title: 'This run', options: [{ token: '$run.id$', label: 'Run id', description: 'The id of this run.' }] }]}
+            />
+        );
+        expect(screen.getByRole('button', { name: 'Insert value into Subject' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Insert value into Message' })).toBeInTheDocument();
     });
 });

@@ -29,6 +29,20 @@ export function formatDuration(seconds: number): string {
     return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
 }
 
+/** A running timer: "0:31", "12:05", "1:02:05" (h:mm:ss from an hour). */
+export function formatClock(seconds: number): string {
+    const s = Math.max(0, Math.floor(seconds));
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+}
+
+/** An elapsed time spelled with spaces: "9 s", "2 m 14 s", "1 h 2 m". */
+export function formatElapsed(seconds: number): string {
+    return formatDuration(seconds).replace(/(\d+)([smhd])/g, '$1 $2');
+}
+
 function unit(seconds: number): { n: number; name: string } {
     const minutes = Math.floor(seconds / 60);
     if (minutes >= 120 && minutes % 60 === 0) {
@@ -47,6 +61,11 @@ export function formatSpan(seconds: number): string {
     }
     const { n, name } = unit(seconds);
     return `${n} ${name}${n === 1 ? '' : 's'}`;
+}
+
+/** How long ago, from a span in seconds: "5 minutes ago", "less than a minute ago". */
+export function formatAgo(seconds: number): string {
+    return `${formatSpan(Math.max(0, seconds))} ago`;
 }
 
 /** A span used as an adjective: "60 minute", "2 hour". */

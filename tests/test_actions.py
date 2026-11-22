@@ -370,6 +370,15 @@ def test_action_secret_not_in_audit():
         assert "SECRETTOKEN" not in blob and "TOPSECRET" not in blob
     done = w.audit.of("action_done")[0]
     assert done["scheme"] == "https" and done["host"] == "hooks.example.com"
+    assert done["preset"] == (WEBHOOK.get("preset") or "generic")  # Run health: Slack vs webhook
+
+
+def test_action_failure_carries_the_slack_preset():
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "missing",
+                    "preset": "slack"}])
+    w.submit()
+    w.pump()
+    assert w.audit.of("action_failed")[0]["preset"] == "slack"
 
 
 def test_removed_owner_fails_search_action_without_raising():
@@ -618,3 +627,225 @@ def test_two_start_job_actions_to_one_target_start_two_runs_once():
     w.pump()
     assert len(w.store.list_runs({"job_id": "down"})) == 2
     assert all(e["state"] == "done" for e in w.rows(kind="action")[0]["actions"])
+
+
+def test_on_late_uses_the_fallback_without_a_job_level_on_late_action():
+    w = W(settings=FALLBACK)
+    w.run["state"] = "running"
+    w.submit("on_late", "job", occurrence=0)
+    assert [r["hook"] for r in w.rows(kind="fallback")] == ["on_late"]
+    w.pump()
+    assert json.loads(w.gw.webhook_log[0]["body"])["hook"] == "on_late"
+
+
+def test_on_late_has_no_fallback_with_a_job_level_on_late_action():
+    w = W(actions=[dict(WEBHOOK, hook="on_late")], settings=FALLBACK)
+    w.run["state"] = "running"
+    assert w.submit("on_late", "job", occurrence=0)
+    assert not w.rows(kind="fallback")
+
+
+def test_on_late_action_out_of_retries_sends_the_fallback():
+    w = W(actions=[dict(WEBHOOK, hook="on_late")], settings=FALLBACK)
+    w.gw.secrets["ops_url"] = "http://bad.example.com/x"
+    w.submit("on_late", "job", occurrence=0)
+    w.pump()
+    assert len(w.rows(kind="fallback")) == 1
+
+
+def test_on_late_message_verb():
+    text = presets.default_message({"job": "Daily summary", "run_id": "r1", "hook": "on_late",
+                                    "scope": "job", "status": "running"})
+    assert text.startswith('Job "Daily summary" is late (run r1, status running).')
+
+
+# Teams, PagerDuty and ServiceNow presets.
+
+PD_KEY = "R0UTINGKEYSECRET0123456789abcdef"
+
+
+def _pd_world(post=None):
+    """A world whose admin saved a PagerDuty destination through the API."""
+    from so import api
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "pd",
+                    "options": {"severity": "critical"}}])
+    w.gw.users = {"root": {"roles": ["admin"], "capabilities": [
+        "orchestrator_admin", "orchestrator_build", "orchestrator_run"]}}
+    w.deps = {"user_gateway": w.gw, "system_gateway": w.gw, "audit": w.audit,
+              "clock": lambda: w.t}
+    status, out = api.handle("root", "POST", "/orchestrator/destinations",
+                             {"name": "pd", "preset": "pagerduty", "routing_key": PD_KEY}, w.deps)
+    assert status == 201, out
+    if post is not None:
+        w.gw.post_webhook = post
+    return w
+
+
+def _leak_blob(w):
+    from so import api
+    status, listed = api.handle("root", "GET", "/orchestrator/destinations", None, w.deps)
+    assert status == 200
+    return json.dumps(w.rows()) + json.dumps(w.audit.events) + json.dumps(listed) \
+        + json.dumps(w.gw.kv.get("so_settings", {}))
+
+
+def test_routing_key_never_leaks():
+    w = _pd_world()
+    w.submit()
+    w.pump()
+    assert len(w.gw.webhook_log) == 1
+    sent = w.gw.webhook_log[0]
+    assert sent["url"] == "https://events.pagerduty.com/v2/enqueue"
+    body = json.loads(sent["body"])
+    assert body["routing_key"] == PD_KEY
+    assert body["event_action"] == "trigger" and body["payload"]["severity"] == "critical"
+    assert w.rows(kind="action")[0]["state"] == "done"
+    assert w.audit.of("action_done")[0]["preset"] == "pagerduty"
+    assert PD_KEY not in _leak_blob(w)
+
+
+def test_routing_key_not_echoed_by_a_failed_send():
+    from so.gateway import GatewayError
+
+    def echo(url, headers, body):
+        raise GatewayError("HTTP 400 for body %s" % body, status=400, transient=False)
+
+    w = _pd_world(echo)
+    w.submit()
+    w.pump()
+    row = w.rows(kind="action")[0]
+    assert row["state"] == "failed" and row["error"]
+    assert PD_KEY not in _leak_blob(w)
+
+
+def test_routing_key_not_echoed_by_an_unexpected_error():
+    def boom(url, headers, body):
+        raise ValueError("cannot send " + body)
+
+    w = _pd_world(boom)
+    w.submit()
+    w.pump()
+    assert w.rows(kind="action")[0]["state"] == "failed"
+    assert PD_KEY not in _leak_blob(w)
+
+
+def test_servicenow_and_teams_actions_post_their_bodies():
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "sn",
+                    "preset": "servicenow", "options": {"urgency": "1"}},
+                   {"hook": "on_failure", "type": "webhook", "destination": "ops",
+                    "preset": "teams"}])
+    doc = w.gw.kv_get("so_settings", "destinations")
+    doc["destinations"].append({"name": "sn", "url_secret_ref": "sn_url",
+                                "headers_secret_ref": None, "preset": "servicenow"})
+    w.gw.kv_update("so_settings", "destinations", doc)
+    w.gw.secrets["sn_url"] = "https://acme.service-now.com/api/now/table/incident"
+    w.submit()
+    w.pump()
+    bodies = [json.loads(h["body"]) for h in w.gw.webhook_log]
+    assert bodies[0]["urgency"] == "1" and bodies[0]["impact"] == "2"
+    assert bodies[0]["short_description"] == "Search Orchestrator: Nightly failed"
+    assert "routing_key" not in bodies[0]
+    assert bodies[1]["attachments"][0]["content"]["version"] == "1.4"
+
+
+def test_body_template_ignores_options():
+    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "ops",
+                    "preset": "pagerduty", "options": {"severity": "info"},
+                    "body": {"text": "{{job}}"}}])
+    w.submit()
+    w.pump()
+    assert json.loads(w.gw.webhook_log[0]["body"]) == {"text": "Nightly"}
+
+
+def test_ctx_has_approval_message_for_approval_requested():
+    run = {"_key": "r1", "job_id": "daily", "state": "running",
+           "definition": {"name": "Daily", "steps": [{"id": "gate", "name": "Sign-off",
+                                                      "type": "approval"}]},
+           "steps": {"gate": {"state": "awaiting_approval",
+                              "approval_state": {"requested_at": 1, "message": "Rows: 12",
+                                                 "decision": None}}}}
+    ctx = ActionRunner._ctx(run, "on_approval_requested", "step", "gate")
+    assert ctx["approval_message"] == "Rows: 12"
+    assert "approval_message" not in ActionRunner._ctx(run, "on_start", "step", "gate")
+
+
+def test_only_if_results_skips_the_action_when_the_step_found_nothing():
+    mail = {"hook": "on_success", "type": "email", "to": "ops@example.com", "only_if_results": True}
+    always = {"hook": "on_success", "type": "email", "to": "boss@example.com"}
+    w = W(step_actions=[mail, always])
+    w.run["steps"]["a"] = {"state": "succeeded", "sid": "s1", "result_count": 0}
+    assert w.runner.submit(w.run, "on_success", "step", "a") is True
+    row = w.gw.kv["so_action_runs"]["r1:step:on_success:a:0"]
+    assert [e["action"]["to"] for e in row["actions"]] == ["boss@example.com"]
+    w.run["steps"]["a"]["result_count"] = 3
+    w.run["rerun_count"] = 1
+    w.runner.submit(w.run, "on_success", "step", "a")
+    row = w.gw.kv["so_action_runs"]["r1:step:on_success:a:1"]
+    assert [e["action"]["to"] for e in row["actions"]] == ["ops@example.com", "boss@example.com"]
+
+
+def test_only_if_results_saves_through_the_api():
+    from test_api import World, job_body
+    w = World()
+    body = job_body()
+    body["steps"][0]["actions"] = [{"hook": "on_success", "type": "email", "to": "ops@example.com",
+                                    "only_if_results": True}]
+    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
+    assert status == 201, out
+    assert out["job"]["steps"][0]["actions"][0]["only_if_results"] is True
+
+
+def test_an_action_condition_leaves_the_action_out_when_false():
+    big = {"hook": "on_success", "type": "email", "to": "big@example.com", "condition": "$a.resultCount$ > 100"}
+    w = W(step_actions=[big])
+    w.run["steps"]["a"] = {"state": "succeeded", "sid": "s1", "result_count": 5}
+    assert w.runner.submit(w.run, "on_success", "step", "a") is False
+    w.run["steps"]["a"]["result_count"] = 500
+    w.run["rerun_count"] = 1
+    assert w.runner.submit(w.run, "on_success", "step", "a") is True
+
+
+def test_an_action_condition_is_checked_on_save():
+    from so import model
+    from test_api import job_body
+    body = job_body()
+    body["steps"][0]["actions"] = [{"hook": "on_success", "type": "email", "to": "x@example.com", "condition": "$nope.resultCount$ >"}]
+    assert any(i["code"] in ("bad_expression", "unknown_token") and i["level"] == "error" for i in model.validate_job(body))
+
+
+def test_an_action_sets_its_own_retries_and_first_wait():
+    from so.actions import retry_delay, retry_plan
+    assert retry_plan({}) == (3, None)
+    assert retry_plan({"retries": 0, "retry_wait": 120}) == (0, 120)
+    assert retry_plan({"retries": 99, "retry_wait": 5}) == (3, None)  # out of range: defaults
+    assert [retry_delay(n, 120) for n in (1, 2, 3, 6)] == [120, 240, 480, 3600]
+    boom = lambda *a: (_ for _ in ()).throw(
+        __import__("so.gateway", fromlist=["x"]).GatewayError("boom", transient=True))
+    w = W(actions=[dict(WEBHOOK, retries=1, retry_wait=60)])
+    w.gw.post_webhook = boom
+    w.submit()
+    w.pump(T)
+    assert w.pump(T + 31) == 0 and w.pump(T + 61) == 1  # waited its own 60 s
+    row = w.rows(kind="action")[0]
+    assert row["state"] == "failed" and row["attempts"] == 2
+    w2 = W(actions=[dict(WEBHOOK, retries=0)])
+    w2.gw.post_webhook = boom
+    w2.submit()
+    w2.pump(T)
+    assert w2.rows(kind="action")[0]["state"] == "failed"  # no retry at all
+
+
+def test_event_action_sets_source_sourcetype_host_and_time():
+    from so import hidden
+    plain = hidden.action_spl({"type": "event", "index": "main"})
+    assert "sourcetype=" not in plain and "_time=$args.time$" in plain
+    full = hidden.action_spl({"type": "event", "index": "main", "source": "s", "sourcetype": "st", "host": "h"})
+    assert 'source="$args.source$" sourcetype="$args.sourcetype$" host="$args.host$"' in full
+    w = W(actions=[{"hook": "on_failure", "type": "event", "index": "main", "payload": "x",
+                    "sourcetype": "orch:event", "time": "scheduled"}])
+    w.gw.script_job(w.definition["actions"][0]["hidden_search"], ["done"])
+    w.submit()
+    w.pump()
+    args = w.gw.dispatch_log[-1]["args"]
+    assert args["sourcetype"] == "orch:event" and args["time"] == str(T - 100)
+    assert "host" not in args

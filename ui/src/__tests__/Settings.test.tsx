@@ -13,6 +13,7 @@ const adminMe: Me = {
     can_admin: true,
     can_build: true,
     can_run: true,
+    can_approve: true,
 };
 
 const SETTINGS: Settings = {
@@ -121,6 +122,73 @@ describe('Settings', () => {
         });
     });
 
+    test('Body format offers every preset; Routing key shows only for PagerDuty and is write-only', async () => {
+        const api = fakeApi();
+        renderThemed(<SettingsPage api={api} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));
+        expect(screen.queryByLabelText('Routing key')).toBeNull();
+        fireEvent.click(screen.getByRole('combobox', { name: 'Body format' }));
+        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Generic JSON', 'Slack', 'Microsoft Teams', 'PagerDuty', 'ServiceNow']);
+        fireEvent.click(screen.getByRole('option', { name: 'PagerDuty' }));
+        const key = screen.getByLabelText('Routing key') as HTMLInputElement;
+        expect(key.type).toBe('password');
+        expect(screen.getByTestId('dest-routing-key')).toHaveTextContent('Not set');
+        fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'pd_oncall' } });
+        // The URL may stay empty: the server uses the PagerDuty Events API.
+        expect(screen.getByRole('button', { name: 'Save destination' })).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.change(key, { target: { value: 'R0UT1NG' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save destination' }));
+        await waitFor(() =>
+            expect(api.saveDestination).toHaveBeenCalledWith({ name: 'pd_oncall', url: '', preset: 'pagerduty', routing_key: 'R0UT1NG' })
+        );
+    });
+
+    test('a stored routing key shows Set and an empty field keeps it', async () => {
+        const pd: Destination = { name: 'pd', preset: 'pagerduty', host: 'events.pagerduty.com', has_headers: false, body_secret_set: true };
+        const api = fakeApi({ listDestinations: jest.fn(() => Promise.resolve([...DESTS, pd])) });
+        renderThemed(<SettingsPage api={api} />);
+        const row = (await screen.findByText('pd')).closest('tr') as HTMLElement;
+        expect(within(row).getByText('PagerDuty')).toBeInTheDocument();
+        fireEvent.click(within(row).getByRole('button', { name: /Replace/ }));
+        expect(screen.getByTestId('dest-routing-key')).toHaveTextContent('Set');
+        expect((screen.getByLabelText('Routing key') as HTMLInputElement).value).toBe('');
+        fireEvent.click(screen.getByRole('button', { name: 'Save destination' }));
+        await waitFor(() => expect(api.saveDestination).toHaveBeenCalledWith({ name: 'pd', url: '', preset: 'pagerduty' }));
+    });
+
+    test('replacing a PagerDuty destination says an empty URL keeps the stored one', async () => {
+        const pd: Destination = { name: 'pd', preset: 'pagerduty', host: 'events.eu.pagerduty.com', has_headers: false, body_secret_set: true };
+        const api = fakeApi({ listDestinations: jest.fn(() => Promise.resolve([...DESTS, pd])) });
+        renderThemed(<SettingsPage api={api} />);
+        const row = (await screen.findByText('pd')).closest('tr') as HTMLElement;
+        fireEvent.click(within(row).getByRole('button', { name: /Replace/ }));
+        expect(screen.getByText('Optional. Empty keeps the stored URL.')).toBeInTheDocument();
+        expect(screen.queryByText(/Empty uses the PagerDuty Events API/)).toBeNull();
+    });
+
+    test('a new PagerDuty destination says an empty URL uses the default', async () => {
+        const api = fakeApi();
+        renderThemed(<SettingsPage api={api} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));
+        fireEvent.click(screen.getByRole('combobox', { name: 'Body format' }));
+        fireEvent.click(screen.getByRole('option', { name: 'PagerDuty' }));
+        expect(screen.getByText(/Empty uses the PagerDuty Events API/)).toBeInTheDocument();
+    });
+
+    test('a ServiceNow URL must end in the incident table path', async () => {
+        renderThemed(<SettingsPage api={fakeApi()} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'New destination' }));
+        fireEvent.click(screen.getByRole('combobox', { name: 'Body format' }));
+        fireEvent.click(screen.getByRole('option', { name: 'ServiceNow' }));
+        expect(screen.queryByLabelText('Routing key')).toBeNull();
+        fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'snow' } });
+        fireEvent.change(screen.getByLabelText('New URL'), { target: { value: 'https://acme.service-now.com/' } });
+        expect(screen.getByText('A ServiceNow URL ends in /api/now/table/incident.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Save destination' })).toHaveAttribute('aria-disabled', 'true');
+        fireEvent.change(screen.getByLabelText('New URL'), { target: { value: 'https://acme.service-now.com/api/now/table/incident' } });
+        expect(screen.getByRole('button', { name: 'Save destination' })).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
     test('limits show their bounds and the server issues', async () => {
         const api = fakeApi({
             putSettings: jest.fn(() =>
@@ -154,6 +222,26 @@ describe('Settings', () => {
         );
     });
 
+    test('the log level shows in Settings and is sent only when it changes', async () => {
+        renderThemed(<SettingsPage api={fakeApi()} />);
+        expect(await screen.findByText('Log level')).toBeInTheDocument();
+        const draft: Draft = {
+            ints: { max_searches: '10', max_searches_per_job: '4', queue_cap: '20', result_retention: '24', run_retention_days: '90' },
+            fallbackType: 'email',
+            email: 'ops@example.com',
+            destination: '',
+            preset: '',
+            baseUrl: '',
+            logLevel: 'INFO',
+            scanLimit: '',
+            scanAction: 'warn',
+            turnedOff: [],
+        };
+        expect(changes(SETTINGS, draft)).toEqual({});
+        expect(changes(SETTINGS, { ...draft, logLevel: 'DEBUG' })).toEqual({ log_level: 'DEBUG' });
+        expect(changes({ ...SETTINGS, log_level: 'DEBUG' }, { ...draft, logLevel: 'DEBUG' })).toEqual({});
+    });
+
     test('a webhook fallback keeps its preset when the destination changes', () => {
         const original: Settings = { ...SETTINGS, fallback: { type: 'webhook', destination: 'slack_ops', preset: 'slack' } };
         const draft: Draft = {
@@ -163,9 +251,24 @@ describe('Settings', () => {
             destination: 'pager',
             preset: 'slack',
             baseUrl: '',
+            logLevel: 'INFO',
+            scanLimit: '',
+            scanAction: 'warn',
+            turnedOff: [],
         };
         expect(changes(original, draft)).toEqual({ fallback: { type: 'webhook', destination: 'pager', preset: 'slack' } });
         // Unchanged, the preset is not dropped either.
         expect(changes(original, { ...draft, destination: 'slack_ops' })).toEqual({});
+    });
+});
+
+describe('Search cost settings', () => {
+    test('the scan limit and action are sent only when they change', () => {
+        const { changes: diff } = jest.requireActual('../features/settings/SettingsForm');
+        const base = { max_searches: 10, max_searches_per_job: 4, queue_cap: 20, result_retention: 86400, run_retention_days: 90, fallback: null, base_url: null, log_level: 'INFO', scan_limit: null, scan_limit_action: 'warn' };
+        const draft = { ints: { max_searches: '10', max_searches_per_job: '4', queue_cap: '20', result_retention: '24', run_retention_days: '90' }, fallbackType: 'none', email: '', destination: '', preset: '', baseUrl: '', logLevel: 'INFO', scanLimit: '', scanAction: 'warn' };
+        expect(diff(base, draft)).toEqual({});
+        expect(diff(base, { ...draft, scanLimit: '50 000 000', scanAction: 'stop' })).toEqual({ scan_limit: 50000000, scan_limit_action: 'stop' });
+        expect(diff({ ...base, scan_limit: 5 }, draft)).toEqual({ scan_limit: null });
     });
 });

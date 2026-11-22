@@ -6,9 +6,10 @@ import RunNowDialog from '../features/jobs/RunNowDialog';
 import { ApiError } from '../api/client';
 import { formatTime } from '../format';
 import { NOW, job, me, renderThemed } from './fixtures';
+import { rollupJob } from './builderFixtures';
 
 describe('JobsTable', () => {
-    test('a job warning (an old time range on a From previous steps step) shows under its name', () => {
+    test('a job warning (an old time range on a Results of earlier steps step) shows under its name', () => {
         const warning = { level: 'warning' as const, code: 'previous_old_time_range', message: "re-save the job to drop this step's old time range", step: 'b' };
         renderThemed(<JobsTable jobs={[job({ warnings: [warning] }), job({ id: 'w', name: 'Weekly rollup' })]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
         const daily = screen.getByText('Daily summary').closest('tr') as HTMLElement;
@@ -143,7 +144,7 @@ describe('Delete job', () => {
         let current = jobs;
         return {
             me: jest.fn(() => Promise.resolve(me)),
-            searchJobs: jest.fn(() => Promise.resolve({ jobs: current, total: current.length })),
+            listJobs: jest.fn(() => Promise.resolve(current)),
             setJobEnabled: jest.fn(() => Promise.resolve({ job: jobs[0] })),
             deleteJob: jest.fn((id: string) => {
                 current = current.filter((j) => j.id !== id);
@@ -160,15 +161,17 @@ describe('Delete job', () => {
         ];
         renderThemed(<JobsTable jobs={jobs} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onDelete={jest.fn()} />);
         const daily = screen.getByText('Daily summary').closest('tr') as HTMLElement;
-        expect(within(daily).getByRole('button', { name: 'Delete Daily summary' })).toBeInTheDocument();
+        fireEvent.click(within(daily).getByRole('button', { name: 'More actions for Daily summary' }));
+        expect(screen.getByRole('menuitem', { name: /Delete…/ })).toBeInTheDocument();
         const weekly = screen.getByText('Weekly rollup').closest('tr') as HTMLElement;
-        expect(within(weekly).queryByRole('button', { name: /Delete/ })).toBeNull();
+        expect(within(weekly).queryByRole('button', { name: /More actions/ })).toBeNull();
     });
 
     test('confirm then delete then the table refreshes', async () => {
         const api = jobsApi([job(), job({ id: 'weekly', name: 'Weekly rollup' })]);
         renderThemed(<JobsPage api={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Delete Daily summary' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'More actions for Daily summary' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /Delete…/ }));
         // The confirmation names the job; nothing is deleted yet.
         expect(screen.getByText('Delete Daily summary?')).toBeInTheDocument();
         expect(api.deleteJob).not.toHaveBeenCalled();
@@ -176,7 +179,7 @@ describe('Delete job', () => {
         await waitFor(() => expect(api.deleteJob).toHaveBeenCalledWith('daily'));
         await waitFor(() => expect(screen.queryByText('Daily summary')).toBeNull());
         expect(screen.getByText('Weekly rollup')).toBeInTheDocument();
-        expect(api.searchJobs).toHaveBeenCalledTimes(2);
+        expect(api.listJobs).toHaveBeenCalledTimes(2);
     });
 
     test('a job with active runs shows the 409 message', async () => {
@@ -188,7 +191,8 @@ describe('Delete job', () => {
             ),
         });
         renderThemed(<JobsPage api={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Delete Daily summary' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'More actions for Daily summary' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /Delete…/ }));
         fireEvent.click(screen.getByRole('button', { name: 'Delete job' }));
         expect(
             await screen.findByText(/Daily summary has active or queued runs\. Cancel them on the Runs page, then delete it\./)
@@ -203,7 +207,7 @@ describe('Enable switch', () => {
         const jobs = [job({ owner: 'bob' })];
         const api = {
             me: jest.fn(() => Promise.resolve(admin)),
-            searchJobs: jest.fn(() => Promise.resolve({ jobs, total: jobs.length })),
+            listJobs: jest.fn(() => Promise.resolve(jobs)),
             setJobEnabled: jest.fn(() => Promise.resolve({ job: { ...jobs[0], enabled: false } })),
             deleteJob: jest.fn(),
         } as unknown as JobsApi;
@@ -213,114 +217,141 @@ describe('Enable switch', () => {
         fireEvent.click(within(row).getByRole('switch'));
         await waitFor(() => expect(api.setJobEnabled).toHaveBeenCalledWith('daily', false));
         expect(screen.queryByText(/take ownership/)).toBeNull();
-        await waitFor(() => expect(api.searchJobs).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(api.listJobs).toHaveBeenCalledTimes(2));
     });
 });
 
-describe('Jobs search and paging', () => {
-    const page = (offset: number, total: number) => ({
-        jobs: [job({ id: `j${offset}`, name: `Job at ${offset}` })],
-        total,
+describe('JobsTable summary, search and empty state', () => {
+    test('shows a summary line under each name', () => {
+        renderThemed(<JobsTable jobs={[rollupJob()]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('Every day at 01:00 · 3 steps')).toBeInTheDocument();
     });
 
-    function pagedApi(total: number, over: Partial<JobsApi> = {}): JobsApi {
-        return {
-            me: jest.fn(() => Promise.resolve(me)),
-            searchJobs: jest.fn(({ offset }: { offset: number }) => Promise.resolve(page(offset, total))),
-            setJobEnabled: jest.fn(),
-            deleteJob: jest.fn(),
-            ...over,
-        } as unknown as JobsApi;
-    }
-
-    test('the first load asks for the first page with no search', async () => {
-        const api = pagedApi(1);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText('Job at 0');
-        expect(api.searchJobs).toHaveBeenCalledWith({ q: '', offset: 0, limit: 50 });
+    test('the Find jobs search filters rows and reports no matches', () => {
+        renderThemed(<JobsTable jobs={[job(), job({ id: 'w', name: 'Weekly rollup' })]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const box = screen.getByRole('searchbox', { name: 'Find jobs' });
+        fireEvent.change(box, { target: { value: 'weekly' } });
+        expect(screen.queryByText('Daily summary')).toBeNull();
+        expect(screen.getByText('Weekly rollup')).toBeInTheDocument();
+        fireEvent.change(box, { target: { value: 'zzz' } });
+        expect(screen.getByText('No jobs match "zzz".')).toBeInTheDocument();
     });
 
-    test('typing searches by name, once, after a pause', async () => {
-        const api = pagedApi(1);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText('Job at 0');
-        const box = screen.getByRole('textbox', { name: 'Search by name' });
-        fireEvent.change(box, { target: { value: 'sa' } });
-        fireEvent.change(box, { target: { value: 'sales' } });
-        await waitFor(() => expect(api.searchJobs).toHaveBeenCalledWith({ q: 'sales', offset: 0, limit: 50 }));
-        expect((api.searchJobs as jest.Mock).mock.calls.filter(([a]) => a.q === 'sa')).toHaveLength(0);
+    test('no search when there are no jobs; builders see Create job and examples', () => {
+        renderThemed(<JobsTable jobs={[]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onBrowseExamples={jest.fn()} />);
+        expect(screen.queryByRole('searchbox')).toBeNull();
+        expect(screen.getByText('Build your first job')).toBeInTheDocument();
+        const create = screen.getByRole('link', { name: 'Create job' });
+        expect(create.getAttribute('href')).not.toContain('template=');
+        expect(screen.getByRole('button', { name: 'Browse examples' })).toBeInTheDocument();
+        expect(screen.getAllByRole('link').map((a) => a.getAttribute('href') || '').some((h) => h.includes('template='))).toBe(false);
+        expect(screen.queryByText(/selftest/)).toBeNull();
     });
 
-    test('Next and Previous move by a page and show the range', async () => {
-        const api = pagedApi(120);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText('Job at 0');
-        expect(screen.getByText('1\u201350 of 120')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Previous' })).toHaveAttribute('aria-disabled', 'true');
-        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-        await screen.findByText('Job at 50');
-        expect(screen.getByText('51\u2013100 of 120')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
-        await screen.findByText('Job at 0');
+    test('admins get the install check', () => {
+        renderThemed(<JobsTable jobs={[]} me={{ ...me, can_admin: true }} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText(/Check the install first: run/)).toBeInTheDocument();
+        const l = screen.getByRole('link', { name: '| orchestrate selftest' });
+        expect(l.getAttribute('href')).toBe('/app/search/search?q=%7C%20orchestrate%20selftest');
     });
 
-    test('the last page cannot go further', async () => {
-        const api = pagedApi(60);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText('Job at 0');
-        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-        await screen.findByText('Job at 50');
-        expect(screen.getByText('51\u201360 of 60')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Next' })).toHaveAttribute('aria-disabled', 'true');
+    test('without can_build the empty state asks for access', () => {
+        renderThemed(<JobsTable jobs={[]} me={{ ...me, can_build: false }} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('No jobs you can run yet. Ask a job owner to add one of your roles under Access.')).toBeInTheDocument();
+        expect(screen.queryByText('Build your first job')).toBeNull();
+    });
+});
+
+test('the Jobs page primary button is Create job', async () => {
+    const api = {
+        me: jest.fn().mockResolvedValue(me),
+        listJobs: jest.fn().mockResolvedValue([job()]),
+        setJobEnabled: jest.fn(),
+        deleteJob: jest.fn(),
+    } as unknown as JobsApi;
+    renderThemed(<JobsPage api={api} />);
+    expect(await screen.findByRole('link', { name: 'Create job' })).toBeInTheDocument();
+});
+
+test('when the jobs fail to load, the Jobs page shows the error and no empty state', async () => {
+    const api = {
+        me: jest.fn().mockResolvedValue(me),
+        listJobs: jest.fn().mockRejectedValue(new Error('splunkd is down')),
+        setJobEnabled: jest.fn(),
+        deleteJob: jest.fn(),
+    } as unknown as JobsApi;
+    renderThemed(<JobsPage api={api} />);
+    expect(await screen.findByText('The jobs could not be loaded: splunkd is down')).toBeInTheDocument();
+    expect(screen.queryByText('Build your first job')).toBeNull();
+    expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+});
+
+test('JobsTable shows nothing for no jobs when loading failed', () => {
+    const { container } = renderThemed(<JobsTable jobs={[]} loadFailed me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+    expect(container).toBeEmptyDOMElement();
+});
+
+describe('JobsTable empty state and access', () => {
+    test('while access loads, no claim is made', () => {
+        renderThemed(<JobsTable jobs={[]} me={undefined} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.queryByText('Build your first job')).toBeNull();
+        expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+    });
+    test('when access failed to load, the line is neutral', () => {
+        renderThemed(<JobsTable jobs={[]} me={null} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('No jobs yet.')).toBeInTheDocument();
+        expect(screen.queryByText(/No jobs you can run yet/)).toBeNull();
+    });
+});
+
+describe('Jobs page: recent runs, show and sort', () => {
+    const run = (id: string, state: string, t: number) => ({ id, state, trigger: 'cron', scheduled_time: t, started_at: t, ended_at: t + 5, delay_alerted: false, held: false, gave_up: false });
+    beforeEach(() => window.localStorage.removeItem('so.jobs.view'));
+
+    test('the newest runs show as icons, oldest first, with how many failed', () => {
+        const j = job({ recent_runs: [run('r3', 'failed', 300), run('r2', 'succeeded', 200), run('r1', 'failed', 100)] as never, last_run: run('r3', 'failed', 300) as never });
+        renderThemed(<JobsTable jobs={[j]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const icons = screen.getAllByTestId('recent-run');
+        expect(icons.map((i) => i.getAttribute('data-state'))).toEqual(['failed', 'succeeded', 'failed']);
+        expect(icons[2].getAttribute('href')).toBe('run?run_id=r3');
+        expect(screen.getByText('2 of the last 3 failed')).toBeInTheDocument();
     });
 
-    test('a new search goes back to the first page', async () => {
-        const api = pagedApi(120);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText('Job at 0');
-        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-        await screen.findByText('Job at 50');
-        fireEvent.change(screen.getByRole('textbox', { name: 'Search by name' }), { target: { value: 'x' } });
-        await waitFor(() => expect(api.searchJobs).toHaveBeenLastCalledWith({ q: 'x', offset: 0, limit: 50 }));
+    test('show and sort filter the rows and are remembered', () => {
+        const ok = job({ id: 'a', name: 'Alpha', last_run: run('a1', 'succeeded', 100) as never });
+        const bad = job({ id: 'b', name: 'Bravo', last_run: run('b1', 'failed', 50) as never });
+        const off = job({ id: 'c', name: 'Charlie', enabled: false });
+        const { showJobs, sortJobs } = jest.requireActual('../features/jobs/jobsView');
+        expect(showJobs([ok, bad, off], 'failing', me).map((x: { id: string }) => x.id)).toEqual(['b']);
+        expect(showJobs([ok, bad, off], 'disabled', me).map((x: { id: string }) => x.id)).toEqual(['c']);
+        expect(sortJobs([ok, bad, off], 'failing').map((x: { id: string }) => x.id)).toEqual(['b', 'a', 'c']);
+        expect(sortJobs([ok, bad, off], 'last').map((x: { id: string }) => x.id)).toEqual(['a', 'b', 'c']);
+        renderThemed(<JobsTable jobs={[ok, bad, off]} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        expect(screen.getByText('Alpha')).toBeInTheDocument();
     });
 
-    test('no paging controls when everything fits on one page', async () => {
-        renderThemed(<JobsPage api={pagedApi(50)} />);
-        await screen.findByText('Job at 0');
-        expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
-    });
-
-    test('a search with no match says so', async () => {
-        const api = pagedApi(0, {
-            searchJobs: jest.fn(() => Promise.resolve({ jobs: [], total: 0 })),
-        } as Partial<JobsApi>);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText(/No jobs yet/);
-        fireEvent.change(screen.getByRole('textbox', { name: 'Search by name' }), { target: { value: 'zzz' } });
-        expect(await screen.findByText('No jobs match this search.')).toBeInTheDocument();
-    });
-
-    test('a page left empty by deletions moves back to the last page that exists', async () => {
-        const searchJobs = jest.fn(({ offset }: { offset: number }) =>
-            Promise.resolve(offset >= 50 ? { jobs: [], total: 50 } : page(offset, offset === 0 ? 60 : 50))
-        );
-        const api = pagedApi(60, { searchJobs } as unknown as Partial<JobsApi>);
-        renderThemed(<JobsPage api={api} />);
-        await screen.findByText('Job at 0');
-        fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-        await waitFor(() => expect(searchJobs).toHaveBeenLastCalledWith({ q: '', offset: 0, limit: 50 }));
-    });
-
-    test('when the last runs cannot be read, jobs still show with Unknown and a warning', async () => {
-        const api = pagedApi(1, {
-            searchJobs: jest.fn(() =>
-                Promise.resolve({ jobs: [job({ last_run: null })], total: 1, last_run_unavailable: true })
-            ),
-        } as Partial<JobsApi>);
-        renderThemed(<JobsPage api={api} />);
-        const row = (await screen.findByText('Daily summary')).closest('tr') as HTMLElement;
-        expect(within(row).getByText('Unknown')).toBeInTheDocument();
-        expect(within(row).queryByText('Never run')).toBeNull();
-        expect(screen.getByText(/last runs could not be read/)).toBeInTheDocument();
+    test('next run says how soon, warnings filter, and the last run is compared with the usual time', () => {
+        const { inText, typicalDuration, slowRatio, showJobs } = jest.requireActual('../features/jobs/jobsView');
+        expect(inText(3)).toBe('now');
+        expect(inText(40)).toBe('in 40 s');
+        expect(inText(360)).toBe('in 6 min');
+        expect(inText(3600 * 2 + 300)).toBe('in 2 h 5 min');
+        expect(inText(86400 * 3)).toBe('in 3 days');
+        const timed = (id: string, state: string, t: number, took: number) => ({ ...run(id, state, t), ended_at: t + took });
+        const usual = [timed('r2', 'succeeded', 200, 40), timed('r1', 'succeeded', 100, 50), timed('r0', 'succeeded', 50, 60), timed('rx', 'failed', 10, 900)];
+        const slow = job({ next_run: NOW + 360, recent_runs: [timed('r3', 'succeeded', 300, 200), ...usual] as never, last_run: timed('r3', 'succeeded', 300, 200) as never });
+        expect(typicalDuration(slow)).toBe(55);
+        expect(slowRatio(slow, NOW)).toBeCloseTo(200 / 55);
+        const fine = job({ id: 'f', name: 'Fine', recent_runs: usual as never, last_run: usual[0] as never });
+        expect(slowRatio(fine, NOW)).toBeNull();
+        expect(typicalDuration(job({ recent_runs: usual.slice(0, 2) as never }))).toBeNull();
+        const warned = job({ id: 'w', name: 'Warned', warnings: [{ level: 'warning', code: 'missing_target_job', message: "a Start job action starts job 'gone'", step: null }] });
+        expect(showJobs([fine, warned], 'warnings', me).map((x: { id: string }) => x.id)).toEqual(['w']);
+        renderThemed(<JobsTable jobs={[slow, warned]} me={me} now={NOW} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} />);
+        const row = screen.getByText('Daily summary').closest('tr') as HTMLElement;
+        expect(within(row).getByText('in 6 min')).toBeInTheDocument();
+        expect(within(row).getByText('3m 20s')).toBeInTheDocument();
+        expect(within(row).getByText('3.6× the usual 55s')).toBeInTheDocument();
+        expect(screen.getByTestId('job-warning').textContent).toContain("Warning: a Start job action starts job 'gone'");
     });
 });

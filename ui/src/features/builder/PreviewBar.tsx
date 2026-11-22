@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import DateInput from '@splunk/react-ui/Date';
+import LearnMore from '../../components/LearnMore';
 import Select from '@splunk/react-ui/Select';
 import Text from '@splunk/react-ui/Text';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -13,7 +14,13 @@ import { localStamp } from './PreviewResult';
 const RUNS_SHOWN = 20;
 const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
-const pad = (n: number) => String(n).padStart(2, '0');
+export const pad = (n: number) => String(n).padStart(2, '0');
+
+/** "9:05" or "09:05" as hour and minute; null when it is not a 24-hour HH:MM. */
+export function parseTime(text: string): { hour: number; minute: number } | null {
+    const m = TIME_RE.exec(text);
+    return m ? { hour: Number(m[1]), minute: Number(m[2]) } : null;
+}
 
 function dateOf(epoch: number): string {
     const d = new Date(epoch * 1000);
@@ -28,11 +35,11 @@ function timeOf(epoch: number): string {
 /** Local date "YYYY-MM-DD" and time "HH:MM" as epoch seconds. */
 function toEpoch(date: string, time: string): number | null {
     const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-    const tm = TIME_RE.exec(time);
+    const tm = parseTime(time);
     if (!dm || !tm) {
         return null;
     }
-    const d = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+    const d = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), tm.hour, tm.minute);
     return Math.floor(d.getTime() / 1000);
 }
 
@@ -112,6 +119,12 @@ export default function PreviewBar({
                 marginBottom: '8px',
             }}
         >
+            <p data-testid="preview-explained" style={{ flex: '1 1 100%', margin: '0 0 8px', fontSize: '12px', color: theme.contentColorMuted }}>
+                <strong>Preview step</strong> runs one step&apos;s search now, as you, and shows its first rows, so you can check it first; nothing is stored or written. These
+                settings make the preview behave like a real run: <strong>as if scheduled at</strong> sets the run&apos;s time (its time ranges and $run.scheduled_time$), and{' '}
+                <strong>Input from</strong> chooses where the earlier steps&apos; results come from (your previews now, or what a past run saved).{' '}
+                <LearnMore anchor="previewing-steps" topic="previewing steps" />
+            </p>
             <ControlGroup label="Preview as if scheduled at" labelFor="preview-date" labelPosition="top" help="Your browser's time zone.">
                 <DateInput
                     inputId="preview-date"

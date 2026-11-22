@@ -1,18 +1,16 @@
-/* The step graph, read-only: dagre top-to-bottom layout, each node with its name and either
- * its run status (plain text with an icon) or its step type. Used by the run page; the
- * builder's Canvas draws with the same primitives. All colour comes from theme tokens. */
-import React, { useMemo } from 'react';
+/* Shared drawing helpers for the flow graph (edges, node boxes, labels, types). All colour comes
+ * from theme tokens. */
+import React from 'react';
 import styled from 'styled-components';
 import { variables } from '@splunk/themes';
-import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Edge, StepDef, StepStatus } from '../../api/types';
-import { isStepDelayed, statusIcon, statusLabel } from '../../components/StatusText';
-import { autoLayout, NODE_H, NODE_W, Pos, Positions } from './graphLogic';
+import type { Edge, StepDef } from '../../api/types';
+import { NODE_H, NODE_W, Pos, Positions } from './graphLogic';
+import { conditionKind, conditionShort } from './conditions';
 
 export type Theme = Record<string, string>;
 
-export type GraphStep = Pick<StepDef, 'id'> & Partial<Pick<StepDef, 'name' | 'type' | 'saved_search_ref'>>;
-export type GraphEdge = Pick<Edge, 'from' | 'to'> & Partial<Pick<Edge, 'condition' | 'expression'>>;
+export type GraphStep = Pick<StepDef, 'id'> & Partial<Pick<StepDef, 'name' | 'type' | 'saved_search_ref' | 'output'>>;
+export type GraphEdge = Pick<Edge, 'from' | 'to'> & Partial<Pick<Edge, 'condition' | 'expression' | 'expression_kind'>>;
 
 /** A focusable node or edge: the keyboard focus ring is drawn on its box or line. */
 export const NodeGroup = styled.g`
@@ -21,6 +19,21 @@ export const NodeGroup = styled.g`
     &:focus-visible > path:first-of-type {
         stroke: ${variables.focusColor};
         stroke-width: 3px;
+    }
+    /* The + shows only on hover, selection (data-plus-shown) or focus within the node; hidden, it takes no pointer. */
+    [data-plus] {
+        opacity: 0;
+        pointer-events: none;
+    }
+    [data-plus-shown='true'],
+    &:hover [data-plus],
+    &:focus-within [data-plus] {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    /* The + handle of a focused node is ringed as on hover (PlusHandle). */
+    &:focus-visible [data-plus-ring] {
+        stroke-opacity: 1;
     }
 `;
 
@@ -34,6 +47,10 @@ export function conditionLabel(e: GraphEdge): string {
         case 'always':
             return 'always';
         case 'expression': {
+            if (conditionKind(e) !== 'simple') {
+                const short = conditionShort(e);
+                return short.length > 24 ? `◇ ${short.slice(0, 23)}…` : `◇ ${short}`;
+            }
             const text = (e.expression || '').trim();
             return text.length > 24 ? `if ${text.slice(0, 23)}…` : `if ${text}`;
         }
@@ -149,81 +166,20 @@ export function NodeBox({ step, theme, detail, detailColor, icon: Icon, stroke, 
 }
 
 export function stepTypeLabel(step: GraphStep): string {
+    if (step.output?.kind === 'summary_index') {
+        return `Summary index: ${step.output.index}`;
+    }
+    if (step.output?.kind === 'lookup') {
+        return `Lookup: ${step.output.name}`;
+    }
+    if (step.type === 'previous') {
+        return 'Results of earlier steps';
+    }
+    if (step.type === 'approval') {
+        return 'Waits for approval';
+    }
     if (step.type === 'saved_search') {
         return step.saved_search_ref ? `Saved search: ${step.saved_search_ref}` : 'Saved search';
     }
     return 'Search';
-}
-
-export interface GraphViewProps {
-    steps: GraphStep[];
-    edges: GraphEdge[];
-    statusByStep?: Record<string, StepStatus | undefined>;
-    onSelect?: (id: string) => void;
-    selected?: string | null;
-}
-
-export default function GraphView({ steps, edges, statusByStep, onSelect, selected = null }: GraphViewProps) {
-    const theme = useSplunkTheme() as unknown as Theme;
-    const positions = useMemo(() => autoLayout(steps, edges), [steps, edges]);
-    const { width, height } = extent(positions);
-    const markerId = 'so-graph-arrow';
-
-    return (
-        <svg role="group" aria-label="Step graph" width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ maxWidth: '100%' }}>
-            <ArrowMarker id={markerId} theme={theme} />
-            {edges.map((e) =>
-                positions[e.from] && positions[e.to] ? (
-                    <EdgeLine key={`${e.from}>${e.to}`} edge={e} a={positions[e.from]} b={positions[e.to]} theme={theme} markerId={markerId} />
-                ) : null
-            )}
-            {steps.map((s) => {
-                const st = statusByStep ? statusByStep[s.id] : undefined;
-                const delayed = st ? isStepDelayed(st) : false;
-                let color: string | undefined;
-                if (delayed) {
-                    color = theme.statusColorMedium;
-                } else if (st && st.state === 'failed') {
-                    color = theme.statusColorHigh;
-                }
-                const detail = statusByStep
-                    ? statusLabel(st ? st.state : 'waiting', delayed, st && st.skip_kind)
-                    : stepTypeLabel(s);
-                const select = onSelect ? () => onSelect(s.id) : undefined;
-                return (
-                    <NodeGroup
-                        key={s.id}
-                        data-testid={`node-${s.id}`}
-                        transform={`translate(${positions[s.id].x},${positions[s.id].y})`}
-                        role={select ? 'button' : undefined}
-                        tabIndex={select ? 0 : undefined}
-                        aria-label={select ? `Step ${stepLabel(s)}, ${detail}` : undefined}
-                        aria-pressed={select ? selected === s.id : undefined}
-                        onClick={select}
-                        onKeyDown={
-                            select
-                                ? (ev) => {
-                                      if (ev.key === 'Enter' || ev.key === ' ') {
-                                          ev.preventDefault();
-                                          select();
-                                      }
-                                  }
-                                : undefined
-                        }
-                        style={{ cursor: select ? 'pointer' : undefined }}
-                    >
-                        <NodeBox
-                            step={s}
-                            theme={theme}
-                            detail={detail}
-                            detailColor={color}
-                            icon={statusByStep ? statusIcon(st ? st.state : 'waiting', delayed) : undefined}
-                            stroke={color}
-                            selected={selected === s.id}
-                        />
-                    </NodeGroup>
-                );
-            })}
-        </svg>
-    );
 }

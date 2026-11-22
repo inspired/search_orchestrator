@@ -1,27 +1,56 @@
-/* The job builder: a graph canvas of steps with a side panel for the selected step or
- * dependency, job-level tabs, undo/redo, and Validate/Save against the server. Save checks
- * first, and warns before an admin takes over someone else's job. */
-import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+/* The job builder: the Flow tab's node editor (steps, triggers, actions, conditions and the
+ * whole job) with a side panel for the selected node, the other job tabs, undo/redo, automatic
+ * checking against the server, and Save. Save checks first, and warns before an admin takes
+ * over someone else's job. */
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Modal from '@splunk/react-ui/Modal';
 import Text from '@splunk/react-ui/Text';
+import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
-import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, ValidateResponse } from '../../api/types';
+import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, SchedulePreviewResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
-import Canvas, { Selection } from './Canvas';
-import EdgePanel from './EdgePanel';
-import { findIssues, issuesByStep } from './graphLogic';
+import FlowCanvas, { FlowSelection } from './FlowCanvas';
+import SidePanel, { usePanelLayout } from './SidePanel';
+import SimpleView from '../simple/SimpleView';
+import { standardGraph, standardLineLabels } from './standardGraph';
+import StandardAddStep from './StandardAddStep';
+import TriggersTab from './TriggersTab';
+import { readSimple } from '../simple/simpleModel';
+import { ViewSwitch, useBuilderView } from '../simple/useBuilderView';
+import useCompactPref from './useCompactPref';
+import useFlowLayout from './useFlowLayout';
+import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
-import JobTabs from './JobTabs';
+import JobTabs, { TabId } from './JobTabs';
+import IssueSummary from './IssueSummary';
+import { nodeForIssue, tabForIssue } from './issueTabs';
+import { buildGraph, stepKey, STEP_KINDS } from './nodeModel';
+import type { PortId } from './nodeModel';
+import NodePanel from './NodePanel';
+import RemoveNodeModal from './RemoveNodeModal';
 import PreviewBar from './PreviewBar';
+import { previewRefusal } from './previewLogic';
 import type { PreviewContext } from './previewLogic';
-import usePreviews, { PreviewApi, previewNote } from './usePreviews';
-import { blankJob, initialState, nextStepId, reducer } from './reducer';
-import StepPanel, { IssueList } from './StepPanel';
+import useAutoValidate from './useAutoValidate';
+import useBuilderData from './useBuilderData';
+import BuilderToolbarExtras from './BuilderToolbarExtras';
+import useFillHeight from './useFillHeight';
+import useLeaveWarning from './useLeaveWarning';
+import useClipboard from './useClipboard';
+import useSnippets from './useSnippets';
+import useFlowMenus from './useFlowMenus';
+import useSelection from './useSelection';
+import useGroups from './useGroups';
+import usePreviews, { PreviewApi } from './usePreviews';
+import usePreviewViews from './usePreviewViews';
+import { addNodeKey, blankJob, initialState, isDirty, keyAfterConnect, reducer } from './reducer';
+import { IssueList } from './StepPanel';
+import { allTags } from '../jobs/tags';
 
 export interface BuilderApi extends PreviewApi {
     getJob: (jobId: string) => Promise<Job>;
@@ -34,6 +63,10 @@ export interface BuilderApi extends PreviewApi {
     me: () => Promise<Me>;
     previewDefaults: (job: JobDefinition) => Promise<{ scheduled_time: number; result_retention?: number }>;
     listRuns: (filters: RunFilters) => Promise<RunSummary[]>;
+    resolveTimeRange: (earliest: string, latest: string, scheduledTime: number) => Promise<{ earliest: number | null; latest: number }>;
+    nextSlots: (cron: string, timezone: string | null, count?: number) => Promise<client.NextSlotsResponse>;
+    /** Other jobs' load around a draft's schedules, for the busy-times strip; none hides it. */
+    schedulePreview?: (job: JobDefinition) => Promise<SchedulePreviewResponse>;
 }
 
 const defaultApi: BuilderApi = {
@@ -43,10 +76,13 @@ const defaultApi: BuilderApi = {
     updateJob: client.updateJob,
     listDestinations: client.listDestinations,
     listAlertActions: client.listAlertActions,
-    listJobs: client.listJobs,
+    listJobs: client.listJobsBrief,
     me: client.me,
     previewDefaults: client.previewDefaults,
     listRuns: client.listRuns,
+    nextSlots: client.nextSlots,
+    schedulePreview: client.schedulePreview,
+    resolveTimeRange: client.resolveTimeRange,
     startPreview: client.startPreview,
     previewStatus: client.previewStatus,
     previewResults: client.previewResults,
@@ -56,106 +92,68 @@ const defaultApi: BuilderApi = {
 export interface BuilderPageProps {
     /** From ?job_id=; none means a new job. */
     jobId?: string | null;
+    /** From Import jobs: a new, unsaved job to start from. */
+    imported?: JobDefinition | null;
     api?: BuilderApi;
 }
 
 type Notice = { type: 'success' | 'error' | 'info'; text: string } | null;
 
+/** The canvas is never shorter than this. */
+const MIN_CANVAS = 480;
+
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
-export default function BuilderPage({ jobId: initialId = null, api = defaultApi }: BuilderPageProps) {
+export default function BuilderPage({ jobId: initialId = null, imported = null, api = defaultApi }: BuilderPageProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
-    const [state, dispatch] = useReducer(reducer, blankJob(), initialState);
-    const [loading, setLoading] = useState(Boolean(initialId));
-    const [loadError, setLoadError] = useState<string | null>(null);
-    const [meta, setMeta] = useState<{ owner: string | null; canEdit: boolean }>({ owner: null, canEdit: true });
-    const [me, setMe] = useState<Me | null>(null);
-    const [destinations, setDestinations] = useState<Destination[]>([]);
-    const [alertActions, setAlertActions] = useState<AlertAction[] | null>(null);
-    const [jobs, setJobs] = useState<Job[]>([]);
-    const [selected, setSelected] = useState<Selection>(null);
-    const [serverIssues, setServerIssues] = useState<Issue[]>([]);
-    const [checkedJob, setCheckedJob] = useState<JobDefinition | null>(null);
+    const startJob = initialId ? null : imported || null;
+    const [state, dispatch] = useReducer(reducer, startJob, (j: JobDefinition | null) => initialState(j || blankJob(), blankJob()));
+    const [activeTab, setActiveTab] = useState<TabId>('steps');
+    const [fullScreen, setFullScreen] = useState(false);
     const [notice, setNotice] = useState<Notice>(null);
+    const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
     const [ownerConfirm, setOwnerConfirm] = useState<{ newOwner: string } | null>(null);
-    const [removing, setRemovingState] = useState<string | null>(null);
     const [scheduledTime, setScheduledTime] = useState(() => Math.floor(Date.now() / 1000));
     const timeTouched = useRef(false);
     const [paramValues, setParamValues] = useState<Record<string, string>>({});
     const [source, setSource] = useState('live');
-    const [runs, setRuns] = useState<RunSummary[]>([]);
     const [resultRetention, setResultRetention] = useState<number | undefined>(undefined);
     const returnFocus = useRef<HTMLElement | null>(null);
     const rememberFocus = () => {
         returnFocus.current = document.activeElement as HTMLElement | null;
     };
-    const setRemoving = (id: string | null) => {
-        if (id) {
-            rememberFocus();
-        }
-        setRemovingState(id);
+    // Selecting anything (or clicking the empty canvas) closes the popups (see useFlowMenus).
+    const setSelected = (sel: FlowSelection) => {
+        menus.close();
+        setSelectedState(sel);
     };
+    const setSelectedState = (sel: FlowSelection) => picked.setSelected(sel);
+    // A node hidden in a collapsed group (from the issue list) shows its group first.
+    const selectNode = (key: string) => (grouping.reveal({ kind: 'node', key }), setSelected({ kind: 'node', key }));
 
-    /** This job's recent runs for "Input from": loaded with the job, after a save, and
-     * each time the list is opened. */
-    const mountedRef = useRef(true);
-    useEffect(() => {
-        mountedRef.current = true;
-        return () => {
-            mountedRef.current = false;
-        };
-    }, []);
-    const loadRuns = (id: string | null) => {
-        if (!id) {
-            return;
-        }
-        api.listRuns({ job_id: id, limit: 20 })
-            .then((r) => mountedRef.current && setRuns(r.filter((run) => run.job_id === id)))
-            .catch(() => undefined);
-    };
+    const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
+    const { job } = state;
 
+    // The job is checked against the server as it is edited, once it is ready to edit.
+    const checkJob = useCallback((j: JobDefinition) => api.validateJob({ ...j, id: jobId || undefined }), [api, jobId]);
+    const auto = useAutoValidate(job, checkJob, { enabled: !loading && !loadError });
+    const serverIssues = auto.issues;
+    const checkedJob = auto.checkedJob;
+
+    // Tags other jobs use, offered in Settings > Tags (a failure just offers none).
+    const [knownTags, setKnownTags] = useState<string[]>([]);
     useEffect(() => {
         let live = true;
-        api.me()
-            .then((m) => live && setMe(m))
-            .catch(() => undefined);
-        api.listDestinations()
-            .then((d) => live && setDestinations(d))
-            .catch(() => undefined);
-        api.listAlertActions()
-            .then((a) => live && setAlertActions(a))
-            .catch(() => undefined);
         api.listJobs()
-            .then((j) => live && setJobs(j))
+            .then((jobs) => live && setKnownTags(allTags(jobs)))
             .catch(() => undefined);
-        if (initialId) {
-            loadRuns(initialId);
-            api.getJob(initialId)
-                .then((job) => {
-                    if (!live) {
-                        return;
-                    }
-                    setMeta({ owner: job.owner, canEdit: job.permissions ? job.permissions.can_edit : true });
-                    dispatch({ type: 'load', job: client.toDefinition(job) });
-                    setLoading(false);
-                })
-                .catch((err: Error) => {
-                    if (live) {
-                        setLoadError(err.message);
-                        setLoading(false);
-                    }
-                });
-        }
         return () => {
             live = false;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const { job } = state;
+    }, [api]);
 
     // "As if scheduled at" defaults once, when the job is ready, to its latest cron slot.
     const defaultsAsked = useRef(false);
@@ -185,59 +183,68 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         return { scheduledTime, params, source };
     }, [scheduledTime, paramValues, source]);
     const previews = usePreviews(previewJob, previewCtx, api);
-    const notes = useMemo(() => {
-        const out: Record<string, ReturnType<typeof previewNote>> = {};
-        Object.keys(previews.previews).forEach((id) => {
-            out[id] = previewNote(previews.previews[id]);
-        });
-        return out;
-    }, [previews.previews]);
-    // Server warnings stay until the next check; server errors only while the job is the
-    // one that was checked (the client check covers what an edit fixes).
+    const { previewFields, nodePreviews } = usePreviewViews(previews.previews);
+    // Server warnings stay until the next check. Once the job is edited, server errors the
+    // client check also finds are recomputed live; the rest stay until the next check.
     const issues = useMemo(() => {
-        const server = checkedJob === job ? serverIssues : serverIssues.filter((i) => i.level === 'warning');
+        const server =
+            checkedJob === job
+                ? serverIssues
+                : serverIssues.filter((i) => i.level === 'warning' || !CLIENT_ISSUE_CODES.has(i.code));
         const local = findIssues(job).filter((i) => !server.some((s) => sameIssue(s, i)));
         return [...server, ...local];
     }, [job, serverIssues, checkedJob]);
     const byStep = issuesByStep(issues);
     const jobLevel = byStep[''] || [];
+    const errorIssues = errorsIn(issues);
+    const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
+    const graph = useMemo(() => buildGraph(job), [job]);
+    const [view, setView] = useBuilderView(job, !initialId);
+    const standard = view === 'standard';
+    // Standard draws the steps only; triggers and actions are in tabs and the step's panel.
+    const shownGraph = useMemo(() => (standard ? standardGraph(job) : graph), [standard, job, graph]);
+    const standardLabels = useMemo(() => (standard ? standardLineLabels(job) : undefined), [standard, job]);
+    const [compact, toggleCompact] = useCompactPref();
+    const { positions, move, tidy, arrange } = useFlowLayout(job, graph, compact, dispatch);
+    const picked = useSelection({ job, graph: shownGraph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
+    const { selection, removing, requestRemove, confirmRemove } = picked;
+    const grouping = useGroups({ job, graph, positions, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
+    const goToIssue = (issue: Issue) => {
+        setActiveTab(tabForIssue(issue, view));
+        const key = nodeForIssue(job, issue);
+        if (key) {
+            selectNode(key);
+        }
+    };
+    // The list stays until the next save attempt or until nothing is left to fix: no live
+    // client errors and no server errors kept from the last check.
+    useEffect(() => {
+        if (showSummary && !errorIssues.length) {
+            setShowSummary(false);
+        }
+    }, [showSummary, errorIssues.length]);
 
     const owner = meta.owner || (me ? me.user : '');
-    const selectedStep = selected && selected.kind === 'step' && job.steps.some((s) => s.id === selected.id) ? selected.id : null;
-    const selectedEdge =
-        selected && selected.kind === 'edge' && (job.edges || []).some((e) => e.from === selected.from && e.to === selected.to)
-            ? selected
-            : null;
 
     const runCheck = async (): Promise<ValidateResponse | null> => {
         try {
             const res = await api.validateJob({ ...job, id: jobId || undefined });
-            setServerIssues(res.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, res);
             return res;
         } catch (err) {
             const e = err as client.ApiError;
-            setServerIssues(e.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, { issues: e.issues || [] });
             setNotice({ type: 'error', text: `The job could not be checked: ${e.message}` });
             return null;
         }
     };
 
-    const onValidate = async () => {
-        setBusy(true);
-        setNotice(null);
-        const res = await runCheck();
-        setBusy(false);
-        if (res) {
-            const errors = errorsIn(res.issues || []).length;
-            const warnings = (res.issues || []).length - errors;
-            setNotice(
-                errors
-                    ? { type: 'error', text: `${errors} error${errors === 1 ? '' : 's'} to fix before saving.` }
-                    : { type: 'success', text: warnings ? `No errors. ${warnings} warning${warnings === 1 ? '' : 's'}.` : 'No problems found.' }
-            );
-        }
+    const afterSaved = (res: SaveResponse, saved: JobDefinition, text: string) => {
+        auto.accept(saved, res);
+        dispatch({ type: 'saved', job: saved });
+        setMeta({ owner: res.job.owner, canEdit: true });
+        loadRuns(res.job.id);
+        setNotice({ type: 'success', text });
     };
 
     const doSave = async () => {
@@ -246,9 +253,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         setNotice(null);
         try {
             const res = jobId ? await api.updateJob(jobId, job) : await api.createJob(job);
-            setServerIssues(res.issues || []);
-            setCheckedJob(job);
-            setMeta({ owner: res.job.owner, canEdit: true });
+            afterSaved(res, job, 'Saved.');
             if (!jobId) {
                 setJobId(res.job.id);
                 try {
@@ -257,32 +262,32 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     // the page still works; a reload would open a new job
                 }
             }
-            loadRuns(res.job.id);
-            setNotice({ type: 'success', text: 'Saved.' });
         } catch (err) {
             const e = err as client.ApiError;
-            setServerIssues(e.issues || []);
-            setCheckedJob(job);
+            auto.accept(job, { issues: e.issues || [] });
             setNotice({ type: 'error', text: `The job was not saved: ${e.message}` });
         } finally {
             setBusy(false);
         }
     };
 
+    useLeaveWarning(isDirty(state));
+
     const onSave = async () => {
+        setNotice(null);
+        setShowSummary(false);
         if (errorsIn(findIssues(job)).length) {
-            setNotice({ type: 'error', text: 'Fix the errors shown on the steps before saving.' });
+            setShowSummary(true);
             return;
         }
         setBusy(true);
-        setNotice(null);
         const res = await runCheck();
         setBusy(false);
         if (!res) {
             return;
         }
         if (errorsIn(res.issues || []).length) {
-            setNotice({ type: 'error', text: 'The job has errors and was not saved.' });
+            setShowSummary(true);
             return;
         }
         if (res.owner_will_change) {
@@ -295,9 +300,10 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
 
     const canvasArea = useRef<HTMLDivElement | null>(null);
 
-    // After a confirmed delete, focus moves to the next step, else the previous one, else
-    // the canvas. Applied once the modal has closed and handed focus back.
-    const [focusNext, setFocusNext] = useState<{ id: string | null } | null>(null);
+    // After a confirmed delete, focus moves to the next step, else the previous one, else the
+    // canvas; after adding a node, to the new node. Applied once the modal or quick-add box has
+    // closed and handed focus back.
+    const [focusNext, setFocusNext] = useState<{ key: string | null } | null>(null);
     useEffect(() => {
         if (!focusNext || removing) {
             return undefined;
@@ -305,8 +311,8 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         const timer = window.setTimeout(() => {
             const area = canvasArea.current;
             if (area) {
-                const nodes = Array.from(area.querySelectorAll<HTMLElement>('[data-node-id]'));
-                const node = nodes.find((n) => n.getAttribute('data-node-id') === focusNext.id);
+                const nodes = Array.from(area.querySelectorAll<HTMLElement>('[data-node-key]'));
+                const node = nodes.find((n) => n.getAttribute('data-node-key') === focusNext.key);
                 const target = node || area.querySelector<HTMLElement>('[data-canvas]');
                 if (target) {
                     target.focus();
@@ -317,67 +323,96 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         return () => window.clearTimeout(timer);
     }, [focusNext, removing]);
 
-    const confirmRemove = () => {
-        if (removing) {
-            const ids = job.steps.map((s) => s.id);
-            const at = ids.indexOf(removing);
-            const next = ids[at + 1] !== undefined ? ids[at + 1] : ids[at - 1];
-            returnFocus.current = null;
-            setFocusNext({ id: next === undefined ? null : next });
-            dispatch({ type: 'removeStep', id: removing });
-            if (selected && selected.kind === 'step' && selected.id === removing) {
-                setSelected(null);
+    // A line onto an action can move it to another list: keep the selection on it.
+    const connectLine = (from: string, port: PortId, to: string) => {
+        if (selection && selection.kind === 'node') {
+            const next = keyAfterConnect(job, { from, port, to }, selection.key);
+            if (next !== selection.key) {
+                setSelectedState({ kind: 'node', key: next });
             }
         }
-        setRemoving(null);
+        dispatch({ type: 'connectPort', from, port, to });
     };
 
-    const removingStep = removing ? job.steps.find((s) => s.id === removing) : undefined;
+    // The step whose name field to focus once its panel shows (right-click, Rename).
+    const [renaming, setRenaming] = useState<string | null>(null);
+    useEffect(() => {
+        if (!renaming) {
+            return undefined;
+        }
+        const timer = window.setTimeout(() => {
+            document.getElementById(`step-${renaming}-name`)?.focus();
+            setRenaming(null);
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [renaming]);
 
-    const sidePanel = () => {
-        if (selectedStep) {
-            return (
-                <StepPanel
-                    key={selectedStep}
-                    job={job}
-                    stepId={selectedStep}
-                    issues={byStep[selectedStep] || []}
-                    dispatch={dispatch}
-                    destinations={destinations}
-                    alertActions={alertActions}
-                    onRename={(_from, to) => setSelected({ kind: 'step', id: to })}
-                    onRequestRemove={setRemoving}
-                    preview={previews.previews[selectedStep]}
-                    onPreview={
-                        meta.canEdit
-                            ? (id, opts) => {
-                                  previews.preview(id, opts);
-                              }
-                            : undefined
-                    }
-                    onCancelPreview={previews.cancel}
-                />
-            );
+    const clipboard = useClipboard({ job, positions, selection, dispatch, select: setSelectedState, notify: (text) => menus.notify(text), compact });
+    const snippets = useSnippets({ job, positions, me, put: clipboard.put });
+    const menus = useFlowMenus({
+        job,
+        graph,
+        positions,
+        compact,
+        snippets,
+        onlyKinds: standard ? STEP_KINDS : undefined,
+        dispatch,
+        select: setSelectedState,
+        focusNode: (key) => setFocusNext({ key }),
+        connectLine,
+        returnFocus,
+        rememberFocus,
+        canvas: () => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'),
+        context: {
+            rename: (key) => {
+                setSelectedState({ kind: 'node', key });
+                setRenaming(key.slice('step:'.length));
+            },
+            duplicate: clipboard.onDuplicate,
+            copy: clipboard.onCopy,
+            paste: clipboard.onPaste,
+            tidy,
+            arrange,
+            requestRemove,
+            requestRemoveNodes: picked.requestRemoveNodes,
+            group: grouping.group,
+            preview: meta.canEdit ? (id) => previews.preview(id) : undefined,
+            previewRefusal: (id) => previewRefusal(job, id, source === 'live'),
+        },
+    });
+
+
+    // Full screen: the canvas and panel over the whole page. Escape leaves, unless something
+    // (a popup, the canvas clearing its selection, a modal) used it first.
+    const modalOpen = Boolean(removing || ownerConfirm || grouping.modalOpen);
+    useEffect(() => {
+        if (!fullScreen) {
+            return undefined;
         }
-        if (selectedEdge) {
-            return (
-                <EdgePanel
-                    job={job}
-                    from={selectedEdge.from}
-                    to={selectedEdge.to}
-                    issues={(byStep[selectedEdge.to] || []).filter((i) => i.code === 'bad_expression' || i.code === 'unknown_token')}
-                    dispatch={dispatch}
-                    onRemoved={() => setSelected(null)}
-                />
-            );
+        const onKey = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape' && !ev.defaultPrevented && !modalOpen) {
+                setFullScreen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [fullScreen, modalOpen]);
+    const canvasHeight = useFillHeight(() => canvasArea.current && canvasArea.current.querySelector('[data-canvas]'), MIN_CANVAS, fullScreen);
+    const panelRef = useRef<HTMLDivElement | null>(null);
+    const panel = usePanelLayout();
+    const removeStandardLine = (key: string) => {
+        const link = shownGraph.links.find((l) => l.key === key);
+        if (link) {
+            dispatch({ type: 'disconnect', from: link.from.slice('step:'.length), to: link.to.slice('step:'.length) });
+            setSelected(null);
         }
-        return (
-            <p style={{ color: theme.contentColorMuted }}>
-                Select a step to edit it, or add one. Drag from the circle under a step onto another step to make it depend on that step, or use
-                the step&apos;s &quot;Depends on&quot; field.
-            </p>
-        );
     };
+    const connectSteps = (from: string, to: string) => {
+        if (from.startsWith('step:') && to.startsWith('step:') && from !== to) {
+            connectLine(from, 'success', to);
+        }
+    };
+    const panelHeight = useFillHeight(() => panelRef.current, MIN_CANVAS, fullScreen);
 
     const stepsTab = (
         <>
@@ -396,50 +431,126 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
             onOpenRuns={() => loadRuns(jobId)}
             resultRetention={resultRetention}
         />
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                    <Button
-                        appearance="secondary"
-                        label="Add step"
-                        onClick={() => {
-                            const id = nextStepId(job.steps);
-                            dispatch({ type: 'addStep', step: { id } });
-                            setSelected({ kind: 'step', id });
-                        }}
-                    />
-                </div>
-                <div ref={canvasArea}>
-                <Canvas
-                    steps={job.steps}
-                    edges={job.edges || []}
-                    selected={selected}
-                    issues={issues}
-                    onSelect={setSelected}
-                    onConnect={(from, to) => dispatch({ type: 'connect', from, to })}
-                    onAddFrom={(from) => {
-                        const id = nextStepId(job.steps);
-                        dispatch({ type: 'addStepFrom', from, id });
-                        setSelected({ kind: 'step', id });
-                    }}
-                    onRequestRemove={setRemoving}
-                    notes={notes}
-                />
-                </div>
-            </div>
-            <div
-                style={{
-                    width: '360px',
-                    flex: 'none',
-                    borderLeft: `1px solid ${theme.borderColor}`,
-                    paddingLeft: '16px',
-                    maxHeight: '80vh',
-                    overflowY: 'auto',
+        <ViewSwitch view={view} onView={setView} lockedReasons={readSimple(job).reasons} />
+        {view === 'simple' ? (
+            <SimpleView
+                job={job}
+                dispatch={dispatch}
+                canEdit={meta.canEdit}
+                issues={issues}
+                jobs={jobs}
+                destinations={destinations}
+                nextSlots={api.nextSlots}
+                schedulePreview={api.schedulePreview}
+                savedJobId={jobId}
+                scheduledTime={scheduledTime}
+                resolveTimeRange={api.resolveTimeRange}
+                previews={previews.previews}
+                onPreview={meta.canEdit ? (id, opts) => void previews.preview(id, opts) : undefined}
+                onCancelPreview={previews.cancel}
+                onOpenAdvanced={() => setView('advanced')}
+                onOpenSettings={() => setActiveTab('settings')}
+                onRequestRemove={requestRemove}
+                previewFields={previewFields}
+            />
+        ) : (
+        <div
+            data-testid="flow-area"
+            style={
+                fullScreen
+                    ? { position: 'fixed', inset: 0, zIndex: 1000, padding: '16px', background: theme.backgroundColorPage, overflow: 'hidden' }
+                    : undefined
+            }
+        >
+        {menus.notice}
+        {standard && meta.canEdit && (
+            <StandardAddStep
+                onAdd={(kind) => {
+                    const key = addNodeKey(job, kind);
+                    dispatch({ type: 'addNode', kind });
+                    if (key) {
+                        setSelected({ kind: 'node', key });
+                    }
                 }}
-            >
-                {sidePanel()}
+            />
+        )}
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+            <div ref={canvasArea} style={{ flex: 1, minWidth: 0 }}>
+                <FlowCanvas
+                    graph={shownGraph}
+                    lineLabels={standardLabels}
+                    positions={positions}
+                    selected={selection}
+                    issues={issues}
+                    previews={nodePreviews}
+                    compact={compact}
+                    onToggleCompact={toggleCompact}
+                    onSelect={setSelected}
+                    onMove={move}
+                    onConnect={standard ? (from, _port, to) => connectSteps(from, to) : connectLine}
+                    onPlus={menus.onPlus}
+                    onDropOnNode={menus.onDropOnNode}
+                    onDropOnCanvas={menus.onDropOnCanvas}
+                    onLineMenu={standard ? undefined : menus.onLineMenu}
+                    onContext={standard ? undefined : menus.onContext}
+                    onSplice={standard ? undefined : menus.onSplice}
+                    canSpliceNode={standard ? undefined : menus.canSpliceNode}
+                    onRequestRemove={requestRemove}
+                    onRequestRemoveNodes={picked.requestRemoveNodes}
+                    onRemoveLink={standard ? removeStandardLine : menus.removeLink}
+                    onCopy={clipboard.onCopy}
+                    onDuplicate={clipboard.onDuplicate}
+                    onPaste={clipboard.onPaste}
+                    onQuickAdd={(at, screen) => menus.openQuick({ at, screen })}
+                    onTidy={() => (standard ? dispatch({ type: 'tidyLayout', keys: shownGraph.nodes.map((n) => n.key), compact }) : tidy())}
+                    overlay={menus.overlay}
+                    height={canvasHeight}
+                    fullScreen={fullScreen}
+                    onToggleFullScreen={() => setFullScreen((f) => !f)}
+                    panelOpen={panel.open}
+                    onTogglePanel={panel.toggle}
+                    {...grouping.canvas}
+                />
             </div>
+            <SidePanel ref={panelRef} open={panel.open} width={panel.width} onOpen={panel.setOpen} onWidth={panel.setWidth} maxHeight={panelHeight}>
+                <NodePanel
+                    job={job}
+                    graph={shownGraph}
+                    standard={standard}
+                    selection={selection}
+                    byStep={byStep}
+                    dispatch={dispatch}
+                    onSelect={setSelected}
+                    onRequestRemove={requestRemove}
+                    onRequestRemoveNodes={picked.requestRemoveNodes}
+                    onRemoveLink={standard ? removeStandardLine : menus.removeLink}
+                    onArrange={arrange}
+                    onTidy={tidy}
+                    onOpenSettings={() => setActiveTab('settings')}
+                    destinations={destinations}
+                    alertActions={alertActions}
+                    jobs={jobs}
+                    nextSlots={api.nextSlots}
+                schedulePreview={api.schedulePreview}
+                savedJobId={jobId}
+                    previewFields={previewFields}
+                    scheduledTime={scheduledTime}
+                    resolveTimeRange={api.resolveTimeRange}
+                    previews={previews.previews}
+                    previewJob={previewJob}
+                    previewCtx={previewCtx}
+                    inputFor={previews.inputFor}
+                    onPreview={meta.canEdit ? (id, opts) => void previews.preview(id, opts) : undefined}
+                    onCancelPreview={previews.cancel}
+                    previewLive={source === 'live'}
+                    groupPanel={grouping.panel}
+                    roles={me ? me.roles : []}
+                    onSaveSnippet={snippets.canUse ? snippets.requestSave : undefined}
+                />
+            </SidePanel>
         </div>
+        </div>
+        )}
         </>
     );
 
@@ -447,7 +558,8 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
         <>
             <Button appearance="subtle" label="Undo" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
             <Button appearance="subtle" label="Redo" disabled={!state.future.length} onClick={() => dispatch({ type: 'redo' })} />
-            <Button appearance="secondary" label="Validate" disabled={busy || loading} onClick={onValidate} />
+            <BuilderToolbarExtras jobId={jobId} job={job} me={me} snippets={snippets} />
+            {auto.checking && <Typography as="span" variant="body">Checking…</Typography>}
             <Button appearance="primary" label="Save" disabled={busy || loading || !meta.canEdit} onClick={onSave} />
         </>
     );
@@ -469,6 +581,7 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     {notice.text}
                 </Message>
             )}
+            {showSummary && errorIssues.length > 0 && <IssueSummary issues={errorIssues} stepNames={stepNames} onGo={goToIssue} view={view} />}
             <IssueList issues={jobLevel} />
             {loading ? (
                 <WaitSpinner size="medium" />
@@ -482,15 +595,32 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                         />
                     </ControlGroup>
                     <JobTabs
+                        activeTab={activeTab}
+                        onTabChange={setActiveTab}
                         job={job}
                         dispatch={dispatch}
                         owner={owner}
                         roles={me ? me.roles : []}
-                        jobs={jobs}
+                        steps={stepsTab}
+                        view={view}
+                        triggers={
+                            <TriggersTab
+                                job={job}
+                                jobs={jobs}
+                                dispatch={dispatch}
+                                nextSlots={api.nextSlots}
+                                schedulePreview={api.schedulePreview}
+                                savedJobId={jobId}
+                                onOpenSettings={() => setActiveTab('settings')}
+                                onRequestRemove={requestRemove}
+                            />
+                        }
+                        issues={issues}
+                        canEdit={meta.canEdit}
+                        knownTags={knownTags}
                         destinations={destinations}
                         alertActions={alertActions}
-                        steps={stepsTab}
-                        jobId={jobId}
+                        history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r, n) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), afterSaved(r, client.toDefinition(r.job), `Restored version ${n}.`)) }}
                     />
                 </>
             )}
@@ -508,17 +638,9 @@ export default function BuilderPage({ jobId: initialId = null, api = defaultApi 
                     </Modal.Footer>
                 </Modal>
             )}
+            {grouping.modal}
             {removing && (
-                <Modal open onRequestClose={() => setRemoving(null)} returnFocus={returnFocus} style={{ width: '480px' }}>
-                    <Modal.Header title={`Remove ${removingStep ? stepLabel(removingStep) : removing}?`} />
-                    <Modal.Body>
-                        <p>Its dependencies are removed too. Undo brings it back.</p>
-                    </Modal.Body>
-                    <Modal.Footer>
-                        <Button appearance="secondary" label="Cancel" onClick={() => setRemoving(null)} />
-                        <Button appearance="destructive" label="Remove step" onClick={confirmRemove} />
-                    </Modal.Footer>
-                </Modal>
+                <RemoveNodeModal job={job} nodeKey={removing} returnFocus={returnFocus} onCancel={picked.cancelRemove} onConfirm={confirmRemove} />
             )}
         </PageShell>
     );

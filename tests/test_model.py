@@ -145,7 +145,7 @@ def test_orchestrate_in_step_spl_is_an_error():
         j["steps"][0]["spl"] = spl
         found = [i for i in validate_job(j) if i["code"] == "orchestrate_in_step"]
         assert found and found[0]["level"] == "error" and found[0]["step"] == "a"
-        assert found[0]["message"] == "Steps cannot call | orchestrate; use a start_job action"
+        assert found[0]["message"] == "a step can't call | orchestrate; use a start-job action instead"
     j = job()
     j["steps"][0]["spl"] = '| makeresults | eval note="orchestrate later"'
     assert "orchestrate_in_step" not in codes(validate_job(j))
@@ -157,7 +157,7 @@ def test_step_without_time_range_warns():
     j["steps"][1].update(earliest="-1d@d", latest="@d")
     found = [i for i in validate_job(j) if i["code"] == "all_time_search"]
     assert [(i["step"], i["level"], i["message"]) for i in found] == [
-        ("a", "warning", "This step searches all time.")]
+        ("a", "warning", "this step searches all time; set a time range to search less")]
     j["steps"][0]["earliest"] = "-1h"
     assert "all_time_search" not in codes(validate_job(j))
     j = job(steps=("a",))
@@ -225,3 +225,197 @@ def test_previous_step_with_an_old_time_range_warns():
     del j["steps"][1]["earliest"], j["steps"][1]["latest"]
     assert "previous_old_time_range" not in codes(m.validate_job(j))
     assert m.old_time_range_issues(j) == []
+
+
+def test_issue_messages_are_plain_and_say_what_to_do():
+    j = job()
+    j["actions"] = []
+    msgs = {i["code"]: i["message"] for i in validate_job(j)}
+    assert msgs["no_failure_notification"] == (
+        "no failure action, so the admin's fallback notification will be used; "
+        "add an on_failure action to choose who is told")
+    j["steps"][0]["id"] = "Bad Id"
+    j["timezone"] = "Nowhere/Land"
+    msgs = {i["code"]: i["message"] for i in validate_job(j)}
+    assert "lowercase letters, numbers and _" in msgs["bad_step_id"]
+    assert "Time zone list" in msgs["bad_timezone"]
+
+
+def test_issue_messages_use_no_internal_words():
+    j = job()
+    j["steps"].append({"id": "p", "type": "previous", "spl": "stats count"})
+    j["params"] = [{"name": "x", "type": "enum"}, {"name": "x"}]
+    for i in validate_job(j):
+        for word in ("dispatchAs", "wrapper", "KV Store", "From previous steps"):
+            assert word not in i["message"], i
+
+
+def test_layout_and_output_shapes_are_accepted():
+    j = job(edges=[("a", "b")])
+    j["layout"] = {"nodes": {"step:a": {"x": 10, "y": -5.5}, "job": {"x": 0, "y": 0}}}
+    j["steps"][0]["output"] = {"kind": "summary_index", "index": "summary", "source": "",
+                               "add_run_id": True}
+    assert "bad_shape" not in codes(validate_job(j))
+
+
+def test_bad_layout_or_output_is_bad_shape():
+    import copy
+    good = job(edges=[("a", "b")])
+    big = {"nodes": {"k%d" % i: {"x": 0, "y": 0} for i in range(1001)}}
+    cases = [
+        ("layout", []), ("layout", {"nodes": []}),
+        ("layout", {"nodes": {"k": {"x": "1", "y": 0}}}),
+        ("layout", {"nodes": {"k": {"x": True, "y": 0}}}),
+        ("layout", {"nodes": {"k": {"x": float("nan"), "y": 0}}}),
+        ("layout", {"nodes": {"k": {"x": 2_000_000, "y": 0}}}),
+        ("layout", big),
+        ("output", "x"), ("output", {"kind": "csv"}), ("output", {"kind": "lookup", "name": 5}),
+    ]
+    for field, value in cases:
+        j = copy.deepcopy(good)
+        if field == "layout":
+            j["layout"] = value
+        else:
+            j["steps"][0]["output"] = value
+        bad = [i for i in validate_job(j) if i["code"] == "bad_shape"]
+        assert len(bad) == 1, (field, value, bad)
+        if field == "layout":
+            assert "Tidy up" in bad[0]["message"]
+
+
+def _group(**kw):
+    g = {"id": "g1", "title": "Group", "color": "categoricalA2", "x": 0, "y": -10.5, "w": 300, "h": 200}
+    g.update(kw)
+    return g
+
+
+def test_layout_groups_are_accepted():
+    j = job(edges=[("a", "b")])
+    j["layout"] = {"nodes": {"step:a": {"x": 1, "y": 2}},
+                   "groups": [_group(), _group(id="g2", color="categoricalA7", collapsed=True)]}
+    assert "bad_shape" not in codes(validate_job(j))
+    # Groups and no node positions: the layout is kept, so it must be valid.
+    j["layout"] = {"groups": [_group()]}
+    assert "bad_shape" not in codes(validate_job(j))
+    j["layout"] = {"nodes": {}, "groups": []}
+    assert "bad_shape" not in codes(validate_job(j))
+
+
+def test_bad_layout_groups_are_bad_shape():
+    import copy
+    good = job(edges=[("a", "b")])
+    cases = [
+        "x", {}, [5], [_group(id=5)], [_group(id="g" * 41)], [_group(title=None)],
+        [_group(title="t" * 81)], [_group(color="red")], [_group(color="categoricalA8")],
+        [_group(x="1")], [_group(y=True)], [_group(w=0)], [_group(h=-5)],
+        [_group(x=float("inf"))], [_group(w=float("nan"))], [_group(x=2_000_000)],
+        [_group(collapsed="yes")], [{"id": "g1", "title": "Group", "color": "categoricalA2"}],
+        [_group() for _ in range(201)],
+    ]
+    for value in cases:
+        j = copy.deepcopy(good)
+        j["layout"] = {"nodes": {}, "groups": value}
+        bad = [i for i in validate_job(j) if i["code"] == "bad_shape"]
+        assert len(bad) == 1, (value, bad)
+        assert bad[0]["message"] == "a group in layout is broken; remove it and save again"
+
+
+def test_bad_deadline_messages():
+    def deadline_issues(dl):
+        return [(i["code"], i["message"]) for i in validate_job(job(deadline=dl))
+                if i["code"] == "bad_deadline"]
+    assert deadline_issues({"finish_by": "6am"}) == [
+        ("bad_deadline", "Finish by must be a time like 06:00")]
+    assert deadline_issues({"within": 30}) == [
+        ("bad_deadline", "Finish within must be between 1 minute and 7 days")]
+    assert deadline_issues({}) == [
+        ("bad_deadline", "Set Finish by or Finish within, or remove the deadline")]
+    assert deadline_issues("06:00") == [("bad_deadline", "deadline must be an object")]
+    assert [i["level"] for i in validate_job(job(deadline={}))
+            if i["code"] == "bad_deadline"] == ["error"]
+    assert not deadline_issues({"finish_by": "06:00", "within": 3600})
+
+
+def test_job_without_deadline_has_no_new_issue():
+    j = job(edges=[("a", "b")])
+    assert "deadline" not in j
+    assert not [i for i in validate_job(j) if i["level"] == "error"]
+    assert "bad_deadline" not in codes(validate_job(j))
+
+
+def _approval_job(**fields):
+    j = job(steps=("a",), edges=[("a", "gate")])
+    j["steps"].append(dict({"id": "gate", "type": "approval", "approval": {}}, **fields))
+    return j
+
+
+def _approval_errors(j):
+    return [(i["code"], i["message"], i["step"]) for i in validate_job(j)
+            if i["level"] == "error"]
+
+
+def test_approval_step_valid():
+    j = _approval_job(approval={"message": "Rows: $a.resultCount$", "timeout": 3600,
+                                "on_timeout": "approve", "approver_roles": ["ops"]},
+                      retries=0)
+    assert not [i for i in validate_job(j) if i["step"] == "gate"]
+    assert not _approval_errors(_approval_job())  # every approval field is optional
+
+
+def test_approval_step_errors():
+    cases = [
+        ({"spl": "| makeresults"}, "An approval step has no search; remove its SPL"),
+        ({"saved_search_ref": "x"}, "An approval step has no search; remove its SPL"),
+        ({"retries": 2}, "An approval step can't retry; set Retries to 0"),
+        ({"approval": {"timeout": 299}}, "Wait at most must be between 5 minutes and 7 days"),
+        ({"approval": {"timeout": 604801}}, "Wait at most must be between 5 minutes and 7 days"),
+        ({"approval": {"timeout": "1h"}}, "Wait at most must be between 5 minutes and 7 days"),
+        ({"approval": {"on_timeout": "skip"}}, "If nobody decides must be Reject or Approve"),
+        ({"approval": {"approver_roles": "ops"}}, "Who may approve must be a list of role names"),
+        ({"approval": {"approver_roles": ["ops", 3]}},
+         "Who may approve must be a list of role names"),
+        ({"approval": {"message": "x" * 501}}, "The message can be at most 500 characters"),
+    ]
+    for fields, message in cases:
+        assert _approval_errors(_approval_job(**fields)) == [("bad_approval", message, "gate")], fields
+    assert _approval_errors(_approval_job(approval={"timeout": 300})) == []
+    assert _approval_errors(_approval_job(approval={"timeout": 604800})) == []
+    assert _approval_errors(_approval_job(approval={"message": "x" * 500})) == []
+
+
+def test_approval_step_has_no_time_range_or_runtime():
+    assert _approval_errors(_approval_job(earliest="-1d")) == [
+        ("bad_approval", "An approval step has no time range; clear its time range", "gate")]
+    assert _approval_errors(_approval_job(max_runtime=60)) == [
+        ("bad_approval", "An approval step has no run time limit; clear Max runtime", "gate")]
+
+
+def test_approval_object_must_be_an_object():
+    assert "bad_approval" in codes(validate_job(_approval_job(approval="yes")))
+
+
+def test_approval_message_tokens_checked():
+    j = _approval_job(approval={"message": "Rows: $ghost.resultCount$ $run.param.nope$"})
+    found = [(c, m) for c, m, s in _approval_errors(j) if s == "gate"]
+    assert {c for c, _ in found} == {"unknown_token"}
+    assert any("$ghost.resultCount$" in m for _, m in found)
+    assert any("run.param.nope" in m for _, m in found)
+    assert all(m.startswith("message: ") for _, m in found)
+
+
+def test_approval_step_no_retry_warning_from_defaults():
+    j = _approval_job()
+    j["defaults"]["retries"] = 2
+    assert not [i for i in validate_job(j) if i["step"] == "gate"]
+
+
+def test_tags_are_a_short_list_of_simple_words():
+    from so import model as m
+    base = {"name": "j", "enabled": True, "steps": [{"id": "a", "type": "inline", "spl": "| makeresults"}]}
+    ok = m.validate_job(dict(base, tags=["Team A", "billing", "nightly-etl"]))
+    assert not [i for i in ok if i["level"] == "error"]
+    for tags, text in ((["x"] * 2, "listed twice"), (["X", "x"], "listed twice"), ("a,b", "list of words"),
+                       ([" lead"], "isn't valid"), (["a" * 41], "isn't valid"),
+                       (["t%d" % i for i in range(11)], "at most 10")):
+        issues = m.validate_job(dict(base, tags=tags))
+        assert any(text in i["message"] for i in issues if i["level"] == "error"), tags

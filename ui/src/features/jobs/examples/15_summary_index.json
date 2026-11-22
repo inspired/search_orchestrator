@@ -1,0 +1,63 @@
+{
+  "id": "example_summary_index",
+  "name": "Example: keep a daily summary in an index",
+  "description": "Every night counts yesterday's _internal events by host and sourcetype and writes them to the summary index with | collect, marked with the run id. Searching index=summary later is much faster than going back to the raw events. Change the index if yours is not called summary.",
+  "enabled": false,
+  "tags": [
+    "example",
+    "getting started"
+  ],
+  "triggers": [
+    {
+      "type": "cron",
+      "cron": "20 1 * * *"
+    }
+  ],
+  "steps": [
+    {
+      "id": "counts",
+      "name": "Events by host and sourcetype",
+      "type": "inline",
+      "spl": "index=_internal\n| stats count AS events BY host, sourcetype",
+      "earliest": "-1d@d",
+      "latest": "@d"
+    },
+    {
+      "id": "write",
+      "name": "Write to the summary index",
+      "type": "previous",
+      "spl": "| collect index=summary marker=\"so_run=$run.id$\"",
+      "output": {
+        "kind": "summary_index",
+        "index": "summary"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "counts",
+      "to": "write",
+      "condition": "on_success"
+    }
+  ],
+  "layout": {
+    "nodes": {
+      "trigger:0": {
+        "x": 40,
+        "y": 36
+      },
+      "job": {
+        "x": 20,
+        "y": 160
+      },
+      "step:counts": {
+        "x": 320,
+        "y": 20
+      },
+      "step:write": {
+        "x": 600,
+        "y": 20
+      }
+    }
+  }
+}

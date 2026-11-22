@@ -1,4 +1,4 @@
-/* Limits, retention, the fallback notification and the base URL. The input limits match the
+/* Limits, retention, the building blocks the builder offers, the fallback notification and the base URL. The input limits match the
  * server's (put_settings in bin/so/api.py); the server still checks, and its message shows. */
 import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
@@ -8,8 +8,19 @@ import Message from '@splunk/react-ui/Message';
 import NumberInput from '@splunk/react-ui/Number';
 import RadioList from '@splunk/react-ui/RadioList';
 import Select from '@splunk/react-ui/Select';
+import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import type { Destination, Settings } from '../../api/types';
+import BetaTag from '../builder/BetaTag';
+import { ALWAYS_ON, CATALOG, isBeta } from '../builder/nodeCatalog';
+import { STEP_KINDS } from '../builder/nodeModel';
+
+/** The building blocks an admin can turn off, grouped as the builder shows them. */
+export const BLOCK_GROUPS: Array<{ label: string; kinds: string[] }> = [
+    { label: 'Triggers', kinds: CATALOG.filter((e) => e.kind.startsWith('trigger_')).map((e) => e.kind) },
+    { label: 'Steps', kinds: CATALOG.filter((e) => (STEP_KINDS as string[]).includes(e.kind)).map((e) => e.kind) },
+    { label: 'Actions', kinds: CATALOG.filter((e) => !e.kind.startsWith('trigger_') && !(STEP_KINDS as string[]).includes(e.kind)).map((e) => e.kind) },
+];
 
 const HOUR = 3600;
 
@@ -76,7 +87,21 @@ export interface Draft {
     /** A webhook fallback's body preset; the page doesn't edit it, but keeps it. */
     preset: string;
     baseUrl: string;
+    logLevel: LogLevel;
+    /** Events scanned limit, as typed; empty is no limit. */
+    scanLimit: string;
+    scanAction: 'warn' | 'stop';
+    /** Building blocks turned off, sorted. */
+    turnedOff: string[];
 }
+
+export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG';
+export const LOG_LEVELS: { value: LogLevel; label: string }[] = [
+    { value: 'ERROR', label: 'Errors only' },
+    { value: 'WARNING', label: 'Warnings and errors' },
+    { value: 'INFO', label: 'Info (default): every change, request and warning' },
+    { value: 'DEBUG', label: 'Debug: also each tick, search status and Splunk call' },
+];
 
 function toDraft(s: Settings): Draft {
     const ints: Record<string, string> = {};
@@ -92,6 +117,10 @@ function toDraft(s: Settings): Draft {
         destination: fb && fb.type === 'webhook' ? fb.destination : '',
         preset: (fb && fb.type === 'webhook' && fb.preset) || '',
         baseUrl: s.base_url || '',
+        logLevel: ((s.log_level as string) || 'INFO').toUpperCase() as LogLevel,
+        scanLimit: typeof s.scan_limit === 'number' && s.scan_limit > 0 ? String(s.scan_limit) : '',
+        scanAction: s.scan_limit_action === 'stop' ? 'stop' : 'warn',
+        turnedOff: [...((s.turned_off as string[]) || [])].sort(),
     };
 }
 
@@ -135,6 +164,19 @@ export function changes(original: Settings, d: Draft): Partial<Settings> {
     if (d.baseUrl.trim() !== base.baseUrl) {
         out.base_url = d.baseUrl.trim() || null;
     }
+    if (d.logLevel !== base.logLevel) {
+        out.log_level = d.logLevel;
+    }
+    if (d.scanLimit.replace(/[\s,]/g, '') !== base.scanLimit) {
+        const n = d.scanLimit.replace(/[\s,]/g, '');
+        out.scan_limit = n ? parseInt(n, 10) : null;
+    }
+    if (d.scanAction !== base.scanAction) {
+        out.scan_limit_action = d.scanAction;
+    }
+    if ([...(d.turnedOff || [])].sort().join() !== base.turnedOff.join()) {
+        out.turned_off = [...d.turnedOff].sort();
+    }
     return out as Partial<Settings>;
 }
 
@@ -169,7 +211,9 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
         draft.fallbackType === 'email' && !draft.email.includes('@') ? 'Enter an email address.' : null;
     const destError =
         draft.fallbackType === 'webhook' && !draft.destination ? 'Choose a webhook destination.' : null;
-    const invalid = Object.values(errors).some(Boolean) || Boolean(emailError) || Boolean(destError);
+    const scanText = draft.scanLimit.replace(/[\s,]/g, '');
+    const scanError = scanText && (!/^\d+$/.test(scanText) || parseInt(scanText, 10) < 1) ? 'Enter a whole number of events, or leave it empty for no limit.' : null;
+    const invalid = Object.values(errors).some(Boolean) || Boolean(emailError) || Boolean(destError) || Boolean(scanError);
     const pending = invalid ? {} : changes(settings, draft);
     const dirty = Object.keys(pending).length > 0;
 
@@ -218,6 +262,75 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                     </ControlGroup>
                 );
             })}
+
+            <Heading level={2}>Logs</Heading>
+            <ControlGroup
+                label="Log level"
+                labelFor="settings-log-level"
+                labelPosition="top"
+                help="What the app writes to its log files (search_orchestrator.<process>.log in _internal). Applies within 30 seconds, no restart. See Troubleshooting."
+            >
+                <Select
+                    inputId="settings-log-level"
+                    value={draft.logLevel}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => set({ logLevel: value as LogLevel })}
+                >
+                    {LOG_LEVELS.map((l) => (
+                        <Select.Option key={l.value} value={l.value} label={l.label} />
+                    ))}
+                </Select>
+            </ControlGroup>
+
+            <Heading level={2}>Search cost</Heading>
+            <ControlGroup
+                label="Events scanned limit"
+                labelFor="settings-scan-limit"
+                labelPosition="top"
+                help={scanError || 'For every step that sets none of its own: how many events a step\'s search may scan. Empty: no limit. A step can set its own in its panel.'}
+                error={Boolean(scanError)}
+            >
+                <Text inputId="settings-scan-limit" value={draft.scanLimit} placeholder="No limit" onChange={(_e: unknown, { value }: { value: string }) => set({ scanLimit: value })} />
+            </ControlGroup>
+            <ControlGroup label="When a step goes over" labelFor="settings-scan-action" labelPosition="top">
+                <Select inputId="settings-scan-action" value={draft.scanAction} onChange={(_e: unknown, { value }: { value: unknown }) => set({ scanAction: value as 'warn' | 'stop' })}>
+                    <Select.Option value="warn" label="Warn: log it, show it on the run and in Troubleshooting, and let the search finish" />
+                    <Select.Option value="stop" label="Stop the search: the step fails (and retries, if it has retries)" />
+                </Select>
+            </ControlGroup>
+
+            <Heading level={2}>Building blocks</Heading>
+            <p data-testid="blocks-intro">
+                What people can add to a job. Turn off what your teams don&apos;t use to keep the builder simple: it is no longer offered in the Flow and Simple
+                editors or the examples, and a save that adds it is refused. Jobs that already use it keep working and can still be edited. Search and Schedule
+                are always on. Blocks marked <strong>Beta</strong> are still in development and may not work yet.
+            </p>
+            {BLOCK_GROUPS.map((g) => (
+                <div key={g.label} role="group" aria-label={g.label} style={{ margin: '0 0 12px' }}>
+                    <div style={{ fontWeight: 600, margin: '0 0 4px' }}>{g.label}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '2px 16px' }}>
+                        {g.kinds
+                            .filter((k) => !(ALWAYS_ON as string[]).includes(k))
+                            .map((k) => {
+                                const entry = CATALOG.find((e) => e.kind === k);
+                                const on = !draft.turnedOff.includes(k);
+                                return (
+                                    <Switch
+                                        key={k}
+                                        value={k}
+                                        appearance="checkbox"
+                                        selected={on}
+                                        data-testid={`block-${k}`}
+                                        title={entry ? entry.description : undefined}
+                                        onClick={() => set({ turnedOff: on ? [...draft.turnedOff, k] : draft.turnedOff.filter((x) => x !== k) })}
+                                    >
+                                        {entry ? entry.label : k}
+                                        {isBeta(k) && <BetaTag />}
+                                    </Switch>
+                                );
+                            })}
+                    </div>
+                </div>
+            ))}
 
             <Heading level={2}>Fallback notification</Heading>
             <p>

@@ -1,6 +1,7 @@
 /* Pure helpers for step previews: which steps a step reads, the input a "From previous
  * steps" step gets, and the key that says whether a live preview is still valid. No I/O. */
 import type { Edge, JobDefinition, SkipKind, StepDef } from '../../api/types';
+import { writingCommand } from './writingCommands';
 
 /** model.BUILTIN_DEFAULTS */
 export const BUILTIN_DEFAULTS = { delayed_after: 3600, give_up_after: 86400, max_runtime: 14400, retries: 0 };
@@ -133,10 +134,10 @@ function loadjobChain(deps: string[], ref: (id: string) => string): string {
     return deps.map((d, i) => (i === 0 ? `| loadjob ${ref(d)}` : `| append [| loadjob ${ref(d)}]`)).join(' ');
 }
 
-/** The input a "From previous steps" step gets, as the panel shows it. */
+/** The input a "Results of earlier steps" step gets, as the panel shows it. */
 export function generatedInput(job: JobDefinition, stepId: string): string {
     const deps = previousInputs(job, stepId);
-    return deps.length ? loadjobChain(deps, (d) => `‹${d}›`) : '(no previous steps yet)';
+    return deps.length ? loadjobChain(deps, (d) => `‹${d}›`) : '(no earlier steps yet)';
 }
 
 /** The same input as Search SPL with `$step.sid$` tokens, for switching back to Search.
@@ -226,7 +227,7 @@ export function previewKey(job: JobDefinition, stepId: string, ctx: PreviewConte
             // The server names preview sids after the job id, or "new" before the first save.
             job: job.id || 'new',
             step: resolved,
-            edges: incoming.map((e) => ({ from: e.from, condition: e.condition || 'on_success', expression: e.expression })),
+            edges: incoming.map((e) => ({ from: e.from, condition: e.condition || 'on_success', expression: e.expression, expression_kind: e.expression_kind })),
             timezone: job.timezone || null,
             scheduledTime: ctx.scheduledTime,
             params,
@@ -273,7 +274,8 @@ export function isStale(preview: LivePreview, currentKey: string): boolean {
 }
 
 /** The steps to preview, in order, to preview `stepId`: each upstream step whose preview
- * is missing, stale or gone from the server, or that reads one of those; then the step. */
+ * is missing, stale or gone from the server, or that reads one of those; then the step.
+ * Approval steps are never previewed: the server takes them as approved. */
 export function toBeRun(
     job: JobDefinition,
     stepId: string,
@@ -281,7 +283,11 @@ export function toBeRun(
     keyOf: (id: string) => string
 ): string[] {
     const out: string[] = [];
+    const approvals = (job.steps || []).filter((s) => s.type === 'approval').map((s) => s.id);
     upstreamOf(job, stepId).forEach((id) => {
+        if (approvals.includes(id)) {
+            return;
+        }
         const p = previews[id];
         const own = !p || p.state === 'missing' || isStale(p, keyOf(id));
         if (own || upstreamOf(job, id).some((u) => out.includes(u))) {
@@ -289,4 +295,45 @@ export function toBeRun(
         }
     });
     return [...out, stepId];
+}
+
+const NO_WRITES = "Previews don't write to indexes or lookups";
+
+/** The writing command in a step's own SPL; saved searches are not inspected. */
+function stepWrites(step: StepDef): string | null {
+    return step.type === 'saved_search' ? null : writingCommand(step.spl || '');
+}
+
+/** Why the step can't be previewed, or null. A preview never runs a step that writes to a
+ * summary index or lookup, or whose SPL uses a writing command: not the step itself, and
+ * (live, where upstream steps are previewed first) not one upstream of it. */
+export function previewRefusal(job: JobDefinition, stepId: string, live: boolean): string | null {
+    const steps = job.steps || [];
+    const step = steps.find((s) => s.id === stepId);
+    if (step && step.type === 'approval') {
+        return 'An approval step has no search to preview.';
+    }
+    if (step && step.output) {
+        return `${NO_WRITES}; preview the step before it.`;
+    }
+    const own = step ? stepWrites(step) : null;
+    if (own) {
+        return `${NO_WRITES}; remove ${own} to preview this step.`;
+    }
+    if (!live) {
+        return null;
+    }
+    const ups = upstreamOf(job, stepId);
+    const writer = steps.find((s) => s.output && ups.includes(s.id));
+    if (writer) {
+        return `${NO_WRITES}; ${writer.name || writer.id} is upstream of this step.`;
+    }
+    for (const id of ups) {
+        const up = steps.find((s) => s.id === id);
+        const cmd = up ? stepWrites(up) : null;
+        if (up && cmd) {
+            return `${NO_WRITES}; ${up.name || up.id} runs ${cmd} first.`;
+        }
+    }
+    return null;
 }

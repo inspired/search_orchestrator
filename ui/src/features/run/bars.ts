@@ -28,6 +28,10 @@ function kindOf(step: StepStatus, runActive: boolean): BarKind {
     if (state === 'waiting') {
         return runActive ? 'waiting' : 'skipped';
     }
+    if (state === 'awaiting_approval') {
+        // waiting for a decision, not failed: hatched from when it asked
+        return 'waiting';
+    }
     if (state === 'succeeded') {
         return 'done';
     }
@@ -69,10 +73,10 @@ export function bars(run: RunDetail, now: number): Bar[] {
         let widthPct = 0;
         if (kind === 'waiting') {
             // waiting since its predecessors finished (or the run started)
-            const since = Math.max(
-                origin,
-                ...(preds[s.id] || []).map((p) => (status[p] && status[p].ended_at) || origin)
-            );
+            const since =
+                st.state === 'awaiting_approval' && st.started_at
+                    ? Math.max(origin, st.started_at)
+                    : Math.max(origin, ...(preds[s.id] || []).map((p) => (status[p] && status[p].ended_at) || origin));
             startPct = pct(since);
             widthPct = Math.max(100 - startPct, MIN_WIDTH);
         } else if (kind !== 'skipped') {
