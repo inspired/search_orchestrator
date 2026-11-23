@@ -14,7 +14,7 @@ This guide covers installing, securing and running the app. The [user guide](use
 | Set up | Secure | Run and watch | Reference |
 |---|---|---|---|
 | [Supported platforms](#supported-platforms) | [Roles and capabilities](#roles-and-capabilities) | [Settings page](#settings-page) | [REST API](#rest-api) |
-| [Install](#install) | [How steps run](#how-steps-run-security) | [Audit index](#audit-index) · [Run health dashboard](#run-health-dashboard) | [Known limits](#known-limits) |
+| [Install](#install) | [How steps run](#how-steps-run-security) · [What the app stores](#what-the-app-stores) | [Audit index](#audit-index) · [Run health dashboard](#run-health-dashboard) | [Known limits](#known-limits) |
 | [Upgrading from 1.0.x](#upgrading-from-10x) | [Deleting jobs](#deleting-jobs) · [Orphaned owners](#orphaned-owners) | [Logs and troubleshooting](#logs-and-troubleshooting) · [Self-test](#self-test) | [Search head clusters](#search-head-clusters) |
 
 
@@ -112,6 +112,40 @@ The alert action starts a run with the alert's own session, so the alert's owner
 - the session's user is not the alert's owner.
 
 Assign the alert to a real user who may run the job. Errors go to splunkd's alert action log (`index=_internal sourcetype=splunkd component=sendmodalert`).
+
+## What the app stores
+
+The app keeps its own records in KV Store and runs every search through saved searches it creates for the job owner.
+
+| What | Where |
+|---|---|
+| Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, the 12 `so_*` collections (who may read them: see [How steps run](#how-steps-run-security)) |
+| Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
+| Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job |
+| Webhook URLs and headers | Splunk's password store (`storage/passwords`, realm `search_orchestrator`), never KV Store or logs |
+| Audit events | `index=orchestrator` |
+| The app's log | `_internal`, `search_orchestrator.*.log` |
+
+### Hidden saved searches
+
+Saving a job writes one saved search for each search the job runs, with the saving user's own session (that user becomes the job owner). All of them start with `_so_`:
+
+| Used for | Name | Notes |
+|---|---|---|
+| Search step | `_so_<job>_<step>_<hash>` | The step's SPL with tokens filled in as arguments. |
+| Results of earlier steps | `_so_<job>_<step>_<hash>`, two of them | One reads the earlier steps' results (`\| loadjob ...`); the other (description ends "(no inputs)") runs when no earlier step succeeded. |
+| Saved search step | none, or `_so_<job>_<step>_<hash>` | None when the job owner owns the search and it is private: it runs as it is, and the app never edits or deletes it. Otherwise a wrapper running `\| savedsearch "<name>"`; see [the wrapper](#saved-search-steps-and-the--savedsearch-wrapper). |
+| SPL condition on a line | `_so_<job>_cond_<hash>` | |
+| Email, event and alert actions | `_so_<job>_action_<n>_<hash>` | |
+| Fallback email | `_so_fallback_email` | Shipped with the app (`default/savedsearches.conf`), owned by `nobody`. |
+| Self-test | `_so_so_selftest_...` | See [Self-test](#self-test). |
+
+- **Private and owned by the job owner,** in this app. Their description says which job and step they belong to ("Search Orchestrator job `<job>`, step `<step>`"). A step therefore runs with the owner's permissions.
+- **Never scheduled in Splunk.** The engine starts them when the job's lines say so. Don't schedule or edit them by hand: a schedule set in Splunk would run the step outside the job, and an edit is overwritten when the job is saved again.
+- **Hidden from Reports only.** They are saved with `is_visible = 0`. That hides them from the app's **Reports** page (`/app/search_orchestrator/reports`), but not from **Settings > Searches, reports, and alerts** (`/manager/search_orchestrator/saved/searches`), where an admin sees every owner's. Filter on `_so_` there to find them.
+- **Old versions are kept while a run may need them.** The hash in the name changes when the SPL or time range changes, so a save that changes a search writes a new one beside the old. The old one stays while a run uses it: an active or held run, or a failed or cancelled run that ended within the result retention in Settings, since it can be re-run with its original definition. A later save of the job removes the searches nothing needs any more. A delete that fails is logged (`hidden_search_delete_failed`) and tried again at the next save.
+- **The job lists them.** The job record's `hidden_searches` holds every owner and name the app created for it, so none is lost if a save fails half way.
+- **Deleting a job deletes them all**; see [Deleting jobs](#deleting-jobs).
 
 ## Settings page
 

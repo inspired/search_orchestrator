@@ -31,6 +31,7 @@ Fixes from a review of the bulk actions on the Jobs page.
 - **An unknown bulk action can't fall through to Delete.** Each action has its own case; anything else is an error.
 - **The result message has the right colour:** yellow when anything was skipped or failed, green when everything worked, and grey when nothing was done. A job named with "failed:" no longer changes it, and two jobs with the same name each get their line.
 - **The builder clears what the removed setup checklist left in the browser** (`so.checklist.hidden.*` in localStorage).
+- **Docs: What the app stores**, a new admin guide section on what is kept where (KV Store, hidden saved searches, search jobs, the password store, the audit index), how the hidden searches are named, why they are never scheduled, when old versions are removed, and that they are hidden from the app's Reports page but still listed in Settings > Searches, reports, and alerts. How it works on the Help page points to it.
 
 ## 1.48.2 (2026-11-21)
 
