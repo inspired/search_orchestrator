@@ -117,6 +117,8 @@ Assign the alert to a real user who may run the job. Errors go to splunkd's aler
 
 The app keeps its own records in KV Store and runs every search through saved searches it creates for the job owner.
 
+The same section is on the app's **Help** page, under How it works.
+
 | What | Where |
 |---|---|
 | Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, the 12 `so_*` collections (who may read them: see [How steps run](#how-steps-run-security)) |

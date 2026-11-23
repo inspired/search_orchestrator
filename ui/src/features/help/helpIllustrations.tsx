@@ -556,6 +556,26 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'how-it-works': Architecture,
+    'what-the-app-stores': () => (
+        <Figure caption="Jobs and runs are kept in KV Store; each search a job runs is a hidden saved search named _so_…, left out of Reports but listed in Settings > Searches, reports, and alerts.">
+            <MiniTable
+                head={['Kept', 'Where']}
+                rows={[
+                    ['Jobs, versions, runs', 'KV Store, so_* collections'],
+                    ['Each step, condition and action search', 'Hidden saved search _so_<job>_<step>_<hash>'],
+                    ['Search results', "Splunk's search jobs"],
+                    ['Webhook URLs and headers', 'Password store'],
+                ]}
+            />
+            <MiniTable
+                head={['Page', 'Shows the _so_ searches']}
+                rows={[
+                    ['Reports', 'No'],
+                    ['Settings > Searches, reports, and alerts', 'Yes'],
+                ]}
+            />
+        </Figure>
+    ),
     'help-in-the-app': () => (
         <Figure caption="Learn more links beside fields open the matching section of this page.">
             <Panel title="Conditions" rows={[['Check', 'SPL expression ▾'], ['', '[Learn more about conditions]']]} />

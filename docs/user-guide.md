@@ -21,7 +21,7 @@ Search Orchestrator makes dependent searches run as one unit, so a weekly rollup
 |---|---|---|---|
 | [Words used](#words-used) | [Build a job](#build-a-job) | [Follow runs](#follow-runs) | [The `\| orchestrate` command](#the--orchestrate-command) |
 | [Example jobs](#example-jobs) | [Simple, Standard and Advanced](#simple-standard-and-advanced) | [Dependencies](#dependencies) | [Audit events](#audit-events) |
-| | [Triggers](#triggers) · [Actions](#actions) | [Calendar](#calendar) · [Backfill](#backfill) | [How it works](#how-it-works) |
+| | [Triggers](#triggers) · [Actions](#actions) | [Calendar](#calendar) · [Backfill](#backfill) | [How it works](#how-it-works) · [What the app stores](#what-the-app-stores) |
 | | [Conditions](#conditions) · [Deadline](#deadline) | [Re-run from a step](#re-run-from-a-step) · [Troubleshooting](#troubleshooting) | [Help in the app](#help-in-the-app) |
 <!-- /github-only -->
 
@@ -853,11 +853,43 @@ Every change is written to the `orchestrator` index, one JSON event per change w
 
 A technical drawing of the app: every part, which files hold it and how the parts call each other. Click a part in the first drawing to see what it does and what it talks to. The second drawing follows one run from saving the job to its last action; the table lists every Python module.
 
-In short: the pages in your browser call one REST endpoint (`/orchestrator`), which checks who you are and saves jobs in KV Store and each step as a hidden saved search. A separate engine process ticks every 5 seconds: it creates runs when a schedule is due, starts each step's saved search, checks it until it finishes, decides from the lines and conditions what runs next, and sends the actions. The pages follow along by reading the same KV Store records. Every change is an audit event in `index=orchestrator` and a line in the app's log in `_internal`. For what is kept where, and what the hidden saved searches are called, see [What the app stores](admin-guide.md#what-the-app-stores) in the admin guide. They are hidden from the app's **Reports** page but still listed in **Settings > Searches, reports, and alerts**.
+In short: the pages in your browser call one REST endpoint (`/orchestrator`), which checks who you are and saves jobs in KV Store and each step as a hidden saved search. A separate engine process ticks every 5 seconds: it creates runs when a schedule is due, starts each step's saved search, checks it until it finishes, decides from the lines and conditions what runs next, and sends the actions. The pages follow along by reading the same KV Store records. Every change is an audit event in `index=orchestrator` and a line in the app's log in `_internal`. For what is kept where, see [What the app stores](#what-the-app-stores) below.
 
 <!-- github-only -->
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the orchestrator index" src="images/architecture-light.svg" width="100%"></picture></p>
 <!-- /github-only -->
+
+### What the app stores
+
+The app keeps its own records in KV Store and runs every search through saved searches it creates for the job owner.
+
+| What | Where |
+|---|---|
+| Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, 12 collections named `so_*`. Only `admin` and `sc_admin` can read or write them directly; everything else goes through the app. |
+| Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
+| Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job. |
+| Webhook URLs and headers | Splunk's password store (`storage/passwords`, realm `search_orchestrator`), never KV Store or logs |
+| Audit events | `index=orchestrator` |
+| The app's log | `_internal`, `search_orchestrator.*.log` |
+
+**Hidden saved searches.** Saving a job writes one saved search for each search the job runs, with the saving user's own session (that user becomes the job owner). All of them start with `_so_`:
+
+| Used for | Name | Notes |
+|---|---|---|
+| Search step | `_so_<job>_<step>_<hash>` | The step's SPL; tokens are filled in as arguments when it runs. |
+| Results of earlier steps | `_so_<job>_<step>_<hash>`, two of them | One reads the earlier steps' results (`\| loadjob ...`); the other (its description ends "(no inputs)") runs when no earlier step succeeded. |
+| Saved search step | none, or `_so_<job>_<step>_<hash>` | None when the job owner owns the search and it is private: it runs as it is, and the app never edits or deletes it. Otherwise a wrapper running `\| savedsearch "<name>"`, so the search's own alerts and summary indexing don't run. |
+| SPL condition on a line | `_so_<job>_cond_<hash>` | |
+| Email, event and alert actions | `_so_<job>_action_<n>_<hash>` | |
+| Fallback email | `_so_fallback_email` | Shipped with the app, owned by `nobody`. |
+| Self-test | `_so_so_selftest_...` | Written by `\| orchestrate selftest`. |
+
+- **Private and owned by the job owner,** in this app. Their description says which job and step they belong to ("Search Orchestrator job `<job>`, step `<step>`"). A step therefore runs with the owner's permissions.
+- **Never scheduled in Splunk.** The engine starts them when the job's lines say so. Don't schedule or edit them by hand: a schedule set in Splunk would run the step outside the job, and an edit is overwritten when the job is saved again.
+- **Hidden from Reports only.** They are saved with `is_visible = 0`. That hides them from the app's **Reports** page (`/app/search_orchestrator/reports`), but not from **Settings > Searches, reports, and alerts** (`/manager/search_orchestrator/saved/searches`), where an admin sees every owner's. Filter on `_so_` there to find them.
+- **Old versions are kept while a run may need them.** The hash in the name changes when the SPL or time range changes, so a save that changes a search writes a new one beside the old. The old one stays while a run uses it: an active or held run, or a failed or cancelled run that ended within the result retention in Settings, since it can be re-run with its original definition. A later save of the job removes the searches nothing needs any more. A delete that fails is logged (`hidden_search_delete_failed`) and tried again at the next save.
+- **The job lists them.** The job record's `hidden_searches` holds every owner and name the app created for it, so none is lost if a save fails half way.
+- **Deleting a job deletes them all,** with its saved versions and follows. Its past runs stay until run retention removes them.
 
 ## Help in the app
 

@@ -16,11 +16,15 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.48.4](#1484-2026-11-23) | 2026-11-23 |
 | [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
 | [1.48.1](#1481-2026-11-21) | 2026-11-21 |
 | [1.48.0](#1480-2026-11-21) | 2026-11-21 |
-| [1.47.0](#1470-2026-11-21) | 2026-11-21 |
+
+## 1.48.4 (2026-11-23)
+
+- **Help: What the app stores.** The section from the admin guide is now on the Help page too, under How it works, with its own illustration: what is kept where (KV Store, hidden saved searches, search jobs, the password store, the audit index), how each hidden search is named, why they are never scheduled, when old versions are removed, and that they are left out of the Reports page but listed in Settings > Searches, reports, and alerts.
 
 ## 1.48.3 (2026-11-23)
 
