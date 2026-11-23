@@ -20,7 +20,7 @@ import type { Job, Me } from '../../api/types';
 import StatusText, { isRunDelayed, srOnly } from '../../components/StatusText';
 import { pageHref } from '../../components/PageShell';
 import { formatDuration, formatTime } from '../../format';
-import JobsBulk, { JobsBulkApi } from './JobsBulk';
+import JobsBulk, { BulkResult, JobsBulkApi } from './JobsBulk';
 import JobsEmpty from './JobsEmpty';
 import Message from '@splunk/react-ui/Message';
 import { filterJobs, jobSummary } from './jobSummary';
@@ -110,7 +110,7 @@ function DurationCell({ job, now, theme }: { job: Job; now: number; theme: Recor
 
 export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBackfill, onToggleEnabled, onDelete, busy = {}, onBrowseExamples, onExport, onFollow, now, bulk }: JobsTableProps) {
     const [picked, setPicked] = useState<Record<string, boolean>>({});
-    const [result, setResult] = useState<string[] | null>(null);
+    const [result, setResult] = useState<BulkResult | null>(null);
     const setMany = (ids: string[], on: boolean) =>
         setPicked((p) => {
             const next = { ...p };
@@ -211,11 +211,13 @@ export default function JobsTable({ jobs, loadFailed = false, me, onRunNow, onBa
                 </div>
             )}
             {result && (
-                <Message type={result.some((l) => / failed: /.test(l)) ? 'warning' : 'success'} appearance="default" onRequestRemove={() => setResult(null)}>
-                    {result.map((line) => (
-                        <div key={line}>{line}</div>
-                    ))}
-                </Message>
+                <div data-testid="jobs-bulk-result" data-tone={result.tone}>
+                    <Message type={result.tone} appearance="default" onRequestRemove={() => setResult(null)}>
+                        {result.lines.map((line, i) => (
+                            <div key={i}>{line}</div>
+                        ))}
+                    </Message>
+                </div>
             )}
             {bulk && selected.length > 0 && (
                 <JobsBulk

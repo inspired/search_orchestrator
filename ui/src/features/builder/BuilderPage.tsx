@@ -42,6 +42,7 @@ import BuilderToolbarExtras from './BuilderToolbarExtras';
 import useFillHeight from './useFillHeight';
 import useLeaveWarning from './useLeaveWarning';
 import useClipboard from './useClipboard';
+import forgetChecklist from './forgetChecklist';
 import useSnippets from './useSnippets';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
@@ -106,6 +107,7 @@ const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
 export default function BuilderPage({ jobId: initialId = null, imported = null, api = defaultApi }: BuilderPageProps) {
+    useEffect(forgetChecklist, []);
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
     const startJob = initialId ? null : imported || null;

@@ -44,14 +44,20 @@ function whyNot(job: Job, action: JobBulkAction, me: Me | null | undefined, tag:
             if (!canEdit) {
                 return "you can't edit it";
             }
-            if (me && job.owner && job.owner !== me.user) {
+            if (!me) {
+                // Without knowing who you are, saving could make you the owner of someone else's job.
+                return "your user details haven't loaded";
+            }
+            if (job.owner && job.owner !== me.user) {
                 return `owned by ${job.owner}; adding a tag would make you its owner`;
             }
             return hasTag(job, tag) ? `already tagged ${tag}` : null;
         case 'delete':
             return canEdit ? null : "you can't edit it";
-        default:
-            return null;
+        default: {
+            const never: never = action;
+            throw new Error(`Unknown bulk action ${String(never)}`);
+        }
     }
 }
 
@@ -69,6 +75,16 @@ export function plan(jobs: Job[], action: JobBulkAction, me: Me | null | undefin
 }
 
 /** `fn` on each job in turn; a failure is reported and the rest still run. */
+/** How the result banner looks: a warning if anything failed or was skipped, info if nothing was done. */
+export type ResultTone = 'success' | 'warning' | 'info';
+
+export function resultTone(outcomes: Outcome[], skipped: Skipped[]): ResultTone {
+    if (outcomes.some((o) => !o.ok) || skipped.length) {
+        return 'warning';
+    }
+    return outcomes.length ? 'success' : 'info';
+}
+
 export async function runEach(jobs: Job[], fn: (job: Job) => Promise<unknown>): Promise<Outcome[]> {
     const out: Outcome[] = [];
     for (const job of jobs) {

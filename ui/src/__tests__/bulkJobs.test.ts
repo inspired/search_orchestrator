@@ -1,4 +1,4 @@
-import { plan, runEach } from '../features/jobs/bulkJobs';
+import { plan, resultTone, runEach } from '../features/jobs/bulkJobs';
 import { job as makeJob, me } from './fixtures';
 
 const mine = makeJob({ id: 'a', name: 'Alpha', owner: me.user, enabled: true, tags: ['x'] });
@@ -32,6 +32,14 @@ describe('bulk job plans', () => {
         expect(plan([mine], 'tag', me, 'X').skipped).toEqual([{ job: mine, reason: 'already tagged X' }]);
     });
 
+    test("add tag skips every job until you are known, so nothing changes owner by accident", () => {
+        [null, undefined].forEach((who) => {
+            const p = plan([mine, theirs], 'tag', who, 'nightly');
+            expect(p.targets).toHaveLength(0);
+            expect(p.skipped.map((s) => s.reason)).toEqual(["your user details haven't loaded", "your user details haven't loaded"]);
+        });
+    });
+
     test('delete takes jobs you can edit; export takes every job', () => {
         expect(plan([mine, theirs, readOnly], 'delete', me).targets.map((j) => j.id)).toEqual(['a', 'b']);
         expect(plan([mine, theirs, readOnly], 'export', me).targets).toHaveLength(3);
@@ -45,5 +53,12 @@ describe('bulk job plans', () => {
             { job: mine, ok: true },
             { job: theirs, ok: false, message: 'KV Store error' },
         ]);
+    });
+
+    test('result tone: warning on any skip or failure, info when nothing ran, success otherwise', () => {
+        expect(resultTone([{ job: mine, ok: true }], [])).toBe('success');
+        expect(resultTone([{ job: mine, ok: false, message: 'x' }], [])).toBe('warning');
+        expect(resultTone([], [{ job: theirs, reason: 'r' }])).toBe('warning');
+        expect(resultTone([], [])).toBe('info');
     });
 });

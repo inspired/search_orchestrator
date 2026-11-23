@@ -8,12 +8,14 @@ import Modal from '@splunk/react-ui/Modal';
 import Text from '@splunk/react-ui/Text';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Job, Me } from '../../api/types';
-import { JobBulkAction, Outcome, plan, runEach, Skipped } from './bulkJobs';
+import { JobBulkAction, Outcome, plan, resultTone, ResultTone, runEach, Skipped } from './bulkJobs';
 
 export interface JobsBulkApi {
     startRun: (jobId: string) => Promise<unknown>;
     setJobEnabled: (jobId: string, enabled: boolean) => Promise<unknown>;
     updateJob: (jobId: string, job: Job) => Promise<unknown>;
+    /** The job as saved now: Add tag saves this copy, so it doesn't undo edits made since the list loaded. */
+    getJob: (jobId: string) => Promise<Job>;
     deleteJob: (jobId: string) => Promise<unknown>;
     /** After any action: the page reloads the jobs. */
     onDone: () => void;
@@ -25,8 +27,13 @@ export interface JobsBulkProps {
     api: JobsBulkApi;
     onExport?: (jobs: Job[]) => void;
     onClear: () => void;
-    /** What happened, a line per outcome: what was done, then what was skipped or failed. */
-    onResult: (lines: string[]) => void;
+    /** What happened, a line per outcome (what was done, then what was skipped or failed), and how it looks. */
+    onResult: (result: BulkResult) => void;
+}
+
+export interface BulkResult {
+    lines: string[];
+    tone: ResultTone;
 }
 
 const jobs = (n: number) => `${n} job${n === 1 ? '' : 's'}`;
@@ -64,21 +71,28 @@ export default function JobsBulk({ selected, me, api, onExport, onClear, onResul
     const act = async (action: Exclude<JobBulkAction, 'export'>, tagText = '') => {
         const p = plan(selected, action, me, tagText);
         setWorking(true);
-        const outcomes = await runEach(p.targets, (job) => {
+        const outcomes = await runEach(p.targets, async (job) => {
             switch (action) {
                 case 'run':
                     return api.startRun(job.id);
                 case 'enable':
                 case 'disable':
                     return api.setJobEnabled(job.id, action === 'enable');
-                case 'tag':
-                    return api.updateJob(job.id, { ...job, tags: [...(job.tags || []), tagText] });
-                default:
+                case 'tag': {
+                    const latest = await api.getJob(job.id);
+                    const tags = latest.tags || [];
+                    return tags.some((t) => t.toLowerCase() === tagText.toLowerCase()) ? undefined : api.updateJob(job.id, { ...latest, tags: [...tags, tagText] });
+                }
+                case 'delete':
                     return api.deleteJob(job.id);
+                default: {
+                    const never: never = action;
+                    throw new Error(`Unknown bulk action ${String(never)}`);
+                }
             }
         });
         setWorking(false);
-        onResult(resultLines(action, outcomes, p.skipped, tagText));
+        onResult({ lines: resultLines(action, outcomes, p.skipped, tagText), tone: resultTone(outcomes, p.skipped) });
         if (outcomes.length) {
             api.onDone();
         }
@@ -115,7 +129,7 @@ export default function JobsBulk({ selected, me, api, onExport, onClear, onResul
                     <Button appearance="subtle" label="Cancel" onClick={() => setTagging(false)} />
                 </span>
             ) : (
-                <Button appearance="secondary" label="Add tag" disabled={working} onClick={() => setTagging(true)} />
+                <Button appearance="secondary" label="Add tag" disabled={working || !me} onClick={() => setTagging(true)} />
             )}
             <Button
                 appearance="destructive"

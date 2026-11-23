@@ -16,11 +16,21 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
 | [1.48.1](#1481-2026-11-21) | 2026-11-21 |
 | [1.48.0](#1480-2026-11-21) | 2026-11-21 |
 | [1.47.0](#1470-2026-11-21) | 2026-11-21 |
-| [1.46.1](#1461-2026-11-20) | 2026-11-20 |
+
+## 1.48.3 (2026-11-23)
+
+Fixes from a review of the bulk actions on the Jobs page.
+
+- **Add tag no longer makes you the owner of other people's jobs** when the page hasn't yet learned who you are (or failed to). It stays off until it knows, and every job is skipped in that case.
+- **Add tag no longer undoes recent edits.** It reads each job as saved now and adds the tag to that copy, instead of saving the copy the list loaded up to 30 seconds earlier.
+- **An unknown bulk action can't fall through to Delete.** Each action has its own case; anything else is an error.
+- **The result message has the right colour:** yellow when anything was skipped or failed, green when everything worked, and grey when nothing was done. A job named with "failed:" no longer changes it, and two jobs with the same name each get their line.
+- **The builder clears what the removed setup checklist left in the browser** (`so.checklist.hidden.*` in localStorage).
 
 ## 1.48.2 (2026-11-21)
 
