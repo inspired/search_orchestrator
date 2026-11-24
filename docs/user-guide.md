@@ -446,6 +446,9 @@ Use these in SPL, expressions and action messages:
 
 Declare each parameter with a type (string, number, enum or time) and an optional pattern. Values are checked when a run starts, and every value goes into SPL as one escaped, quoted string.
 
+- A value is at most 4,096 characters, and a pattern at most 500. A pattern that repeats a group which already repeats, such as `(a+)+`, can't be saved, because matching it can take minutes.
+- **`*` is still a wildcard.** In `user="$run.param.u$"`, the value `*` matches every user. If the people who may run the job must not widen the search, give the parameter a pattern such as `^[a-z0-9_.-]+$`, or make it a list.
+
 ### Triggers
 
 | Trigger | How |
@@ -467,6 +470,7 @@ Declare each parameter with a type (string, number, enum or time) and an optiona
   - **Run now**, `| orchestrate start`, alerts, REST and backfills run every first step. Jobs saved before 1.26.0 keep starting all their first steps until you change a trigger's lines.
 - **Time zone** is on the Settings tab, picked from a list that includes UTC. A stored zone the list lacks stays selected; the server decides if it is valid. Empty uses the server's time zone.
 - **"Completes" also fires when the upstream run is cancelled**, not only when it succeeds or fails.
+- **You can follow only a job you may see.** If the job you follow is hidden from you (or becomes hidden), the trigger never starts your job, so nobody learns when a hidden job ran.
 - Each upstream run starts the downstream job once. A chained run uses the upstream run's scheduled time.
 - **Missed runs:** if Splunk or the engine was down at a scheduled time, choose to run each missed time (up to 7), only the latest, or none.
 - **Busy times:** under a Schedule node's settings, a strip shows the *other* jobs' concurrent searches over the next 24 hours (7 days when the schedule, or a step's Run when, doesn't run every day, and the 7 days around the next run when that is further away, such as a monthly schedule), in the job's time zone, with this schedule's runs on top and a dashed line at the **Concurrent searches** limit (Settings). For a schedule with one fixed time (such as `0 2 * * *`) it may suggest a quieter start within two hours on the same day: **Use this time** changes only the minute and hour. It is only a hint: ignore or dismiss it when a job must run at a set time.
@@ -505,6 +509,8 @@ When a run that has not finished passes its deadline, it is marked late once. A 
 ### Who may run
 
 On the Access tab, list roles that may start the job. **Their runs search as you, with your access**, but only the SPL you saved. Role names you type are not checked, so check the spelling.
+
+If you lose every orchestrator role, nothing of yours runs any more, whoever starts it: each step fails and says why, until you get a role back or an admin takes the job over.
 
 ### When a step gives up
 
@@ -819,6 +825,8 @@ Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Trig
 
 ## The `| orchestrate` command
 
+The command starts, stops and approves runs as you, so Splunk treats it as risky: opened from a link or a dashboard panel, Splunk asks you before it runs.
+
 ```
 | orchestrate start job=<id> [param.<name>=<value>]... [scheduled_time=<epoch>]
 | orchestrate status [run=<run id>] [job=<id>] [limit=<n>]
@@ -838,7 +846,7 @@ Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Trig
 
 ## Audit events
 
-Every change is written to the `orchestrator` index, one JSON event per change with `type`, `_time`, `user`, `job_id` and `run_id` where they apply. **Outside the app, and on Splunk Cloud, search `index=orchestrator`**; the `orchestrator_index` macro works only inside the app.
+Every change is written to Splunk's `_audit` index with sourcetype `orchestrator:audit`, one JSON event per change with `type`, `_time`, `user`, `job_id` and `run_id` where they apply. **Outside the app, search `index=_audit sourcetype=orchestrator:audit`**; the `orchestrator_index` macro works only inside the app. Splunk's roles decide who may search `_audit`: by default only admins, so the Run health dashboard is empty for everyone else until an admin gives their role the index.
 
 | Area | Events | Extra fields |
 |---|---|---|
@@ -857,10 +865,10 @@ Every change is written to the `orchestrator` index, one JSON event per change w
 
 A technical drawing of the app: every part, which files hold it and how the parts call each other. Click a part in the first drawing to see what it does and what it talks to. The second drawing follows one run from saving the job to its last action; the table lists every Python module.
 
-In short: the pages in your browser call one REST endpoint (`/orchestrator`), which checks who you are and saves jobs in KV Store and each step as a hidden saved search. A separate engine process ticks every 5 seconds: it creates runs when a schedule is due, starts each step's saved search, checks it until it finishes, decides from the lines and conditions what runs next, and sends the actions. The pages follow along by reading the same KV Store records. Every change is an audit event in `index=orchestrator` and a line in the app's log in `_internal`. For what is kept where, see [What the app stores](#what-the-app-stores) below.
+In short: the pages in your browser call one REST endpoint (`/orchestrator`), which checks who you are and saves jobs in KV Store and each step as a hidden saved search. A separate engine process ticks every 5 seconds: it creates runs when a schedule is due, starts each step's saved search, checks it until it finishes, decides from the lines and conditions what runs next, and sends the actions. The pages follow along by reading the same KV Store records. Every change is an audit event in `_audit` and a line in the app's log in `_internal`. For what is kept where, see [What the app stores](#what-the-app-stores) below.
 
 <!-- github-only -->
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the orchestrator index" src="images/architecture-light.svg" width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the _audit index" src="images/architecture-light.svg" width="100%"></picture></p>
 <!-- /github-only -->
 
 ### What the app stores
@@ -873,7 +881,7 @@ The app keeps its own records in KV Store and runs every search through saved se
 | Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
 | Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job. |
 | Webhook URLs and headers | Splunk's password store (`storage/passwords`, realm `search_orchestrator`), never KV Store or logs |
-| Audit events | `index=orchestrator` |
+| Audit events | `index=_audit sourcetype=orchestrator:audit` (admins only, unless an admin gives your role `_audit`) |
 | The app's log | `_internal`, `search_orchestrator.*.log` |
 
 **Hidden saved searches.** Saving a job writes one saved search for each search the job runs, with the saving user's own session (that user becomes the job owner). All of them start with `_so_`:

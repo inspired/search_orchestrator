@@ -47,7 +47,7 @@ def test_package_fails_without_ui_stage(tmp_path):
 def test_package_contains_required_files(tmp_path):
     names = set(build(tmp_path).getnames())
     for rel in ["app.manifest", "README.md", "default/app.conf", "default/authorize.conf",
-                "default/collections.conf", "default/indexes.conf", "default/macros.conf",
+                "default/collections.conf", "default/macros.conf",
                 "default/props.conf", "default/inputs.conf", "README/inputs.conf.spec",
                 "metadata/default.meta", "bin/orchestrator_engine.py",
                 "default/restmap.conf", "default/web.conf", "default/savedsearches.conf",
@@ -151,7 +151,7 @@ def test_variant_package_renames_every_global_name(tmp_path):
     assert "orchestrator_approve_t1 = enabled" in authorize
     assert not re.search(r"orchestrator_approve(r_role)?\b(?!_t1)", authorize)
     assert 'APPROVE = "orchestrator_approve_t1"' in read("bin/so/authz.py")
-    assert "index = orchestrator_t1\n" in read("default/inputs.conf")
+    assert "index = _audit\n" in read("default/inputs.conf")
     assert "[commands/orchestratet1]" in read("metadata/default.meta")
     # SPL splits `orchestrate_t1` into `orchestrate` + `_t1`: command names are letters and digits.
     commands = _stanzas_text(read("default/commands.conf"))
@@ -199,3 +199,11 @@ def test_every_nav_view_has_an_icon_splunk_draws():
         icon = re.search(r'icon="([^"]*)"', attrs)
         assert icon, "no icon: %s" % attrs
         assert icon.group(1) in NAV_ICONS, "Splunk does not draw icon %r" % icon.group(1)
+
+
+def test_orchestrate_is_a_risky_command():
+    # It starts, cancels and approves runs with the caller's session: Splunk must warn
+    # before running it from a link or a dashboard someone else wrote.
+    conf = configparser.ConfigParser(interpolation=None)
+    conf.read(APP / "default" / "commands.conf")
+    assert conf["orchestrate"]["is_risky"] == "true"

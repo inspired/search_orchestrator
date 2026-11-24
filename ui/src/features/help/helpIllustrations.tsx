@@ -522,7 +522,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'audit-events': () => (
-        <Figure caption="Everything is written to index=orchestrator, one event per change.">
+        <Figure caption="Everything is written to index=_audit (sourcetype orchestrator:audit), one event per change.">
             <MiniTable
                 head={['_time', 'type', 'job_id', 'user']}
                 rows={[
@@ -565,6 +565,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     ['Each step, condition and action search', 'Hidden saved search _so_<job>_<step>_<hash>'],
                     ['Search results', "Splunk's search jobs"],
                     ['Webhook URLs and headers', 'Password store'],
+                    ['Audit events', 'index=_audit, admins only by default'],
                 ]}
             />
             <MiniTable

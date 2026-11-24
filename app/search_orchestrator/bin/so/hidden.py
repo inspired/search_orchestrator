@@ -331,15 +331,18 @@ def apply(gw, planned, searches, previous, record=None):
     return planned
 
 
-def sync(gw, job, previous, issues=None, record=None):
-    """Create the job's hidden searches with the user's session ``gw``; return the job
-    with ``hidden_search``/``mode`` per step and action and the updated
-    ``hidden_searches`` list. Issues found (warnings, or errors that skip a search)
-    are appended to ``issues``."""
-    planned, searches, found = plan(gw, job)
-    if issues is not None:
-        issues.extend(found)
-    return apply(gw, planned, searches, previous, record)
+def not_private_problem(gw, owner, name):
+    """Re-check an app-created hidden search right before the system session dispatches
+    it by name in ``owner``'s namespace: if it was deleted, another user's shared search
+    with the same name would run instead. The problem text, or None when it is the
+    owner's private search or not found at all (the dispatch then fails with a 404 and
+    says to re-save). A ``GatewayError`` is raised to the caller."""
+    info = gw.saved_search_info(owner, name)
+    if not info.get("exists") or (info.get("owner") == owner and info.get("sharing") == "user"):
+        return None
+    return ("hidden saved search %r is no longer a private search of %s (owner %s, sharing "
+            "%s), so it was not run; re-save the job to recreate it"
+            % (name, owner, info.get("owner"), info.get("sharing")))
 
 
 def used(definition, owner):

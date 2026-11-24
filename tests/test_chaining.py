@@ -206,6 +206,9 @@ def test_completion_requires_upstream_owner_may_run_target():
     assert w.audit.of("run_rejected", reason="permission", target_job="down")
     w.gw.users["alice"] = {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
     w.store.save_job(dict(down, run_roles=["ops"]))
+    # bob must also be allowed to see the job his trigger follows.
+    w.gw.users["bob"] = {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
+    w.store.save_job(dict(up, run_roles=["ops"]))
     second = w.manual(up)
     settle(w)
     assert [r["upstream"] for r in runs_of(w, "down")] == [second]
@@ -219,8 +222,9 @@ def test_persistent_user_access_error_rejects_completion_and_closes_upstream():
 
     def broken(name):
         raise GatewayError("user lookup failed: HTTP 503", status=503, transient=True)
-    w.gw.user_access = broken
     first = w.manual(up)
+    w.tick(advance=5)  # the upstream step is dispatched (its owner is checked) first
+    w.gw.user_access = broken
     settle(w, 8)
     assert not w.run(first).get("closed")  # the closing save waits for the check
     start = w.clock.t
@@ -232,3 +236,24 @@ def test_persistent_user_access_error_rejects_completion_and_closes_upstream():
     rejected = w.audit.of("run_rejected", run_id=first, reason="permission_check_failed")
     assert len(rejected) == 1 and rejected[0]["target_job"] == "down"
     assert "503" in rejected[0]["error"]
+
+
+def test_trigger_on_a_job_its_owner_cant_see_never_fires():
+    # bob follows alice's job, which bob may not see: he must not learn when it ran.
+    w, up, down = chain_world(down_owner="bob")
+    w.gw.users["alice"] = {"roles": ["admin"], "capabilities": ["orchestrator_admin"]}
+    first = w.manual(up)
+    settle(w)
+    assert w.run(first)["state"] == "succeeded"
+    assert runs_of(w, "down") == []
+    rejected = w.audit.of("run_rejected", run_id=first, reason="permission", target_job="down")
+    assert len(rejected) == 1 and "may not see job 'up'" in rejected[0]["error"]
+
+
+def test_trigger_fires_when_its_owner_may_see_the_job_it_follows():
+    w, up, down = chain_world(down_owner="bob", run_roles=["ops"])
+    w.gw.users["alice"] = {"roles": ["admin"], "capabilities": ["orchestrator_admin"]}
+    w.gw.users["bob"] = {"roles": ["ops"], "capabilities": ["orchestrator_run"]}
+    first = w.manual(up)
+    settle(w)
+    assert len(runs_of(w, "down")) == 1

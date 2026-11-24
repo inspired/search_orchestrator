@@ -66,7 +66,9 @@ DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 RESERVED_JOB_IDS = ("validate", "new")  # route keywords under jobs/; "new": unsaved previews
 DESTINATIONS_KEY = "destinations"
 ACTION_RUNS = "so_action_runs"
-AUDIT_INDEX = "orchestrator"
+AUDIT_INDEX = "_audit"
+# An HTTP header name (RFC 9110 token).
+_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$")
 RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
@@ -1368,6 +1370,14 @@ def save_destination(ctx, body):
     if headers not in (..., None) and not (isinstance(headers, dict) and all(
             isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
         raise ApiError(400, "bad_destination", "headers must be an object of strings")
+    for key, value in (headers if isinstance(headers, dict) else {}).items():
+        if not _HEADER_NAME.match(key):
+            raise ApiError(400, "bad_destination", "header name %r isn't a valid HTTP header "
+                                                   "name" % key[:40])
+        if any(ord(c) < 32 and c != "\t" or ord(c) == 127 for c in value):
+            raise ApiError(400, "bad_destination", "the value of header %s has a line break or "
+                                                   "another control character; paste it again "
+                                                   "without them" % key)
     url_ref = "destination_%s_url" % name
     ctx.sys_gw.write_secret(url_ref, url)
     headers_ref = old.get("headers_secret_ref")

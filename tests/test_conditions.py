@@ -2,7 +2,7 @@
 See docs/superpowers/specs/2026-11-17-spl-conditions-design.md."""
 import calendar
 
-from fakes import FakeGateway
+from fakes import FakeGateway, sync_hidden
 from so import hidden, model, names, state, tokens
 from so.engine import first_fields
 
@@ -63,7 +63,7 @@ def cjob(**edge):
 
 def test_eval_condition_gets_a_hidden_search():
     gw = FakeGateway()
-    out = hidden.sync(gw, cjob(expression_kind="eval", expression="$a.resultCount$ > 0"), None)
+    out = sync_hidden(gw, cjob(expression_kind="eval", expression="$a.resultCount$ > 0"), None)
     edge = out["edges"][0]
     name = edge["hidden_search"]
     assert name.startswith("_so_daily_cond_") and len(name) == len("_so_daily_cond_") + 8
@@ -75,14 +75,14 @@ def test_eval_condition_gets_a_hidden_search():
 
 def test_search_condition_default_time_range_and_content_hash():
     gw = FakeGateway()
-    one = hidden.sync(gw, cjob(expression_kind="search", expression="index=main error"), None)
+    one = sync_hidden(gw, cjob(expression_kind="search", expression="index=main error"), None)
     saved = gw.saved_searches[("alice", one["edges"][0]["hidden_search"])]
     assert (saved["search"], saved["earliest"], saved["latest"]) == ("index=main error\n| head 1",
                                                                       "-24h", "now")
-    two = hidden.sync(gw, cjob(expression_kind="search", expression="index=main error",
+    two = sync_hidden(gw, cjob(expression_kind="search", expression="index=main error",
                                earliest="-1h", latest="now"), one)
     assert two["edges"][0]["hidden_search"] != one["edges"][0]["hidden_search"]
-    hidden.sync(gw, cjob(expression_kind="search", expression="index=main error",
+    sync_hidden(gw, cjob(expression_kind="search", expression="index=main error",
                          earliest="", latest=""), two)
     assert ("index=main error\n| head 1", "", "") in {(v["search"], v["earliest"], v["latest"])
                                              for v in gw.saved_searches.values()}
@@ -90,7 +90,7 @@ def test_search_condition_default_time_range_and_content_hash():
 
 def test_simple_condition_has_no_hidden_search_and_request_value_is_dropped():
     gw = FakeGateway()
-    out = hidden.sync(gw, cjob(expression="$a.resultCount$ > 0", hidden_search="_so_evil"), None)
+    out = sync_hidden(gw, cjob(expression="$a.resultCount$ > 0", hidden_search="_so_evil"), None)
     assert "hidden_search" not in out["edges"][0]
     assert [e for e in out["hidden_searches"] if "cond" in e["name"]] == []
 
@@ -632,8 +632,8 @@ def test_engine_permanent_condition_dispatch_error_fails():
 
 def test_gc_keeps_condition_searches_in_use_and_drops_stale_ones():
     gw = FakeGateway()
-    one = hidden.sync(gw, cjob(expression_kind="eval", expression="1=1"), None)
-    two = hidden.sync(gw, cjob(expression_kind="eval", expression="2=2"), one)
+    one = sync_hidden(gw, cjob(expression_kind="eval", expression="1=1"), None)
+    two = sync_hidden(gw, cjob(expression_kind="eval", expression="2=2"), one)
     old, new = one["edges"][0]["hidden_search"], two["edges"][0]["hidden_search"]
     assert hidden.gc(two, []) == [{"owner": "alice", "name": old}]
     assert hidden.gc(two, [{"definition": one, "owner": "alice"}]) == []

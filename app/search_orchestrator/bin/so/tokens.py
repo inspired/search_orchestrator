@@ -380,6 +380,11 @@ def _normalise_number(s):
     return "0" if d == 0 else format(d.normalize(), "f")
 
 
+# A run parameter value is at most this long: it is matched against the builder's pattern
+# and put into SPL, and it may come from an alert's result row.
+PARAM_VALUE_MAX = 4096
+
+
 def validate_param(decl, value):
     """Validate a run parameter value against its declaration; return it as str.
 
@@ -411,6 +416,9 @@ def validate_param(decl, value):
             raise TokenError("run.param." + name, "not a time value: %r" % s)
     elif t != "string":
         raise TokenError("run.param." + name, "unknown parameter type %r" % t)
+    if len(s) > PARAM_VALUE_MAX:
+        raise TokenError("run.param." + name, "the value is longer than %d characters"
+                         % PARAM_VALUE_MAX)
     rx = decl.get("regex")
     if rx and not re.fullmatch(rx, s):
         raise TokenError("run.param." + name, "%r does not match the required pattern" % s)

@@ -24,7 +24,7 @@ Build jobs in three views of the same job: **Simple** (searches in order), **Sta
 - Search steps with no time range run over all time.
 - Retries and re-runs can write duplicate summary data; keep retries at 0 for steps that write.
 - Delete a job from the Jobs page (owner or admin). Cancel its active runs first.
-- Outside the app, and on Splunk Cloud, search audit events with `index=orchestrator`.
+- Outside the app, search audit events with `index=_audit sourcetype=orchestrator:audit` (admins only, by default).
 - Splunk Cloud may block outbound webhooks until an admin allows the host.
 - Custom page templates are deprecated from Splunk 10.4; migration is planned.
 

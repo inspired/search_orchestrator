@@ -36,7 +36,7 @@ from so.store import Store  # noqa: E402
 
 MAIN_STANZA = "orchestrator_engine://main"
 DEFAULT_TICK = 5
-DEFAULT_INDEX = "orchestrator"
+DEFAULT_INDEX = "_audit"
 
 log = logging.getLogger("so.engine.loop")
 

@@ -5,8 +5,10 @@ where no job is involved (a new job, or an admin-only setting).
 
 * ``orchestrator_admin`` may do everything.
 * ``orchestrator_build`` may create jobs and edit the jobs it owns.
-* Owners and members of a role listed in the job's ``run_roles`` who also
-  hold ``orchestrator_run`` may run the job and see it (its SPL and runs).
+* Owners who still hold an orchestrator capability (``may_own``), and members of a
+  role listed in the job's ``run_roles`` who also hold ``orchestrator_run``, may run
+  the job and see it (its SPL and runs). An owner whose roles were taken away loses
+  their jobs too, until an admin takes them over.
 * ``orchestrator_approve`` users who may see the job decide its approval steps
   (``can_approve``; the route also lets the user who started the run decide).
 """
@@ -22,6 +24,11 @@ def _caps(user_caps):
     return set(user_caps or ())
 
 
+def may_own(user_caps):
+    """Does a job owner still hold a capability of this app (run, build or admin)?"""
+    return bool(_caps(user_caps) & {ADMIN, BUILD, RUN})
+
+
 def can_admin(user, job, user_roles, user_caps):
     """May ``user`` manage all jobs, settings and webhook destinations?"""
     return ADMIN in _caps(user_caps)
@@ -30,14 +37,15 @@ def can_admin(user, job, user_roles, user_caps):
 def can_run(user, job, user_roles, user_caps):
     """May ``user`` start ``job``?
 
-    Yes for the job's owner, for ``orchestrator_admin`` users, and for members
-    of a role listed in the job's ``run_roles`` who also hold ``orchestrator_run``.
+    Yes for the job's owner while they hold ``may_own``, for ``orchestrator_admin``
+    users, and for members of a role listed in the job's ``run_roles`` who also hold
+    ``orchestrator_run``.
     """
     if job is None:
         return False
-    if user and user == job.get("owner"):
-        return True
     caps = _caps(user_caps)
+    if user and user == job.get("owner") and may_own(caps):
+        return True
     if ADMIN in caps:
         return True
     listed = set(job.get("run_roles") or ())

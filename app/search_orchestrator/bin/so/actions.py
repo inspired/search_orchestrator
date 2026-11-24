@@ -159,6 +159,16 @@ def _entry(index, action):
             "error": None, "next_at": 0, "sid": None, "started_at": None}
 
 
+def _secret_parts(values):
+    """Header values to keep out of error texts: each value, trimmed, and each word of six
+    or more characters (an error may quote the value escaped, such as b'Bearer x\\n')."""
+    out = []
+    for value in values:
+        value = str(value)
+        out += [value, value.strip()] + [w for w in value.split() if len(w) >= 6]
+    return out
+
+
 def _scrub(text, url, secrets=()):
     """Remove a webhook URL (and its path, query and credentials) and the body secret's
     values from an error text."""
@@ -509,6 +519,7 @@ class ActionRunner:
             raise _Fail("destination %r has no URL secret" % dest_name)
         headers = {"Content-Type": "application/json"}
         secret = {}
+        secret_values = []  # body secret and header values, scrubbed from error texts
         try:
             check_webhook_url(url)
             if dest.get("headers_secret_ref"):
@@ -517,6 +528,7 @@ class ActionRunner:
                     try:
                         extra = json.loads(raw)
                         headers.update({str(k): str(v) for k, v in extra.items()})
+                        secret_values.extend(_secret_parts(extra.values()))
                     except (ValueError, AttributeError):
                         raise _Fail("destination %r headers secret is not a JSON object"
                                     % dest_name)
@@ -527,6 +539,7 @@ class ActionRunner:
             else:
                 body = presets.render(preset or dest.get("preset") or "generic", ctx, options)
             secret = self._body_secret(dest)
+            secret_values.extend((secret or {}).values())
             if secret and isinstance(body, dict):
                 body = dict(body, **secret)
             parts = urlsplit(url)
@@ -535,15 +548,15 @@ class ActionRunner:
             try:
                 status = self.gw.post_webhook(url, headers, json.dumps(body))
             except GatewayError as err:
-                raise GatewayError(_scrub(err, url, secret.values()), status=err.status,
+                raise GatewayError(_scrub(err, url, secret_values), status=err.status,
                                    transient=err.transient)
         except _Fail:
             raise
         except GatewayError as err:
-            raise _Fail(_scrub(err, url, secret.values()), err.transient)
+            raise _Fail(_scrub(err, url, secret_values), err.transient)
         except Exception as err:  # e.g. http.client.InvalidURL, whose text has the URL
             raise _Fail("bad webhook request (%s): %s" % (type(err).__name__,
-                                                          _scrub(err, url, secret.values())))
+                                                          _scrub(err, url, secret_values)))
         self._done(row, entry, now, http_status=status, **where)
 
     def _webhook(self, row, entry, action, ctx, now):
@@ -619,6 +632,9 @@ class ActionRunner:
         self._dispatch(row, entry, row["owner"], name, args, now)
 
     def _dispatch(self, row, entry, owner, name, args, now):
+        problem = hidden.not_private_problem(self.gw, owner, name)
+        if problem is not None:
+            raise _Fail(problem)
         escaped = {k: tokens.escape_spl_string(v) for k, v in args.items()}
         sid = self.gw.dispatch(owner, name, int(row.get("scheduled_time") or now), escaped,
                                trigger_actions=False)

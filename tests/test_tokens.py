@@ -250,3 +250,13 @@ def test_fill_replaces_args_only():
         assert tk.fill(tk.step_spl(step, ["p"])[0], {"so_input": tk.input_spl(sids)}) == full
     assert tk.empty_step_spl(step, ["p"])[0] == "| makeresults | where 1=0 | stats count"
     assert tk.fill('"$args.other$"', {"so_input": "x"}) == '"$args.other$"'
+
+
+def test_param_value_longer_than_the_limit_is_refused_before_its_pattern():
+    import pytest as _pt
+    from so.tokens import PARAM_VALUE_MAX, TokenError as _TE
+    decl = {"name": "s", "type": "string", "regex": "^.*$"}
+    assert validate_param(decl, "x" * PARAM_VALUE_MAX) == "x" * PARAM_VALUE_MAX
+    with _pt.raises(_TE) as err:
+        validate_param(decl, "x" * (PARAM_VALUE_MAX + 1))
+    assert "longer than" in err.value.reason

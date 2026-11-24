@@ -704,7 +704,7 @@ def test_health_reports_missing_index(w):
     w.gw.indexes.clear()
     out = w.call("alice", "GET", "/orchestrator/health")[1]["health"]
     assert out["index_present"] is False and any("index" in m for m in out["messages"])
-    assert out["audit_index"] == "orchestrator"  # the screens show the name from here
+    assert out["audit_index"] == "_audit"  # the screens show the name from here
 
 
 def test_route_keyword_job_ids_reserved(w):
@@ -2443,3 +2443,13 @@ def test_tags_route_checks_rights_and_tags(w):
         status, out = w.call("alice", "POST", "/orchestrator/jobs/daily/tags", bad)
         assert status == 400, bad
     assert not w.store.get_job("daily").get("tags")
+
+
+def test_destination_header_with_a_line_break_is_refused(w):
+    for headers in ({"Authorization": "Bearer tok\n"}, {"X-A\r\nX-B": "v"}, {"X": "a\x00b"},
+                    {"": "v"}):
+        status, out = w.call("root", "POST", "/orchestrator/destinations",
+                             {"name": "ops", "url": "https://hooks.example.com/x",
+                              "headers": headers})
+        assert status == 400 and error(out) == "bad_destination", headers
+    assert w.gw.secrets == {}

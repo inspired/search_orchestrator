@@ -46,7 +46,7 @@ The app's pages use custom Mako page templates so they work on Splunk Enterprise
 > [!TIP]
 > The engine is a modular input, `orchestrator_engine://main`, enabled by default. It starts on its own; there is no external scheduler. Run `| orchestrate selftest` as an admin to check the install (see [Self-test](#self-test)).
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the orchestrator index" src="images/architecture-light.svg" width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the _audit index" src="images/architecture-light.svg" width="100%"></picture></p>
 
 ## Upgrading from 1.0.x
 
@@ -74,6 +74,8 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 
 **Who sees what.** Admins see everything. Anyone else sees the jobs they own or may run, including those jobs' SPL and run history.
 
+**Taking someone's roles away stops their jobs.** An owner needs `orchestrator_run`, `orchestrator_build` or `orchestrator_admin` to see, start or control their own jobs. The engine checks the owner before each step starts. If none of these is left, the step fails with "the job owner … no longer has orchestrator_run, orchestrator_build or orchestrator_admin" and nothing of theirs runs: schedules, completion triggers and "Who may run" members included. Give the role back, or have an admin take the job over (see [Orphaned owners](#orphaned-owners)).
+
 ## How steps run (security)
 
 > [!IMPORTANT]
@@ -83,7 +85,10 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 - **"Who may run" lends the owner's access.** A job can list roles that may start it. Members of those roles (who also hold `orchestrator_run`) start searches that run **as the owner**, with the owner's access. They can only run the SPL the owner saved, and run parameters are type-checked. Every token, including values taken from search results, is substituted as one escaped, quoted SPL string, so it can't inject SPL commands or field names. The builder says this next to the setting.
 - **Role names typed into "who may run" are not checked.** The picker offers the builder's own roles and accepts typed names. A typo saves fine and simply matches nobody.
 - **An admin who saves someone else's job becomes its owner.** This is audited, and the builder asks first. It stops anyone changing SPL that runs under another person's identity.
-- **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10.
+- **Job-to-job chaining** (start-job actions and completion triggers) checks that the upstream job's owner may run the target job, and stops after a chain depth of 10. A completion trigger also fires only if the following job's owner may see the job it follows, so nobody learns when a job hidden from them ran or how it ended. Otherwise the upstream run's audit has `run_rejected` with `reason=permission`.
+- **Hidden searches are checked before each run.** The engine starts them by name with its own session in the owner's namespace. Just before each step, SPL condition or search action, it checks that the search is still the owner's private search. If someone replaced it with a shared search of the same name, it isn't run, and the error says to re-save the job.
+- **`| orchestrate` is a risky command** (`is_risky` in `commands.conf`). It starts, cancels, re-runs and approves with the caller's own session, so Splunk warns before running it from a link or from a dashboard panel instead of running it silently.
+- **Wildcards in parameters.** Escaping stops SPL injection, but `*` in a quoted search term is still a wildcard: `user="$run.param.u$"` with the value `*` matches every user. If a "Who may run" member must not widen a search like this, give the parameter a pattern (such as `^[a-z0-9_.-]+$`) or make it a list.
 - **Secrets.** Webhook URLs and headers are kept in Splunk's credential store (`storage/passwords`). The Settings page never shows them again after saving.
 - **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job. `so_backfills` holds one document per backfill (its planned run times and progress). Backfill documents are kept; they are not pruned with run records or removed when the job is deleted. `so_snippets` holds one document per snippet, kept until its owner or an admin deletes it. **Every builder (and admin) can see and insert every snippet, including its searches**, whoever owns it; only the owner or an admin renames or deletes one. A snippet holds no secrets, because actions name a destination and its URL and headers stay in the secret store. `so_follows` holds one document per person following a job (the events and how to tell them), removed with the job.
 - **Following a job.** Anyone who may see a job may follow it. Email goes only to the address on the follower's own Splunk account, read when it is sent (the account's `email`), through the fallback notification's system search, so a follower can't send mail to an address of their choosing; the message carries the job, outcome and run link, never results. Webhook destinations can be picked only by builders and admins. Each message is checked at send time: a follower who can no longer see the job gets nothing.
@@ -125,7 +130,7 @@ The same section is on the app's **Help** page, under How it works.
 | Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
 | Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job |
 | Webhook URLs and headers | Splunk's password store (`storage/passwords`, realm `search_orchestrator`), never KV Store or logs |
-| Audit events | `index=orchestrator` |
+| Audit events | `index=_audit sourcetype=orchestrator:audit` |
 | The app's log | `_internal`, `search_orchestrator.*.log` |
 
 ### Hidden saved searches
@@ -190,7 +195,7 @@ Jobs that already use it keep running, and can still be edited and saved with it
 
 Admins define each destination once: a name, an `https://` URL, a body format (Generic JSON, Slack, Microsoft Teams, PagerDuty or ServiceNow) and optional headers such as `Authorization`. Job builders pick from the list by name and never see the URL. This keeps secrets out of jobs and stops builders pointing the search head at internal addresses.
 
-The URL and headers are write-only. The page shows only whether each is set. To change a destination, use **Replace** and enter the URL again; leave the headers empty to keep them, or remove them. A destination used as the fallback can't be deleted until the fallback changes.
+The URL and headers are write-only. The page shows only whether each is set. A header name must be a valid HTTP header name, and a value with a line break or another control character is refused (a pasted token often ends in one); header values never appear in error texts. To change a destination, use **Replace** and enter the URL again; leave the headers empty to keep them, or remove them. A destination used as the fallback can't be deleted until the fallback changes.
 
 Body formats:
 
@@ -206,11 +211,12 @@ A delay, failure or late run is never meant to be silent. When a job has no fail
 
 ## Audit index
 
-The engine writes every state change as JSON to the `orchestrator` index (sourcetype `orchestrator:audit`): jobs saved, runs and steps changing state, actions, permission denials and ownership changes.
+The engine writes every state change as JSON to Splunk's own `_audit` index, sourcetype `orchestrator:audit`: jobs saved, runs and steps changing state, actions, permission denials and ownership changes.
 
-- **Enterprise:** the app ships `indexes.conf` for the index.
-- **Splunk Cloud:** create an event index named `orchestrator` yourself (**Settings > Indexes**). The app keeps working without it, because the screens read from KV Store, but audit events are lost and Settings shows a warning.
-- Inside the app, search with the `orchestrator_index` macro. The macro isn't shared outside the app, so **outside the app, and on Cloud, search `index=orchestrator` directly.**
+- **Who may search it is set by Splunk's roles.** By default only `admin` (and `sc_admin` on Cloud) may search `_audit`. To let others read the audit events, or the Run health dashboard, add `_audit` to their role's allowed indexes (**Settings > Roles > Indexes**). The events name jobs, owners, steps, errors and approvals of every job, so give it only to people who may see all of that.
+- **No index to create**, on Enterprise or Cloud: `_audit` always exists.
+- Inside the app, search with the `orchestrator_index` macro. The macro isn't shared outside the app, so **outside the app, search `index=_audit sourcetype=orchestrator:audit` directly.**
+- **Upgrading from 1.49 or earlier:** events written before 1.50.0 stay in the old `orchestrator` index until its retention removes them. The app no longer ships that index: on Enterprise, an upgrade leaves the old `default/indexes.conf` in place, so the index and its events stay searchable until you remove that file; on Cloud, delete the index when you no longer need it. Restrict who may search it in the meantime, because every user can.
 
 Run records (each run with its step attempts and action rows) are pruned from KV Store after the retention period; audit events stay for the index's own retention.
 
@@ -260,7 +266,7 @@ The job editor can run a step and show its rows. See [Previewing steps](user-gui
 - **Runtime cap:** the smaller of the step's max runtime and 600 seconds.
 - **Rows:** the search isn't row-capped, so later previews read all rows. The table shows 100.
 - **No actions.** A preview never sends actions. A saved-search step runs through the `| savedsearch` wrapper, so its own alert actions and summary indexing don't run.
-- **Audit:** every preview writes `type=preview_dispatched` to `index=orchestrator`, with the job, step and sid.
+- **Audit:** every preview writes `type=preview_dispatched` to the audit index (`_audit`), with the job, step and sid.
 - **Past runs as input:** a preview reads the run's step results with `loadjob`. They expire after the run's result retention (24 hours by default); the editor greys out runs past it. A step result Splunk won't show the caller (another owner's run, for a user Splunk doesn't let read it) fails with 403 `run_results_forbidden`, not "expired". To tell the two apart, the handler asks splunkd with the system session only whether that recorded sid still exists.
 
 To see current previews:
@@ -281,7 +287,7 @@ The Jobs page shows **Delete** to users who may edit the job: its owner (with `o
 
 ## Orphaned owners
 
-If a job owner's Splunk account is removed, that job's runs fail with a clear error. To recover, an admin opens the job in the builder and saves it. The admin becomes the owner (the builder asks first, and the change is audited), and the job's searches run as the admin from then on. The admin can then hand the job to someone else by having that person save it, if they hold `orchestrator_admin`, or by rebuilding it under their account.
+If a job owner's Splunk account is removed, or loses every orchestrator capability, that job's runs fail with a clear error. To recover, an admin opens the job in the builder and saves it. The admin becomes the owner (the builder asks first, and the change is audited), and the job's searches run as the admin from then on. The admin can then hand the job to someone else by having that person save it, if they hold `orchestrator_admin`, or by rebuilding it under their account.
 
 ## Self-test
 
@@ -302,7 +308,7 @@ A job runs one run at a time, so a self-test run waits while another run of the 
 
 - jobs `so_selftest`, `so_selftest_rollup_late` and `so_selftest_rollup_fail` (the probe also saves `so_selftest`), with their runs;
 - their hidden saved searches (`_so_so_selftest_...`), private to the admin who ran the test;
-- audit events and `collect`ed test events in the `orchestrator` index;
+- audit events in `_audit`, and the `collect`ed test events of its Event actions in `main`;
 - the probe's scratch documents are written to the `so_selftest` KV Store collection and deleted straight away.
 
 To remove them, use **Delete** on the Jobs page for each `so_selftest*` job. Deleting a job also deletes its hidden saved searches. A job with active or queued runs can't be deleted; cancel those runs first. The REST equivalent is `DELETE /services/orchestrator/jobs/<id>`.
@@ -370,3 +376,5 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 - A backfill holds at most 100 runs over at most 400 days, with 1 to 5 queued at once. Deadlines apply only to on-time scheduled runs and runs started by another job.
 - Version history keeps the newest 50 versions of each job; older ones are pruned and audited as `job_versions_pruned`.
 - No per-step workload pool: the dispatch endpoint rejected it.
+- A run parameter value is at most 4,096 characters, and a parameter's pattern at most 500. A pattern that repeats a group which already repeats, such as `(a+)+`, is refused when the job is saved, because matching a long value against it can stall the server.
+- Job ids are unique across all users: saving a new job whose id is taken says so even when the existing job is hidden from you.

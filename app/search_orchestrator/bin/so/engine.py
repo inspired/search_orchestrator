@@ -277,6 +277,7 @@ class Engine:
         self._said_now = set()
         self._skip = None
         self._beat = {"at": None, "ticks": 0, "slowest": 0}
+        self._owner_caps = {}  # owner -> capabilities, looked up once per tick
 
     # -- the tick -------------------------------------------------------------
 
@@ -366,6 +367,7 @@ class Engine:
         settings = self._settings()
         logs.set_level(settings.get("log_level"))
         self._said_now = set()
+        self._owner_caps = {}
         jobs = {}
         for job in self.store.list_jobs():
             jobs[job.get("id") or job.get("_key")] = job
@@ -886,6 +888,10 @@ class Engine:
         depth = int(run.get("chain_depth") or 0) + 1
         owner = run.get("owner")
         access = None
+        seen = {}  # follower owner -> access
+        definition = run.get("definition") or {}
+        upstream_job = self._jobs.get(run.get("job_id")) or {
+            "owner": owner, "run_roles": definition.get("run_roles") or []}
         for job_id, job, entry in targets:
             key = scheduler.run_key(job_id, "completion", run["scheduled_time"], upstream, rerun)
             if self.store.get_run(key) is not None:
@@ -909,6 +915,22 @@ class Engine:
                     run, "run_rejected", now, reason="permission", target_job=job_id,
                     trigger="completion", error="owner %r may not run job %r" % (owner, job_id)))
                 continue
+            # The follower's owner must be allowed to see the job it follows, or its runs
+            # would tell them when a job hidden from them ran, and how it ended.
+            follower = job.get("owner")
+            if follower and follower != owner:
+                if follower not in seen:
+                    seen[follower] = self._completion_access(run, follower, now)
+                theirs = seen[follower]
+                if theirs.get("error") or not authz.can_view(
+                        follower, upstream_job, theirs["roles"], theirs["capabilities"]):
+                    pending.events.append(self._event(
+                        run, "run_rejected", now, reason="permission", target_job=job_id,
+                        trigger="completion",
+                        error="owner %r of job %r may not see job %r, which it follows"
+                              % (follower, job_id, run.get("job_id"))
+                              + (": %s" % theirs["error"] if theirs.get("error") else "")))
+                    continue
             try:
                 created = scheduler.create_run(
                     self.store, job, "completion", run["scheduled_time"], {}, upstream=upstream,
@@ -1280,10 +1302,11 @@ class Engine:
                 return self._attempt_failed(run, sid, "Could not confirm whether the results of "
                                             "step %s are still available" % up, now, pending)
             return None  # stays starting; checked again next tick
-        if sdef.get("mode") == "direct":
-            problem = self._direct_problem(run, name)
-            if problem is not None:
-                return self._attempt_failed(run, sid, problem, now, pending)
+        problem = self._owner_problem(run, st, now) or (
+            self._direct_problem(run, name) if sdef.get("mode") == "direct"
+            else self._hidden_problem(run, name))
+        if problem is not None:
+            return self._attempt_failed(run, sid, problem, now, pending)
         try:
             args = self._render_args(run, sdef, now)
         except tokens.TokenError as err:
@@ -1332,6 +1355,41 @@ class Engine:
                                           owner=run.get("owner"),
                                           dispatch_now=int(run["scheduled_time"])))
         return None
+
+    def _owner_problem(self, run, st, now):
+        """The run's owner must still hold a capability of this app, or nothing of theirs
+        is run (their roles were taken away). Looked up once per tick per owner; a
+        transient lookup error leaves the step starting, checked again next tick, until
+        UNKNOWN_LIMIT seconds have passed. None if the owner may run it."""
+        owner = run.get("owner")
+        if not owner:
+            return None
+        if owner not in self._owner_caps:
+            try:
+                self._owner_caps[owner] = self.gw.user_access(owner).get("capabilities") or []
+            except GatewayError as err:
+                _check_auth(err)
+                if err.transient and not self._unknown_expired(st, now):
+                    raise
+                return "could not check the job owner %r before running the step: %s" % (owner, err)
+        if authz.may_own(self._owner_caps[owner]):
+            return None
+        if self.gw.user_exists(owner) is False:
+            return None  # the dispatch says the owner no longer exists, with what to do
+        return ("the job owner %r no longer has orchestrator_run, orchestrator_build or "
+                "orchestrator_admin, so nothing of theirs is run; give them a role with one "
+                "of these back, or an admin can take ownership of the job" % owner)
+
+    def _hidden_problem(self, run, name):
+        """``hidden.not_private_problem`` for a step's search; a transient lookup error
+        leaves the step starting, checked again next tick."""
+        try:
+            return hidden.not_private_problem(self.gw, run.get("owner"), name)
+        except GatewayError as err:
+            _check_auth(err)
+            if err.transient:
+                raise
+            return "could not check saved search %r before running it: %s" % (name, err)
 
     def _direct_problem(self, run, name):
         """Re-check a direct-mode saved search with the system session right before its
@@ -1522,6 +1580,9 @@ class Engine:
         except tokens.TokenError as err:
             return self._condition_done(run, key, "failed", now, pending,
                                         error="token %s: %s" % (err.token, err.reason))
+        problem = self._hidden_problem(run, name)
+        if problem is not None:
+            return self._condition_done(run, key, "failed", now, pending, error=problem)
         earliest, latest = hidden.condition_time_range(edge)
         self._keep_lease(force=True)
         try:

@@ -61,3 +61,10 @@ def test_can_approve_truth_table():
     assert authz.can_approve("gina", JOB, LEADS, ["ops", "ops-leads"], APPROVE)
     assert not authz.can_approve("carol", JOB, GATE, ["ops"], RUN)  # no capability
     assert not authz.can_approve("erin", None, GATE, ["ops"], APPROVE)
+
+
+def test_owner_who_lost_every_orchestrator_capability_cannot_run_or_see_it():
+    assert not authz.can_run("alice", JOB, ["user"], [])
+    assert not authz.can_view("alice", JOB, ["user"], ["search"])
+    assert authz.can_run("alice", JOB, ["user"], RUN)
+    assert authz.may_own(RUN) and authz.may_own(["orchestrator_build"]) and not authz.may_own([])

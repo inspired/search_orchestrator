@@ -85,7 +85,7 @@ def test_run_links_and_state_colours():
 def test_macros_and_nav():
     conf = configparser.ConfigParser(interpolation=None)
     conf.read(MACROS)
-    assert conf["orchestrator_index"]["definition"] == "index=orchestrator"
+    assert conf["orchestrator_index"]["definition"] == 'index=_audit sourcetype="orchestrator:audit"'
     internal = conf["orchestrator_internal"]["definition"]
     assert internal.startswith("index=_internal ") and '"orchestrator_engine.py"' in internal
     assert conf["orchestrator_engine_process"]["definition"].startswith("index=_introspection ")

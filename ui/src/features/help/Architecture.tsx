@@ -88,7 +88,7 @@ export const PARTS: Part[] = [
     { id: 'secrets', label: 'Secrets', sub: 'storage/passwords', layer: 'storage', x: 600, y: 448, w: 284, files: ['storage/passwords (realm search_orchestrator)'], text: 'Webhook URLs and headers are kept encrypted in Splunk\'s password store, never in KV Store or logs.' },
     { id: 'search', label: 'Search jobs', sub: 'dispatch and poll', layer: 'splunk', x: 16, y: 502, w: 168, files: ['saved/searches/<name>/dispatch', 'search/jobs/<sid>'], text: 'Splunk runs each step as a normal search job. The engine polls its status every tick and reads the result count and the first row for tokens.' },
     { id: 'out', label: 'Outside the app', sub: 'email, webhook, lookup', layer: 'splunk', x: 192, y: 502, w: 168, files: ['sendemail', 'Slack, Teams, PagerDuty, ServiceNow, webhooks', 'outputlookup, collect'], text: 'Where actions land: emails, webhook posts (with presets), lookups, summary indexes, events, alert actions, and other jobs started by a chain.' },
-    { id: 'audit', label: 'index=orchestrator', sub: 'audit events', layer: 'splunk', x: 368, y: 502, w: 168, files: ['so/audit.py', 'default/indexes.conf'], text: 'One JSON event per change: job saved, run created, step dispatched, approval decided, action done, and more. The run health dashboard and your own searches read it.' },
+    { id: 'audit', label: 'index=_audit', sub: 'audit events', layer: 'splunk', x: 368, y: 502, w: 168, files: ['so/audit.py', 'default/inputs.conf'], text: 'One JSON event per change (sourcetype orchestrator:audit): job saved, run created, step dispatched, approval decided, action done, and more. Splunk\'s own audit index, so by default only admins may search it. The run health dashboard and your own searches read it.' },
     { id: 'internal', label: '_internal', sub: 'app log files', layer: 'splunk', x: 544, y: 502, w: 168, files: ['so/logs.py', '$SPLUNK_HOME/var/log/splunk/search_orchestrator.<process>.log', 'default/savedsearches.conf (health alerts)'], text: 'The troubleshooting logs: one key=value file per process (engine, rest), sourcetype orchestrator:log. Every audit event (failures at WARNING), request and error, why a job did not start (schedule_skipped, schedule_missed, run_waiting, step_waiting, completion_not_fired), the engine heartbeat and, at debug level, each tick, search status and splunkd call. Three app health alerts (savedsearches.conf, off until an admin turns them on) watch these lines: engine not running, missed schedules, errors.' },
     { id: 'intro', label: '_introspection', sub: 'and _audit: CPU, time', layer: 'splunk', x: 720, y: 502, w: 164, files: ['index=_introspection', 'index=_audit'], text: 'Read on request for the Performance tab: peak CPU and memory of each search process, and run numbers for old steps.' },
 ];
@@ -415,7 +415,7 @@ export const MODULES: Array<[string, string, string]> = [
     ['so/actions.py · presets.py · alert_forms.py', 'Engine', 'The action outbox: email, webhooks with presets, lookups, summary index, events, alert actions, start job.'],
     ['so/gateway.py', 'Storage', 'Every call to splunkd: KV Store, saved searches, search jobs, secrets, email.'],
     ['so/store.py', 'Storage', 'The so_* collections as functions: jobs, runs, step runs, commands, settings.'],
-    ['so/audit.py', 'Storage', 'Audit events to index=orchestrator (and a copy to the log file).'],
+    ['so/audit.py', 'Storage', 'Audit events to index=_audit, sourcetype orchestrator:audit (and a copy to the log file).'],
     ['so/selftest.py', 'Tools', 'Built-in self-test jobs and the server probe (| orchestrate selftest).'],
 ];
 
@@ -481,7 +481,7 @@ export default function Architecture() {
                     <div style={h}>The life of a run</div>
                     <LifeOfARun />
                     <figcaption style={{ marginTop: '6px', fontSize: '12px', color: t.contentColorMuted }}>
-                        Every numbered change also writes an audit event to index=orchestrator and a line to the app&apos;s log in _internal.
+                        Every numbered change also writes an audit event to index=_audit and a line to the app&apos;s log in _internal.
                     </figcaption>
                 </figure>
             )}

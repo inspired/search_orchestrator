@@ -362,6 +362,49 @@ def test_orphaned_owner_fails_with_clear_error():
     assert "owner 'alice'" in a["error"] and "no longer exists" in a["error"]
 
 
+def test_owner_without_orchestrator_capabilities_fails_the_step_and_runs_nothing():
+    w = World()
+    j = w.add_job(make_job())
+    w.gw.users["alice"] = {"roles": ["user"], "capabilities": ["search"]}
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "failed" and not w.gw.dispatch_log
+    assert "owner 'alice'" in a["error"] and "orchestrator_run" in a["error"]
+
+
+def test_owner_access_lookup_that_fails_for_a_moment_keeps_the_step_waiting():
+    w = World()
+    j = w.add_job(make_job())
+    real = w.gw.user_access
+    calls = {"n": 0}
+
+    def flaky(name):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise GatewayError("busy", 503, True)
+        return real(name)
+    w.gw.user_access = flaky
+    run_id = cron_run(w, j)
+    assert w.step(run_id, "a")["state"] != "failed" and not w.gw.dispatch_log
+    w.tick(advance=5)
+    assert w.gw.dispatch_log
+
+
+def test_hidden_search_replaced_by_someone_elses_shared_search_is_not_run():
+    w = World()
+    j = w.add_job(make_job())
+    name = j["steps"][0]["hidden_search"]
+    w.gw.delete_saved_search("alice", name)
+    w.gw.upsert_saved_search("mallory", name, "| makeresults", "", "")
+    w.gw.saved_searches[("mallory", name)]["sharing"] = "global"
+    run_id = cron_run(w, j)
+    w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "failed" and not w.gw.dispatch_log
+    assert "mallory" in a["error"] and "re-save" in a["error"]
+
+
 def test_transient_dispatch_error_is_retried_without_using_retries():
     w = World()
     j = w.add_job(make_job())
@@ -1757,3 +1800,19 @@ def test_direct_mode_never_adopts_a_job_from_the_searchs_own_schedule():
     kind, _ = w.engine._adopt(run, "a", sdef, T0 + 3, enginemod._Pending())
     assert kind == "unknown"
     assert not w.audit.of("step_adopted", run_id=run_id)
+
+
+def test_owner_access_lookup_that_keeps_failing_fails_the_step_in_the_end():
+    w = World()
+    j = w.add_job(make_job())
+
+    def broken(name):
+        raise GatewayError("busy", 503, True)
+    w.gw.user_access = broken
+    run_id = cron_run(w, j)
+    start = w.clock.t
+    while w.clock.t < start + enginemod.UNKNOWN_LIMIT + 10:
+        w.tick(advance=5)
+    a = w.step(run_id, "a")
+    assert a["state"] == "failed" and "could not check the job owner" in a["error"]
+    assert not w.gw.dispatch_log

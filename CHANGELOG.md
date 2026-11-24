@@ -16,11 +16,26 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.50.0](#1500-2026-11-24) | 2026-11-24 |
 | [1.49.0](#1490-2026-11-24) | 2026-11-24 |
 | [1.48.4](#1484-2026-11-23) | 2026-11-23 |
 | [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
-| [1.48.0](#1480-2026-11-21) | 2026-11-21 |
+
+## 1.50.0 (2026-11-24)
+
+Fixes from a security review of the server.
+
+- **Audit events move to Splunk's `_audit` index** (sourcetype `orchestrator:audit`), so Splunk's own roles decide who may read them: by default only admins. Until now every user could search `index=orchestrator`, including events about jobs hidden from them. The app no longer ships an index. Search `index=_audit sourcetype=orchestrator:audit` outside the app; the `orchestrator_index` macro and the Run health dashboard follow on their own. To let others see Run health, give their role `_audit`. Events written before 1.50.0 stay in the old index until its retention removes them (see the admin guide's Audit index section).
+- **`| orchestrate` is marked as a risky command,** so Splunk asks before running it from a link or a dashboard panel. Before, a crafted link could make an approver approve a step, or an admin start or cancel runs, just by opening it.
+- **Taking someone's orchestrator roles away now stops their jobs.** An owner needs `orchestrator_run`, `orchestrator_build` or `orchestrator_admin` to see, start or control their own jobs, and the engine checks the owner before each step: their schedules, completion triggers and "Who may run" members no longer run searches as them.
+- **A completion trigger fires only if its job's owner may see the job it follows,** so nobody learns when a hidden job ran or how it ended.
+- **Hidden searches are checked before every run.** If a job's `_so_` search was replaced by someone else's shared search of the same name, the step, SPL condition or search action isn't run, and the error says to re-save the job.
+- **Webhook headers:** a header value with a line break or another control character, and a header name that isn't valid, are refused when the destination is saved. Header values are also removed from error texts, which before could show a token pasted with a trailing newline to everyone who could see the run.
+- **The Runs timeline** (`GET schedule`) needs one of the app's capabilities, like the Calendar.
+- **Limits:** a run parameter value is at most 4,096 characters and a pattern at most 500, and a pattern that repeats a group that already repeats, such as `(a+)+`, can't be saved, so a value can't stall the server.
+- The self-test's Event actions write to `main`. `hidden.sync`, which nothing used, is gone.
+- Docs: wildcards in parameters (`*` still matches everything, so use a pattern), job ids being unique across all users, and the new checks.
 
 ## 1.49.0 (2026-11-24)
 
