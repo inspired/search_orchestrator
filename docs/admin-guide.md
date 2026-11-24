@@ -329,6 +329,9 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 |---|---|
 | `jobs`, `jobs/<id>` | GET, POST, PUT, DELETE (GET adds `next_run`, `last_run`, `recent_runs` and `warnings`, such as `missing_target_job`, `disabled_target_job` and `missing_upstream_job`; these and `permissions` are ignored when sent back with a save) `GET jobs` takes `q` (part of a name); with `limit` (at most 50) and `offset` it returns one page and `total`; `brief=1` leaves out next and last runs. |
 | `jobs/validate` | POST |
+| `jobs/<id>` (PUT) | A save may send `_base_revision`, the job's `revision` when the editor opened it. If the job changed since (a save, enable or disable, or tags), the answer is 409 `job_changed` with `revision`, `updated_by` and `updated_at`, and nothing is saved. Without it, the save overwrites, as before. Every job has a `revision`, counted by the server; jobs saved before 1.49.0 start at 0. |
+| `jobs/<id>/enabled` | POST (`enabled` true or false; keeps the owner and the definition) |
+| `jobs/<id>/tags` | POST (`add` and `remove`, lists of tags, matched ignoring case; keeps the owner and the definition; 400 `bad_tags` when the result breaks the tag rules. Audit event `job_tags_changed` with `added` and `removed`) |
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
 | `runs`, `runs/<id>` | GET. `GET runs` takes `q` (part of a job's name, or an exact job ID), `job_id`, `state` and `limit`. |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |

@@ -15,7 +15,7 @@ CREATED = "Created the job"
 INSERT_TRIES = 5
 
 _SERVER_FIELDS = ("_key", "_user", "owner", "hidden_searches", "created_at", "created_by",
-                  "updated_at", "updated_by",
+                  "updated_at", "updated_by", "revision",
                   # Screen fields that 1.35.0-1.35.2 could store with a save.
                   "permissions", "next_run", "next_run_beyond", "last_run", "recent_runs",
                   "warnings", "following")

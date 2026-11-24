@@ -308,6 +308,24 @@ def _output_ok(out):
             and all(isinstance(v, (str, bool)) for v in out.values()))
 
 
+def tag_problems(tags):
+    """What is wrong with a job's ``tags`` (None is fine), as messages."""
+    out = []
+    if tags is None:
+        return out
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return ["tags must be a list of words"]
+    if len(tags) > MAX_TAGS:
+        return ["a job can have at most %d tags; remove some" % MAX_TAGS]
+    for t in tags:
+        if not TAG_RE.fullmatch(t):
+            out.append("tag %r isn't valid: use 1-40 letters, digits, spaces, _ . or -, "
+                       "starting with a letter or digit" % t)
+    if len({t.lower() for t in tags}) != len(tags):
+        out.append("a tag is listed twice; give each tag once")
+    return out
+
+
 def _shape_issues(job):
     out = []
 
@@ -324,19 +342,8 @@ def _shape_issues(job):
         bad("defaults must be an object")
     if job.get("timezone") is not None and not isinstance(job["timezone"], str):
         bad("timezone must be a string")
-    tags = job.get("tags")
-    if tags is not None:
-        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
-            bad("tags must be a list of words")
-        elif len(tags) > MAX_TAGS:
-            bad("a job can have at most %d tags; remove some" % MAX_TAGS)
-        else:
-            for t in tags:
-                if not TAG_RE.fullmatch(t):
-                    bad("tag %r isn't valid: use 1-40 letters, digits, spaces, _ . or -, "
-                        "starting with a letter or digit" % t)
-            if len({t.lower() for t in tags}) != len(tags):
-                bad("a tag is listed twice; give each tag once")
+    for msg in tag_problems(job.get("tags")):
+        bad(msg)
     if job.get("deadline") is not None and not isinstance(job["deadline"], dict):
         out.append(_issue("error", "bad_deadline", deadlinemod.shape_issues(job["deadline"])[0]))
 

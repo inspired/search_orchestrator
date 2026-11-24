@@ -12,8 +12,7 @@ function bulkApi(over: Partial<JobsBulkApi> = {}): JobsBulkApi {
     return {
         startRun: jest.fn(() => Promise.resolve()),
         setJobEnabled: jest.fn(() => Promise.resolve()),
-        updateJob: jest.fn(() => Promise.resolve()),
-        getJob: jest.fn((id: string) => Promise.resolve(jobs.find((j) => j.id === id) as never)),
+        addTags: jest.fn(() => Promise.resolve()),
         deleteJob: jest.fn(() => Promise.resolve()),
         onDone: jest.fn(),
         ...over,
@@ -81,7 +80,7 @@ describe('Jobs bulk actions', () => {
         await waitFor(() => expect(api.deleteJob).toHaveBeenCalledWith('a'));
     });
 
-    test('Add tag adds it to your own jobs', async () => {
+    test('Add tag changes only the tags, on every job you may edit, whoever owns it', async () => {
         const api = bulkApi();
         show(api);
         tick('Alpha');
@@ -90,29 +89,10 @@ describe('Jobs bulk actions', () => {
         fireEvent.click(within(bar).getByRole('button', { name: 'Add tag' }));
         fireEvent.change(within(bar).getByRole('textbox', { name: 'Tag' }), { target: { value: 'nightly' } });
         fireEvent.click(within(bar).getByRole('button', { name: 'Add' }));
-        await waitFor(() => expect(api.updateJob).toHaveBeenCalledTimes(1));
-        expect(api.updateJob).toHaveBeenCalledWith('a', expect.objectContaining({ tags: ['nightly'] }));
-        expect(await screen.findByText('Skipped Beta: owned by bob; adding a tag would make you its owner.')).toBeInTheDocument();
-    });
-
-    test('Add tag saves the latest copy of the job, not the one in the list', async () => {
-        const fresh = { ...alpha, enabled: false, tags: ['ops'], description: 'edited a moment ago' };
-        const api = bulkApi({ getJob: jest.fn(() => Promise.resolve(fresh)) });
-        show(api);
-        tick('Alpha');
-        const bar = screen.getByTestId('jobs-bulk');
-        fireEvent.click(within(bar).getByRole('button', { name: 'Add tag' }));
-        fireEvent.change(within(bar).getByRole('textbox', { name: 'Tag' }), { target: { value: 'nightly' } });
-        fireEvent.click(within(bar).getByRole('button', { name: 'Add' }));
-        await waitFor(() => expect(api.updateJob).toHaveBeenCalledTimes(1));
-        expect(api.getJob).toHaveBeenCalledWith('a');
-        expect(api.updateJob).toHaveBeenCalledWith('a', { ...fresh, tags: ['ops', 'nightly'] });
-    });
-
-    test('Add tag is off until your user details have loaded', () => {
-        show(bulkApi(), jest.fn(), null);
-        tick('Alpha');
-        expect(within(screen.getByTestId('jobs-bulk')).getByRole('button', { name: 'Add tag' })).toHaveAttribute('aria-disabled', 'true');
+        await waitFor(() => expect(api.addTags).toHaveBeenCalledTimes(2));
+        expect(api.addTags).toHaveBeenCalledWith('a', ['nightly']);
+        expect(api.addTags).toHaveBeenCalledWith('b', ['nightly']);
+        expect(await screen.findByText('Tagged 2 jobs nightly.')).toBeInTheDocument();
     });
 
     test('the result is a warning when jobs were skipped or failed, and info when nothing was done', async () => {

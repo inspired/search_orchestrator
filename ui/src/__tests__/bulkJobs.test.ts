@@ -25,19 +25,11 @@ describe('bulk job plans', () => {
         expect(p.skipped[0].reason).toBe("you can't run it");
     });
 
-    test("add tag only takes your own jobs, since saving another person's job makes you its owner", () => {
-        const p = plan([mine, theirs], 'tag', me, 'nightly');
-        expect(p.targets.map((j) => j.id)).toEqual(['a']);
-        expect(p.skipped).toEqual([{ job: theirs, reason: 'owned by bob; adding a tag would make you its owner' }]);
-        expect(plan([mine], 'tag', me, 'X').skipped).toEqual([{ job: mine, reason: 'already tagged X' }]);
-    });
-
-    test("add tag skips every job until you are known, so nothing changes owner by accident", () => {
-        [null, undefined].forEach((who) => {
-            const p = plan([mine, theirs], 'tag', who, 'nightly');
-            expect(p.targets).toHaveLength(0);
-            expect(p.skipped.map((s) => s.reason)).toEqual(["your user details haven't loaded", "your user details haven't loaded"]);
-        });
+    test('add tag takes every job you can edit, whoever owns it, and skips jobs that have the tag', () => {
+        const p = plan([mine, theirs, readOnly], 'tag', me, 'nightly');
+        expect(p.targets.map((j) => j.id)).toEqual(['a', 'b']);
+        expect(p.skipped).toEqual([{ job: readOnly, reason: "you can't edit it" }]);
+        expect(plan([mine], 'tag', null, 'X').skipped).toEqual([{ job: mine, reason: 'already tagged X' }]);
     });
 
     test('delete takes jobs you can edit; export takes every job', () => {

@@ -5,6 +5,7 @@ import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi, rollupJob } from './builderFixtures';
 import { renderThemed, runSummary, arrangeMenu } from './fixtures';
 import * as versions from '../api/versions';
+import * as client from '../api/client';
 
 jest.mock('../api/versions');
 // Quick-add on the canvas asks for snippets; these tests don't need the answer.
@@ -698,5 +699,41 @@ describe('BuilderPage history', () => {
         expect((api.listRuns as jest.Mock).mock.calls.length).toBeGreaterThan(runsBefore);
         fireEvent.click(screen.getByRole('tab', { name: 'Flow' }));
         expect(screen.getByLabelText('Job name')).toHaveValue('Restored name');
+    });
+});
+
+describe('BuilderPage save conflicts', () => {
+    const changed = () => {
+        const err = new client.ApiError(409, 'job_changed', 'bob changed this job after you opened it', [], { revision: 4, updated_by: 'bob', updated_at: 1_800_000_000 });
+        return err;
+    };
+
+    it('sends the revision it opened and asks before replacing a newer save', async () => {
+        const updateJob = jest.fn().mockRejectedValueOnce(changed()).mockResolvedValue({ job: rollupJob({ revision: 5 } as never), issues: [], owner_will_change: false, owner: 'alice' });
+        const api = fakeApi({ getJob: jest.fn().mockResolvedValue(rollupJob({ revision: 3 } as never)), updateJob });
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Renamed' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        const dialog = await screen.findByRole('dialog');
+        expect(updateJob).toHaveBeenCalledWith('rollups', expect.anything(), 3);
+        expect(dialog).toHaveTextContent('bob changed this job');
+        expect(within(dialog).getByRole('button', { name: 'Reload their version' })).toBeInTheDocument();
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Save mine anyway' }));
+        await waitFor(() => expect(screen.getByText('Saved.')).toBeInTheDocument());
+        expect(updateJob).toHaveBeenLastCalledWith('rollups', expect.anything(), undefined);
+    });
+
+    it('sends the new revision on the next save', async () => {
+        const updateJob = jest.fn().mockResolvedValue({ job: rollupJob({ revision: 8 } as never), issues: [], owner_will_change: false, owner: 'alice' });
+        const api = fakeApi({ getJob: jest.fn().mockResolvedValue(rollupJob({ revision: 7 } as never)), updateJob });
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'One' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(updateJob).toHaveBeenCalledTimes(1));
+        await screen.findByText('Saved.');
+        fireEvent.change(screen.getByLabelText('Job name'), { target: { value: 'Two' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(updateJob).toHaveBeenCalledTimes(2));
+        expect(updateJob.mock.calls.map((c) => c[2])).toEqual([7, 8]);
     });
 });

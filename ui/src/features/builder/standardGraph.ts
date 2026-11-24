@@ -8,7 +8,8 @@ import { conditionShort } from './conditions';
 import { buildGraph, FlowGraph, FlowLink, portForEdge, stepKey, STEP_KINDS } from './nodeModel';
 import { startedBy } from './triggerSteps';
 
-const lineKey = (from: string, port: string, to: string) => `${stepKey(from)}-${port}->${stepKey(to)}`;
+/** A Standard line's key: from step, port, to step. */
+export const lineKey = (from: string, port: string, to: string) => `${stepKey(from)}-${port}->${stepKey(to)}`;
 
 export function standardGraph(job: JobDefinition): FlowGraph {
     const steps = job.steps || [];

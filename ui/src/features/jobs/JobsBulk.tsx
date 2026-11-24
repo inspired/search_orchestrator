@@ -13,9 +13,8 @@ import { JobBulkAction, Outcome, plan, resultTone, ResultTone, runEach, Skipped 
 export interface JobsBulkApi {
     startRun: (jobId: string) => Promise<unknown>;
     setJobEnabled: (jobId: string, enabled: boolean) => Promise<unknown>;
-    updateJob: (jobId: string, job: Job) => Promise<unknown>;
-    /** The job as saved now: Add tag saves this copy, so it doesn't undo edits made since the list loaded. */
-    getJob: (jobId: string) => Promise<Job>;
+    /** Adds tags only, keeping the owner and the rest of the job as saved now. */
+    addTags: (jobId: string, tags: string[]) => Promise<unknown>;
     deleteJob: (jobId: string) => Promise<unknown>;
     /** After any action: the page reloads the jobs. */
     onDone: () => void;
@@ -78,11 +77,8 @@ export default function JobsBulk({ selected, me, api, onExport, onClear, onResul
                 case 'enable':
                 case 'disable':
                     return api.setJobEnabled(job.id, action === 'enable');
-                case 'tag': {
-                    const latest = await api.getJob(job.id);
-                    const tags = latest.tags || [];
-                    return tags.some((t) => t.toLowerCase() === tagText.toLowerCase()) ? undefined : api.updateJob(job.id, { ...latest, tags: [...tags, tagText] });
-                }
+                case 'tag':
+                    return api.addTags(job.id, [tagText]);
                 case 'delete':
                     return api.deleteJob(job.id);
                 default: {
@@ -129,7 +125,7 @@ export default function JobsBulk({ selected, me, api, onExport, onClear, onResul
                     <Button appearance="subtle" label="Cancel" onClick={() => setTagging(false)} />
                 </span>
             ) : (
-                <Button appearance="secondary" label="Add tag" disabled={working || !me} onClick={() => setTagging(true)} />
+                <Button appearance="secondary" label="Add tag" disabled={working} onClick={() => setTagging(true)} />
             )}
             <Button
                 appearance="destructive"

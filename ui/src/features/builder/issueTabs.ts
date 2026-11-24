@@ -3,6 +3,8 @@ import type { Action, Issue, JobDefinition } from '../../api/types';
 import type { TabId } from './JobTabs';
 import { actionKey, condKey, stepKey, triggerKey } from './nodeModel';
 import type { BuilderView } from '../simple/useBuilderView';
+import type { FlowSelection } from './selection';
+import { lineKey } from './standardGraph';
 
 /** Warnings about the jobs a job starts (a whole-job Start job action). */
 const JOB_LINK_CODES = ['missing_target_job', 'disabled_target_job'];
@@ -153,4 +155,22 @@ export function issueCounts(issues: Issue[], view: BuilderView = 'advanced'): Pa
         }
     });
     return out;
+}
+
+/** Where "Go to" lands in the Standard view, which draws only steps: a step's action opens
+ * the step with that action's panel open; a condition selects its line; a job action or a
+ * trigger selects nothing (its tab is enough). `key` is nodeForIssue's Advanced node key. */
+export function standardTarget(key: string): { select?: FlowSelection; openAction?: { stepId: string; index: number } } {
+    const action = /^action:(.+):(\d+)$/.exec(key);
+    if (action) {
+        return action[1] === 'job' ? {} : { select: { kind: 'node', key: stepKey(action[1]) }, openAction: { stepId: action[1], index: Number(action[2]) } };
+    }
+    const cond = /^cond:(.+)>(.+)$/.exec(key);
+    if (cond) {
+        return { select: { kind: 'link', key: lineKey(cond[1], 'if', cond[2]) } };
+    }
+    if (key.startsWith('trigger:')) {
+        return {};
+    }
+    return { select: { kind: 'node', key } };
 }

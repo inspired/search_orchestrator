@@ -8,10 +8,18 @@ import type { BuilderApi } from './BuilderPage';
 import type { BuilderAction } from './reducer';
 import { setTurnedOff } from './nodeCatalog';
 
+/** Who owns the job, whether you may edit it, and the revision you opened (sent back on
+ * save, so a save never silently replaces a newer one). */
+export interface BuilderMeta {
+    owner: string | null;
+    canEdit: boolean;
+    revision?: number;
+}
+
 export default function useBuilderData(api: BuilderApi, initialId: string | null, dispatch: React.Dispatch<BuilderAction>) {
     const [loading, setLoading] = useState(Boolean(initialId));
     const [loadError, setLoadError] = useState<string | null>(null);
-    const [meta, setMeta] = useState<{ owner: string | null; canEdit: boolean }>({ owner: null, canEdit: true });
+    const [meta, setMeta] = useState<BuilderMeta>({ owner: null, canEdit: true });
     const [me, setMe] = useState<Me | null>(null);
     const [destinations, setDestinations] = useState<Destination[]>([]);
     const [alertActions, setAlertActions] = useState<AlertAction[] | null>(null);
@@ -60,7 +68,7 @@ export default function useBuilderData(api: BuilderApi, initialId: string | null
                     if (!live) {
                         return;
                     }
-                    setMeta({ owner: job.owner, canEdit: job.permissions ? job.permissions.can_edit : true });
+                    setMeta({ owner: job.owner, canEdit: job.permissions ? job.permissions.can_edit : true, revision: job.revision || 0 });
                     dispatch({ type: 'load', job: client.toDefinition(job) });
                     setLoading(false);
                 })

@@ -215,6 +215,8 @@ export interface Job extends JobDefinition {
     created_by?: string;
     updated_at?: number;
     updated_by?: string;
+    /** Counts the job's changes; a save sends the one it started from. */
+    revision?: number;
     permissions: JobPermissions;
     /** Next cron slot, or null (GET jobs and GET jobs/<id> only). */
     next_run?: number | null;

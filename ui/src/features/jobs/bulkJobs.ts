@@ -41,15 +41,9 @@ function whyNot(job: Job, action: JobBulkAction, me: Me | null | undefined, tag:
             return on === (action === 'enable') ? `already ${action}d` : null;
         }
         case 'tag':
+            // Tags are changed on their own (jobs/<id>/tags), so the owner stays.
             if (!canEdit) {
                 return "you can't edit it";
-            }
-            if (!me) {
-                // Without knowing who you are, saving could make you the owner of someone else's job.
-                return "your user details haven't loaded";
-            }
-            if (job.owner && job.owner !== me.user) {
-                return `owned by ${job.owner}; adding a tag would make you its owner`;
             }
             return hasTag(job, tag) ? `already tagged ${tag}` : null;
         case 'delete':

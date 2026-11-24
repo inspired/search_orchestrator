@@ -89,9 +89,9 @@ LAST_RUN_FIELDS = ("id", "state", "trigger", "scheduled_time", "started_at", "en
                    "delay_alerted", "held", "gave_up")
 # Bookkeeping fields: not part of a job's definition for "has the job changed".
 _META = ("_key", "_user", "created_at", "created_by", "updated_at", "updated_by",
-         "hidden_searches", "enabled", "tags")
+         "hidden_searches", "enabled", "tags", "revision")
 _SERVER_FIELDS = ("owner", "hidden_searches", "created_at", "created_by", "updated_at",
-                  "updated_by",
+                  "updated_by", "revision",
                   # Added by GET jobs for the screens; never part of a saved job.
                   "permissions", "next_run", "next_run_beyond", "last_run", "recent_runs",
                   "warnings", "following")
@@ -168,6 +168,7 @@ def _routes():
         (r"jobs/(?P<job_id>[^/]+)", {"GET": get_job, "PUT": update_job, "DELETE": delete_job}),
         (r"jobs/(?P<job_id>[^/]+)/runs", {"POST": start_run}),
         (r"jobs/(?P<job_id>[^/]+)/enabled", {"POST": set_enabled}),
+        (r"jobs/(?P<job_id>[^/]+)/tags", {"POST": set_tags}),
         (r"jobs/(?P<job_id>[^/]+)/follow", {"GET": fw.get_follow, "PUT": fw.put_follow,
                                             "DELETE": fw.delete_follow}),
         (r"jobs/(?P<job_id>[^/]+)/versions", {"GET": hv.versions}),
@@ -687,7 +688,7 @@ def _save(ctx, job, previous, restored_from=None):
         raise
     job["created_at"] = (previous or {}).get("created_at", ctx.now)
     job["created_by"] = (previous or {}).get("created_by", ctx.user)
-    job.update(updated_at=ctx.now, updated_by=ctx.user)
+    job.update(updated_at=ctx.now, updated_by=ctx.user, revision=_revision(previous) + 1)
     ctx.store.save_job(job)
     _record_version(ctx, job, previous, restored_from)
     _collect_garbage(ctx, job)
@@ -741,10 +742,36 @@ def create_job(ctx, body):
     return 201, out
 
 
+def _revision(job):
+    """How many times a job was changed: saves, enable and disable, tags. Jobs saved
+    before 1.49.0 have none, which counts as 0."""
+    try:
+        return int((job or {}).get("revision") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _check_base(previous, body):
+    """A save that names the revision it started from (``_base_revision``, which the
+    builder sends) is refused when the job has changed since, so it can't silently
+    overwrite someone else's save. A save without one overwrites, as before."""
+    base = body.get("_base_revision")
+    if base is None:
+        return
+    if isinstance(base, bool) or not isinstance(base, int):
+        raise ApiError(400, "bad_request", "_base_revision must be a number")
+    if base != _revision(previous):
+        raise ApiError(409, "job_changed",
+                       "%s changed this job after you opened it" % (previous.get("updated_by") or "someone"),
+                       revision=_revision(previous), updated_by=previous.get("updated_by"),
+                       updated_at=previous.get("updated_at"))
+
+
 def update_job(ctx, body, job_id, restored_from=None):
     previous = _visible_job(ctx, job_id)
     if not ctx.allowed(authz.can_edit, previous):
         raise ctx.deny("edit_job", job_id=job_id)
+    _check_base(previous, body)
     old_owner = previous.get("owner")
     change = _owner_change(ctx, previous)
     job, issues = _save(ctx, _prepare(body, job_id, ctx.user), previous, restored_from)
@@ -768,10 +795,46 @@ def set_enabled(ctx, body, job_id):
     if not isinstance(enabled, bool):
         raise ApiError(400, "bad_request", "enabled must be true or false")
     before = dict(job)
-    job.update(enabled=enabled, updated_at=ctx.now, updated_by=ctx.user)
+    job.update(enabled=enabled, updated_at=ctx.now, updated_by=ctx.user, revision=_revision(job) + 1)
     ctx.store.save_job(job)
     _record_version(ctx, job, before)
     ctx.emit({"type": "job_enabled", "job_id": job_id, "enabled": enabled,
+              "owner": job.get("owner")})
+    return 200, {"job": _public_job(ctx, job)}
+
+
+def set_tags(ctx, body, job_id):
+    """Add and remove tags (``{"add": [...], "remove": [...]}``, matched without case).
+    Like enable, the owner is kept and the definition and its hidden searches are untouched,
+    so tagging many jobs never takes them over or undoes an edit."""
+    job = _visible_job(ctx, job_id)
+    if not ctx.allowed(authz.can_edit, job):
+        raise ctx.deny("tag_job", job_id=job_id)
+    add, remove = body.get("add", []), body.get("remove", [])
+    for value in (add, remove):
+        if not isinstance(value, list) or not all(isinstance(t, str) for t in value):
+            raise ApiError(400, "bad_request", "add and remove must be lists of tags")
+    if not add and not remove:
+        raise ApiError(400, "bad_request", "give tags to add or remove")
+    before = dict(job)
+    tags = list(job.get("tags") or [])
+    gone = {t.lower() for t in remove}
+    removed = [t for t in tags if t.lower() in gone]
+    tags = [t for t in tags if t.lower() not in gone]
+    added = []
+    for t in add:
+        if t.lower() not in {x.lower() for x in tags}:
+            tags.append(t)
+            added.append(t)
+    problems = model.tag_problems(tags)
+    if problems:
+        raise ApiError(400, "bad_tags", problems[0])
+    if not added and not removed:
+        return 200, {"job": _public_job(ctx, job)}
+    job.update(tags=tags, updated_at=ctx.now, updated_by=ctx.user, revision=_revision(job) + 1)
+    ctx.store.save_job(job)
+    _record_version(ctx, job, before)
+    ctx.emit({"type": "job_tags_changed", "job_id": job_id, "added": added, "removed": removed,
               "owner": job.get("owner")})
     return 200, {"job": _public_job(ctx, job)}
 

@@ -27,8 +27,7 @@ export interface JobsApi {
     createJob: typeof client.createJob;
     /** For actions on many jobs; the client's by default. */
     startRun?: typeof client.startRun;
-    updateJob?: typeof client.updateJob;
-    getJob?: typeof client.getJob;
+    setJobTags?: typeof client.setJobTags;
 }
 
 const defaultApi: JobsApi = {
@@ -149,8 +148,7 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
                     bulk={{
                         startRun: (id) => (api.startRun || client.startRun)(id),
                         setJobEnabled: api.setJobEnabled,
-                        updateJob: (id, job) => (api.updateJob || client.updateJob)(id, job),
-                        getJob: (id) => (api.getJob || client.getJob)(id),
+                        addTags: (id, tags) => (api.setJobTags || client.setJobTags)(id, tags),
                         deleteJob: api.deleteJob,
                         onDone: jobs.refresh,
                     }}

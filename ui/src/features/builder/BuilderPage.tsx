@@ -28,7 +28,7 @@ import { CLIENT_ISSUE_CODES, findIssues, issuesByStep } from './graphLogic';
 import { stepLabel } from './GraphView';
 import JobTabs, { TabId } from './JobTabs';
 import IssueSummary from './IssueSummary';
-import { nodeForIssue, tabForIssue } from './issueTabs';
+import { nodeForIssue, standardTarget, tabForIssue } from './issueTabs';
 import { buildGraph, stepKey, STEP_KINDS } from './nodeModel';
 import type { PortId } from './nodeModel';
 import NodePanel from './NodePanel';
@@ -57,7 +57,7 @@ export interface BuilderApi extends PreviewApi {
     getJob: (jobId: string) => Promise<Job>;
     validateJob: (job: JobDefinition) => Promise<ValidateResponse>;
     createJob: (job: JobDefinition) => Promise<SaveResponse>;
-    updateJob: (jobId: string, job: JobDefinition) => Promise<SaveResponse>;
+    updateJob: (jobId: string, job: JobDefinition, baseRevision?: number) => Promise<SaveResponse>;
     listDestinations: () => Promise<Destination[]>;
     listAlertActions: () => Promise<AlertAction[]>;
     listJobs: () => Promise<Job[]>;
@@ -118,6 +118,8 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     const [showSummary, setShowSummary] = useState(false);
     const [busy, setBusy] = useState(false);
     const [ownerConfirm, setOwnerConfirm] = useState<{ newOwner: string } | null>(null);
+    /** The save was refused because someone saved the job after you opened it. */
+    const [conflict, setConflict] = useState<{ by: string; at: number | null } | null>(null);
     const [scheduledTime, setScheduledTime] = useState(() => Math.floor(Date.now() / 1000));
     const timeTouched = useRef(false);
     const [paramValues, setParamValues] = useState<Record<string, string>>({});
@@ -134,7 +136,8 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     };
     const setSelectedState = (sel: FlowSelection) => picked.setSelected(sel);
     // A node hidden in a collapsed group (from the issue list) shows its group first.
-    const selectNode = (key: string) => (grouping.reveal({ kind: 'node', key }), setSelected({ kind: 'node', key }));
+    // Groups are drawn in Advanced only, so only Advanced opens a collapsed one to show a node.
+    const selectNode = (key: string) => (view === 'advanced' && grouping.reveal({ kind: 'node', key }), setSelected({ kind: 'node', key }));
 
     const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
     const { job } = state;
@@ -211,11 +214,24 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     const picked = useSelection({ job, graph: shownGraph, dispatch, rememberFocus, returnFocus, focusAfterRemove: (key) => setFocusNext({ key }) });
     const { selection, removing, requestRemove, confirmRemove } = picked;
     const grouping = useGroups({ job, graph, positions, dispatch, selection, select: setSelectedState, rememberFocus, returnFocus });
+    // Standard: the action "Go to" opens inside its step's panel (n re-opens the same one).
+    const [openAction, setOpenAction] = useState<{ stepId: string; index: number; n: number } | null>(null);
     const goToIssue = (issue: Issue) => {
         setActiveTab(tabForIssue(issue, view));
         const key = nodeForIssue(job, issue);
-        if (key) {
+        if (!key) {
+            return;
+        }
+        if (!standard) {
             selectNode(key);
+            return;
+        }
+        const target = standardTarget(key);
+        if (target.select) {
+            setSelected(target.select);
+        }
+        if (target.openAction) {
+            setOpenAction({ ...target.openAction, n: Date.now() });
         }
     };
     // The list stays until the next save attempt or until nothing is left to fix: no live
@@ -244,17 +260,18 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     const afterSaved = (res: SaveResponse, saved: JobDefinition, text: string) => {
         auto.accept(saved, res);
         dispatch({ type: 'saved', job: saved });
-        setMeta({ owner: res.job.owner, canEdit: true });
+        setMeta({ owner: res.job.owner, canEdit: true, revision: res.job.revision || 0 });
         loadRuns(res.job.id);
         setNotice({ type: 'success', text });
     };
 
-    const doSave = async () => {
+    const doSave = async (overwrite = false) => {
         setOwnerConfirm(null);
+        setConflict(null);
         setBusy(true);
         setNotice(null);
         try {
-            const res = jobId ? await api.updateJob(jobId, job) : await api.createJob(job);
+            const res = jobId ? await api.updateJob(jobId, job, overwrite ? undefined : meta.revision) : await api.createJob(job);
             afterSaved(res, job, 'Saved.');
             if (!jobId) {
                 setJobId(res.job.id);
@@ -266,6 +283,12 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
             }
         } catch (err) {
             const e = err as client.ApiError;
+            if (e.code === 'job_changed') {
+                const extra = (e.extra || {}) as { updated_by?: string; updated_at?: number };
+                rememberFocus();
+                setConflict({ by: extra.updated_by || 'Someone', at: extra.updated_at || null });
+                return;
+            }
             auto.accept(job, { issues: e.issues || [] });
             setNotice({ type: 'error', text: `The job was not saved: ${e.message}` });
         } finally {
@@ -386,7 +409,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
 
     // Full screen: the canvas and panel over the whole page. Escape leaves, unless something
     // (a popup, the canvas clearing its selection, a modal) used it first.
-    const modalOpen = Boolean(removing || ownerConfirm || grouping.modalOpen);
+    const modalOpen = Boolean(removing || ownerConfirm || conflict || grouping.modalOpen);
     useEffect(() => {
         if (!fullScreen) {
             return undefined;
@@ -511,7 +534,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     onToggleFullScreen={() => setFullScreen((f) => !f)}
                     panelOpen={panel.open}
                     onTogglePanel={panel.toggle}
-                    {...grouping.canvas}
+                    {...(standard ? {} : grouping.canvas)}
                 />
             </div>
             <SidePanel ref={panelRef} open={panel.open} width={panel.width} onOpen={panel.setOpen} onWidth={panel.setWidth} maxHeight={panelHeight}>
@@ -519,6 +542,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     job={job}
                     graph={shownGraph}
                     standard={standard}
+                    openAction={openAction}
                     selection={selection}
                     byStep={byStep}
                     dispatch={dispatch}
@@ -636,7 +660,22 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     </Modal.Body>
                     <Modal.Footer>
                         <Button appearance="secondary" label="Cancel" onClick={() => setOwnerConfirm(null)} />
-                        <Button appearance="primary" label="Save and take ownership" onClick={doSave} />
+                        <Button appearance="primary" label="Save and take ownership" onClick={() => void doSave()} />
+                    </Modal.Footer>
+                </Modal>
+            )}
+            {conflict && (
+                <Modal open onRequestClose={() => setConflict(null)} returnFocus={returnFocus} style={{ width: '560px' }}>
+                    <Modal.Header title="This job was changed" />
+                    <Modal.Body>
+                        <Message type="warning" appearance="default">
+                            {`${conflict.by} changed this job${conflict.at ? ` at ${new Date(conflict.at * 1000).toLocaleString()}` : ''}, after you opened it. Saving now replaces their changes with yours. Reload their version to see what they did (your unsaved changes are lost).`}
+                        </Message>
+                    </Modal.Body>
+                    <Modal.Footer>
+                        <Button appearance="secondary" label="Cancel" onClick={() => setConflict(null)} />
+                        <Button appearance="secondary" label="Reload their version" onClick={() => window.location.reload()} />
+                        <Button appearance="destructive" label="Save mine anyway" onClick={() => void doSave(true)} />
                     </Modal.Footer>
                 </Modal>
             )}

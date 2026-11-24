@@ -2381,3 +2381,65 @@ def test_run_list_without_a_search_is_unchanged(w):
     out = runs_search(w, user="root", limit="2")
     assert [r["id"] for r in out["runs"]] == ["s:2", "i:1"] and "partial" not in out
     assert calls[0]["query"] == {}
+
+
+# Saves that would overwrite someone else's newer save (1.49.0).
+
+def test_save_with_old_revision_is_refused(w):
+    job = saved(w)
+    assert job["revision"] == 1
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(name="Mine"), _base_revision=1))
+    assert status == 200 and out["job"]["revision"] == 2
+    w.now += 60
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(name="Stale"), _base_revision=1))
+    assert status == 409 and error(out) == "job_changed"
+    assert out["error"]["updated_by"] == "alice" and out["error"]["revision"] == 2
+    assert w.store.get_job("daily")["name"] == "Mine"
+
+
+def test_save_without_base_revision_overwrites_as_before(w):
+    saved(w)
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", job_body(name="Plain"))
+    assert status == 200 and out["job"]["revision"] == 2
+
+
+def test_revision_is_server_owned_and_counts_enable_and_tags(w):
+    saved(w, body=job_body(revision=99))
+    assert w.store.get_job("daily")["revision"] == 1
+    w.call("alice", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": False})
+    assert w.store.get_job("daily")["revision"] == 2
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(), _base_revision=1))
+    assert status == 409 and error(out) == "job_changed"
+
+
+def test_a_job_saved_before_revisions_counts_as_revision_0(w):
+    saved(w)
+    doc = w.store.get_job("daily")
+    doc.pop("revision")
+    w.store.save_job(doc)
+    assert w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(), _base_revision=0))[0] == 200
+
+
+# Tags without saving the whole job (1.49.0).
+
+def test_tags_route_adds_and_removes_and_keeps_owner(w):
+    saved(w, body=job_body(tags=["ops"]))
+    status, out = w.call("root", "POST", "/orchestrator/jobs/daily/tags", {"add": ["Nightly", "OPS"], "remove": []})
+    assert status == 200, out
+    job = w.store.get_job("daily")
+    assert job["tags"] == ["ops", "Nightly"] and job["owner"] == "alice" and job["revision"] == 2
+    assert not w.audit.of("job_owner_changed")
+    events = w.audit.of("job_tags_changed")
+    assert events and events[-1]["added"] == ["Nightly"] and events[-1]["removed"] == []
+    w.call("alice", "POST", "/orchestrator/jobs/daily/tags", {"remove": ["nightly"]})
+    assert w.store.get_job("daily")["tags"] == ["ops"]
+
+
+def test_tags_route_checks_rights_and_tags(w):
+    saved(w)
+    assert w.call("carol", "POST", "/orchestrator/jobs/daily/tags", {"add": ["x"]})[0] == 403
+    assert w.call("bob", "POST", "/orchestrator/jobs/daily/tags", {"add": ["x"]})[0] == 404
+    for bad in ({"add": "x"}, {"add": ["bad/tag"]}, {"add": [str(i) for i in range(11)]}, {}):
+        status, out = w.call("alice", "POST", "/orchestrator/jobs/daily/tags", bad)
+        assert status == 400, bad
+    assert not w.store.get_job("daily").get("tags")

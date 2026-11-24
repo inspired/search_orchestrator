@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
-import { issueCounts, issuesForAction, nodeForIssue, tabForIssue } from '../features/builder/issueTabs';
+import { issueCounts, issuesForAction, nodeForIssue, tabForIssue, standardTarget } from '../features/builder/issueTabs';
 import IssueSummary from '../features/builder/IssueSummary';
 import BuilderPage from '../features/builder/BuilderPage';
 import { fakeApi, rollupJob } from './builderFixtures';
@@ -323,5 +323,21 @@ describe('save problem list lifecycle', () => {
     it('is not shown before a save attempt', async () => {
         await open();
         expect(screen.queryByText(/before saving/)).not.toBeInTheDocument();
+    });
+});
+
+describe('standardTarget', () => {
+    it("a step action opens the step with that action's panel", () => {
+        expect(standardTarget('action:daily:2')).toEqual({ select: { kind: 'node', key: 'step:daily' }, openAction: { stepId: 'daily', index: 2 } });
+    });
+    it('a condition selects its line, since Standard has no condition node', () => {
+        expect(standardTarget('cond:a>b')).toEqual({ select: { kind: 'link', key: 'step:a-if->step:b' } });
+    });
+    it('job actions and triggers select nothing: their tab is enough', () => {
+        expect(standardTarget('action:job:0')).toEqual({});
+        expect(standardTarget('trigger:1')).toEqual({});
+    });
+    it('a step stays a step', () => {
+        expect(standardTarget('step:a')).toEqual({ select: { kind: 'node', key: 'step:a' } });
     });
 });

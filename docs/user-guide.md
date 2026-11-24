@@ -68,6 +68,8 @@ The first tab shows the job in one of three views (see [Simple, Standard and Adv
 4. Use the other tabs for parameters, who may run, and job-wide settings such as the time zone and step defaults.
 5. **Save.** The builder checks for cycles, unknown tokens, bad cron, unreadable saved searches and tokens from steps that might be skipped.
 
+**If someone else saved the job after you opened it,** Save stops and asks first instead of replacing their changes: **Reload their version** opens what they saved (your unsaved changes are lost), and **Save mine anyway** replaces it with yours. Turning the job on or off and changing its tags count as changes too.
+
 **The job is checked as you edit it**, so there is no Validate button. Each tab shows how many problems it has. If a save fails, every problem is listed with a **Go to ...** button that opens the right tab and selects the node that has the problem. If you leave with unsaved changes, the builder asks first.
 
 Where you put nodes is saved with the job. Nodes you never moved are placed for you. Moving nodes does not count as changing the job when you re-run a step.
@@ -95,6 +97,8 @@ The first tab has three views of the same job, switched with **Simple**, **Stand
 - **Small marks on a step** show what is off the canvas: **⚡** a trigger starts it, **✉ 2** it has two actions, **⌛** it has a delay alert.
 - **A step's panel** has its settings and, below them, **Actions**: each action with when it fires (Starts, Succeeds, Fails, Finishes either way, Is delayed; on an approval, Approved, Rejected and Asks for approval) and what it does. **Add action** picks when and what; click an action to change its fields and retries, move it, or remove it.
 - Whole-job actions are on the **Job actions** tab, as in the other views.
+- **Go to** on a problem with one of a step's actions selects the step and opens that action in its panel; on a condition it selects the line. A trigger problem opens the **Triggers** tab.
+- **Groups** are drawn in Advanced only: they are frames placed around Advanced's nodes, so Standard leaves them out and keeps them as they are in the job.
 
 #### The Triggers tab
 
@@ -617,7 +621,7 @@ Above the table:
 
 - **Find jobs** searches names, ids, owners, descriptions and tags.
 - **Show** narrows to jobs whose last run failed, jobs with warnings, disabled, scheduled or your own; **Tag** to one tag; **Sort by** orders by name, next run, last run or failed first. All are remembered in this browser, so while any of them hides jobs a line says so ("Showing 3 of 12 jobs: tagged billing") with **Show all jobs**.
-- **Tick boxes** pick jobs (the one in the header picks every job shown). While any are ticked, a bar offers **Run now**, **Enable**, **Disable**, **Export** (downloads the ticked jobs), **Add tag** and **Delete** (it asks first and names the jobs). Each job is handled as if done on its own, one after another: jobs it doesn't apply to are skipped with the reason (already disabled, you can't edit or run it, or, for **Add tag**, another person's job, since saving it would make you its owner). **Add tag** saves each job as it is saved now, so it doesn't undo an edit made since the list loaded, and stays off until the page knows who you are. A message says what was done, skipped and failed; it is yellow when anything was skipped or failed.
+- **Tick boxes** pick jobs (the one in the header picks every job shown). While any are ticked, a bar offers **Run now**, **Enable**, **Disable**, **Export** (downloads the ticked jobs), **Add tag** and **Delete** (it asks first and names the jobs). Each job is handled as if done on its own, one after another: jobs it doesn't apply to are skipped with the reason (already disabled or already tagged, or you can't edit or run it). **Add tag** changes only the tags: the owner and the rest of the job stay as they are, so it works on other people's jobs you may edit and never undoes an edit made since the list loaded. A message says what was done, skipped and failed; it is yellow when anything was skipped or failed.
 - **Export** downloads the jobs shown, and **⋯ > Export** downloads one job; see [Export and import many jobs](#export-and-import-many-jobs). **Create job**, **Import jobs** and **Browse examples** are at the top of the page.
 
 ### Tags
@@ -838,7 +842,7 @@ Every change is written to the `orchestrator` index, one JSON event per change w
 
 | Area | Events | Extra fields |
 |---|---|---|
-| Jobs | `job_saved`, `job_deleted`, `job_followed`, `job_unfollowed` | `created`, `owner`; `on`, `notify` |
+| Jobs | `job_saved`, `job_enabled`, `job_tags_changed`, `job_owner_changed`, `job_deleted`, `job_followed`, `job_unfollowed` | `created`, `owner`; `enabled`; `added`, `removed`; `from`, `to`; `on`, `notify` |
 | Version history | `job_version_saved`, `job_restored`, `job_versions_pruned`, `job_version_failed` | `from_version`, `to_version` |
 | Runs | `run_created`, `run_state`, `run_late`, `bulk_run_action` | `from`, `to`; `action`, `count`, `failed` |
 | Steps | `step_dispatched`, `step_attempt`, `step_state`, `step_scan_limit` | result and scan counts; `scanned`, `limit`, `action` |

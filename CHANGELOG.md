@@ -16,11 +16,18 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.49.0](#1490-2026-11-24) | 2026-11-24 |
 | [1.48.4](#1484-2026-11-23) | 2026-11-23 |
 | [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
-| [1.48.1](#1481-2026-11-21) | 2026-11-21 |
 | [1.48.0](#1480-2026-11-21) | 2026-11-21 |
+
+## 1.49.0 (2026-11-24)
+
+- **A save no longer silently replaces someone else's newer save.** Every job now has a `revision`, counted by the server on each save, enable or disable and tag change. The builder sends the revision it opened; if the job changed since, the save is refused and **This job was changed** names who changed it and when, with **Reload their version** and **Save mine anyway**. REST clients that send no `_base_revision` overwrite as before (409 `job_changed` otherwise).
+- **Tags have their own route,** `POST jobs/<id>/tags` (`add`, `remove`), which keeps the owner and the rest of the job. Bulk **Add tag** on the Jobs page uses it, so it now works on other people's jobs you may edit, never changes their owner, and never undoes an edit. Audit event `job_tags_changed`.
+- **Standard view:** **Go to** on a problem with a step's action selects the step and opens that action; on a condition it selects the line. Group frames, which belong to Advanced's layout, are no longer drawn in Standard, where they outlined only some steps.
+- Docs: the REST API table lists `jobs/<id>/enabled`, `jobs/<id>/tags` and `_base_revision`; the audit table lists `job_enabled`, `job_tags_changed` and `job_owner_changed`.
 
 ## 1.48.4 (2026-11-23)
 

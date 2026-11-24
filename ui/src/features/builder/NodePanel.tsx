@@ -62,6 +62,8 @@ export interface NodePanelProps {
     schedulePreview?: TriggerPanelProps['schedulePreview'];
     /** The Standard view: a step's actions are listed under its panel (no action nodes). */
     standard?: boolean;
+    /** Standard: open this action of the step (from a problem's Go to). */
+    openAction?: { stepId: string; index: number; n: number } | null;
     savedJobId?: string | null;
     previewFields: Record<string, string[]>;
     scheduledTime: number;
@@ -157,6 +159,7 @@ export default function NodePanel(props: NodePanelProps) {
                 issues={byStep[id] || []}
                 dispatch={dispatch}
                 onRequestRemove={onRequestRemove}
+                openAction={props.openAction && props.openAction.stepId === id ? props.openAction : null}
             />
         ) : null;
         if (node.kind === 'summary_index' || node.kind === 'lookup') {

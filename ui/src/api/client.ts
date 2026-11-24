@@ -141,6 +141,7 @@ const SERVER_FIELDS = [
     'created_by',
     'updated_at',
     'updated_by',
+    'revision',
 ];
 
 /** A job's definition as the save routes expect it. */
@@ -183,8 +184,20 @@ export function createJob(job: JobDefinition): Promise<SaveResponse> {
     return request<SaveResponse>('POST', 'jobs', { body: toDefinition(job) });
 }
 
-export function updateJob(jobId: string, job: JobDefinition | Job): Promise<SaveResponse> {
-    return request<SaveResponse>('PUT', `jobs/${enc(jobId)}`, { body: toDefinition(job) });
+/** Save a job. With `baseRevision` (the revision the editor opened), the server refuses the
+ * save with 409 `job_changed` if someone changed the job since; without it, the save
+ * overwrites. */
+export function updateJob(jobId: string, job: JobDefinition | Job, baseRevision?: number): Promise<SaveResponse> {
+    const body: Record<string, unknown> = { ...toDefinition(job) };
+    if (baseRevision !== undefined) {
+        body._base_revision = baseRevision;
+    }
+    return request<SaveResponse>('PUT', `jobs/${enc(jobId)}`, { body });
+}
+
+/** Add or remove tags only. The owner and the rest of the job are left as they are. */
+export function setJobTags(jobId: string, add: string[], remove: string[] = []): Promise<{ job: Job }> {
+    return request<{ job: Job }>('POST', `jobs/${enc(jobId)}/tags`, { body: { add, remove } });
 }
 
 /** Enable or disable a job. The owner is kept: nobody takes the job over. */
