@@ -118,6 +118,11 @@ export default function SplunkLoadRow({ data, appLoad, from, to, now, height = 4
                     style={{ position: 'absolute', left: 0, right: 0, bottom: `${h(limit)}px`, borderTop: `1px dashed ${theme.borderColorStrong}` }}
                 />
             )}
+            {height >= 80 && (
+                <span data-testid="splunk-load-scale" aria-hidden style={{ position: 'absolute', top: '2px', left: '4px', fontSize: '11px', color: theme.contentColorMuted }}>
+                    {scale}
+                </span>
+            )}
             {now !== undefined && now >= from && now < to && <div style={{ position: 'absolute', top: 0, bottom: 0, width: '2px', left: `${pct(now, from, to)}%`, background: theme.focusColor }} />}
         </div>
     );

@@ -188,7 +188,7 @@ Click a line, or press `Enter` on a focused line, to select it and open its menu
 
 **Data and signal lines.** A thick line carries data: it ends at a **Results of earlier steps**, **Summary index** or **Lookup** step, which read the results of the step it comes from. A thin line is a signal: it only says when something runs or fires, such as a line to an action or a dashed line from a trigger.
 
-**Node types and the minimap.** **View** → **Node types** in the toolbar opens a legend with the shape and colour of each kind of node, the When outcomes with their symbols, and an example + and tab; choose it again to close it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view.
+**Node types and the minimap.** **View** → **Node types** in the toolbar opens a legend with the shape and colour of each kind of node, the When outcomes with their symbols, and an example + and tab; choose it again to close it. When the graph is bigger than the canvas, a minimap appears. Drag in it to move the view: grab the outline of what you see to move it without a jump, or press anywhere else to centre the view there first.
 
 **Arrange** → **Tidy up** in the toolbar places every node again automatically, as one undo step. Moving a node is one undo step per move.
 

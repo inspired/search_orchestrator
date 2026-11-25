@@ -29,6 +29,8 @@ export interface ScheduleTimelineProps {
 }
 
 const GRID = '180px 1fr 170px';
+/** The two load rows are graphs to read, not a strip: tall enough to see one search. */
+export const LOAD_HEIGHT = 120;
 
 function describe(bar: ScheduleBar): string {
     const when = `${formatTime(bar.start)} – ${formatTime(bar.end)}`;
@@ -135,7 +137,7 @@ export default function ScheduleTimeline({ data, from, to, now, q = '', state, s
                 }}
             >
                 <span style={{ fontWeight: theme.fontWeightSemiBold as React.CSSProperties['fontWeight'] }}>Concurrent searches</span>
-                <LoadRow load={data.load} from={from} to={to} max={data.max_searches} now={now} />
+                <LoadRow load={data.load} from={from} to={to} max={data.max_searches} now={now} height={LOAD_HEIGHT} />
                 <span style={{ color: theme.contentColorMuted }}>{`Limit ${data.max_searches}`}</span>
             </div>
             {(splunk || splunkError) && (
@@ -144,7 +146,7 @@ export default function ScheduleTimeline({ data, from, to, now, q = '', state, s
                     style={{ display: 'grid', gridTemplateColumns: GRID, gap: '4px 10px', alignItems: 'center', padding: '6px 14px', borderBottom: `1px solid ${theme.borderColor}` }}
                 >
                     <span style={{ fontWeight: theme.fontWeightSemiBold as React.CSSProperties['fontWeight'] }}>All Splunk searches</span>
-                    {splunk ? <SplunkLoadRow data={splunk} appLoad={data.load} from={from} to={to} now={now} /> : <span style={{ color: theme.contentColorMuted }}>{splunkError}</span>}
+                    {splunk ? <SplunkLoadRow data={splunk} appLoad={data.load} from={from} to={to} now={now} height={LOAD_HEIGHT} /> : <span style={{ color: theme.contentColorMuted }}>{splunkError}</span>}
                     <span style={{ color: theme.contentColorMuted }}>{splunk && splunk.limit ? `Splunk limit ${splunk.limit.searches}` : ''}</span>
                     {splunk && (
                         <>

@@ -63,11 +63,16 @@ describe('All Splunk searches', () => {
         expect(bars[0].getAttribute('title')).toMatch(/up to 6 searches at once \(1 this app, 2 scheduled, 3 other\)/);
         expect(screen.getByTestId('splunk-load-limit')).toBeInTheDocument();
         expect(screen.getByRole('img')).toHaveAccessibleName("Up to 20 Splunk searches at once; Splunk's limit is 18.");
+        expect(screen.queryByTestId('splunk-load-scale')).toBeNull(); // a short strip has no scale
     });
 
     test('the timeline shows the row with its limit, key and notes, or why it failed', () => {
         const { unmount } = renderThemed(<ScheduleTimeline data={schedule()} from={FROM} to={TO} now={NOW} splunk={load({ notes: ['Needs _audit'], skipped_crons: 2 })} />);
         const row = screen.getByTestId('splunk-load');
+        // On the timeline both graphs are tall, with their scale at the top.
+        expect(screen.getByTestId('load-row')).toHaveStyle({ height: '120px' });
+        expect(screen.getByTestId('splunk-load-row')).toHaveStyle({ height: '120px' });
+        expect(screen.getByTestId('splunk-load-scale')).toHaveTextContent('20'); // the tallest bar, above the limit
         expect(within(row).getByText('All Splunk searches')).toBeInTheDocument();
         expect(within(row).getByText('Splunk limit 18')).toBeInTheDocument();
         expect(within(row).getByText('Scheduled searches')).toBeInTheDocument();

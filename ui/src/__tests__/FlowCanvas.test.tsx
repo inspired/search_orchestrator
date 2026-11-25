@@ -1,6 +1,6 @@
 import { wheelZoomFactor } from '../features/builder/useCanvasGestures';
 import React from 'react';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import type { Issue, JobDefinition } from '../api/types';
 import FlowCanvas, { FlowCanvasProps, FlowSelection } from '../features/builder/FlowCanvas';
 import { buildGraph } from '../features/builder/nodeModel';
@@ -425,7 +425,7 @@ describe('FlowCanvas', () => {
             expect(view().getAttribute('transform')).not.toBe(before);
         });
 
-        test('dragging on the minimap moves the view with the pointer, and stops on release', () => {
+        test('dragging on the minimap moves the view with the pointer, and stops on release', async () => {
             size(400, 300);
             const { view } = setup();
             const map = screen.getByTestId('minimap');
@@ -433,14 +433,31 @@ describe('FlowCanvas', () => {
             fireEvent.pointerDown(map, { clientX: 60, clientY: 50, pointerId: 1, button: 0 });
             const first = at();
             fireEvent.pointerMove(map, { clientX: 100, clientY: 60, pointerId: 1 });
+            await waitFor(() => expect(at()).not.toBe(first));
             const second = at();
-            expect(second).not.toBe(first);
             fireEvent.pointerMove(map, { clientX: 120, clientY: 70, pointerId: 1 });
-            expect(at()).not.toBe(second);
             fireEvent.pointerUp(map, { clientX: 120, clientY: 70, pointerId: 1 });
+            await waitFor(() => expect(at()).not.toBe(second));
             const released = at();
             fireEvent.pointerMove(map, { clientX: 20, clientY: 20, pointerId: 1 });
+            await new Promise((r) => setTimeout(r, 40));
             expect(at()).toBe(released);
+        });
+
+        test('grabbing the view outline keeps the grab point: the view does not jump', async () => {
+            size(400, 300);
+            const { view } = setup();
+            const map = screen.getByTestId('minimap');
+            const outline = map.querySelector('rect[data-viewport]') as SVGRectElement;
+            const cx = Number(outline.getAttribute('x')) + Number(outline.getAttribute('width')) / 2;
+            const cy = Number(outline.getAttribute('y')) + Number(outline.getAttribute('height')) / 2;
+            const before = view().getAttribute('transform');
+            fireEvent.pointerDown(map, { clientX: cx + 3, clientY: cy + 2, pointerId: 1, button: 0 });
+            await new Promise((r) => setTimeout(r, 40));
+            expect(view().getAttribute('transform')).toBe(before);
+            fireEvent.pointerMove(map, { clientX: cx + 13, clientY: cy + 2, pointerId: 1 });
+            await waitFor(() => expect(view().getAttribute('transform')).not.toBe(before));
+            fireEvent.pointerUp(map, { pointerId: 1 });
         });
 
         test('minimap also shows in read-only mode', () => {

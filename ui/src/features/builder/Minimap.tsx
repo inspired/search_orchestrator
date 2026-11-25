@@ -2,7 +2,7 @@
  * colour and the visible view as an outline. Click a point to centre the view there, or drag to
  * move the view with the pointer. Hidden from
  * screen readers; "Frame all" and the F key are the accessible equivalent. */
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Pos, Positions } from './graphLogic';
 import { Theme } from './GraphView';
@@ -50,34 +50,78 @@ export default function Minimap({ graph, positions, pan, zoom, width, height, on
     const oy = (MINIMAP_H - (maxY - minY) * scale) / 2 - minY * scale;
 
     // While dragging, the map keeps the scale it had when the drag began: it is fitted around
-    // the view too, so refitting it under the pointer would make the view jump.
-    const drag = useRef<{ id: number; scale: number; ox: number; oy: number } | null>(null);
-    const centreAt = (ev: React.PointerEvent<SVGSVGElement>, fit: { scale: number; ox: number; oy: number }) => {
-        const rect = ev.currentTarget.getBoundingClientRect();
-        const wx = (ev.clientX - rect.left - fit.ox) / fit.scale;
-        const wy = (ev.clientY - rect.top - fit.oy) / fit.scale;
+    // the view too, so refitting it under the pointer would make the view jump. Grabbing the view
+    // outline keeps the point grabbed under the pointer (no jump); pressing elsewhere centres the
+    // view there first. Moves are applied once per animation frame, so a fast drag stays smooth.
+    const drag = useRef<{ id: number; scale: number; ox: number; oy: number; dx: number; dy: number } | null>(null);
+    const frame = useRef<number | null>(null);
+    const pending = useRef<{ x: number; y: number } | null>(null);
+    const panTo = (mx: number, my: number) => {
+        const d = drag.current;
+        if (!d) {
+            return;
+        }
+        const wx = (mx - d.dx - d.ox) / d.scale;
+        const wy = (my - d.dy - d.oy) / d.scale;
         onPan({ x: width / 2 - wx * zoom, y: height / 2 - wy * zoom });
+    };
+    const flush = () => {
+        frame.current = null;
+        if (pending.current) {
+            const p = pending.current;
+            pending.current = null;
+            panTo(p.x, p.y);
+        }
+    };
+    useEffect(
+        () => () => {
+            if (frame.current !== null) {
+                window.cancelAnimationFrame(frame.current);
+            }
+        },
+        []
+    );
+    const local = (ev: React.PointerEvent<SVGSVGElement>) => {
+        const rect = ev.currentTarget.getBoundingClientRect();
+        return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
     };
     const down = (ev: React.PointerEvent<SVGSVGElement>) => {
         ev.stopPropagation();
         if (ev.button !== 0) {
             return;
         }
-        drag.current = { id: ev.pointerId, scale, ox, oy };
+        const p = local(ev);
+        const box = { x: ox + view.x * scale, y: oy + view.y * scale, w: view.w * scale, h: view.h * scale };
+        const inside = p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h;
+        // The grab point's offset from the outline's centre, kept while dragging.
+        const dx = inside ? p.x - (box.x + box.w / 2) : 0;
+        const dy = inside ? p.y - (box.y + box.h / 2) : 0;
+        drag.current = { id: ev.pointerId, scale, ox, oy, dx, dy };
         try {
             ev.currentTarget.setPointerCapture(ev.pointerId);
         } catch (err) {
             // Not supported (tests): moves still arrive while the pointer is over the map.
         }
-        centreAt(ev, drag.current);
+        if (!inside) {
+            panTo(p.x, p.y);
+        }
     };
     const move = (ev: React.PointerEvent<SVGSVGElement>) => {
-        if (drag.current && drag.current.id === ev.pointerId) {
-            centreAt(ev, drag.current);
+        if (!drag.current || drag.current.id !== ev.pointerId) {
+            return;
+        }
+        pending.current = local(ev);
+        if (frame.current === null) {
+            frame.current = window.requestAnimationFrame(flush);
         }
     };
     const up = (ev: React.PointerEvent<SVGSVGElement>) => {
         if (drag.current && drag.current.id === ev.pointerId) {
+            if (frame.current !== null) {
+                window.cancelAnimationFrame(frame.current);
+                frame.current = null;
+            }
+            flush();
             drag.current = null;
         }
     };
@@ -99,7 +143,7 @@ export default function Minimap({ graph, positions, pan, zoom, width, height, on
                 background: theme.backgroundColorSection,
                 border: `1px solid ${theme.borderColor}`,
                 borderRadius: '4px',
-                cursor: 'grab',
+                cursor: drag.current ? 'grabbing' : 'grab',
                 touchAction: 'none',
             }}
         >
