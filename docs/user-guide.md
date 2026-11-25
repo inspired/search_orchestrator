@@ -21,7 +21,7 @@ Search Orchestrator makes dependent searches run as one unit, so a weekly rollup
 |---|---|---|---|
 | [Words used](#words-used) | [Build a job](#build-a-job) | [Follow runs](#follow-runs) | [The `\| orchestrate` command](#the--orchestrate-command) |
 | [Example jobs](#example-jobs) | [Simple, Standard and Advanced](#simple-standard-and-advanced) | [Dependencies](#dependencies) | [Audit events](#audit-events) |
-| | [Triggers](#triggers) · [Actions](#actions) | [Calendar](#calendar) · [Backfill](#backfill) | [How it works](#how-it-works) · [What the app stores](#what-the-app-stores) |
+| | [Triggers](#triggers) · [Actions](#actions) | [Calendar](#calendar) · [Backfill](#backfill) | [How it works](#how-it-works) · [What the app stores](#what-the-app-stores) · [Search slots](#search-slots) |
 | | [Conditions](#conditions) · [Deadline](#deadline) | [Re-run from a step](#re-run-from-a-step) · [Troubleshooting](#troubleshooting) | [Help in the app](#help-in-the-app) |
 <!-- /github-only -->
 
@@ -902,6 +902,28 @@ The app keeps its own records in KV Store and runs every search through saved se
 - **Old versions are kept while a run may need them.** The hash in the name changes when the SPL or time range changes, so a save that changes a search writes a new one beside the old. The old one stays while a run uses it: an active or held run, or a failed or cancelled run that ended within the result retention in Settings, since it can be re-run with its original definition. A later save of the job removes the searches nothing needs any more. A delete that fails is logged (`hidden_search_delete_failed`) and tried again at the next save.
 - **The job lists them.** The job record's `hidden_searches` holds every owner and name the app created for it, so none is lost if a save fails half way.
 - **Deleting a job deletes them all,** with its saved versions and follows. Its past runs stay until run retention removes them.
+
+### Search slots
+
+The app's searches are saved searches, but never scheduled ones: the engine starts each one itself, as the job owner, when the job's lines say so. Splunk therefore counts them like searches people start by hand, not like scheduled searches.
+
+| | Scheduled searches | The app's searches |
+|---|---|---|
+| Started by | Splunk's scheduler | The app's engine, as the job owner |
+| Splunk's share | The scheduler's share of the search limit (50% by default) | The whole search limit, shared with everyone's own searches and dashboards |
+| When Splunk is full | Skipped, and counted as skipped | The step waits: Splunk queues the search, or refuses it and the engine tries again on a later tick, without using a retry |
+| Owner's role limit | Applies | Applies: a plain `user` may run 3 searches at once, `power` 10 (Splunk's defaults) |
+
+What this means:
+
+- **Jobs and people compete for the same slots.** A busy job can slow down people's searches and dashboards, and a busy hour of those can hold jobs back. Scheduled searches take slots from the same total too.
+- **A job never shows as skipped** in Splunk's scheduler reports. It waits instead, so a full Splunk shows up as late or delayed runs.
+- **Time spent in Splunk's queue counts as running time**, so it can set off a step's *on delayed* action.
+- **The owner's role limit counts.** A job with four steps side by side, owned by someone whose role may run 3 searches at once, runs only 3 of them at a time.
+- **The app's own limits** come first: **Concurrent searches** (10 by default, all jobs) and **Concurrent searches per job** (4) in Settings. A step over them waits and says so in its details. The app doesn't read Splunk's own limits, so a setting higher than Splunk can take isn't caught.
+- **See where jobs pile up** in **Runs → Timeline** (the **Concurrent searches** row) and in a Schedule's **Busy times** strip, and spread start times a few minutes apart.
+
+Previews and condition tests in the builder are the exception: they are ad-hoc searches run as you, kept for at most 30 minutes.
 
 ## Help in the app
 

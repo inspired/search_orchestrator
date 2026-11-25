@@ -14,7 +14,7 @@ This guide covers installing, securing and running the app. The [user guide](use
 | Set up | Secure | Run and watch | Reference |
 |---|---|---|---|
 | [Supported platforms](#supported-platforms) | [Roles and capabilities](#roles-and-capabilities) | [Settings page](#settings-page) | [REST API](#rest-api) |
-| [Install](#install) | [How steps run](#how-steps-run-security) · [What the app stores](#what-the-app-stores) | [Audit index](#audit-index) · [Run health dashboard](#run-health-dashboard) | [Known limits](#known-limits) |
+| [Install](#install) | [How steps run](#how-steps-run-security) · [What the app stores](#what-the-app-stores) · [Search slots](#search-slots) | [Audit index](#audit-index) · [Run health dashboard](#run-health-dashboard) | [Known limits](#known-limits) |
 | [Upgrading from 1.0.x](#upgrading-from-10x) | [Deleting jobs](#deleting-jobs) · [Orphaned owners](#orphaned-owners) | [Logs and troubleshooting](#logs-and-troubleshooting) · [Self-test](#self-test) | [Search head clusters](#search-head-clusters) |
 
 
@@ -153,6 +153,23 @@ Saving a job writes one saved search for each search the job runs, with the savi
 - **Old versions are kept while a run may need them.** The hash in the name changes when the SPL or time range changes, so a save that changes a search writes a new one beside the old. The old one stays while a run uses it: an active or held run, or a failed or cancelled run that ended within the result retention in Settings, since it can be re-run with its original definition. A later save of the job removes the searches nothing needs any more. A delete that fails is logged (`hidden_search_delete_failed`) and tried again at the next save.
 - **The job lists them.** The job record's `hidden_searches` holds every owner and name the app created for it, so none is lost if a save fails half way.
 - **Deleting a job deletes them all**; see [Deleting jobs](#deleting-jobs).
+
+## Search slots
+
+The app's searches are hidden saved searches that are never scheduled. The engine starts each one through the saved search's dispatch endpoint (`saved/searches/<name>/dispatch`), as the job owner, so splunkd counts them as non-scheduled historical searches, like a search someone runs by hand:
+
+- **They use Splunk's whole concurrent search limit** (`max_searches_per_cpu` × CPU cores + `base_max_searches` in `limits.conf`), not the scheduler's share (`max_searches_perc`, 50% by default). They compete with users' own searches and dashboards, and scheduled searches take slots from the same total.
+- **They are never skipped.** When splunkd is full it queues the search or refuses the dispatch (HTTP 503); the engine tries a refused dispatch again on a later tick without using the step's retries. A full search head therefore shows as late and delayed runs, not in the scheduler's skipped-search counts. Time spent in Splunk's queue counts toward a step's *delayed after* time.
+- **The owner's role quotas apply** (`srchJobsQuota`, and `cumulativeSrchJobsQuota` across a role, in `authorize.conf`; Splunk's defaults are 3 for `user`, 10 for `power`, 50 for `admin`). A job whose owner holds only `user` runs at most 3 searches at once, whatever the app's settings.
+- **The app's own limits** (Settings: **Concurrent searches**, 10, and **Concurrent searches per job**, 4) are checked first, and the engine starts no more than that. They are not compared with splunkd's limits.
+
+Recommended:
+
+- Keep **Concurrent searches** well below what is left of splunkd's limit after the scheduler's share and your users' usual load.
+- Give owners of busy jobs a role whose `srchJobsQuota` covers **Concurrent searches per job**.
+- Spread job start times. **Runs → Timeline** shows the load over time with a line at the app's limit, and a Schedule's **Busy times** strip suggests quieter start times.
+
+Previews and condition tests in the builder are ad-hoc searches run as the user, with a TTL of at most 30 minutes; they count toward the same limits.
 
 ## Settings page
 

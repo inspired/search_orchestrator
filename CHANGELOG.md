@@ -36,6 +36,7 @@ Fixes from a security review of the server.
 - **Limits:** a run parameter value is at most 4,096 characters and a pattern at most 500, and a pattern that repeats a group that already repeats, such as `(a+)+`, can't be saved, so a value can't stall the server.
 - The self-test's Event actions write to `main`. `hidden.sync`, which nothing used, is gone.
 - Docs: wildcards in parameters (`*` still matches everything, so use a pattern), job ids being unique across all users, and the new checks.
+- **Docs and Help: Search slots.** How the app's searches use Splunk's search slots: saved searches the engine starts itself, so they share Splunk's whole search limit with people's own searches (not the scheduler's share), wait instead of being skipped, and are held to the owner's role limit; with what to set. On the Help page under How it works, with an illustration, and in the admin guide.
 
 ## 1.49.0 (2026-11-24)
 

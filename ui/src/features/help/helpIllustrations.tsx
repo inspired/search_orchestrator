@@ -577,6 +577,19 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
+    'search-slots': () => (
+        <Figure caption="The engine starts each search itself, so it shares Splunk's whole search limit with people's own searches and waits instead of being skipped.">
+            <MiniTable
+                head={['', 'Scheduled search', "The app's search"]}
+                rows={[
+                    ['Started by', "Splunk's scheduler", 'The engine, as the owner'],
+                    ['Slots', "The scheduler's share", 'Shared with everyone'],
+                    ['When Splunk is full', 'Skipped', 'Waits, tried again'],
+                    ["Owner's role limit", 'Applies', 'Applies'],
+                ]}
+            />
+        </Figure>
+    ),
     'help-in-the-app': () => (
         <Figure caption="Learn more links beside fields open the matching section of this page.">
             <Panel title="Conditions" rows={[['Check', 'SPL expression ▾'], ['', '[Learn more about conditions]']]} />
