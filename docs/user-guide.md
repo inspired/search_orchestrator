@@ -39,8 +39,8 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 - **One page, from Simple to Advanced.** Each card says which view it opens in; **Open in builder** opens it there, as a new, unsaved job to look at and save.
 - **A picture of each job:** every card draws the job's flow, as on the builder's canvas, so you can see its shape before you open it.
-- **Add as a job** saves one, with its id starting `example_`; **Add all examples** saves every one that isn't a job yet. Existing ones are skipped and errors are listed.
-- **Examples that use other examples** (a Start job action, or After another job) bring those along: Add and Open in builder add them first, so the links point at real jobs. The card says which ("Uses Hourly splunkd errors and Daily, weekly and monthly rollup, added with it").
+- **Add all examples** saves every one that isn't a job yet, with ids starting `example_`. Existing ones are skipped and errors are listed. To keep just one, open it in the builder and save it.
+- **Examples that use other examples** (a Start job action, or After another job) bring those along: Add all examples and Open in builder add them first, so the links point at real jobs. The card says which ("Uses Hourly splunkd errors and Daily, weekly and monthly rollup, added with it").
 - Every example is scheduled but **turned off**, and tagged `example` and its view. Turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
 
 | View | Examples |

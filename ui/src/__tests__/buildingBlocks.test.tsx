@@ -64,7 +64,7 @@ describe('Building blocks', () => {
         renderThemed(<ExamplesDialog onClose={jest.fn()} returnFocus={{ current: null }} canAdd existingIds={[]} createJob={jest.fn()} turnedOff={['approval']} />);
         const card = screen.getByTestId('example-example_platform_health');
         expect(within(card).getByTestId('example-blocked')).toHaveTextContent('Uses Approval, which an admin turned off');
-        expect(within(card).getByRole('button', { name: /Add .* as a job/ }).getAttribute('aria-disabled')).toBe('true');
+        expect(within(card).getByTestId('example-blocked')).toHaveTextContent('Add all examples skips it');
         expect(within(card).getByRole('button', { name: /Open .* in builder/ }).getAttribute('aria-disabled')).not.toBe('true');
     });
 

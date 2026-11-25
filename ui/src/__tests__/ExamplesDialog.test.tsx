@@ -114,6 +114,8 @@ describe('ExamplesDialog', () => {
         expect(first.getByText(hourly.summary)).toBeInTheDocument();
         expect(first.getByText(`Shows: ${hourly.features.join(', ')}`)).toBeInTheDocument();
         expect(first.getByTestId('example-diagram')).toBeInTheDocument();
+        // One button per card: Open in builder (Add all examples is at the bottom).
+        expect(first.getAllByRole('button').map((b) => b.textContent)).toEqual(['Open in builder']);
         expect(screen.getByTestId('example-example_chaining')).toHaveTextContent('Opens in Advanced');
         expect(screen.getByTestId('example-example_chaining')).toHaveTextContent('added with it.');
     });

@@ -1,7 +1,7 @@
 /* Browse examples: the example jobs shipped with the app on one page, from Simple to Advanced,
  * each as a card with a picture of its flow and the builder view it opens in. Open one in the
- * builder, in its view, as a new, unsaved job (like Import jobs), add
- * one as a job, or add every missing one; all are added turned off. An example that starts or
+ * builder, in its view, as a new, unsaved job (like Import jobs), or add every missing one with
+ * Add all examples; all are added turned off. An example that starts or
  * waits for other examples brings those along (added first), so its Start job actions and After
  * another job triggers point at jobs that exist. */
 import React, { useState } from 'react';
@@ -94,7 +94,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
             <Modal.Header title="Example jobs" />
             <Modal.Body>
                 <p style={{ marginTop: 0 }}>
-                    {`${EXAMPLE_JOBS.length} jobs that use only data every Splunk has. Open one to look at it in the builder, or add it as a job. Examples are added turned off, so nothing runs until you turn one on. Email actions go to you@example.com until you change them.`}
+                    {`${EXAMPLE_JOBS.length} jobs that use only data every Splunk has. Open one to look at it in the builder and save it, or add them all. Examples are added turned off, so nothing runs until you turn one on. Email actions go to you@example.com until you change them.`}
                 </p>
                 {error && (
                     <Message type="error" appearance="default">
@@ -124,7 +124,6 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                 <ul aria-label="Examples" style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
                     {shown.map((example) => {
                         const needs = examplesNeeded(example);
-                        const isThere = exists(example.job.id);
                         const blocked = blockedBy(example);
                         return (
                             <li key={example.job.id} data-testid={`example-${example.job.id}`} style={{ border: `1px solid ${theme.borderColor}`, borderRadius: '4px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -136,20 +135,11 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                                 <p style={{ margin: 0 }}>{example.summary}</p>
                                 <p style={muted}>{`Shows: ${example.features.join(', ')}`}</p>
                                 {blocked.length > 0 && (
-                                    <p style={muted} data-testid="example-blocked">{`Uses ${joinNames(blocked)}, which an admin turned off in Settings > Building blocks, so it can't be added.`}</p>
+                                    <p style={muted} data-testid="example-blocked">{`Uses ${joinNames(blocked)}, which an admin turned off in Settings > Building blocks, so Add all examples skips it.`}</p>
                                 )}
                                 {needs.length > 0 && <p style={muted}>{`Uses ${joinNames(needs.map((n) => n.title))}, ${canAdd ? 'added with it' : 'which must be jobs too'}.`}</p>}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
                                     <Button appearance="secondary" label="Open in builder" aria-label={`Open ${example.title} in builder`} disabled={Boolean(adding)} onClick={() => openExample(example)} />
-                                    {canAdd && (
-                                        <Button
-                                            appearance="secondary"
-                                            label={isThere ? 'Added' : adding === `add:${example.job.id}` ? 'Adding…' : 'Add as a job'}
-                                            aria-label={`Add ${example.title} as a job`}
-                                            disabled={isThere || blocked.length > 0 || Boolean(adding)}
-                                            onClick={() => run(`add:${example.job.id}`, [example])}
-                                        />
-                                    )}
                                 </div>
                             </li>
                         );
