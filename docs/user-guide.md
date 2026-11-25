@@ -37,7 +37,7 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 **Browse examples** on the Jobs page (also offered when there are no jobs) shows 6 ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`): one for each builder view's level.
 
-- **A tab per view:** Simple, Standard and Advanced. **Open in builder** opens an example in its view, as a new, unsaved job to look at and save.
+- **One page, from Simple to Advanced.** Each card says which view it opens in; **Open in builder** opens it there, as a new, unsaved job to look at and save.
 - **A picture of each job:** every card draws the job's flow, as on the builder's canvas, so you can see its shape before you open it.
 - **Add as a job** saves one, with its id starting `example_`; **Add all examples** saves every one that isn't a job yet. Existing ones are skipped and errors are listed.
 - **Examples that use other examples** (a Start job action, or After another job) bring those along: Add and Open in builder add them first, so the links point at real jobs. The card says which ("Uses Hourly splunkd errors and Daily, weekly and monthly rollup, added with it").
@@ -45,7 +45,7 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 | View | Examples |
 |---|---|
-| Simple | Hourly splunkd errors |
+| Simple | Hourly splunkd errors: two searches in order, a lookup save, an email when a condition is true and one if it fails |
 | Standard | Daily, weekly and monthly rollup · Investigate only when errors were found |
 | Advanced | Retries, recovery and clean-up · Chained jobs · Platform health pipeline (everything) |
 

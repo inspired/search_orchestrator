@@ -1,5 +1,5 @@
-/* Browse examples: the example jobs shipped with the app, in tabs by the builder view each opens
- * in (Simple, Standard, Advanced), each as a card with a picture of its flow. Open one in the
+/* Browse examples: the example jobs shipped with the app on one page, from Simple to Advanced,
+ * each as a card with a picture of its flow and the builder view it opens in. Open one in the
  * builder, in its view, as a new, unsaved job (like Import jobs), add
  * one as a job, or add every missing one; all are added turned off. An example that starts or
  * waits for other examples brings those along (added first), so its Start job actions and After
@@ -8,7 +8,6 @@ import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
 import Modal from '@splunk/react-ui/Modal';
-import TabBar from '@splunk/react-ui/TabBar';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { JobDefinition, SaveResponse } from '../../api/types';
 import { pageHref } from '../../components/PageShell';
@@ -46,7 +45,6 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
     const [error, setError] = useState<string | null>(null);
     const [adding, setAdding] = useState<string | null>(null);
     const [result, setResult] = useState<AddExamplesResult | null>(null);
-    const [tab, setTab] = useState<BuilderView>(VIEWS[0].id);
     const [added, setAdded] = useState<string[]>([]);
     const exists = (id: string) => existingIds.includes(id) || added.includes(id);
     /** Turned-off blocks an example (or an example it brings along) uses. */
@@ -87,7 +85,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
         navigate(pageHref('builder', { import: '1', view: example.view }));
     };
 
-    const shown = EXAMPLE_JOBS.filter((e) => e.view === tab);
+    const shown = EXAMPLE_JOBS;
     const viewLabel = (v: BuilderView) => (VIEWS.find((x) => x.id === v) || VIEWS[0]).label;
     const muted = { color: theme.contentColorMuted, margin: '2px 0', fontSize: '12px' };
 
@@ -123,11 +121,6 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                         </div>
                     </Message>
                 )}
-                <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setTab((selectedTabId as BuilderView) || VIEWS[0].id)}>
-                    {VIEWS.map((v) => (
-                        <TabBar.Tab key={v.id} tabId={v.id} label={`${v.label} (${EXAMPLE_JOBS.filter((e) => e.view === v.id).length})`} />
-                    ))}
-                </TabBar>
                 <ul aria-label="Examples" style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
                     {shown.map((example) => {
                         const needs = examplesNeeded(example);

@@ -32,7 +32,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'example-jobs': () => (
-        <Figure caption="Browse examples: 6 jobs in a tab per builder view, each drawn as its flow and opened in its view; Add brings along the examples it starts or follows.">
+        <Figure caption="Browse examples: 6 jobs on one page, from Simple to Advanced, each drawn as its flow and opened in its view; Add brings along the examples it starts or follows.">
             <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                 <ExampleDiagram job={EXAMPLE_JOBS.find((e) => e.job.id === 'example_condition')!.job} title="Investigate only when errors were found" height={110} />
             </div>

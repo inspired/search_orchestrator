@@ -58,8 +58,14 @@ describe('example jobs', () => {
         });
     });
 
-    test('the Simple example can be shown in Simple', () => {
-        EXAMPLE_JOBS.filter((e) => e.view === 'simple').forEach((e) => expect(readSimple(e.job).reasons).toEqual([]));
+    test('the Simple example can be shown in Simple, with more than one search and a save', () => {
+        EXAMPLE_JOBS.filter((e) => e.view === 'simple').forEach((e) => {
+            const read = readSimple(e.job);
+            expect(read.reasons).toEqual([]);
+            expect(read.chain.length).toBeGreaterThan(1);
+            expect(read.chain.flatMap((c) => c.thens.map((t) => t.kind))).toEqual(expect.arrayContaining(['lookup', 'email']));
+            expect(read.failure).toBeGreaterThanOrEqual(0);
+        });
     });
 
     test('examplesNeeded follows Start job actions and After another job triggers', () => {
@@ -97,9 +103,10 @@ describe('example jobs', () => {
 });
 
 describe('ExamplesDialog', () => {
-    test('tabs by view, each example a card with its diagram, view, description and features', () => {
+    test('every example on one page, each a card with its diagram, view, description and features', () => {
         open();
-        expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Simple (1)', 'Standard (2)', 'Advanced (3)']);
+        expect(screen.queryAllByRole('tab')).toHaveLength(0);
+        expect(screen.getAllByRole('listitem')).toHaveLength(6);
         const first = within(screen.getByTestId('example-example_hourly_errors'));
         const hourly = EXAMPLE_JOBS[0];
         expect(first.getByText(hourly.title)).toBeInTheDocument();
@@ -107,15 +114,12 @@ describe('ExamplesDialog', () => {
         expect(first.getByText(hourly.summary)).toBeInTheDocument();
         expect(first.getByText(`Shows: ${hourly.features.join(', ')}`)).toBeInTheDocument();
         expect(first.getByTestId('example-diagram')).toBeInTheDocument();
-        expect(screen.getAllByRole('listitem')).toHaveLength(1);
-        fireEvent.click(screen.getByRole('tab', { name: /Advanced/ }));
-        expect(screen.getAllByRole('listitem')).toHaveLength(3);
+        expect(screen.getByTestId('example-example_chaining')).toHaveTextContent('Opens in Advanced');
         expect(screen.getByTestId('example-example_chaining')).toHaveTextContent('added with it.');
     });
 
     test('Open in builder on an example that uses others adds those first, and opens it in its view', async () => {
         const { navigate, createJob } = open();
-        fireEvent.click(screen.getByRole('tab', { name: /Advanced/ }));
         fireEvent.click(screen.getByRole('button', { name: 'Open Chained jobs in builder' }));
         await waitFor(() => expect(navigate).toHaveBeenCalled());
         expect(createJob.mock.calls.map(([d]) => d.id).sort()).toEqual(['example_hourly_errors', 'example_rollup']);
@@ -124,7 +128,6 @@ describe('ExamplesDialog', () => {
 
     test('Open in builder opens the example as a new unsaved job', async () => {
         const { navigate, createJob } = open();
-        fireEvent.click(screen.getByRole('tab', { name: /Standard/ }));
         const rollup = EXAMPLE_JOBS.find((e) => e.job.id === 'example_rollup')!;
         fireEvent.click(screen.getByRole('button', { name: `Open ${rollup.title} in builder` }));
         await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringContaining('import=1')));

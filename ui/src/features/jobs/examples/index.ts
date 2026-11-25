@@ -35,9 +35,9 @@ const def = (json: unknown) => json as JobDefinition & { id: string };
 export const EXAMPLE_JOBS: ExampleJob[] = [
     {
         title: 'Hourly splunkd errors',
-        summary: 'Counts the errors splunkd logged in the hour before each run.',
+        summary: 'Errors by component every hour, kept in a lookup, an email when there are many, then the warnings; an email if it fails.',
         view: 'simple',
-        features: ['Schedule', 'One search step', 'Time range'],
+        features: ['Schedule', 'Two searches in order', 'Save to lookup', 'Email if a condition is true', 'Email on failure'],
         job: def(hourlyErrors),
     },
     {

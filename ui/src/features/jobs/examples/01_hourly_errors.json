@@ -1,7 +1,7 @@
 {
   "id": "example_hourly_errors",
   "name": "Example: hourly splunkd errors",
-  "description": "Counts the ERROR lines splunkd logged in the hour before each run. One search step on a schedule: the smallest job there is.",
+  "description": "Every hour: counts the errors splunkd logged in the hour before, by component, and keeps them in a lookup; emails when there were more than 5 kinds; then counts the warnings of the same hour. An email goes out if a search fails. Searches top to bottom, so it fits the Simple view.",
   "enabled": false,
   "tags": [
     "example",
@@ -18,25 +18,90 @@
       "id": "count_errors",
       "name": "Count splunkd errors",
       "type": "inline",
-      "spl": "index=_internal sourcetype=splunkd log_level=ERROR\n| stats count AS errors",
+      "spl": "index=_internal sourcetype=splunkd log_level=ERROR\n| stats count AS errors BY component\n| sort - errors\n| eval hour=strftime($run.scheduled_time$, \"%Y-%m-%d %H:00\")",
+      "earliest": "-1h@h",
+      "latest": "@h",
+      "actions": [
+        {
+          "hook": "on_success",
+          "type": "email",
+          "to": "you@example.com",
+          "condition": "$count_errors.resultCount$ > 5",
+          "subject": "{{job}}: splunkd errors in $count_errors.resultCount$ components",
+          "message": "The top one was $count_errors.first.component$ with $count_errors.first.errors$ errors.\n\n{{run_url}}"
+        }
+      ]
+    },
+    {
+      "id": "save_lookup",
+      "name": "Save to lookup",
+      "type": "previous",
+      "spl": "| outputlookup append=true so_example_hourly_errors.csv",
+      "output": {
+        "kind": "lookup",
+        "name": "so_example_hourly_errors.csv",
+        "append": true
+      }
+    },
+    {
+      "id": "count_warnings",
+      "name": "Count splunkd warnings",
+      "type": "inline",
+      "spl": "index=_internal sourcetype=splunkd log_level=WARN\n| stats count AS warnings BY component\n| sort - warnings",
       "earliest": "-1h@h",
       "latest": "@h"
     }
   ],
-  "edges": [],
+  "edges": [
+    {
+      "from": "count_errors",
+      "to": "save_lookup",
+      "condition": "on_success"
+    },
+    {
+      "from": "count_errors",
+      "to": "count_warnings",
+      "condition": "on_success"
+    }
+  ],
+  "actions": [
+    {
+      "hook": "on_failure",
+      "type": "email",
+      "to": "you@example.com",
+      "subject": "{{job}} failed",
+      "message": "{{message}}\n\n{{run_url}}"
+    }
+  ],
   "layout": {
     "nodes": {
       "trigger:0": {
         "x": 40,
-        "y": 36
+        "y": 94
       },
       "job": {
         "x": 20,
-        "y": 120
+        "y": 220
       },
       "step:count_errors": {
         "x": 320,
+        "y": 78
+      },
+      "step:save_lookup": {
+        "x": 600,
         "y": 20
+      },
+      "step:count_warnings": {
+        "x": 600,
+        "y": 136
+      },
+      "action:count_errors:0": {
+        "x": 600,
+        "y": 252
+      },
+      "action:job:0": {
+        "x": 320,
+        "y": 226
       }
     }
   }
