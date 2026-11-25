@@ -174,9 +174,10 @@ def test_variant_package_renames_every_global_name(tmp_path):
         assert "[%s]" % stanza in macros, stanza
     assert '"orchestrator_engine_t1.py"' in macros and '"orchestrator_rest_t1"' in macros
     assert '"start_orchestrator_job_t1"' in macros and '"orchestratet1"' in macros
-    dash = read("default/data/ui/views/run_health.xml")
-    assert "/app/search_orchestrator_t1/run?run_id=" in dash and "/app/search_orchestrator/" not in dash
-    assert not re.search(r"`orchestrator_(index|internal|engine_process)`", dash)
+    assert "search_orchestrator_t1:/templates/run_health.html" in read("default/data/ui/views/run_health.xml")
+    page = read("bin/so/run_health_api.py")
+    assert 'INDEX = "`orchestrator_index_t1`"' in page and 'SEARCH_PROCESS = "`orchestrator_search_process_t1`"' in page
+    assert not re.search(r"`orchestrator_(index|internal|engine_process|search_process)`", page)
     os.remove(path)
 
 

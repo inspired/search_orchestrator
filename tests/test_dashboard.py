@@ -1,85 +1,44 @@
-"""The Run health dashboard (Dashboard Studio v2): its JSON definition parses, every
-reference resolves, and every search goes through the app's macros and the time picker."""
+"""The Run health page: an html view of the app's own page (not a Dashboard Studio
+dashboard), whose searches (bin/so/run_health_api.py) all go through the app's macros, with
+the job filter on every audit search; and the macros and the app's nav."""
 import configparser
-import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from so import run_health_api as rh
 
 ROOT = Path(__file__).resolve().parent.parent
 VIEW = ROOT / "ui" / "src" / "splunk" / "default" / "data" / "ui" / "views" / "run_health.xml"
 NAV = ROOT / "ui" / "src" / "splunk" / "default" / "data" / "ui" / "nav" / "default.xml"
 MACROS = ROOT / "app" / "search_orchestrator" / "default" / "macros.conf"
 
-# Tokens Studio sets itself: the click context of a drilldown.
-CONTEXT_TOKENS = re.compile(r"^(row|click)\.")
+QUERIES = [n for n in dir(rh) if n.endswith("_query")]
 
 
-def _definition():
+def test_view_is_the_apps_own_page():
     root = ET.parse(VIEW).getroot()
-    assert root.tag == "dashboard" and root.get("version") == "2" and root.get("theme") == "dark"
+    assert root.tag == "view" and root.get("type") == "html"
+    assert root.get("template") == "search_orchestrator:/templates/run_health.html"
     assert root.findtext("label") == "Run health"
-    return json.loads(root.findtext("definition"))
+    assert (ROOT / "ui" / "src" / "pages" / "run_health" / "index.tsx").exists()
 
 
-def _tokens(text):
-    return {m.split("|")[0] for m in re.findall(r"\$([A-Za-z0-9_.|]+)\$", text)}
+def test_every_search_goes_through_the_macros_with_the_job_filter():
+    assert len(QUERIES) == 13
+    f = {"job_id": "daily", "range": "7d"}
+    for name in QUERIES:
+        query = getattr(rh, name)(f)
+        assert not re.search(r"\bindex\s*=", query), (name, "search through the macros")
+        assert re.search(r"`orchestrator_(index|internal|engine_process|search_process)`", query), name
+        if "`orchestrator_index`" in query and name != "engine_last_query":
+            assert 'job_id="daily"' in query, (name, "the job filter applies")
 
 
-def test_definition_parses_and_every_reference_resolves():
-    d = _definition()
-    sources, vizs, inputs = d["dataSources"], d["visualizations"], d["inputs"]
-    for vid, viz in list(vizs.items()) + list(inputs.items()):
-        for ds in (viz.get("dataSources") or {}).values():
-            assert ds in sources, (vid, ds)
-    for sid, ds in sources.items():
-        assert re.fullmatch(r"[A-Za-z0-9 \-_.]+", ds["name"]), sid
-        if ds["type"] == "ds.chain":
-            assert sources[ds["options"]["extend"]]["type"] == "ds.search", sid
-    layout = d["layout"]
-    assert set(layout["globalInputs"]) == set(inputs)
-    placed = [i["item"] for lay in layout["layoutDefinitions"].values() for i in lay["structure"]]
-    assert sorted(placed) == sorted(vizs), "every visualization placed exactly once"
-    assert all(v.startswith("viz_") for v in vizs)
-
-
-def test_every_token_is_defined():
-    d = _definition()
-    defined = set()
-    for inp in d["inputs"].values():
-        tok = inp["options"]["token"]
-        defined.add(tok)
-        if inp["type"] == "input.timerange":
-            defined |= {tok + ".earliest", tok + ".latest"}
-        assert inp["options"].get("defaultValue") not in (None, ""), "inputs have defaults"
-    used = _tokens(json.dumps(d))
-    missing = {t for t in used if t not in defined and not CONTEXT_TOKENS.match(t)}
-    assert not missing, missing
-
-
-def test_searches_use_the_macros_and_the_time_picker():
-    d = _definition()
-    params = d["defaults"]["dataSources"]["ds.search"]["options"]["queryParameters"]
-    assert params == {"earliest": "$global_time.earliest$", "latest": "$global_time.latest$"}
-    assert d["inputs"]["input_time"]["options"]["defaultValue"] == "-24h,now"
-    for sid, ds in d["dataSources"].items():
-        query = ds["options"]["query"]
-        assert not re.search(r"\bindex\s*=", query), (sid, "search through the macros")
-        if ds["type"] == "ds.search":
-            assert "queryParameters" not in ds["options"], (sid, "the time picker bounds it")
-            assert re.search(r"`orchestrator_(index|internal|engine_process|search_process)`", query), sid
-            if "`orchestrator_index`" in query and sid not in ("ds_jobs", "ds_engine_last"):
-                assert "job_id=$job|s$" in query, (sid, "the job filter applies")
-
-
-def test_run_links_and_state_colours():
-    d = _definition()
-    links = [h["options"]["url"] for v in d["visualizations"].values() for h in v.get("eventHandlers", [])]
-    assert links and all(u == "/app/search_orchestrator/run?run_id=$row.run_id.value|u$" for u in links)
-    colours = d["visualizations"]["viz_runs_over_time"]["options"]["seriesColorsByField"]
-    assert colours["succeeded"] == "#53A051" and colours["failed"] == "#DC4E41"
-    last = d["visualizations"]["viz_engine_last"]["context"]["ageColors"]
-    assert last == [{"to": 5, "value": "#53A051"}, {"from": 5, "value": "#DC4E41"}]
+def test_performance_searches_bucket_by_the_range():
+    assert "span=1h" in rh.runtime_query({"job_id": None, "range": "24h"})
+    assert "span=1d" in rh.scanned_query({"job_id": None, "range": "30d"})
+    assert "`orchestrator_search_process`" in rh.peaks_query({"job_id": None, "range": "24h"})
 
 
 def test_macros_and_nav():
@@ -94,43 +53,3 @@ def test_macros_and_nav():
         "data.search_props.sid=*")
     views = [v.get("name") for v in ET.parse(NAV).getroot().iter("view")]
     assert "run_health" in views
-
-
-def test_late_runs_panels():
-    d = _definition()
-    placed = [i["item"] for lay in d["layout"]["layoutDefinitions"].values() for i in lay["structure"]]
-    for viz_id, kind in (("viz_kpi_late", "splunk.singlevalue"), ("viz_late_runs", "splunk.table")):
-        viz = d["visualizations"][viz_id]
-        assert viz["title"] == "Late runs" and viz["type"] == kind
-        assert viz_id in placed
-        for ds_id in viz["dataSources"].values():
-            ds = d["dataSources"][ds_id]
-            root = ds if ds["type"] == "ds.search" else d["dataSources"][ds["options"]["extend"]]
-            assert "`orchestrator_index`" in root["options"]["query"]
-            assert "type=run_late" in root["options"]["query"]
-
-
-def test_performance_panels():
-    d = _definition()
-    placed = [i["item"] for lay in d["layout"]["layoutDefinitions"].values() for i in lay["structure"]]
-    panels = (("viz_perf_runtime", "splunk.line", "Runtime per job"),
-              ("viz_perf_scanned", "splunk.line", "Events scanned per job"),
-              ("viz_perf_slowest", "splunk.table", "Slowest steps by runtime"),
-              ("viz_perf_cpu", "splunk.table", "Peak CPU and memory per job"))
-    assert "viz_md_performance" in placed
-    for viz_id, kind, title in panels:
-        viz = d["visualizations"][viz_id]
-        assert viz["type"] == kind and viz["title"] == title and viz_id in placed
-        ds = d["dataSources"][viz["dataSources"]["primary"]]
-        assert ds["type"] == "ds.search" and "queryParameters" not in ds["options"]
-        query = ds["options"]["query"]
-        assert "`orchestrator_index`" in query and "job_id=$job|s$" in query, viz_id
-        assert 'type="step_attempt"' in query, viz_id
-        for evalstr in re.findall(r'eval [^"]*"([^"]*)"', query):
-            assert "|" not in evalstr, viz_id
-    q = lambda v: d["dataSources"][d["visualizations"][v]["dataSources"]["primary"]]["options"]["query"]
-    assert "median(run_duration)" in q("viz_perf_runtime") and "span=1d" in q("viz_perf_runtime")
-    assert "scan_count" in q("viz_perf_scanned")
-    assert "median(run_duration)" in q("viz_perf_slowest") and "head 10" in q("viz_perf_slowest")
-    assert "`orchestrator_search_process`" in q("viz_perf_cpu")
-    assert "data.search_props.sid" in q("viz_perf_cpu")

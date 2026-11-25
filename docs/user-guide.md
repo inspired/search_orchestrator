@@ -807,18 +807,19 @@ Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Trig
 - Example: `index=_internal source="*search_orchestrator.*.log" run_id="daily:1764547200"`. Inside the app, the `orchestrator_logs` macro gives the first part.
 - Reading them needs read access to `_internal`, which admins have. They never hold passwords, tokens, webhook URLs or search results.
 
-### Run health dashboard
+### Run health
 
-**Run health** in the navigation bar is a dashboard over the audit index for the chosen time range (last 24 hours by default) and job (**All** by default):
+**Run health** in the navigation bar shows how the jobs are doing, for one job or all of them (**Job**) over the last 24 hours, 7 days or 30 days (**Time range**). It is the app's own page, like Troubleshooting; the job and range are kept in the address, so a view can be shared. Each section loads on its own and links each of its searches to Search (**Open in Search**).
 
-- **Overview:** runs, succeeded, failed, held or blocked, the success rate of finished runs and the median run duration. A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
-- **Runs over time**, stacked by state: succeeded green, failed red, held and blocked amber.
-- **Late runs:** the number of runs that passed their deadline and a list with the deadline, how late each was and its state. Click a row to open the run.
-- **Runs that need attention:** failed, held and blocked runs with the last step error. Click a row to open the run.
-- **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile duration, and how many runs found the step delayed). Durations are measured to within one engine tick.
-- **Performance:** **Runtime per job**, **Events scanned per job**, **Slowest steps by runtime**, and **Peak CPU and memory per job**. They come from the numbers stored on step attempts (none for runs from before 1.23.0); the CPU and memory panel needs read access to `_introspection`.
+- **Tiles:** runs, succeeded, failed, held or blocked, the success rate of finished runs, the median run, late runs and when the engine was last seen (red after 5 minutes). A tone always has an icon and a word, never colour alone.
+- **Runs:** runs over time, stacked by state, and **Runs that need attention** (failed, held and blocked, newest first, with the last step error and a link to the run). A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
+- **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile, and how many runs found the step delayed). Durations are measured to within one engine tick.
 - **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
-- **Engine health:** errors, warnings and Python tracebacks from the app's scripts in `_internal`, and how long ago the engine was last seen; that number turns red after 5 minutes. It needs read access to `_internal` and `_introspection`, which admins have.
+- **Late runs:** runs that passed their deadline, by how much, and their state.
+- **Engine:** errors, warnings and Python tracebacks from the app's scripts in `_internal`.
+- **Performance:** median runtime and events scanned per job over time, the slowest steps by runtime, and peak CPU and memory per job. They come from the numbers stored on step attempts (none for runs from before 1.23.0); CPU and memory need `_introspection`.
+
+**What you see depends on your Splunk access.** The searches run as you: the audit events are in `_audit`, which by default only admins may search, and the engine and performance numbers need `_internal` and `_introspection`. Without access a section says so instead.
 
 ## The `| orchestrate` command
 

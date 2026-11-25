@@ -163,7 +163,7 @@ def _routes():
     from . import condition_test as ct, history_api as hv, output_view as ov, preview_api as pv  # these import this module: no cycle
     from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
     from . import follows as fw, logs_api as lg
-    from . import schedule_api as sc
+    from . import run_health_api as rh, schedule_api as sc
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -197,6 +197,7 @@ def _routes():
         (r"logs/summary", {"GET": lg.summary}),
         (r"logs/breakdown", {"GET": lg.breakdown}),
         (r"logs/problems", {"GET": lg.problems}),
+        (r"runhealth/(?P<section>[a-z]{1,20})", {"GET": lambda ctx, body, section: rh.section(ctx, body, section)}),
         (r"destinations", {"GET": list_destinations, "POST": save_destination}),
         (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
         (r"alert_actions", {"GET": list_alert_actions}),

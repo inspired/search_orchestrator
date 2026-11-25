@@ -14,7 +14,7 @@ This guide covers installing, securing and running the app. The [user guide](use
 | Set up | Secure | Run and watch | Reference |
 |---|---|---|---|
 | [Supported platforms](#supported-platforms) | [Roles and capabilities](#roles-and-capabilities) | [Settings page](#settings-page) | [REST API](#rest-api) |
-| [Install](#install) | [How steps run](#how-steps-run-security) · [What the app stores](#what-the-app-stores) · [Search slots](#search-slots) | [Audit index](#audit-index) · [Run health dashboard](#run-health-dashboard) | [Known limits](#known-limits) |
+| [Install](#install) | [How steps run](#how-steps-run-security) · [What the app stores](#what-the-app-stores) · [Search slots](#search-slots) | [Audit index](#audit-index) · [Run health](#run-health) | [Known limits](#known-limits) |
 | [Upgrading from 1.0.x](#upgrading-from-10x) | [Deleting jobs](#deleting-jobs) · [Orphaned owners](#orphaned-owners) | [Logs and troubleshooting](#logs-and-troubleshooting) · [Self-test](#self-test) | [Search head clusters](#search-head-clusters) |
 
 
@@ -230,16 +230,16 @@ A delay, failure or late run is never meant to be silent. When a job has no fail
 
 The engine writes every state change as JSON to Splunk's own `_audit` index, sourcetype `orchestrator:audit`: jobs saved, runs and steps changing state, actions, permission denials and ownership changes.
 
-- **Who may search it is set by Splunk's roles.** By default only `admin` (and `sc_admin` on Cloud) may search `_audit`. To let others read the audit events, or the Run health dashboard, add `_audit` to their role's allowed indexes (**Settings > Roles > Indexes**). The events name jobs, owners, steps, errors and approvals of every job, so give it only to people who may see all of that.
+- **Who may search it is set by Splunk's roles.** By default only `admin` (and `sc_admin` on Cloud) may search `_audit`. To let others read the audit events, or see Run health, add `_audit` to their role's allowed indexes (**Settings > Roles > Indexes**). The events name jobs, owners, steps, errors and approvals of every job, so give it only to people who may see all of that.
 - **No index to create**, on Enterprise or Cloud: `_audit` always exists.
 - Inside the app, search with the `orchestrator_index` macro. The macro isn't shared outside the app, so **outside the app, search `index=_audit sourcetype=orchestrator:audit` directly.**
 - **Upgrading from 1.49 or earlier:** events written before 1.50.0 stay in the old `orchestrator` index until its retention removes them. The app no longer ships that index: on Enterprise, an upgrade leaves the old `default/indexes.conf` in place, so the index and its events stay searchable until you remove that file; on Cloud, delete the index when you no longer need it. Restrict who may search it in the meantime, because every user can.
 
 Run records (each run with its step attempts and action rows) are pruned from KV Store after the retention period; audit events stay for the index's own retention.
 
-## Run health dashboard
+## Run health
 
-The **Run health** dashboard (Dashboard Studio, view `run_health`) reads only through the app's macros, so it follows a changed index name:
+**Run health** (view `run_health`) is the app's own page, like Troubleshooting, not a Dashboard Studio dashboard. Its sections come from `GET runhealth/<section>` (`runs`, `steps`, `actions`, `late`, `engine`, `performance`; with `job_id` and `range` 24h, 7d or 30d), which runs the searches **as the viewer** and sums them up, so Splunk's index access decides what each viewer sees. Every search goes through the app's macros, so it follows a changed index name:
 
 - `orchestrator_index`: the audit index. Late runs come from `run_late` (with `deadline_at`); runs come from `run_created`, `run_state`, `run_held`, `run_dismissed` and `step_attempt`; steps from `step_dispatched`, `step_attempt` and `step_delayed`; actions from `action_done` and `action_failed` (`action_type`, and `preset` or `host` for Slack). `step_delayed` and the action `preset` field are new with this dashboard; in events written before them a delay counts only where the step had an *on delayed* action.
 - `orchestrator_internal`: the app's lines in splunkd.log (`index=_internal sourcetype=splunkd`): the engine modular input (component `ExecProcessor`), the REST handler (`PersistentScript`; its lines start with `orchestrator_rest:`), the alert action (`sendmodalert`) and the search command (`ChunkedExternProcessor`). The search command writes most of its messages to the search's own `search.log`, which isn't in `_internal`.
@@ -248,7 +248,7 @@ The **Run health** dashboard (Dashboard Studio, view `run_health`) reads only th
 
 **Peak CPU and memory** come from `_introspection` search-process samples, taken about every 10 seconds and only while resource usage introspection is on (`server.conf` `[introspection:generator:resource_usage]`, on by default; some containers and test instances turn it off). A role that can't read `_introspection` gets no rows rather than an error, so when the search finds nothing the app counts `_introspection` events of the last day: none means no access, and the tab says to ask an admin. Searches shorter than the sample interval have no numbers; runtime, events scanned, results and disk always come from the engine or `_audit`.
 
-Viewers need read access to the audit index, `_internal` and `_introspection` (admin and sc_admin have it). The run page's **Performance** tab runs two searches as the viewer (CPU and memory from `_introspection`, and for steps from before 1.23.0 run time and counts from `_audit`); without access to either, the tab shows a note instead. The side-by-side test copy (`scripts/package_variant.sh`) suffixes all four macros and the script names they match, so each copy's dashboard shows only its own engine.
+Viewers need read access to the audit index, `_internal` and `_introspection` (admin and sc_admin have it). The run page's **Performance** tab runs two searches as the viewer (CPU and memory from `_introspection`, and for steps from before 1.23.0 run time and counts from `_audit`); without access to either, the tab shows a note instead. The side-by-side test copy (`scripts/package_variant.sh`) suffixes all four macros and the script names they match, so each copy's Run health page shows only its own engine.
 
 ## Logs and troubleshooting
 
@@ -366,6 +366,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `health`, `me` | GET (`me` includes `can_approve`) |
 | `selftest` | POST (admin) |
 | `schedule/next` | POST (builders: `cron`, optional `timezone` and `count` 1 to 10; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`; with `clashes: true` (and `job_id` to leave out), per slot the other enabled jobs you may see that fire in the same minute) |
+| `runhealth/<section>` | GET (any app capability; `section` is `runs`, `steps`, `actions`, `late`, `engine` or `performance`; `job_id` (default every job) and `range` (`24h`, `7d` or `30d`); the Run health page's searches, run as the caller, with each search's SPL in `searches`) |
 | `schedule` | GET (any app capability; `from` and `to` epoch seconds, by default 8 hours back to 16 hours ahead; returns every job's past, running and projected runs as `bars` and the concurrent-search `load` with `max_searches`; jobs the caller may not see are listed as `Hidden job N`, so the load is the real one) |
 | `schedule/preview` | POST (builders who may edit the job: `job`, a draft; returns the other jobs' `load` around the draft's cron schedules, in its time zone, and per schedule its `runs` and an optional quieter `suggestion`) |
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |

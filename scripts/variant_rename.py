@@ -60,11 +60,9 @@ def rules(s, label):
          'source="*search_orchestrator%s.*.log"' % s, 1),
         # The app health alerts search the copy's own log lines.
         ("default/savedsearches.conf", r"`orchestrator_logs`", "`orchestrator_logs%s`" % s, 3),
-        # The dashboard: its macros, and its links to the Run page (the app id).
-        ("default/data/ui/views/run_health.xml", r"`orchestrator_(index|internal|engine_process|search_process)`",
-         r"`orchestrator_\1%s`" % s, 17),
-        ("default/data/ui/views/run_health.xml", r"/app/search_orchestrator/run\?",
-         "/app/search_orchestrator%s/run?" % s, 3),
+        # The Run health page's searches use the copy's macros.
+        ("bin/so/run_health_api.py", r'^(INDEX|INTERNAL|ENGINE_PROCESS|SEARCH_PROCESS) = "`orchestrator_(index|internal|engine_process|search_process)`"$',
+         r'\1 = "`orchestrator_\2%s`"' % s, 4),
         ("default/props.conf", r"^\[orchestrator:audit\]$", "[orchestrator:audit%s]" % s, 1),
         # The log files' sourcetype: this copy's files and its own sourcetype.
         ("default/props.conf", r"^\[source::\.\.\./var/log/splunk/search_orchestrator\.",
@@ -139,7 +137,7 @@ def command_name(s):
     return name
 
 
-PAGES = ("builder", "calendar", "dependencies", "help", "jobs", "logs", "run", "runs", "settings")
+PAGES = ("builder", "calendar", "dependencies", "help", "jobs", "logs", "run", "run_health", "runs", "settings")
 
 # Script files whose name is part of a stanza (modular input scheme, command
 # filename, alert action, REST handler module), applied after the text rules.

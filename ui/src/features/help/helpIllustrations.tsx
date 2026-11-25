@@ -415,8 +415,8 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
-    'run-health-dashboard': () => (
-        <Figure caption="Run health: runs, failures and late runs over time, from the audit index and _internal.">
+    'run-health': () => (
+        <Figure caption="Run health: tiles for runs, failures, late runs and the engine, then a section each for runs, steps, actions, late runs, the engine and performance.">
             <Chips
                 items={[
                     { text: '1 204 runs', tone: 'info' },
