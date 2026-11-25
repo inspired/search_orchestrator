@@ -1,5 +1,6 @@
 /* The Runs page's Timeline view: window controls (24 hours / 7 days, back, now, forward),
- * a job-name search, and the timeline, polled like the runs table. */
+ * a job-name search, and the timeline, polled like the runs table, with every Splunk search
+ * over the same window (polled every minute). */
 import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
@@ -16,7 +17,7 @@ export interface SchedulePanelProps {
     q: string;
     state?: string;
     onQChange: (q: string) => void;
-    api?: { getSchedule: typeof client.getSchedule };
+    api?: { getSchedule: typeof client.getSchedule; getSplunkLoad?: typeof client.getSplunkLoad };
 }
 
 const ACTIVE = ['queued', 'running', 'blocked', 'paused'];
@@ -36,6 +37,17 @@ export default function SchedulePanel({ q, state, onQChange, api = client }: Sch
         fast ? 5000 : 30000,
         true
     );
+    // Every Splunk search: slower to search (three searches as the viewer), so every minute.
+    const splunk = usePoll(
+        () => {
+            const now = Math.floor(Date.now() / 1000);
+            const w = defaultWindow(now, span);
+            const shift = offset * SPAN_SECONDS[span];
+            return (api.getSplunkLoad || client.getSplunkLoad)(w.from + shift, w.to + shift);
+        },
+        60000,
+        true
+    );
     const data = schedule.data;
     const anyActive = !!data && data.jobs.some((j) => j.bars.some((b) => ACTIVE.includes(b.state)));
     React.useEffect(() => setFast(anyActive), [anyActive]);
@@ -46,6 +58,7 @@ export default function SchedulePanel({ q, state, onQChange, api = client }: Sch
             return;
         }
         schedule.refresh();
+        splunk.refresh();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [span, offset]);
 
@@ -86,7 +99,18 @@ export default function SchedulePanel({ q, state, onQChange, api = client }: Sch
             {!data && schedule.loading ? (
                 <WaitSpinner size="medium" />
             ) : (
-                data && <ScheduleTimeline data={data} from={data.from} to={data.to} now={data.now} q={q} state={state} />
+                data && (
+                    <ScheduleTimeline
+                        data={data}
+                        from={data.from}
+                        to={data.to}
+                        now={data.now}
+                        q={q}
+                        state={state}
+                        splunk={splunk.data && splunk.data.from === data.from ? splunk.data : null}
+                        splunkError={splunk.error ? `Splunk's searches could not be loaded: ${splunk.error.message}` : null}
+                    />
+                )
             )}
             <p style={{ fontSize: '12px', opacity: 0.8 }}>
                 {`Times are in your browser's time zone (${Intl.DateTimeFormat().resolvedOptions().timeZone}). Dashed bars are scheduled runs; their length is estimated from recent runs.`}

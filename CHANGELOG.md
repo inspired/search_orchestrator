@@ -16,15 +16,23 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
-| [1.50.0](#1500-2026-11-24) | 2026-11-24 |
+| [1.50.0](#1500-2026-11-25) | 2026-11-25 |
 | [1.49.0](#1490-2026-11-24) | 2026-11-24 |
 | [1.48.4](#1484-2026-11-23) | 2026-11-23 |
 | [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
 
-## 1.50.0 (2026-11-24)
+## 1.50.0 (2026-11-25)
 
-Fixes from a security review of the server.
+A security review of the server, Run health as the app's own page, every Splunk search on the Runs timeline, and fewer examples.
+
+- **Run health is the app's own page**, like Troubleshooting, instead of a Dashboard Studio dashboard: Splunk UI tiles, charts and tables, a job picker and 24 hours, 7 days or 30 days (kept in the address), and a section each for runs, steps, actions, late runs, the engine and performance, each with Open in Search links. A new route, `GET runhealth/<section>`, runs the same searches as the viewer, so Splunk's index access still decides what each viewer sees.
+- **All Splunk searches on the Runs timeline.** Under the app's own Concurrent searches, a new row shows every search on the search head against Splunk's own limit: up to now, stacked by this app's, scheduled and other searches (from `_audit`); from now, Splunk's scheduled saved searches expected from their schedules and usual run times, with this app's on top. `GET schedule/splunk`, searched as the viewer (by default only admins may read what it needs).
+- **Examples: 6 instead of 18**, one for Simple, two for Standard and three for Advanced, in a tab per view; **Open in builder** opens each in its view.
+- **The builder's first tab is called Flow** in Simple, Standard and Advanced (Simple and Standard said Steps).
+- **The minimap can be dragged:** the view follows the pointer while you drag in it, not only on a click.
+
+Security:
 
 - **Audit events move to Splunk's `_audit` index** (sourcetype `orchestrator:audit`), so Splunk's own roles decide who may read them: by default only admins. Until now every user could search `index=orchestrator`, including events about jobs hidden from them. The app no longer ships an index. Search `index=_audit sourcetype=orchestrator:audit` outside the app; the `orchestrator_index` macro and the Run health dashboard follow on their own. To let others see Run health, give their role `_audit`. Events written before 1.50.0 stay in the old index until its retention removes them (see the admin guide's Audit index section).
 - **`| orchestrate` is marked as a risky command,** so Splunk asks before running it from a link or a dashboard panel. Before, a crafted link could make an approver approve a step, or an admin start or cancel runs, just by opening it.

@@ -163,7 +163,7 @@ def _routes():
     from . import condition_test as ct, history_api as hv, output_view as ov, preview_api as pv  # these import this module: no cycle
     from . import approval_api as ap, backfill_api as bf, calendar_api as cal, perf as pf, snippets as sn
     from . import follows as fw, logs_api as lg
-    from . import run_health_api as rh, schedule_api as sc
+    from . import run_health_api as rh, saturation_api as sat, schedule_api as sc
     return [
         (r"jobs", {"GET": list_jobs, "POST": create_job}),
         (r"jobs/validate", {"POST": validate_job}),
@@ -192,6 +192,7 @@ def _routes():
         (r"runs/(?P<run_id>[^/]+)/performance", {"GET": pf.performance}),
         (r"schedule", {"GET": sc.get_schedule}),
         (r"schedule/preview", {"POST": sc.schedule_preview}),
+        (r"schedule/splunk", {"GET": sat.splunk_load}),
         (r"settings", {"GET": get_settings, "PUT": put_settings}),
         (r"logs", {"GET": lg.search_logs}),
         (r"logs/summary", {"GET": lg.summary}),

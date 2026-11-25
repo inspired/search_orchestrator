@@ -569,6 +569,25 @@ export interface ScheduleResponse {
     partial: boolean;
 }
 
+/** Every Splunk search over time (GET schedule/splunk), searched as the viewer. */
+export interface SplunkLoad {
+    from: number;
+    to: number;
+    now: number;
+    /** Seconds per bucket: each holds the most searches that ran at the same moment in it. */
+    bucket: number;
+    /** `[bucket start, this app, scheduled, other]`: searches that ran (from _audit). */
+    past: [number, number, number, number][];
+    /** `[bucket start, scheduled]`: Splunk's scheduled saved searches, projected. */
+    future: [number, number][];
+    /** splunkd's own concurrent search limits. */
+    limit: { searches: number; scheduled: number | null } | null;
+    projected_searches: number;
+    skipped_crons: number;
+    notes: string[];
+    searches: { title: string; spl: string; earliest: string; latest: string }[];
+}
+
 export interface ScheduleSuggestion {
     hour: number;
     minute: number;

@@ -578,7 +578,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'search-slots': () => (
-        <Figure caption="The engine starts each search itself, so it shares Splunk's whole search limit with people's own searches and waits instead of being skipped.">
+        <Figure caption="The engine starts each search itself, so it shares Splunk's whole search limit with people's own searches and waits instead of being skipped. Runs → Timeline shows every Splunk search against that limit.">
             <MiniTable
                 head={['', 'Scheduled search', "The app's search"]}
                 rows={[

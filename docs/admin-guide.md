@@ -161,13 +161,21 @@ The app's searches are hidden saved searches that are never scheduled. The engin
 - **They use Splunk's whole concurrent search limit** (`max_searches_per_cpu` × CPU cores + `base_max_searches` in `limits.conf`), not the scheduler's share (`max_searches_perc`, 50% by default). They compete with users' own searches and dashboards, and scheduled searches take slots from the same total.
 - **They are never skipped.** When splunkd is full it queues the search or refuses the dispatch (HTTP 503); the engine tries a refused dispatch again on a later tick without using the step's retries. A full search head therefore shows as late and delayed runs, not in the scheduler's skipped-search counts. Time spent in Splunk's queue counts toward a step's *delayed after* time.
 - **The owner's role quotas apply** (`srchJobsQuota`, and `cumulativeSrchJobsQuota` across a role, in `authorize.conf`; Splunk's defaults are 3 for `user`, 10 for `power`, 50 for `admin`). A job whose owner holds only `user` runs at most 3 searches at once, whatever the app's settings.
-- **The app's own limits** (Settings: **Concurrent searches**, 10, and **Concurrent searches per job**, 4) are checked first, and the engine starts no more than that. They are not compared with splunkd's limits.
+- **The app's own limits** (Settings: **Concurrent searches**, 10, and **Concurrent searches per job**, 4) are checked first, and the engine starts no more than that. They are not compared with splunkd's limits, but **Runs → Timeline** draws both (below).
 
 Recommended:
 
 - Keep **Concurrent searches** well below what is left of splunkd's limit after the scheduler's share and your users' usual load.
 - Give owners of busy jobs a role whose `srchJobsQuota` covers **Concurrent searches per job**.
 - Spread job start times. **Runs → Timeline** shows the load over time with a line at the app's limit, and a Schedule's **Busy times** strip suggests quieter start times.
+
+**Every Splunk search on the timeline.** Under the app's own **Concurrent searches**, the Timeline has **All Splunk searches** (`GET schedule/splunk`), searched as the viewer:
+
+- **Up to now:** each finished search from its `_audit` event (`action=search info=completed`, with `total_run_time`), split into this app's (`_so_` saved searches and previews), scheduled (search ids with `scheduler_`) and other searches (ad hoc, dashboards, other apps' REST calls). A search that is still running isn't in `_audit` yet, so the last few minutes can read low.
+- **From now:** the scheduled saved searches the viewer may read (`/servicesNS/-/-/saved/searches`, `is_scheduled=1`, `disabled=0`), each at its `cron_schedule` in the server's time zone, lasting its median `run_time` in the scheduler's log over the last 7 days (60 seconds when it has none), with this app's own projected searches on top. A schedule the app's cron reader can't read is left out and counted. Real-time searches, report acceleration and data model acceleration aren't projected.
+- **The limit:** splunkd's `max_hist_searches` from `server/status/limits/search-concurrency`, as a dashed line; the label's tooltip also gives the scheduler's share (`max_hist_scheduled_searches`).
+- Each bar is the most searches that ran at the same moment in its bucket (5 minutes, or 30 minutes over 7 days). Only counts are returned, never search names or text.
+- **Who sees it:** the searches need `_audit`, `_internal` and the server's limits, which by default only admins may read; for others the row says so.
 
 Previews and condition tests in the builder are ad-hoc searches run as the user, with a TTL of at most 30 minutes; they count toward the same limits.
 
@@ -367,6 +375,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `selftest` | POST (admin) |
 | `schedule/next` | POST (builders: `cron`, optional `timezone` and `count` 1 to 10; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`; with `clashes: true` (and `job_id` to leave out), per slot the other enabled jobs you may see that fire in the same minute) |
 | `runhealth/<section>` | GET (any app capability; `section` is `runs`, `steps`, `actions`, `late`, `engine` or `performance`; `job_id` (default every job) and `range` (`24h`, `7d` or `30d`); the Run health page's searches, run as the caller, with each search's SPL in `searches`) |
+| `schedule/splunk` | GET (any app capability; `from` and `to` as `schedule`; every Splunk search over the window as counts per bucket: `past` `[t, this app, scheduled, other]` from `_audit`, `future` `[t, scheduled]` projected from Splunk's scheduled saved searches, and splunkd's `limit`; searched as the caller) |
 | `schedule` | GET (any app capability; `from` and `to` epoch seconds, by default 8 hours back to 16 hours ahead; returns every job's past, running and projected runs as `bars` and the concurrent-search `load` with `max_searches`; jobs the caller may not see are listed as `Hidden job N`, so the load is the real one) |
 | `schedule/preview` | POST (builders who may edit the job: `job`, a draft; returns the other jobs' `load` around the draft's cron schedules, in its time zone, and per schedule its `runs` and an optional quieter `suggestion`) |
 | `jobs/<id>/versions` | GET (a job's saved versions, newest first; `version=<n>` returns one with its definition; `compare=<a>,<b>` returns the changes, `b` a number or `current`) |

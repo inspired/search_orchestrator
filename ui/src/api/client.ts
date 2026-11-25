@@ -28,6 +28,7 @@ import type {
     SaveResponse,
     SchedulePreviewResponse,
     ScheduleResponse,
+    SplunkLoad,
     Settings,
     ValidateResponse,
 } from './types';
@@ -279,6 +280,11 @@ export function rerun(runId: string, body: RerunRequest): Promise<{ command_id: 
 /** Past, running and projected runs of every job over [from, to), and the load. */
 export function getSchedule(from: number, to: number): Promise<ScheduleResponse> {
     return request('GET', 'schedule', { query: { from, to } });
+}
+
+/** Every Splunk search over the window: what ran, what Splunk's scheduler will run, and its limits. */
+export function getSplunkLoad(from: number, to: number): Promise<SplunkLoad> {
+    return request('GET', 'schedule/splunk', { query: { from, to } });
 }
 
 /** The load of every other job around a draft job's cron schedules, with suggestions. */
