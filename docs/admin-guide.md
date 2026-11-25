@@ -198,11 +198,13 @@ Only users with `orchestrator_admin` see it.
 
 ### Building blocks
 
-Turn off what your teams don't use, to keep the builder simple. For example, turn off **Approval** if no one signs off on runs, or the webhook channels you have no destinations for. The kinds are grouped as in the builder:
+Turn off what your teams don't use, to keep the builder simple. For example, turn off **Approval** if no one signs off on runs, or **Webhook** if you have no destinations. The kinds are grouped as in the builder:
 
 - **Triggers:** After another job.
 - **Steps:** Saved search, Results of earlier steps, Summary index, Lookup and Approval.
-- **Actions:** Email, Webhook, Slack, Microsoft Teams, PagerDuty, ServiceNow, Event to an index, Alert action and Start another job.
+- **Actions:** Email, Webhook, Event to an index, Alert action and Start another job.
+
+**Slack, Microsoft Teams, PagerDuty and ServiceNow are retired** (1.50.0): Splunk's own apps for them add alert actions, so builders use an **Alert action** instead. They are no longer building blocks; a save that adds one is refused (`block_retired`), and jobs that already have one keep it, and it still sends.
 
 A kind that is off:
 
@@ -212,13 +214,15 @@ A kind that is off:
 
 Jobs that already use it keep running, and can still be edited and saved with it. Turning a kind off never breaks a job. Turn it back on at any time.
 
-**Beta** marks blocks that are still in development and may not work yet: Approval, Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow. The tag shows here and in the builder's add menu.
+**Beta** marks blocks that are still in development and may not work yet: Approval and Webhook. The tag shows here and in the builder's add menu.
 
 **Health** shows whether the engine is running, whether the audit index exists, whether a fallback is set and how many commands are waiting, with a warning message for each problem.
 
 ### Webhook destinations
 
 Admins define each destination once: a name, an `https://` URL, a body format (Generic JSON, Slack, Microsoft Teams, PagerDuty or ServiceNow) and optional headers such as `Authorization`. Job builders pick from the list by name and never see the URL. This keeps secrets out of jobs and stops builders pointing the search head at internal addresses.
+
+The Slack, Microsoft Teams, PagerDuty and ServiceNow body formats are kept for the actions jobs saved before 1.50.0 still have; new jobs use an Alert action from the service's own Splunk app instead.
 
 The URL and headers are write-only. The page shows only whether each is set. A header name must be a valid HTTP header name, and a value with a line break or another control character is refused (a pasted token often ends in one); header values never appear in error texts. To change a destination, use **Replace** and enter the URL again; leave the headers empty to keep them, or remove them. A destination used as the fallback can't be deleted until the fallback changes.
 

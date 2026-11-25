@@ -1842,8 +1842,13 @@ def _webhook_issues(w, preset, options, destination="ops", job_id="daily"):
               "options": options}
     if preset is not None:
         action["preset"] = preset
-    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(job_id, actions=[action]))
-    return status, [i["message"] for i in (out.get("error") or {}).get("issues") or []]
+    body = job_body(job_id, actions=[action])
+    # Slack, Teams, PagerDuty and ServiceNow are retired: only a job that already has one may
+    # keep it, so the job is stored as it was before 1.50.0 and then saved again.
+    w.store.save_job(dict(body, _key=job_id, owner="alice", actions=[]) if preset is None
+                     else dict(body, _key=job_id, owner="alice"))
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/" + job_id, body)
+    return (201 if status == 200 else status), [i["message"] for i in (out.get("error") or {}).get("issues") or []]
 
 
 @pytest.mark.parametrize("preset,options,message", [

@@ -81,7 +81,9 @@ describe('Building blocks', () => {
 
     test('blocks still in development are tagged Beta in Settings', () => {
         renderThemed(<SettingsForm settings={SETTINGS} destinations={[]} onSave={jest.fn()} />);
-        ['approval', 'webhook', 'slack', 'teams', 'pagerduty', 'servicenow'].forEach((k) => expect(within(screen.getByTestId(`block-${k}`)).getByTestId('beta-tag')).toBeInTheDocument());
+        ['approval', 'webhook'].forEach((k) => expect(within(screen.getByTestId(`block-${k}`)).getByTestId('beta-tag')).toBeInTheDocument());
+        // Retired: replaced by an Alert action, so not a building block any more.
+        ['slack', 'teams', 'pagerduty', 'servicenow'].forEach((k) => expect(screen.queryByTestId(`block-${k}`)).toBeNull());
         expect(within(screen.getByTestId('block-email')).queryByTestId('beta-tag')).toBeNull();
         expect(screen.getByTestId('blocks-intro')).toHaveTextContent('Beta are still in development');
     });

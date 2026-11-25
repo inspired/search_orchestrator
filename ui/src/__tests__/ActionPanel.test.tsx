@@ -140,11 +140,18 @@ describe('channel action panels', () => {
         expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { destination: 'teams-ops' } });
     });
 
-    test('choosing PagerDuty under Do makes a PagerDuty webhook action', () => {
-        const dispatch = panel({ preset: 'generic', destination: 'generic-ops' });
+    test('Do no longer offers Slack, Teams, PagerDuty or ServiceNow, except the one an action already is', () => {
+        panel({ preset: 'generic', destination: 'generic-ops' });
         fireEvent.click(screen.getByRole('combobox', { name: 'Do' }));
-        fireEvent.click(screen.getByRole('option', { name: 'PagerDuty' }));
-        expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { preset: 'pagerduty', destination: '' } });
+        ['Slack', 'Microsoft Teams', 'PagerDuty', 'ServiceNow'].forEach((name) => expect(screen.queryByRole('option', { name })).toBeNull());
+        expect(screen.getByRole('option', { name: 'Alert action' })).toBeInTheDocument();
+    });
+
+    test('an existing PagerDuty action still shows as PagerDuty', () => {
+        panel({ preset: 'pagerduty', destination: 'pd-oncall' });
+        fireEvent.click(screen.getByRole('combobox', { name: 'Do' }));
+        expect(screen.getByRole('option', { name: 'PagerDuty' })).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: 'ServiceNow' })).toBeNull();
     });
 });
 

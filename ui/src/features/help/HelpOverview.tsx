@@ -40,7 +40,7 @@ export const FEATURES: FeatureCard[] = [
     { title: 'Parameters', text: 'Lists, numbers and text you pick on Run now; defaults for schedules.', anchor: 'parameters', Icon: Bookmark },
     { title: 'Approval steps', text: 'Pause a run until someone approves, with a timeout and approver roles.', anchor: 'approval-steps', Icon: Shield },
     { title: 'Deadlines', text: 'Finish by a time or within a duration, or get a Late alert.', anchor: 'deadline', Icon: Hourglass },
-    { title: 'Teams, PagerDuty, ServiceNow', text: 'Webhook presets with severity, urgency and impact.', anchor: 'microsoft-teams-pagerduty-and-servicenow', Icon: Megaphone },
+    { title: 'Slack, Teams, ServiceNow', text: 'Use an Alert action from their Splunk app.', anchor: 'slack-teams-pagerduty-and-servicenow', Icon: Megaphone },
     { title: 'Backfill', text: 'Run a job for each missed schedule slot in a past range.', anchor: 'backfill', Icon: ArrowClockwise },
     { title: 'Calendar', text: 'Day, week and month views of schedules, runs and backfills.', anchor: 'calendar', Icon: Calendar },
     { title: 'Dependencies', text: 'Which jobs start which, drawn as one graph.', anchor: 'dependencies', Icon: LayersTriple },

@@ -108,21 +108,9 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
-    slack: () => (
-        <Figure caption="A Webhook node with the Slack preset posts a message when its hook fires.">
-            <Panel title="Webhook" rows={[['Destination', 'slack-ops'], ['Preset', 'Slack'], ['When', '✗ Job fails']]} />
-            <Panel title="#ops" rows={[['Search Orchestrator', 'Daily summary failed: step export_stats'], ['', '[Open run]']]} />
-        </Figure>
-    ),
-    'microsoft-teams-pagerduty-and-servicenow': () => (
-        <Figure caption="Presets fill the right body for each service; PagerDuty takes a severity, ServiceNow an urgency and impact.">
-            <Chips
-                items={[
-                    { text: 'Microsoft Teams · its own message format', tone: 'info' },
-                    { text: 'PagerDuty · severity critical/error/warning/info', tone: 'bad' },
-                    { text: 'ServiceNow · urgency 1–3, impact 1–3', tone: 'warn' },
-                ]}
-            />
+    'slack-teams-pagerduty-and-servicenow': () => (
+        <Figure caption="Use an Alert action from Splunk's own Slack, Teams or ServiceNow app; jobs that already have one of the old actions keep it.">
+            <Panel title="Alert action" rows={[['Action', 'Slack (from its Splunk app)'], ['Channel', '#ops'], ['When', '✗ Job fails']]} />
         </Figure>
     ),
     'approval-steps': () => (

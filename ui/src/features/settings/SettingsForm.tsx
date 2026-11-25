@@ -12,14 +12,14 @@ import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import type { Destination, Settings } from '../../api/types';
 import BetaTag from '../builder/BetaTag';
-import { ALWAYS_ON, CATALOG, isBeta } from '../builder/nodeCatalog';
+import { ALWAYS_ON, CATALOG, isBeta, isRetired } from '../builder/nodeCatalog';
 import { STEP_KINDS } from '../builder/nodeModel';
 
 /** The building blocks an admin can turn off, grouped as the builder shows them. */
 export const BLOCK_GROUPS: Array<{ label: string; kinds: string[] }> = [
     { label: 'Triggers', kinds: CATALOG.filter((e) => e.kind.startsWith('trigger_')).map((e) => e.kind) },
     { label: 'Steps', kinds: CATALOG.filter((e) => (STEP_KINDS as string[]).includes(e.kind)).map((e) => e.kind) },
-    { label: 'Actions', kinds: CATALOG.filter((e) => !e.kind.startsWith('trigger_') && !(STEP_KINDS as string[]).includes(e.kind)).map((e) => e.kind) },
+    { label: 'Actions', kinds: CATALOG.filter((e) => !e.kind.startsWith('trigger_') && !(STEP_KINDS as string[]).includes(e.kind) && !isRetired(e.kind)).map((e) => e.kind) },
 ];
 
 const HOUR = 3600;

@@ -42,7 +42,12 @@ export const CATALOG: CatalogEntry[] = [
 ];
 
 /** Still in development: shown with a Beta tag, as they may not work yet. */
-export const BETA_KINDS: NodeKind[] = ['approval', 'webhook', 'slack', 'teams', 'pagerduty', 'servicenow'];
+export const BETA_KINDS: NodeKind[] = ['approval', 'webhook'];
+
+/** No longer offered: Splunk's own Slack, Teams, PagerDuty and ServiceNow apps do the same as an
+ * Alert action. Like a kind that is always off: jobs that already have one keep it. */
+export const RETIRED_KINDS: NodeKind[] = ['slack', 'teams', 'pagerduty', 'servicenow'];
+export const isRetired = (kind: string): boolean => (RETIRED_KINDS as string[]).includes(kind);
 export const BETA_NOTE = 'Still in development; it may not work yet.';
 
 export const isBeta = (kind: string): boolean => (BETA_KINDS as string[]).includes(kind);
@@ -59,12 +64,12 @@ export function setTurnedOff(kinds: string[] | undefined | null): void {
 }
 
 export function isTurnedOff(kind: string): boolean {
-    return turnedOff.has(kind);
+    return turnedOff.has(kind) || isRetired(kind);
 }
 
-/** The catalog without the kinds that are turned off. */
+/** The catalog without the kinds that are turned off or retired. */
 export function activeCatalog(): CatalogEntry[] {
-    return CATALOG.filter((e) => !turnedOff.has(e.kind));
+    return CATALOG.filter((e) => !isTurnedOff(e.kind));
 }
 
 /** Every node kind a job uses (as the server's blocks.kinds_of). */

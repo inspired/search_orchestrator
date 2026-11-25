@@ -205,7 +205,7 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                         )
                     }
                 >
-                    {TYPES.map((t) => (
+                    {TYPES.filter((t) => !CHANNELS[t.value] || t.value === channel).map((t) => (
                         <Select.Option key={t.value} label={t.label} value={t.value} />
                     ))}
                 </Select>
@@ -247,7 +247,7 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                                 }}
                             >
                                 <Select.Option label="The destination's default" value="" />
-                                <Select.Option label="Slack" value="slack" />
+                                {a.preset === 'slack' && <Select.Option label="Slack" value="slack" />}
                                 <Select.Option label="Generic JSON" value="generic" />
                             </Select>
                         </ControlGroup>

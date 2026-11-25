@@ -114,7 +114,9 @@ describe('Simple view', () => {
         fireEvent.click(within(then).getByRole('button', { name: '‹ Back' }));
         expect(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: /^Succeeds/ })).toBeInTheDocument();
         fireEvent.click(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: /^Is delayed/ }));
-        fireEvent.click(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: 'Post to Teams' }));
+        // Slack, Teams, PagerDuty and ServiceNow are retired: an Alert action does it.
+        ['Post to Slack', 'Post to Teams'].forEach((name) => expect(within(screen.getByTestId('simple-add')).queryByRole('menuitem', { name })).toBeNull());
+        fireEvent.click(within(screen.getByTestId('simple-add')).getByRole('menuitem', { name: 'Write an event' }));
         // Added: the picker starts over at When (it closes in the browser).
         expect(screen.queryByText('When it is delayed, then…')).toBeNull();
         add(0, 'If a condition is true', 'Save to summary index');
@@ -129,7 +131,7 @@ describe('Simple view', () => {
         const sent = (api.updateJob as jest.Mock).mock.calls[0][1];
         const daily = sent.steps.find((s: { id: string }) => s.id === 'daily');
         expect(daily.actions).toEqual([
-            { hook: 'on_delayed', type: 'webhook', preset: 'teams', destination: '' },
+            { hook: 'on_delayed', type: 'event', index: 'main' },
             { hook: 'on_success', type: 'email', to: 'ops@example.com', condition: '$daily.resultCount$ > 5' },
         ]);
         const save = sent.steps.find((s: { output?: { kind: string } }) => s.output && s.output.kind === 'summary_index');

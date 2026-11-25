@@ -5,12 +5,15 @@ Schedule are always on; every other kind can be turned off, for a simpler app wh
 not use it (approvals, say). A kind that is off is not offered in the builder, and a save that
 adds one is refused. Jobs that already use it keep working and can still be saved: turning a
 kind off never breaks a running job.
+
+Slack, Microsoft Teams, PagerDuty and ServiceNow are retired (``RETIRED``): Splunk's own apps
+for them do the same as an Alert action, so the app no longer offers them. They work like a kind
+that is always off: a save that adds one is refused, and a job that has one keeps it.
 """
 
 ALWAYS_ON = ("trigger_cron", "search")
 OPTIONAL = ("trigger_completion", "saved_search", "previous", "summary_index", "lookup",
-            "approval", "email", "webhook", "slack", "teams", "pagerduty", "servicenow",
-            "event", "alert_action", "start_job")
+            "approval", "email", "webhook", "event", "alert_action", "start_job")
 LABELS = {"trigger_completion": "After another job", "saved_search": "Saved search",
           "previous": "Results of earlier steps", "summary_index": "Summary index",
           "lookup": "Lookup", "approval": "Approval", "email": "Email", "webhook": "Webhook",
@@ -18,6 +21,7 @@ LABELS = {"trigger_completion": "After another job", "saved_search": "Saved sear
           "servicenow": "ServiceNow", "event": "Event to an index",
           "alert_action": "Alert action", "start_job": "Start another job"}
 CHANNEL_PRESETS = ("slack", "teams", "pagerduty", "servicenow")
+RETIRED = CHANNEL_PRESETS
 
 
 def step_kind(step):
@@ -69,6 +73,7 @@ def check(value):
     """The stored form of a ``turned_off`` setting, or ValueError."""
     if not isinstance(value, list) or not all(isinstance(k, str) for k in value):
         raise ValueError("turned_off must be a list of building block names")
+    value = [k for k in value if k not in RETIRED]  # an old setting may still name one
     unknown = [k for k in value if k not in OPTIONAL]
     if unknown:
         always = [k for k in unknown if k in ALWAYS_ON]
@@ -79,12 +84,15 @@ def check(value):
 
 
 def issues(job, previous, settings):
-    """An error for each turned-off kind the job adds (one it did not use before)."""
+    """An error for each turned-off or retired kind the job adds (one it did not use before)."""
     off = set(turned_off(settings))
-    if not off:
-        return []
-    added = (kinds_of(job) - kinds_of(previous)) & off
-    return [{"level": "error", "code": "block_turned_off", "step": None,
+    added = kinds_of(job) - kinds_of(previous)
+    out = [{"level": "error", "code": "block_retired", "step": None,
+            "message": "%s actions are no longer offered; use an Alert action with Splunk's own "
+                       "%s app instead" % (LABELS[k], LABELS[k])}
+           for k in RETIRED if k in added]
+    out += [{"level": "error", "code": "block_turned_off", "step": None,
              "message": "%s is turned off in Settings > Building blocks; remove it, or ask "
                         "an admin to turn it on" % LABELS[k]}
-            for k in OPTIONAL if k in added]
+            for k in OPTIONAL if k in added & off]
+    return out

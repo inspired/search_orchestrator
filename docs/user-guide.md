@@ -104,11 +104,11 @@ In every view, the **Triggers** tab has a card for each schedule or *after anoth
 #### Simple
 
 - **Simple** lists the searches top to bottom. Each starts when the one above succeeds. Click a search to change its name, what it searches (its own data, or the results of the search above), the search and the time range, and to preview it, move it or remove it. **+ Add search** adds one at the end.
-- **+ Add…** under a search adds what happens, and when: pick **When this search…** **Succeeds**, **If a condition is true**, **Fails**, **Finishes either way**, **Starts** or **Is delayed** (the same choices as the + in Flow), then **Save to summary index**, **Save to lookup**, **Email**, **Post to Slack**, **Post to Teams**, **Page PagerDuty**, **Open a ServiceNow incident** or **Write an event**. Saves are offered only for **Succeeds** and a condition; the others send messages. The items are listed under a heading for each choice.
+- **+ Add…** under a search adds what happens, and when: pick **When this search…** **Succeeds**, **If a condition is true**, **Fails**, **Finishes either way**, **Starts** or **Is delayed** (the same choices as the + in Flow), then **Save to summary index**, **Save to lookup**, **Email** or **Write an event**. Saves are offered only for **Succeeds** and a condition; the others send messages. The items are listed under a heading for each choice.
 - **Only if it found results** (on **Succeeds**) sends or saves only when the search returned rows.
 - **If a condition is true** has a **Condition** field: a comparison, as on an If… line, such as `$count.resultCount$ > 100`.
-- A failed search stops the run. Slack, Teams, PagerDuty and ServiceNow need a destination your admin has set up.
-- **Settings** on a row opens all its fields: an email's subject and message (with **Insert value** for tokens), a webhook's destination and its PagerDuty or ServiceNow options, an event's payload, a summary index's source and run id marker, or a lookup's append. **View output** shows what it wrote.
+- A failed search stops the run.
+- **Settings** on a row opens all its fields: an email's subject and message (with **Insert value** for tokens), an event's payload, a summary index's source and run id marker, or a lookup's append. **View output** shows what it wrote.
 - **Starts** is the job's schedule, or another job it runs after. **If any step fails** tells someone about any failure in the run. **When done** starts another job, so jobs chain.
 - Use **Edit in Advanced** for what Simple can't show.
 
@@ -122,7 +122,7 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Search**, **Saved search** | rounded corners; a saved search has a second stripe | blue |
 | **Results of earlier steps** | cut corners | teal |
 | **If…** (a condition) | diamond | amber |
-| Notify: **Email**, **Webhook**, **Slack**, **Microsoft Teams**, **PagerDuty**, **ServiceNow**, **Alert action** | notched right edge | pink |
+| Notify: **Email**, **Webhook**, **Alert action** | notched right edge | pink |
 | **Approval** | octagon | amber |
 | Write: **Summary index**, **Lookup**, **Event to an index** | cylinder | orange |
 | **Start another job** | slanted sides | slate |
@@ -295,17 +295,11 @@ With the canvas focused:
 - The search runs as you, like a preview, so you see only what you may search.
 - The **Search** field shows the generated search and can't be edited. **Edit as search** turns the node into a plain **Results of earlier steps** step with that search, so you can change it; the node then no longer has the summary index or lookup settings.
 
-### Slack
+### Slack, Teams, PagerDuty and ServiceNow
 
-**Slack** is an action node. It posts a message to Slack when the step or job reaches the outcome its line comes from, like any other action. It needs a webhook destination that your admin has set up with the Slack body format (see the admin guide); pick it by name in the side panel. A Slack node is a webhook with the Slack preset, so a job saved with one shows it as **Slack** and a plain webhook as **Webhook**.
+These are no longer offered as their own actions. Splunk's own apps for them (such as the Slack, Microsoft Teams and ServiceNow add-ons on Splunkbase) add alert actions, so use an **Alert action** and pick theirs: it gets the same fields as in Splunk's alert editor. One way to send messages means less for the app to keep working.
 
-### Microsoft Teams, PagerDuty and ServiceNow
-
-**Microsoft Teams**, **PagerDuty** and **ServiceNow** are action nodes like **Slack**: each is a webhook with its own body format, and fires when the step or job reaches the outcome its line comes from. The destination list in the side panel shows only destinations with the matching body format. Your admin sets them up (see the admin guide); you pick one by name.
-
-- **Microsoft Teams** posts an Adaptive Card 1.4 with the job, run, step and status and an **Open run** button.
-- **PagerDuty** triggers an incident through the Events API v2. **Severity** is Critical, Error, Warning or Info; the default is Error, and Warning when the action fires on Is delayed or Is late. A run that succeeds resolves its incident when the action fires on Succeeds or Finishes either way, so a retry that works closes the page. The incident is keyed to the run (and the step, for a step action).
-- **ServiceNow** opens an incident. **Urgency** and **Impact** each take 1 High, 2 Medium or 3 Low (default 2 Medium); **Assignment group** is optional, at most 100 characters.
+A job saved before 1.50.0 with a Slack, Teams, PagerDuty or ServiceNow action keeps it, and it still sends; you can change its fields, but a job can't add a new one (the save says to use an Alert action instead).
 
 ### Approval steps
 
@@ -320,7 +314,7 @@ An **Approval** node (an octagon) makes a run wait for a person before going on.
 | Decided either way | fires after either decision |
 | Starts | fires when the step starts waiting |
 | Is delayed | fires when the step is delayed |
-| Asks for approval | actions only: fires when the step starts waiting, for example an email or a Teams message to the approvers |
+| Asks for approval | actions only: fires when the step starts waiting, for example an email or an alert action that posts to the approvers' chat |
 
 Its fields:
 
@@ -479,7 +473,7 @@ There are two kinds of action:
 - **A step's actions** are nodes on the Flow tab. Drag a line to one from the step's **+** handle; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way or Is delayed). An action's **When** field moves its line, to another step or outcome, from the keyboard.
 - **The whole job's actions** are on the **Job actions** tab, next to Flow: **Add job action**, then pick **When** (the job fails, succeeds, finishes either way, starts, a step is delayed, or the job misses its deadline) and what it does. They fire once for the whole run.
 
-- **Webhook**, **Slack**, **Microsoft Teams**, **PagerDuty** or **ServiceNow** to a destination your admin set up (each is a body format; see [Microsoft Teams, PagerDuty and ServiceNow](#microsoft-teams-pagerduty-and-servicenow)).
+- **Webhook** to a destination your admin set up. For Slack, Teams, PagerDuty or ServiceNow, use an **Alert action** from their Splunk app (see [Slack, Teams, PagerDuty and ServiceNow](#slack-teams-pagerduty-and-servicenow)).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
 
 Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
