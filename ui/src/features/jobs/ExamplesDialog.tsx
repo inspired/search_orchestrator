@@ -1,5 +1,6 @@
-/* Browse examples: the example jobs shipped with the app, in tabs by group, each as a card with
- * a picture of its flow. Open one in the builder as a new, unsaved job (like Import jobs), add
+/* Browse examples: the example jobs shipped with the app, in tabs by the builder view each opens
+ * in (Simple, Standard, Advanced), each as a card with a picture of its flow. Open one in the
+ * builder, in its view, as a new, unsaved job (like Import jobs), add
  * one as a job, or add every missing one; all are added turned off. An example that starts or
  * waits for other examples brings those along (added first), so its Start job actions and After
  * another job triggers point at jobs that exist. */
@@ -15,7 +16,8 @@ import { joinNames } from '../../format';
 import { turnedOffIn } from '../builder/nodeCatalog';
 import { stashImportedJob } from '../builder/sourceLogic';
 import ExampleDiagram from './ExampleDiagram';
-import { AddExamplesResult, EXAMPLE_JOBS, ExampleGroup, ExampleJob, GROUPS, addExamples, examplesNeeded } from './examples';
+import type { BuilderView } from '../simple/useBuilderView';
+import { AddExamplesResult, EXAMPLE_JOBS, ExampleJob, VIEWS, addExamples, examplesNeeded } from './examples';
 
 export interface ExamplesDialogProps {
     onClose: () => void;
@@ -44,7 +46,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
     const [error, setError] = useState<string | null>(null);
     const [adding, setAdding] = useState<string | null>(null);
     const [result, setResult] = useState<AddExamplesResult | null>(null);
-    const [group, setGroup] = useState<ExampleGroup>(GROUPS[0].id);
+    const [tab, setTab] = useState<BuilderView>(VIEWS[0].id);
     const [added, setAdded] = useState<string[]>([]);
     const exists = (id: string) => existingIds.includes(id) || added.includes(id);
     /** Turned-off blocks an example (or an example it brings along) uses. */
@@ -82,10 +84,11 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
             setError('The example could not be passed to the builder because the browser blocks session storage. Allow site data for this page and try again.');
             return;
         }
-        navigate(pageHref('builder', { import: '1' }));
+        navigate(pageHref('builder', { import: '1', view: example.view }));
     };
 
-    const shown = EXAMPLE_JOBS.filter((e) => e.group === group);
+    const shown = EXAMPLE_JOBS.filter((e) => e.view === tab);
+    const viewLabel = (v: BuilderView) => (VIEWS.find((x) => x.id === v) || VIEWS[0]).label;
     const muted = { color: theme.contentColorMuted, margin: '2px 0', fontSize: '12px' };
 
     return (
@@ -120,9 +123,9 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                         </div>
                     </Message>
                 )}
-                <TabBar activeTabId={group} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setGroup((selectedTabId as ExampleGroup) || GROUPS[0].id)}>
-                    {GROUPS.map((g) => (
-                        <TabBar.Tab key={g.id} tabId={g.id} label={`${g.label} (${EXAMPLE_JOBS.filter((e) => e.group === g.id).length})`} />
+                <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setTab((selectedTabId as BuilderView) || VIEWS[0].id)}>
+                    {VIEWS.map((v) => (
+                        <TabBar.Tab key={v.id} tabId={v.id} label={`${v.label} (${EXAMPLE_JOBS.filter((e) => e.view === v.id).length})`} />
                     ))}
                 </TabBar>
                 <ul aria-label="Examples" style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
@@ -135,7 +138,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                                 <ExampleDiagram job={example.job} title={example.title} height={150} />
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
                                     <strong>{example.title}</strong>
-                                    <span style={{ fontSize: '12px', color: theme.contentColorMuted }}>{example.level}</span>
+                                    <span style={{ fontSize: '12px', color: theme.contentColorMuted }}>{`Opens in ${viewLabel(example.view)}`}</span>
                                 </div>
                                 <p style={{ margin: 0 }}>{example.summary}</p>
                                 <p style={muted}>{`Shows: ${example.features.join(', ')}`}</p>

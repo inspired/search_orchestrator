@@ -22,7 +22,7 @@ export default function IssueSummary({ issues, stepNames = {}, onGo, view = 'adv
             <Message.Title>{title}</Message.Title>
             <List>
                 {issues.map((issue, n) => {
-                    const target = issue.step ? stepNames[issue.step] || issue.step : tabLabel(tabForIssue(issue, view), view);
+                    const target = issue.step ? stepNames[issue.step] || issue.step : tabLabel(tabForIssue(issue, view));
                     return (
                         <List.Item key={`${issue.code}-${issue.step || ''}-${n}`}>
                             <span>{issue.message} </span>

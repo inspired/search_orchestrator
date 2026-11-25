@@ -412,7 +412,7 @@ describe('FlowCanvas', () => {
             expect(screen.queryByTestId('minimap')).toBeNull();
         });
 
-        test('minimap shows when the graph exceeds the view; clicking pans there', () => {
+        test('minimap shows when the graph exceeds the view; pressing on it pans there', () => {
             size(400, 300);
             const { view } = setup();
             const map = screen.getByTestId('minimap');
@@ -420,8 +420,27 @@ describe('FlowCanvas', () => {
             expect(map.querySelectorAll('rect[data-node]')).toHaveLength(graph.nodes.length);
             expect(map.querySelector('rect[data-viewport]')).not.toBeNull();
             const before = view().getAttribute('transform');
-            fireEvent.click(map, { clientX: 140, clientY: 80 });
+            fireEvent.pointerDown(map, { clientX: 140, clientY: 80, pointerId: 1, button: 0 });
+            fireEvent.pointerUp(map, { clientX: 140, clientY: 80, pointerId: 1 });
             expect(view().getAttribute('transform')).not.toBe(before);
+        });
+
+        test('dragging on the minimap moves the view with the pointer, and stops on release', () => {
+            size(400, 300);
+            const { view } = setup();
+            const map = screen.getByTestId('minimap');
+            const at = () => view().getAttribute('transform');
+            fireEvent.pointerDown(map, { clientX: 60, clientY: 50, pointerId: 1, button: 0 });
+            const first = at();
+            fireEvent.pointerMove(map, { clientX: 100, clientY: 60, pointerId: 1 });
+            const second = at();
+            expect(second).not.toBe(first);
+            fireEvent.pointerMove(map, { clientX: 120, clientY: 70, pointerId: 1 });
+            expect(at()).not.toBe(second);
+            fireEvent.pointerUp(map, { clientX: 120, clientY: 70, pointerId: 1 });
+            const released = at();
+            fireEvent.pointerMove(map, { clientX: 20, clientY: 20, pointerId: 1 });
+            expect(at()).toBe(released);
         });
 
         test('minimap also shows in read-only mode', () => {

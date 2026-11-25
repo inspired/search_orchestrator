@@ -1,7 +1,8 @@
 /* A small map of the whole graph, bottom-right of the canvas: each node as a rect in its family
- * colour and the visible view as an outline. Click a point to centre the view there. Hidden from
+ * colour and the visible view as an outline. Click a point to centre the view there, or drag to
+ * move the view with the pointer. Hidden from
  * screen readers; "Frame all" and the F key are the accessible equivalent. */
-import React from 'react';
+import React, { useRef } from 'react';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { Pos, Positions } from './graphLogic';
 import { Theme } from './GraphView';
@@ -48,11 +49,37 @@ export default function Minimap({ graph, positions, pan, zoom, width, height, on
     const ox = (MINIMAP_W - (maxX - minX) * scale) / 2 - minX * scale;
     const oy = (MINIMAP_H - (maxY - minY) * scale) / 2 - minY * scale;
 
-    const click = (ev: React.MouseEvent<SVGSVGElement>) => {
+    // While dragging, the map keeps the scale it had when the drag began: it is fitted around
+    // the view too, so refitting it under the pointer would make the view jump.
+    const drag = useRef<{ id: number; scale: number; ox: number; oy: number } | null>(null);
+    const centreAt = (ev: React.PointerEvent<SVGSVGElement>, fit: { scale: number; ox: number; oy: number }) => {
         const rect = ev.currentTarget.getBoundingClientRect();
-        const wx = (ev.clientX - rect.left - ox) / scale;
-        const wy = (ev.clientY - rect.top - oy) / scale;
+        const wx = (ev.clientX - rect.left - fit.ox) / fit.scale;
+        const wy = (ev.clientY - rect.top - fit.oy) / fit.scale;
         onPan({ x: width / 2 - wx * zoom, y: height / 2 - wy * zoom });
+    };
+    const down = (ev: React.PointerEvent<SVGSVGElement>) => {
+        ev.stopPropagation();
+        if (ev.button !== 0) {
+            return;
+        }
+        drag.current = { id: ev.pointerId, scale, ox, oy };
+        try {
+            ev.currentTarget.setPointerCapture(ev.pointerId);
+        } catch (err) {
+            // Not supported (tests): moves still arrive while the pointer is over the map.
+        }
+        centreAt(ev, drag.current);
+    };
+    const move = (ev: React.PointerEvent<SVGSVGElement>) => {
+        if (drag.current && drag.current.id === ev.pointerId) {
+            centreAt(ev, drag.current);
+        }
+    };
+    const up = (ev: React.PointerEvent<SVGSVGElement>) => {
+        if (drag.current && drag.current.id === ev.pointerId) {
+            drag.current = null;
+        }
     };
 
     return (
@@ -61,8 +88,10 @@ export default function Minimap({ graph, positions, pan, zoom, width, height, on
             aria-hidden="true"
             width={MINIMAP_W}
             height={MINIMAP_H}
-            onClick={click}
-            onPointerDown={(ev) => ev.stopPropagation()}
+            onPointerDown={down}
+            onPointerMove={move}
+            onPointerUp={up}
+            onPointerCancel={up}
             style={{
                 position: 'absolute',
                 right: 8,
@@ -70,7 +99,8 @@ export default function Minimap({ graph, positions, pan, zoom, width, height, on
                 background: theme.backgroundColorSection,
                 border: `1px solid ${theme.borderColor}`,
                 borderRadius: '4px',
-                cursor: 'pointer',
+                cursor: 'grab',
+                touchAction: 'none',
             }}
         >
             {graph.nodes.map((n) => {

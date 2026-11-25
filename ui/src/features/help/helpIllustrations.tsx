@@ -4,7 +4,7 @@ import React from 'react';
 import Architecture from './Architecture';
 import { Bars, Chips, Code, Figure, Flow, MiniCalendar, MiniTable, Notes, Panel } from './illustrationKit';
 import ExampleDiagram from '../jobs/ExampleDiagram';
-import { EXAMPLE_JOBS, GROUPS } from '../jobs/examples';
+import { EXAMPLE_JOBS, VIEWS } from '../jobs/examples';
 
 const n = (id: string, f: Parameters<typeof Flow>[0]['nodes'][number]['f'], label: string, x: number, y: number, extra: Partial<Parameters<typeof Flow>[0]['nodes'][number]> = {}) => ({
     id,
@@ -32,12 +32,12 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'example-jobs': () => (
-        <Figure caption="Browse examples: 18 jobs in five tabs, each drawn as its flow; Add brings along the examples it starts or follows.">
+        <Figure caption="Browse examples: 6 jobs in a tab per builder view, each drawn as its flow and opened in its view; Add brings along the examples it starts or follows.">
             <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                 <ExampleDiagram job={EXAMPLE_JOBS.find((e) => e.job.id === 'example_condition')!.job} title="Investigate only when errors were found" height={110} />
             </div>
             <Chips
-                items={GROUPS.map((g) => ({ text: `${g.label} (${EXAMPLE_JOBS.filter((e) => e.group === g.id).length})`, tone: 'muted' as const }))}
+                items={VIEWS.map((v) => ({ text: `${v.label} (${EXAMPLE_JOBS.filter((e) => e.view === v.id).length})`, tone: 'muted' as const }))}
             />
         </Figure>
     ),

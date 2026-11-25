@@ -62,8 +62,8 @@ describe('Building blocks', () => {
 
     test('an example that uses a turned-off block can be looked at but not added', () => {
         renderThemed(<ExamplesDialog onClose={jest.fn()} returnFocus={{ current: null }} canAdd existingIds={[]} createJob={jest.fn()} turnedOff={['approval']} />);
-        fireEvent.click(screen.getByRole('tab', { name: /Approvals and notifications/ }));
-        const card = screen.getByTestId('example-example_approval');
+        fireEvent.click(screen.getByRole('tab', { name: /Advanced/ }));
+        const card = screen.getByTestId('example-example_platform_health');
         expect(within(card).getByTestId('example-blocked')).toHaveTextContent('Uses Approval, which an admin turned off');
         expect(within(card).getByRole('button', { name: /Add .* as a job/ }).getAttribute('aria-disabled')).toBe('true');
         expect(within(card).getByRole('button', { name: /Open .* in builder/ }).getAttribute('aria-disabled')).not.toBe('true');

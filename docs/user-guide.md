@@ -35,22 +35,19 @@ You need `orchestrator_build` to create jobs and `orchestrator_run` to start the
 
 ## Example jobs
 
-**Browse examples** on the Jobs page (also offered when there are no jobs) shows 18 ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`).
+**Browse examples** on the Jobs page (also offered when there are no jobs) shows 6 ready-made jobs that use only data every Splunk has (`_internal`, `_audit`, `| makeresults`, `| rest`): one for each builder view's level.
 
-- **Tabs by group:** Getting started, Branches and conditions, Retries delays and deadlines, Approvals and notifications, and Chaining jobs.
+- **A tab per view:** Simple, Standard and Advanced. **Open in builder** opens an example in its view, as a new, unsaved job to look at and save.
 - **A picture of each job:** every card draws the job's flow, as on the builder's canvas, so you can see its shape before you open it.
-- **Open in builder** opens one as a new, unsaved job to look at and save.
 - **Add as a job** saves one, with its id starting `example_`; **Add all examples** saves every one that isn't a job yet. Existing ones are skipped and errors are listed.
-- **Examples that use other examples** (a Start job action, or After another job) bring those along: Add and Open in builder add them first, so the links point at real jobs. The card says which ("Uses Hourly splunkd errors and Rollup, added with it").
-- Every example is scheduled but **turned off**, and tagged `example` and its group. Turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
+- **Examples that use other examples** (a Start job action, or After another job) bring those along: Add and Open in builder add them first, so the links point at real jobs. The card says which ("Uses Hourly splunkd errors and Daily, weekly and monthly rollup, added with it").
+- Every example is scheduled but **turned off**, and tagged `example` and its view. Turn one on from its Settings when you're ready. Email actions go to `you@example.com` until you change them.
 
-| Group | Examples |
+| View | Examples |
 |---|---|
-| Getting started | Hourly splunkd errors · Top sourcetypes to a lookup · Keep a daily summary in an index · Every 30 minutes in business hours |
-| Branches and conditions | Daily, weekly and monthly rollup · Two branches, one report · Investigate only when errors were found · Parameters for component and threshold · Only when a search finds something |
-| Retries, delays and deadlines | Retries, recovery and clean-up · A slow step and a delay alert · Finish by 07:00 |
-| Approvals and notifications | Daily search activity · Approve before recording · Notify with patient retries |
-| Chaining jobs | Chained jobs · Platform health pipeline (everything) · Start two jobs when done |
+| Simple | Hourly splunkd errors |
+| Standard | Daily, weekly and monthly rollup · Investigate only when errors were found |
+| Advanced | Retries, recovery and clean-up · Chained jobs · Platform health pipeline (everything) |
 
 **Platform health pipeline** is the showcase: four checks in parallel merge into a health score kept in a lookup, with all three kinds of condition, an approval gate, retries, a delay alert, a deadline and a chained job.
 
@@ -60,7 +57,7 @@ Open **Jobs**, then **Create job**.
 
 A new job starts blank. To start from a ready-made job instead, use **Browse examples** on the Jobs page (see [Example jobs](#example-jobs)).
 
-The first tab shows the job in one of three views (see [Simple, Standard and Advanced](#simple-standard-and-advanced)). In **Advanced**, the tab is called **Flow** and the job is drawn as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor). The steps below are for Advanced.
+The first tab, **Flow**, shows the job in one of three views (see [Simple, Standard and Advanced](#simple-standard-and-advanced)). In **Advanced**, the job is drawn as nodes and lines, read from left to right: triggers, then steps, then the actions their outcomes lead to. See [The flow editor](#the-flow-editor). The steps below are for Advanced.
 
 1. **Add nodes** with **Add node**, or press `/` with the canvas focused, and type what you want, such as "email". Or drag a line from the **+** handle on the right of a node and let go on empty canvas: the box then offers only nodes that line can lead to, and the new node is connected to it.
 2. **Connect nodes** by dragging from a node's **+** handle onto another node. A line between two steps makes the second depend on the first; a line to an action says when the action fires. Keyboard and screen-reader users can use **Depends on** in a step's panel, and **When** in an action's panel.
@@ -80,13 +77,13 @@ Where you put nodes is saved with the job. Nodes you never moved are placed for 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/views-dark.svg"><img alt="The same job in the Simple, Standard and Advanced views" src="images/views-light.svg" width="100%"></picture></p>
 <!-- /github-only -->
 
-The first tab has three views of the same job, switched with **Simple**, **Standard** and **Advanced** above it. Switching never changes the job. The choice is remembered in this browser for jobs you open; a new job, and a job with no choice yet, opens in **Standard**.
+The first tab, **Flow**, has three views of the same job, switched with **Simple**, **Standard** and **Advanced** above it; the tab has the same name in all three. Switching never changes the job. The choice is remembered in this browser for jobs you open; a new job, and a job with no choice yet, opens in **Standard**.
 
 | View | What it shows | Good for |
 |---|---|---|
 | **Simple** | The searches top to bottom, each starting when the one above succeeds | A chain of searches with a few saves and messages |
 | **Standard** | The steps on a canvas with the lines between them; triggers on the **Triggers** tab and each step's actions in its panel | Most jobs: everything Advanced can do, with less on the canvas |
-| **Advanced** | Every trigger, step, condition and action as a node on the **Flow** tab | Seeing and wiring the whole job at once |
+| **Advanced** | Every trigger, step, condition and action as a node | Seeing and wiring the whole job at once |
 
 **Simple is locked** for a job it can't show, such as one with an approval step, more than one trigger or a line that runs on failure. Its button shows a lock; clicking it says why ("Simple can't show this job: an approval step. Use Standard or Advanced.") and keeps the view you are in.
 

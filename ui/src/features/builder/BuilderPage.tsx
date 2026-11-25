@@ -95,6 +95,8 @@ export interface BuilderPageProps {
     jobId?: string | null;
     /** From Import jobs: a new, unsaved job to start from. */
     imported?: JobDefinition | null;
+    /** The view a new job opens in (?view=, an example's view); else Standard. */
+    initialView?: string | null;
     api?: BuilderApi;
 }
 
@@ -106,7 +108,7 @@ const MIN_CANVAS = 480;
 const errorsIn = (issues: Issue[]) => issues.filter((i) => i.level === 'error');
 const sameIssue = (a: Issue, b: Issue) => a.code === b.code && (a.step || null) === (b.step || null);
 
-export default function BuilderPage({ jobId: initialId = null, imported = null, api = defaultApi }: BuilderPageProps) {
+export default function BuilderPage({ jobId: initialId = null, imported = null, initialView = null, api = defaultApi }: BuilderPageProps) {
     useEffect(forgetChecklist, []);
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const [jobId, setJobId] = useState<string | null>(initialId);
@@ -204,7 +206,8 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     const errorIssues = errorsIn(issues);
     const stepNames = useMemo(() => Object.fromEntries(job.steps.map((s) => [s.id, stepLabel(s)])), [job.steps]);
     const graph = useMemo(() => buildGraph(job), [job]);
-    const [view, setView] = useBuilderView(job, !initialId);
+    const asked = initialView === 'simple' || initialView === 'standard' || initialView === 'advanced' ? initialView : null;
+    const [view, setView] = useBuilderView(job, !initialId, asked);
     const standard = view === 'standard';
     // Standard draws the steps only; triggers and actions are in tabs and the step's panel.
     const shownGraph = useMemo(() => (standard ? standardGraph(job) : graph), [standard, job, graph]);

@@ -213,15 +213,15 @@ function SettingsTab({ job, dispatch, knownTags }: Pick<JobTabsProps, 'job' | 'd
     );
 }
 
-/** A tab's name in a view: the first tab is Flow in Advanced and Steps otherwise. */
-export function tabLabel(id: TabId, view: BuilderView = 'advanced'): string {
-    return id === 'steps' ? (view === 'advanced' ? 'Flow' : 'Steps') : TAB_LABELS[id];
+/** A tab's name. The first tab is Flow in every view (Simple, Standard and Advanced). */
+export function tabLabel(id: TabId): string {
+    return TAB_LABELS[id];
 }
 
 export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, triggers, view = 'advanced', issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
     const counts = issueCounts(issues, view);
     const tabs = Object.keys(TAB_LABELS) as TabId[];
-    const label = (id: TabId) => tabLabel(id, view);
+    const label = (id: TabId) => tabLabel(id);
     return (
         <div>
             <TabBar activeTabId={tab} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => onTabChange((selectedTabId || 'steps') as TabId)}>

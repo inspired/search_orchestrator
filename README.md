@@ -42,7 +42,7 @@
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/build-dark.svg"><img src="docs/images/icons/build-light.svg" width="40" height="40" alt=""></picture>
       <h3>Build</h3>
-      Three views of one job: <b>Simple</b> (searches in order), <b>Standard</b> (steps on a canvas) or <b>Advanced</b> (every node). Start from <b>18 example jobs</b>, preview each step, and act on many jobs at once.
+      Three views of one job: <b>Simple</b> (searches in order), <b>Standard</b> (steps on a canvas) or <b>Advanced</b> (every node). Start from <b>6 example jobs</b>, one or more for each view, preview each step, and act on many jobs at once.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/trigger-dark.svg"><img src="docs/images/icons/trigger-light.svg" width="40" height="40" alt=""></picture>

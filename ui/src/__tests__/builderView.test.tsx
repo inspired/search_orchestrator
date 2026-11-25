@@ -50,6 +50,16 @@ describe('builder views', () => {
         expect(screen.getByTestId('view').textContent).toBe('simple');
     });
 
+    test('a new job opens in the view it asks for (an example), whatever is stored', () => {
+        window.localStorage.setItem('so.builder.view', 'standard');
+        function Asked({ asked }: { asked: BuilderView }) {
+            const [view] = useBuilderView(simpleJob, true, asked);
+            return <span data-testid="view">{view}</span>;
+        }
+        renderThemed(<Asked asked="advanced" />);
+        expect(screen.getByTestId('view').textContent).toBe('advanced');
+    });
+
     test('switch offers Simple, Standard and Advanced', () => {
         const onView = jest.fn<void, [BuilderView]>();
         renderThemed(<ViewSwitch view="standard" onView={onView} lockedReasons={[]} />);

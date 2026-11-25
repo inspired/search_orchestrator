@@ -77,7 +77,7 @@ describe('Triggers tab', () => {
         const base = { activeTab: 'steps' as const, onTabChange: jest.fn(), job: job(), dispatch: jest.fn(), owner: 'alice', roles: [], steps: <div /> };
         (['simple', 'standard', 'advanced'] as const).forEach((view) => {
             const { unmount } = renderThemed(<JobTabs {...base} view={view} triggers={<div />} />);
-            expect(screen.getAllByRole('tab')[0]).toHaveTextContent(view === 'advanced' ? 'Flow' : 'Steps');
+            expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Flow');
             expect(screen.getAllByRole('tab')[1]).toHaveTextContent('Triggers');
             unmount();
         });

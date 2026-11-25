@@ -1,7 +1,8 @@
 /* Simple, Standard or Advanced on the builder's first tab, and the switch between them. All
  * three edit the same job; switching changes nothing in it. The choice is remembered in this
  * browser (`so.builder.view`; the old "flow" reads as Advanced); with no choice yet, and always
- * for a new job, Standard opens. Simple is locked for a job it can't show: choosing it says why and stays. */
+ * for a new job, Standard opens, unless the new job asks for a view (an example opened from
+ * Browse examples). Simple is locked for a job it can't show: choosing it says why and stays. */
 import React, { useState } from 'react';
 import Message from '@splunk/react-ui/Message';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
@@ -23,9 +24,10 @@ function stored(): BuilderView | null {
     }
 }
 
-/** `fresh`: a new job, which always opens in Standard; the remembered choice is for jobs that exist. */
-export function useBuilderView(job: JobDefinition, fresh = false): [BuilderView, (v: BuilderView) => void] {
-    const [chosen, setChosen] = useState<BuilderView | null>(() => (fresh ? 'standard' : stored()));
+/** `fresh`: a new job, which opens in `asked` (an example's view) or else Standard; the remembered
+ * choice is for jobs that exist. */
+export function useBuilderView(job: JobDefinition, fresh = false, asked?: BuilderView | null): [BuilderView, (v: BuilderView) => void] {
+    const [chosen, setChosen] = useState<BuilderView | null>(() => (fresh ? asked || 'standard' : stored()));
     let view: BuilderView = chosen || 'standard';
     if (view === 'simple' && readSimple(job).reasons.length) {
         view = 'standard';
