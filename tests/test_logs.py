@@ -246,7 +246,7 @@ def test_summary_buckets_totals_top_events_and_engine(w):
 def test_breakdown_routes_and_splunkd_calls(w):
     def handler(owner, query):
         if "event=request" in query:
-            assert 'route=replace(route, "^(jobs|runs|backfills|snippets|destinations)/[^/]+"' in query
+            assert 'route=replace(route, "^(jobs|runs|backfills|snippets)/[^/]+"' in query
             return [{"method": "POST", "route": "runs/<id>/approve", "count": "4", "p95": "300",
                      "avg": "150", "max": "320", "failed": "1", "all_p95": "210", "all_count": "40"}]
         return [{"method": "GET", "ep": "search/jobs/<sid>", "count": "90", "p95": "45", "avg": "20",

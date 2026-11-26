@@ -99,7 +99,7 @@ def test_simple_condition_has_no_hidden_search_and_request_value_is_dropped():
 
 def vjob(**edge):
     j = cjob(**edge)
-    j["actions"] = [{"hook": "on_failure", "type": "webhook"}]
+    j["actions"] = [{"hook": "on_failure", "type": "email"}]
     return j
 
 
@@ -460,8 +460,8 @@ def test_engine_run_now_in_step_spl_is_the_dispatch_time():
 def test_action_tokens_fill_run_now_when_the_hook_fires():
     w = World(T0 + 7)
     run = {"_key": "r1", "job_id": "j", "scheduled_time": T0, "steps": {},
-           "definition": {"steps": [], "actions": [{"hook": "on_success", "type": "webhook",
-                                                    "destination": "d", "body": "$run.now$"}]}}
+           "definition": {"steps": [], "actions": [{"hook": "on_success", "type": "email",
+                                                    "to": "a@b.c", "subject": "$run.now$"}]}}
     assert w.actions.submit(run, "on_success", "job", None)
     [row] = w.action_rows(run_id="r1")
     assert row["tokens"]["run"]["now"] == str(T0 + 7)

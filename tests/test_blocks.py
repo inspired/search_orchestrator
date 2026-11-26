@@ -27,11 +27,11 @@ def test_setting_is_checked_and_shown_to_everyone(w):
     for bad in (["search"], ["nope"], "approval", [1]):
         status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": bad})
         assert status == 400, bad
-    status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": ["webhook", "approval"]})
+    status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": ["event", "approval"]})
     assert status == 200, out
-    assert out["settings"]["turned_off"] == ["approval", "webhook"]
+    assert out["settings"]["turned_off"] == ["approval", "event"]
     status, out = w.call("alice", "GET", "/orchestrator/me")
-    assert out["turned_off"] == ["approval", "webhook"]
+    assert out["turned_off"] == ["approval", "event"]
     status, out = w.call("alice", "PUT", "/orchestrator/settings", {"turned_off": []})
     assert status == 403
 
@@ -60,24 +60,3 @@ def test_a_turned_off_block_cant_be_added_but_existing_jobs_keep_it(w):
     assert status == 201, out
 
 
-def slack_body(job_id="chat"):
-    body = job_body(job_id)
-    body["actions"] = [{"hook": "on_failure", "type": "webhook", "preset": "slack", "destination": "ops"}]
-    return body
-
-
-def test_slack_teams_pagerduty_and_servicenow_are_retired(w):
-    # Replaced by Splunk's own alert actions (the Alert action block): not offered, not a
-    # setting, and a save that adds one is refused; a job that has one keeps it.
-    assert blocks.RETIRED == ("slack", "teams", "pagerduty", "servicenow")
-    assert not set(blocks.RETIRED) & set(blocks.OPTIONAL)
-    status, out = w.call("alice", "POST", "/orchestrator/jobs/validate", slack_body())
-    codes = [i["code"] for i in out["issues"] if i["level"] == "error"]
-    assert "block_retired" in codes
-    message = [i["message"] for i in out["issues"] if i["code"] == "block_retired"][0]
-    assert "Slack" in message and "Alert action" in message
-    previous = dict(slack_body(), owner="alice")
-    assert blocks.issues(slack_body(), previous, {}) == []
-    # An old setting that still names one is accepted and dropped.
-    status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": ["slack", "approval"]})
-    assert status == 200 and out["settings"]["turned_off"] == ["approval"]

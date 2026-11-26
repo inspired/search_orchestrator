@@ -55,6 +55,8 @@ class W:
              "preset": "slack"},
             {"name": "fb", "url_secret_ref": "fb_url", "headers_secret_ref": None,
              "preset": "generic"}]})
+        for name in ["_so_fallback_email"] + ["_so_j_action_%d" % i for i in range(6)]:
+            self.gw.script_job(name, ["done"])
         self.gw.secrets.update(ops_url="https://hooks.example.com/T0/SECRETTOKEN",
                                ops_hdr=json.dumps({"Authorization": "Bearer TOPSECRET"}),
                                fb_url="https://fb.example.com/x")
@@ -72,7 +74,13 @@ class W:
                 if all(r.get(k) == v for k, v in match.items())]
 
 
-WEBHOOK = {"hook": "on_failure", "type": "webhook", "destination": "ops", "preset": "slack"}
+# The example action: an email, which runs as a search (scripted done in W unless a test
+# makes its dispatch fail).
+WEBHOOK = {"hook": "on_failure", "type": "email", "to": "ops@example.com"}
+
+
+def fallback_sends(w):
+    return [d for d in w.gw.dispatch_log if d["name"] == "_so_fallback_email"]
 
 
 def test_action_search_name():
@@ -101,23 +109,9 @@ def test_search_action_without_hidden_name_fails_clearly():
     assert not w.gw.dispatch_log
 
 
-def test_webhook_posts_and_marks_done():
+def test_action_retries_3_then_failed_without_changing_run():
     w = W(actions=[WEBHOOK])
-    assert w.submit() and not w.submit()
-    w.pump()
-    assert len(w.gw.webhook_log) == 1
-    hook = w.gw.webhook_log[0]
-    assert hook["headers"]["Authorization"] == "Bearer TOPSECRET"
-    assert json.loads(hook["body"])["text"].startswith('Job "Nightly" failed')
-    assert w.rows(kind="action")[0]["state"] == "done"
-    assert not w.rows(kind="fallback")
-
-
-def test_webhook_retries_3_then_failed_without_changing_run():
-    w = W(actions=[WEBHOOK])
-    w.gw.secrets["ops_url"] = "https://hooks.example.com/x"
-    w.gw.post_webhook = lambda *a: (_ for _ in ()).throw(
-        __import__("so.gateway", fromlist=["x"]).GatewayError("boom", transient=True))
+    w.gw.fail_dispatch("_so_j_action_0", transient=True, times=99)
     w.submit()
     before = json.dumps(w.store.get_run("r1"), sort_keys=True)
     t = T
@@ -125,7 +119,7 @@ def test_webhook_retries_3_then_failed_without_changing_run():
         w.pump(t)
         t += 1000
     row = w.rows(kind="action")[0]
-    assert row["state"] == "failed" and row["attempts"] == 4 and row["error"] == "boom"
+    assert row["state"] == "failed" and row["attempts"] == 4 and "scripted dispatch error" in row["error"]
     assert json.dumps(w.store.get_run("r1"), sort_keys=True) == before
     assert len(w.audit.of("action_retry")) == 3 and len(
         [e for e in w.audit.of("action_failed") if not e["is_fallback"]]) == 1
@@ -133,35 +127,11 @@ def test_webhook_retries_3_then_failed_without_changing_run():
 
 def test_retry_waits_for_backoff():
     w = W(actions=[WEBHOOK])
-    w.gw.post_webhook = lambda *a: (_ for _ in ()).throw(
-        __import__("so.gateway", fromlist=["x"]).GatewayError("boom", transient=True))
+    w.gw.fail_dispatch("_so_j_action_0", transient=True, times=99)
     w.submit()
     w.pump()
     assert w.pump(T + 5) == 0  # backoff(1) = 30 s
     assert w.pump(T + 31) == 1
-
-
-def test_webhook_https_only_rejected_at_runtime():
-    w = W(actions=[WEBHOOK])
-    w.gw.secrets["ops_url"] = "http://internal.example.com/secretpath"
-    w.submit()
-    w.pump()
-    row = w.rows(kind="action")[0]
-    assert row["state"] == "failed" and row["attempts"] == 1
-    assert not w.gw.webhook_log
-    assert "secretpath" not in row["error"] and "internal.example.com" in row["error"]
-
-
-def test_slack_preset_body():
-    ctx = {"job": "Nightly", "run_id": "r1", "hook": "on_failure", "scope": "step",
-           "step": "Step A", "status": "failed", "run_url": "/app/x/run?run_id=r1",
-           "failed": [{"step": "Step A", "url": "/app/search/search?sid=s1"}]}
-    body = presets.render("slack", ctx)
-    assert "Step A" in body["text"] and "/app/x/run?run_id=r1" in body["text"]
-    assert "/app/search/search?sid=s1" in json.dumps(body["blocks"])
-    assert presets.render("generic", ctx)["failed_searches"][0]["step"] == "Step A"
-    with pytest.raises(ValueError):
-        presets.render("nope", ctx)
 
 
 def test_email_runs_as_owner():
@@ -272,7 +242,7 @@ def test_authz_can_run():
     assert not can_run("x", job, ["other"], ["orchestrator_run"])
 
 
-FALLBACK = {"fallback": {"type": "webhook", "destination": "fb"}}
+FALLBACK = {"fallback": {"type": "email", "to": "fb@example.com"}}
 
 
 def test_fallback_when_no_action():
@@ -281,9 +251,9 @@ def test_fallback_when_no_action():
     w.submit("on_failure", "step", "a")  # same event: one fallback only
     assert len(w.rows(kind="fallback")) == 1
     w.pump()
-    assert len(w.gw.webhook_log) == 1 and w.gw.webhook_log[0]["url"].startswith("https://fb.")
-    body = json.loads(w.gw.webhook_log[0]["body"])
-    assert body["hook"] == "on_failure" and "/app/search_orchestrator/run?run_id=r1" in body["run_url"]
+    [sent] = fallback_sends(w)
+    assert sent["owner"] == "nobody" and sent["args"]["to"] == "fb@example.com"
+    assert "failed" in sent["args"]["subject"] and "/app/search_orchestrator/run?run_id=r1" in sent["args"]["message"]
     w.submit("on_start", "job")  # not a fallback hook
     assert len(w.rows(kind="fallback")) == 1
 
@@ -328,15 +298,15 @@ def test_fallback_search_from_another_app_is_not_run():
 
 def test_fallback_when_action_exhausted():
     w = W(actions=[WEBHOOK], settings=FALLBACK)
-    w.gw.secrets["ops_url"] = "http://bad.example.com/x"
+    w.gw.fail_dispatch("_so_j_action_0", transient=False)
     w.submit()
     w.pump()
     assert w.rows(kind="action")[0]["state"] == "failed"
     assert len(w.rows(kind="fallback")) == 1
     w.pump(T + 1)
-    assert len(w.gw.webhook_log) == 1 and w.gw.webhook_log[0]["url"].startswith("https://fb.")
+    assert len(fallback_sends(w)) == 1 and fallback_sends(w)[0]["args"]["to"] == "fb@example.com"
     w.pump(T + 2)
-    assert len(w.gw.webhook_log) == 1
+    assert len(fallback_sends(w)) == 1
 
 
 def test_fallback_not_sent_when_action_succeeds_or_other_hook():
@@ -361,45 +331,20 @@ def test_fallback_content_has_no_results_data():
     w.run["steps"]["a"]["result_count"] = 99
     w.submit()
     w.pump()
-    sent = w.gw.webhook_log[0]["body"]
+    sent = json.dumps(fallback_sends(w)[0]["args"])
     assert "SENSITIVE" not in sent and "secret_col" not in sent
     assert "Nightly" in sent and "Step A" in sent
     assert "SENSITIVE" not in json.dumps(w.rows(kind="fallback"))
 
 
 def test_action_failure_audited():
-    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "missing"}])
+    w = W(actions=[WEBHOOK])
+    w.gw.fail_dispatch("_so_j_action_0", transient=False)
     w.submit()
     w.pump()
     ev = w.audit.of("action_failed")[0]
-    assert ev["run_id"] == "r1" and ev["action_type"] == "webhook"
-    assert "missing" in ev["error"]
-
-
-def test_action_secret_not_in_audit():
-    w = W(actions=[WEBHOOK])
-    w.submit()
-    w.pump()
-    w.gw.secrets["ops_url"] = "https://hooks.example.com/T0/SECRETTOKEN"
-    w2 = W(actions=[WEBHOOK])
-    w2.gw.post_webhook = lambda url, h, b: (_ for _ in ()).throw(
-        __import__("so.gateway", fromlist=["x"]).GatewayError("failed for " + url, transient=False))
-    w2.submit()
-    w2.pump()
-    for world in (w, w2):
-        blob = json.dumps(world.audit.events) + json.dumps(world.rows())
-        assert "SECRETTOKEN" not in blob and "TOPSECRET" not in blob
-    done = w.audit.of("action_done")[0]
-    assert done["scheme"] == "https" and done["host"] == "hooks.example.com"
-    assert done["preset"] == (WEBHOOK.get("preset") or "generic")  # Run health: Slack vs webhook
-
-
-def test_action_failure_carries_the_slack_preset():
-    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "missing",
-                    "preset": "slack"}])
-    w.submit()
-    w.pump()
-    assert w.audit.of("action_failed")[0]["preset"] == "slack"
+    assert ev["run_id"] == "r1" and ev["action_type"] == "email"
+    assert "scripted dispatch error" in ev["error"]
 
 
 def test_removed_owner_fails_search_action_without_raising():
@@ -422,10 +367,10 @@ def test_handled_step_failure_does_not_consume_fallback():
     w.submit("on_failure", "step", "a")  # handled step failure
     assert not w.rows(kind="fallback")
     w.pump()
-    assert not w.gw.webhook_log
+    assert not fallback_sends(w)
     w.submit("on_failure", "job")  # later unhandled run failure
     w.pump()
-    assert len(w.rows(kind="fallback")) == 1 and len(w.gw.webhook_log) == 1
+    assert len(w.rows(kind="fallback")) == 1 and len(fallback_sends(w)) == 1
 
 
 def test_job_level_failure_action_suppresses_fallback_on_step_failures():
@@ -436,7 +381,7 @@ def test_job_level_failure_action_suppresses_fallback_on_step_failures():
 
 
 def test_step_level_action_on_unhandled_failed_step_suppresses_fallback():
-    w = W(step_actions=[{"hook": "on_failure", "type": "webhook", "destination": "ops"}],
+    w = W(step_actions=[{"hook": "on_failure", "type": "email", "to": "a@b.c"}],
           settings=FALLBACK)
     w.submit("on_failure", "job")
     assert not w.rows(kind="fallback")
@@ -448,7 +393,7 @@ def test_delay_fallback_decided_on_job_event():
     assert not w.rows(kind="fallback")
     w.submit("on_delayed", "job")
     assert len(w.rows(kind="fallback")) == 1
-    w2 = W(step_actions=[{"hook": "on_delayed", "type": "webhook", "destination": "ops"}],
+    w2 = W(step_actions=[{"hook": "on_delayed", "type": "email", "to": "a@b.c"}],
            settings=FALLBACK)
     w2.run["steps"]["a"]["delay_alerted"] = True
     w2.submit("on_delayed", "job")
@@ -460,8 +405,9 @@ def test_rejected_run_action_is_sent_from_snapshot():
     ghost = dict(w.run, _key="ghost", id="ghost", state="rejected")  # never saved
     w.runner.submit(ghost, "on_failure", "job", None)
     w.pump()
+    w.pump(T + 5)
     assert w.rows(kind="action")[0]["state"] == "done"
-    assert len(w.gw.webhook_log) == 1 and not w.rows(kind="fallback")
+    assert [d["name"] for d in w.gw.dispatch_log] == ["_so_j_action_0"] and not w.rows(kind="fallback")
 
 
 def test_pump_budget_stops_new_sends():
@@ -472,11 +418,11 @@ def test_pump_budget_stops_new_sends():
         w.run = dict(w.run, _key="r%d" % n, id="r%d" % n)
         w.submit("on_failure", "job")
     w.pump()
-    assert 0 < len(w.gw.webhook_log) < 4
+    assert 0 < len(fallback_sends(w)) < 4
     assert len([r for r in w.rows(kind="fallback") if r["state"] == "pending"]) > 0
     w.runner.monotonic = lambda: 0
     w.pump(T + 1)
-    assert len(w.gw.webhook_log) == 4
+    assert len(fallback_sends(w)) == 4
 
 
 def test_pump_stops_when_lease_lost_with_rows_saved():
@@ -495,8 +441,8 @@ def test_pump_stops_when_lease_lost_with_rows_saved():
 
     with pytest.raises(RuntimeError):
         w.runner.pump(T, keep_lease=keep)
-    assert len(w.gw.webhook_log) == 1
-    assert [r["state"] for r in w.rows(kind="fallback")].count("done") == 1
+    assert len(fallback_sends(w)) == 1
+    assert [r["state"] for r in w.rows(kind="fallback")].count("pending") == 3  # one is sent, waiting for its search
 
 
 def test_start_job_chain_depth_limit():
@@ -526,7 +472,7 @@ def test_invalid_url_error_text_is_scrubbed():
     def boom(url, headers, body):
         raise http.client.InvalidURL("URL can't contain control characters. '/T0/SECRETTOKEN'")
 
-    w.gw.post_webhook = boom
+    w.gw.fail_dispatch("_so_j_action_0", transient=True, times=99)
     w.submit()
     w.pump()
     assert "SECRETTOKEN" not in json.dumps(w.rows()) + json.dumps(w.audit.events)
@@ -578,17 +524,6 @@ def test_token_default_and_missing_values_in_messages():
     assert w.gw.dispatch_log[0]["args"]["subject"] == "s1 none failed |"
 
 
-def test_webhook_body_tokens_json_encoded_after_filling():
-    w = _token_world([{"hook": "on_failure", "type": "webhook", "destination": "ops",
-                       "body": json.dumps({"text": "rows $daily.resultCount$ host "
-                                                   "$daily.first.host$ {{job}}",
-                                           "nested": ["$run.param.region$"]})}])
-    w.submit()
-    w.pump()
-    body = json.loads(w.gw.webhook_log[0]["body"])
-    assert body == {"text": 'rows 42 host web"1 Nightly', "nested": ['e"u']}
-
-
 def test_event_and_alert_action_tokens_rendered():
     w = _token_world([{"hook": "on_failure", "type": "event", "index": "audit",
                        "payload": {"rows": "$daily.resultCount$", "host": "$daily.first.host$"}},
@@ -618,13 +553,11 @@ def test_failed_search_link_points_at_search_page():
     w = W(settings=FALLBACK)
     w.submit()
     w.pump()
-    body = json.loads(w.gw.webhook_log[0]["body"])
-    assert body["failed_searches"] == [{"step": "Step A", "url": "/app/search/search?sid=s1"}]
+    assert "Failed search (Step A): /app/search/search?sid=s1" in fallback_sends(w)[0]["args"]["message"]
     w = W(settings=dict(FALLBACK, base_url="https://splunk.example.com:8000/"))
     w.submit()
     w.pump()
-    body = json.loads(w.gw.webhook_log[0]["body"])
-    assert body["failed_searches"][0]["url"] == "https://splunk.example.com:8000/app/search/search?sid=s1"
+    assert "https://splunk.example.com:8000/app/search/search?sid=s1" in fallback_sends(w)[0]["args"]["message"]
 
 
 def test_two_start_job_actions_to_one_target_start_two_runs_once():
@@ -656,7 +589,7 @@ def test_on_late_uses_the_fallback_without_a_job_level_on_late_action():
     w.submit("on_late", "job", occurrence=0)
     assert [r["hook"] for r in w.rows(kind="fallback")] == ["on_late"]
     w.pump()
-    assert json.loads(w.gw.webhook_log[0]["body"])["hook"] == "on_late"
+    assert "is late" in fallback_sends(w)[0]["args"]["subject"]
 
 
 def test_on_late_has_no_fallback_with_a_job_level_on_late_action():
@@ -668,7 +601,7 @@ def test_on_late_has_no_fallback_with_a_job_level_on_late_action():
 
 def test_on_late_action_out_of_retries_sends_the_fallback():
     w = W(actions=[dict(WEBHOOK, hook="on_late")], settings=FALLBACK)
-    w.gw.secrets["ops_url"] = "http://bad.example.com/x"
+    w.gw.fail_dispatch("_so_j_action_0", transient=False)
     w.submit("on_late", "job", occurrence=0)
     w.pump()
     assert len(w.rows(kind="fallback")) == 1
@@ -681,101 +614,6 @@ def test_on_late_message_verb():
 
 
 # Teams, PagerDuty and ServiceNow presets.
-
-PD_KEY = "R0UTINGKEYSECRET0123456789abcdef"
-
-
-def _pd_world(post=None):
-    """A world whose admin saved a PagerDuty destination through the API."""
-    from so import api
-    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "pd",
-                    "options": {"severity": "critical"}}])
-    w.gw.users = {"root": {"roles": ["admin"], "capabilities": [
-        "orchestrator_admin", "orchestrator_build", "orchestrator_run"]}}
-    w.deps = {"user_gateway": w.gw, "system_gateway": w.gw, "audit": w.audit,
-              "clock": lambda: w.t}
-    status, out = api.handle("root", "POST", "/orchestrator/destinations",
-                             {"name": "pd", "preset": "pagerduty", "routing_key": PD_KEY}, w.deps)
-    assert status == 201, out
-    if post is not None:
-        w.gw.post_webhook = post
-    return w
-
-
-def _leak_blob(w):
-    from so import api
-    status, listed = api.handle("root", "GET", "/orchestrator/destinations", None, w.deps)
-    assert status == 200
-    return json.dumps(w.rows()) + json.dumps(w.audit.events) + json.dumps(listed) \
-        + json.dumps(w.gw.kv.get("so_settings", {}))
-
-
-def test_routing_key_never_leaks():
-    w = _pd_world()
-    w.submit()
-    w.pump()
-    assert len(w.gw.webhook_log) == 1
-    sent = w.gw.webhook_log[0]
-    assert sent["url"] == "https://events.pagerduty.com/v2/enqueue"
-    body = json.loads(sent["body"])
-    assert body["routing_key"] == PD_KEY
-    assert body["event_action"] == "trigger" and body["payload"]["severity"] == "critical"
-    assert w.rows(kind="action")[0]["state"] == "done"
-    assert w.audit.of("action_done")[0]["preset"] == "pagerduty"
-    assert PD_KEY not in _leak_blob(w)
-
-
-def test_routing_key_not_echoed_by_a_failed_send():
-    from so.gateway import GatewayError
-
-    def echo(url, headers, body):
-        raise GatewayError("HTTP 400 for body %s" % body, status=400, transient=False)
-
-    w = _pd_world(echo)
-    w.submit()
-    w.pump()
-    row = w.rows(kind="action")[0]
-    assert row["state"] == "failed" and row["error"]
-    assert PD_KEY not in _leak_blob(w)
-
-
-def test_routing_key_not_echoed_by_an_unexpected_error():
-    def boom(url, headers, body):
-        raise ValueError("cannot send " + body)
-
-    w = _pd_world(boom)
-    w.submit()
-    w.pump()
-    assert w.rows(kind="action")[0]["state"] == "failed"
-    assert PD_KEY not in _leak_blob(w)
-
-
-def test_servicenow_and_teams_actions_post_their_bodies():
-    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "sn",
-                    "preset": "servicenow", "options": {"urgency": "1"}},
-                   {"hook": "on_failure", "type": "webhook", "destination": "ops",
-                    "preset": "teams"}])
-    doc = w.gw.kv_get("so_settings", "destinations")
-    doc["destinations"].append({"name": "sn", "url_secret_ref": "sn_url",
-                                "headers_secret_ref": None, "preset": "servicenow"})
-    w.gw.kv_update("so_settings", "destinations", doc)
-    w.gw.secrets["sn_url"] = "https://acme.service-now.com/api/now/table/incident"
-    w.submit()
-    w.pump()
-    bodies = [json.loads(h["body"]) for h in w.gw.webhook_log]
-    assert bodies[0]["urgency"] == "1" and bodies[0]["impact"] == "2"
-    assert bodies[0]["short_description"] == "Search Orchestrator: Nightly failed"
-    assert "routing_key" not in bodies[0]
-    assert bodies[1]["attachments"][0]["content"]["version"] == "1.4"
-
-
-def test_body_template_ignores_options():
-    w = W(actions=[{"hook": "on_failure", "type": "webhook", "destination": "ops",
-                    "preset": "pagerduty", "options": {"severity": "info"},
-                    "body": {"text": "{{job}}"}}])
-    w.submit()
-    w.pump()
-    assert json.loads(w.gw.webhook_log[0]["body"]) == {"text": "Nightly"}
 
 
 def test_ctx_has_approval_message_for_approval_requested():
@@ -843,14 +681,14 @@ def test_an_action_sets_its_own_retries_and_first_wait():
     boom = lambda *a: (_ for _ in ()).throw(
         __import__("so.gateway", fromlist=["x"]).GatewayError("boom", transient=True))
     w = W(actions=[dict(WEBHOOK, retries=1, retry_wait=60)])
-    w.gw.post_webhook = boom
+    w.gw.fail_dispatch("_so_j_action_0", transient=True, times=99)
     w.submit()
     w.pump(T)
     assert w.pump(T + 31) == 0 and w.pump(T + 61) == 1  # waited its own 60 s
     row = w.rows(kind="action")[0]
     assert row["state"] == "failed" and row["attempts"] == 2
     w2 = W(actions=[dict(WEBHOOK, retries=0)])
-    w2.gw.post_webhook = boom
+    w2.gw.fail_dispatch("_so_j_action_0", transient=True, times=99)
     w2.submit()
     w2.pump(T)
     assert w2.rows(kind="action")[0]["state"] == "failed"  # no retry at all
@@ -872,7 +710,6 @@ def test_event_action_sets_source_sourcetype_host_and_time():
     assert "host" not in args
 
 
-
 def test_alert_search_replaced_by_someone_elses_shared_search_is_not_run():
     w = W(actions=[{"hook": "on_failure", "type": "email", "to": "a@b.c"}])
     w.gw.upsert_saved_search("mallory", "_so_j_action_0", "| sendemail to=x@evil.example", "", "")
@@ -884,12 +721,3 @@ def test_alert_search_replaced_by_someone_elses_shared_search_is_not_run():
     assert row["state"] == "failed" and "mallory" in row["error"]
 
 
-def test_header_values_never_reach_the_error_text():
-    w = W(actions=[WEBHOOK])
-    w.gw.secrets["ops_hdr"] = json.dumps({"Authorization": "Bearer TOPSECRET\n"})
-    w.gw.post_webhook = lambda url, h, b: (_ for _ in ()).throw(
-        ValueError("Invalid header value %r" % h["Authorization"].encode()))
-    w.submit()
-    w.pump()
-    blob = json.dumps(w.audit.events) + json.dumps(w.rows())
-    assert "TOPSECRET" not in blob and "[secret]" in blob

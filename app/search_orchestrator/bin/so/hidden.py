@@ -78,11 +78,14 @@ partial failure still leaves every name tracked. ``gc(job, active_runs)``
 returns the entries that neither the job nor any active run's definition
 snapshot uses; the caller deletes them and drops them from the list.
 
-Fallback email
---------------
+Fallback email and alert action
+-------------------------------
 ``FALLBACK_EMAIL_SEARCH`` (``_so_fallback_email``) is system-owned, shipped as
 a static stanza in ``default/savedsearches.conf`` and dispatched under owner
 ``nobody``. It reads ``args.to``, ``args.subject`` and ``args.message``.
+``FALLBACK_ALERT_SEARCH`` (``_so_fallback_alert``) is written under ``nobody`` when an
+admin saves an alert-action fallback (``fallback_alert_spl``: ``sendalert`` with that
+action's parameter names); it reads ``args.action`` and ``args.param.<name>``.
 """
 import copy
 import hashlib
@@ -91,6 +94,7 @@ import re
 from . import names, tokens
 
 FALLBACK_EMAIL_SEARCH = "_so_fallback_email"
+FALLBACK_ALERT_SEARCH = "_so_fallback_alert"
 FALLBACK_OWNER = "nobody"
 SEARCH_ACTIONS = ("email", "event", "alert_action")
 ACTION_EARLIEST = "-1m"
@@ -165,6 +169,12 @@ def action_spl(action):
     params = "".join(' param.%s="$args.param.%s$"' % (k, k)
                      for k in sorted((action.get("params") or {}).keys()))
     return "| makeresults | sendalert $args.action$%s" % params
+
+
+def fallback_alert_spl(fallback):
+    """The SPL of ``_so_fallback_alert`` for an alert-action fallback setting."""
+    return action_spl({"type": "alert_action", "action": fallback.get("action"),
+                       "params": fallback.get("params") or {}})
 
 
 def _action_issues(action, step):

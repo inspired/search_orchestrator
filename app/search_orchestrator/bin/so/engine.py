@@ -87,7 +87,7 @@ import logging
 import time
 
 from . import expr as exprmod
-from . import approval, authz, backfill, hidden, logs, model, scheduler, tokens
+from . import approval, authz, backfill, hidden, logs, model, retired, scheduler, tokens
 from . import deadline as deadlinemod
 from . import state as statemod
 from .actions import CHAIN_LIMIT, chain_rerun
@@ -278,6 +278,7 @@ class Engine:
         self._skip = None
         self._beat = {"at": None, "ticks": 0, "slowest": 0}
         self._owner_caps = {}  # owner -> capabilities, looked up once per tick
+        self._retired_done = False  # what 1.50.0 removed is cleaned up once per process
 
     # -- the tick -------------------------------------------------------------
 
@@ -297,6 +298,9 @@ class Engine:
                 self._estate = self.store.get_engine_state()
                 self._estate_saved = now
                 self._leader = True
+            if not self._retired_done:
+                retired.forget_destinations(self.gw, lambda event: self._emit(event, now))
+                self._retired_done = True
             started = time.time()
             self._tick(now)
             ms = int((time.time() - started) * 1000)

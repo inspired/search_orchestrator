@@ -732,8 +732,7 @@ def test_hooks_submitted_once_across_crash_before_run_save():
     w = World()
 
     def send(*hooks):
-        return [{"hook": h, "type": "webhook", "destination": "ops", "preset": "slack"}
-                for h in hooks]
+        return [{"hook": h, "type": "email", "to": "a@b.c", "hidden_search": "_so_x_action"} for h in hooks]
     j = w.add_job(make_job(steps=[{"id": "a", "actions": send("on_success", "on_complete")}],
                            actions=send("on_start", "on_success", "on_complete")),
                   scripts={"a": {"states": ["done"]}})
@@ -1284,24 +1283,24 @@ def test_lost_lease_means_no_dispatch():
 def test_lease_renewed_before_each_action_send():
     w = World(T0)
     j = w.add_job(make_job("j", cron=None, actions=[
-        {"hook": "on_start", "type": "webhook", "destination": "ops"},
-        {"hook": "on_start", "type": "webhook", "destination": "ops"}]))
-    w.gw.kv.setdefault("so_settings", {})["destinations"] = {
-        "_key": "destinations", "destinations": [{"name": "ops", "url_secret_ref": "u"}]}
-    w.gw.secrets["u"] = "https://hooks.example.com/x"
+        {"hook": "on_start", "type": "email", "to": "a@b.c", "hidden_search": "_so_j_action_0"},
+        {"hook": "on_start", "type": "email", "to": "a@b.c", "hidden_search": "_so_j_action_1"}]))
+    w.gw.script_job("_so_j_action_0", ["running"])
+    w.gw.script_job("_so_j_action_1", ["running"])
     w.manual(j, scheduled_time=T0)
     order = []
-    real_acquire, real_post = w.engine.lease.acquire, w.gw.post_webhook
+    real_acquire, real_post = w.engine.lease.acquire, w.gw.dispatch
 
     def acquire(holder, now):
         order.append("lease")
         return real_acquire(holder, now)
 
-    def post(*a, **kw):
-        order.append("send")
-        return real_post(*a, **kw)
+    def post(owner, name, *a, **kw):
+        if name.startswith("_so_j_action_"):
+            order.append("send")
+        return real_post(owner, name, *a, **kw)
     w.engine.lease.acquire = acquire
-    w.gw.post_webhook = post
+    w.gw.dispatch = post
     w.tick()
     assert order.count("send") == 2
     for i, item in enumerate(order):

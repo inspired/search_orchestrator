@@ -134,7 +134,7 @@ def routes_query(filters):
         base_terms(filters, levels=False) + " event=request"
         " | eval ms=tonumber(ms), st=tonumber(status)"
         ' | eval route=replace(path, "^.*?/orchestrator[^/]*/?", "")'
-        ' | eval route=replace(route, "^(jobs|runs|backfills|snippets|destinations)/[^/]+",'
+        ' | eval route=replace(route, "^(jobs|runs|backfills|snippets)/[^/]+",'
         ' "\\1/<id>")'
         ' | eval route=replace(route, "^preview/(?!condition$|output$|defaults$)[^/]+",'
         ' "preview/<sid>")'

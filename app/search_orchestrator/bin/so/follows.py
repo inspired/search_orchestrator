@@ -4,14 +4,13 @@ delayed or succeeds, without editing the job's own actions.
 One ``so_follows`` document per job and user, keyed by a hash of both::
 
     {"job_id", "user", "on": ["failure", "late", ...],
-     "notify": {"type": "email"} | {"type": "webhook", "destination": name},
+     "notify": {"type": "email"},
      "created_at", "updated_at"}
 
 Email goes to the follower's own Splunk account address, read when it is sent, so nobody can
 point someone else's job at an address of their choosing; it is sent with the fallback
-notification's system search (job name, outcome and run link only, never results). A
-webhook destination (Slack, Teams, ...) can be chosen by those who may list destinations
-(builders and admins).
+notification's system search (job name, outcome and run link only, never results). A follow
+saved before 1.50.0 with a webhook destination is told by email too.
 
 Routes (``api.py``): ``GET``, ``PUT`` and ``DELETE jobs/<id>/follow`` for the caller's own
 follow. The action runner (``actions.py``) adds one ``kind="follow"`` row per matching
@@ -71,29 +70,19 @@ def get_follow(ctx, body, job_id):
 
 
 def put_follow(ctx, body, job_id):
-    from .api import ApiError, _destination_names, _visible_job
-    from . import authz
+    from .api import ApiError, _visible_job
     _visible_job(ctx, job_id)
     on = body.get("on")
     if (not isinstance(on, list) or not on or not all(e in EVENTS for e in on)
             or len(set(on)) != len(on)):
         raise ApiError(400, "bad_request", "on must list one or more of: %s" % ", ".join(EVENTS))
     notify = body.get("notify") or {"type": "email"}
-    if not isinstance(notify, dict) or notify.get("type") not in ("email", "webhook"):
-        raise ApiError(400, "bad_request", "notify must be email or a webhook destination")
-    if notify["type"] == "email":
-        if not _email(ctx):
-            raise ApiError(400, "no_email", "Your Splunk account has no email address. Add one "
-                           "in your account settings, or pick a webhook destination.")
-        notify = {"type": "email"}
-    else:
-        may_list = ctx.allowed(authz.can_edit, None) or ctx.allowed(authz.can_admin, None)
-        if not may_list:
-            raise ctx.deny("follow_with_webhook", job_id=job_id)
-        if notify.get("destination") not in _destination_names(ctx):
-            raise ApiError(400, "unknown_destination", "webhook destination %r doesn't exist"
-                           % (notify.get("destination"),))
-        notify = {"type": "webhook", "destination": notify["destination"]}
+    if not isinstance(notify, dict) or notify.get("type") != "email":
+        raise ApiError(400, "bad_request", "notify must be email (webhook destinations were removed)")
+    if not _email(ctx):
+        raise ApiError(400, "no_email", "Your Splunk account has no email address. Add one "
+                       "in your account settings.")
+    notify = {"type": "email"}
     key = follow_key(job_id, ctx.user)
     previous = ctx.sys_gw.kv_get(FOLLOWS, key)
     doc = {"_key": key, "job_id": job_id, "user": ctx.user, "on": [e for e in EVENTS if e in on],

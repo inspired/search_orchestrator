@@ -3,8 +3,7 @@
 A snippet is the builder's copy format (``{"so_clipboard": 1, steps, edges, job_actions,
 triggers, positions}``) with a name and a description, kept in ``so_snippets``. Every
 builder (``orchestrator_build`` or admin) can list and read all snippets; only the owner or
-an admin changes or deletes one. Snippets hold no secrets because jobs hold none: an
-action names a destination, whose URL, headers and keys stay in the secret store. Content
+an admin changes or deletes one. Snippets hold no secrets because jobs hold none. Content
 is checked only for the copy format, step ids and size (``content_issues``); unknown
 top-level keys are dropped.
 """

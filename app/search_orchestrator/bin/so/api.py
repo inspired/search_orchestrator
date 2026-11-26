@@ -51,11 +51,11 @@ import uuid
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
-from . import authz, backfill, hidden, history, model, presets, preview, scheduler, selftest
+from . import authz, backfill, hidden, history, model, preview, scheduler, selftest
 from . import approval, blocks, follows, tokens
 from . import cron as cronmod
 from .engine import DEFAULT_SETTINGS, promotion_order
-from .gateway import GatewayError, check_webhook_url
+from .gateway import GatewayError
 from .lease import COLLECTION as LOCKS
 from .lease import KEY as LEASE_KEY
 from .lease import LEASE_SECONDS
@@ -64,17 +64,16 @@ from .store import ACTIVE_RUN_STATES, COMMANDS, RUNS, SETTINGS, Store
 JOB_ID_RE = model.JOB_ID_RE
 DEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 RESERVED_JOB_IDS = ("validate", "new")  # route keywords under jobs/; "new": unsaved previews
-DESTINATIONS_KEY = "destinations"
 ACTION_RUNS = "so_action_runs"
 AUDIT_INDEX = "_audit"
-# An HTTP header name (RFC 9110 token).
-_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$")
+
 RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
-ACTION_TYPES = ("webhook", "email", "event", "start_job", "alert_action")
+ACTION_TYPES = ("email", "event", "start_job", "alert_action")
+# Removed in 1.50.0: a save that still has one is refused with what to use instead.
+REMOVED_ACTION_TYPES = ("webhook",)
 HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late",
          "on_approval_requested")
-PRESETS = tuple(presets.PRESETS)  # slack, generic, teams, pagerduty, servicenow
 # Integer settings and their upper bounds (the lower bound is 1).
 INT_SETTINGS = {"max_searches": 100, "max_searches_per_job": 50, "queue_cap": 1000,
                 "result_retention": 7 * 86400, "run_retention_days": 3650}
@@ -199,8 +198,6 @@ def _routes():
         (r"logs/breakdown", {"GET": lg.breakdown}),
         (r"logs/problems", {"GET": lg.problems}),
         (r"runhealth/(?P<section>[a-z]{1,20})", {"GET": lambda ctx, body, section: rh.section(ctx, body, section)}),
-        (r"destinations", {"GET": list_destinations, "POST": save_destination}),
-        (r"destinations/(?P<name>[^/]+)", {"DELETE": delete_destination}),
         (r"alert_actions", {"GET": list_alert_actions}),
         (r"health", {"GET": health}),
         (r"me", {"GET": me}),
@@ -474,12 +471,6 @@ def _prepare(body, job_id, owner):
     return job
 
 
-def _destination_names(ctx):
-    """``{name: preset}`` of the webhook destinations."""
-    doc = ctx.sys_gw.kv_get(SETTINGS, DESTINATIONS_KEY) or {}
-    return {d.get("name"): d.get("preset") for d in doc.get("destinations") or []}
-
-
 def _job_issues(ctx, job):
     """Checks beyond ``model.validate_job``: job fields, actions and the start_job cycle."""
     issues = []
@@ -499,7 +490,6 @@ def _job_issues(ctx, job):
         if (t.get("on") or "success") not in ("success", "complete"):
             issues.append(_issue("error", "bad_trigger", "a completion trigger starts when the job "
                                  "succeeds or completes; choose one in Start when it"))
-    dests = None
     scoped = [(None, a) for a in job.get("actions") or []]
     approvals = {s.get("id") for s in job.get("steps") or [] if approval.is_approval(s)}
     for step in job.get("steps") or []:
@@ -509,6 +499,11 @@ def _job_issues(ctx, job):
             issues.append(_issue("error", "bad_action", "an action is malformed; remove it and add it again", step_id))
             continue
         kind = action.get("type")
+        if kind in REMOVED_ACTION_TYPES:
+            issues.append(_issue("error", "action_removed", "Webhook, Slack, Teams, PagerDuty and "
+                                 "ServiceNow actions were removed; remove this one, or use an Alert "
+                                 "action from the service's own Splunk app", step_id))
+            continue
         if kind not in ACTION_TYPES:
             issues.append(_issue("error", "bad_action", "unknown action type %r; choose one in Do" % (kind,), step_id))
             continue
@@ -537,24 +532,10 @@ def _job_issues(ctx, job):
                                       or not lo <= value <= hi):
                 issues.append(_issue("error", "bad_action", what, step_id))
         required = {"email": "to", "event": "index", "start_job": "job",
-                    "alert_action": "action", "webhook": "destination"}[kind]
+                    "alert_action": "action"}[kind]
         if not isinstance(action.get(required), str) or not action[required]:
             issues.append(_issue("error", "bad_action", "the %s action needs %s; fill it in" % (kind, required),
                                  step_id))
-        elif kind == "webhook":
-            if dests is None:
-                dests = _destination_names(ctx)
-            if action["destination"] not in dests:
-                issues.append(_issue("error", "unknown_destination", "webhook destination %r doesn't exist; "
-                                     "pick another, or ask an admin to add it in Settings"
-                                     % action["destination"], step_id))
-            preset = action.get("preset") or dests.get(action["destination"]) or "generic"
-            if preset not in PRESETS:
-                issues.append(_issue("error", "bad_action", "unknown webhook format %r; choose "
-                                     "Slack, Generic, Teams, PagerDuty or ServiceNow" % preset, step_id))
-            elif not action.get("body"):  # a body template ignores options
-                issues.extend(_issue("error", "bad_action", m, step_id)
-                              for m in presets.option_issues(preset, action.get("options")))
     known = _visible_jobs(ctx)
     known.setdefault(job.get("id"), job)  # a job may start itself
     issues.extend(_link_issues(job, known))
@@ -1222,7 +1203,7 @@ def bulk_runs(ctx, body):
     return 200, {"results": results}
 
 
-# Settings and destinations.
+# Settings.
 
 def _require_admin(ctx, action):
     if not ctx.allowed(authz.can_admin, None):
@@ -1258,17 +1239,30 @@ def _check_fallback(ctx, value):
         if not isinstance(to, str) or "@" not in to:
             raise _bad_setting("fallback email needs an address in \"to\"")
         return {"type": "email", "to": to}
-    if kind == "webhook":
-        dest = value.get("destination")
-        if dest not in _destination_names(ctx):
-            raise _bad_setting("unknown webhook destination %r" % (dest,))
-        out = {"type": "webhook", "destination": dest}
-        if value.get("preset") is not None:
-            if value["preset"] not in PRESETS:
-                raise _bad_setting("unknown preset %r" % (value["preset"],))
-            out["preset"] = value["preset"]
-        return out
-    raise _bad_setting("fallback type must be \"email\" or \"webhook\"")
+    if kind == "alert_action":
+        name = value.get("action")
+        params = value.get("params") or {}
+        if not isinstance(params, dict) or not all(isinstance(v, str) for v in params.values()):
+            raise _bad_setting("the fallback alert action's parameters must be text")
+        problems = hidden._action_issues({"type": "alert_action", "action": name, "params": params}, None)
+        if problems:
+            raise _bad_setting(problems[0]["message"])
+        installed = {a.get("name") for a in ctx.user_gw.alert_actions(ctx.user) or []}
+        if name not in installed:
+            raise _bad_setting("alert action %r isn't installed or can't be used from this app; "
+                               "pick one from the list" % (name,))
+        return {"type": "alert_action", "action": name, "params": dict(params)}
+    raise _bad_setting("fallback type must be \"email\" or \"alert_action\"")
+
+
+def _write_fallback_search(ctx, fallback):
+    """Write ``_so_fallback_alert`` under nobody for an alert-action fallback (the system
+    session; it runs no one's own searches)."""
+    if (fallback or {}).get("type") == "alert_action":
+        ctx.sys_gw.upsert_saved_search(hidden.FALLBACK_OWNER, hidden.FALLBACK_ALERT_SEARCH,
+                                       hidden.fallback_alert_spl(fallback), hidden.ACTION_EARLIEST,
+                                       hidden.ACTION_LATEST,
+                                       "Search Orchestrator fallback notification alert action.")
 
 
 def put_settings(ctx, body):
@@ -1310,124 +1304,17 @@ def put_settings(ctx, body):
             current[key] = value or None
         else:
             raise _bad_setting("unknown setting %r" % key)
+    if "fallback" in body:
+        _write_fallback_search(ctx, current.get("fallback"))
     ctx.store.save_settings(current)
     ctx.emit({"type": "settings_changed", "keys": sorted(body)})
     return 200, {"settings": _settings_view(current)}
-
-
-def _destinations(ctx):
-    return list((ctx.sys_gw.kv_get(SETTINGS, DESTINATIONS_KEY) or {}).get("destinations") or [])
-
-
-def _save_destinations(ctx, dests):
-    doc = {"_key": DESTINATIONS_KEY, "destinations": dests}
-    if not ctx.sys_gw.kv_update(SETTINGS, DESTINATIONS_KEY, doc):
-        if not ctx.sys_gw.kv_insert(SETTINGS, doc):
-            ctx.sys_gw.kv_update(SETTINGS, DESTINATIONS_KEY, doc)
-
-
-def _public_destination(dest):
-    return {"name": dest.get("name"), "preset": dest.get("preset"), "host": dest.get("host"),
-            "has_headers": bool(dest.get("headers_secret_ref")),
-            "body_secret_set": bool(dest.get("body_secret_ref"))}
 
 
 def list_alert_actions(ctx, body):
     if not (ctx.allowed(authz.can_admin, None) or ctx.allowed(authz.can_edit, None)):
         raise ctx.deny("list_alert_actions")
     return 200, {"alert_actions": ctx.user_gw.alert_actions(ctx.user)}
-
-
-def list_destinations(ctx, body):
-    if not (ctx.allowed(authz.can_admin, None) or ctx.allowed(authz.can_edit, None)):
-        raise ctx.deny("list_destinations")
-    return 200, {"destinations": [_public_destination(d) for d in _destinations(ctx)]}
-
-
-def save_destination(ctx, body):
-    _require_admin(ctx, "manage_destinations")
-    name = body.get("name")
-    if not isinstance(name, str) or not DEST_NAME_RE.fullmatch(name):
-        raise ApiError(400, "bad_destination", "destination name must be 1-64 letters, digits, "
-                       "_, . or -")
-    preset = body.get("preset") or "generic"
-    if preset not in PRESETS:
-        raise ApiError(400, "bad_destination", "unknown preset %r" % (preset,))
-    dests = _destinations(ctx)
-    old = next((d for d in dests if d.get("name") == name), {})
-    body_ref = old.get("body_secret_ref") if preset == "pagerduty" else None
-    try:
-        stored = ctx.sys_gw.read_secret(old["url_secret_ref"]) if body_ref \
-            and old.get("preset") == "pagerduty" and body.get("url") in (None, "") else None
-        url = presets.destination_url(preset, body.get("url"), stored)
-        if not isinstance(url, str):
-            raise ValueError("destination needs an https url")
-        check_webhook_url(url)
-        key = body.get("routing_key")
-        body_secret = presets.routing_key_secret(key) if preset == "pagerduty" and (
-            key is not None or not body_ref) else None
-    except (ValueError, GatewayError) as err:
-        raise ApiError(400, "bad_destination", str(err))
-    headers = body.get("headers", ...)
-    if headers not in (..., None) and not (isinstance(headers, dict) and all(
-            isinstance(k, str) and isinstance(v, str) for k, v in headers.items())):
-        raise ApiError(400, "bad_destination", "headers must be an object of strings")
-    for key, value in (headers if isinstance(headers, dict) else {}).items():
-        if not _HEADER_NAME.match(key):
-            raise ApiError(400, "bad_destination", "header name %r isn't a valid HTTP header "
-                                                   "name" % key[:40])
-        if any(ord(c) < 32 and c != "\t" or ord(c) == 127 for c in value):
-            raise ApiError(400, "bad_destination", "the value of header %s has a line break or "
-                                                   "another control character; paste it again "
-                                                   "without them" % key)
-    url_ref = "destination_%s_url" % name
-    ctx.sys_gw.write_secret(url_ref, url)
-    headers_ref = old.get("headers_secret_ref")
-    if headers is not ...:
-        if headers_ref and not headers:
-            ctx.sys_gw.delete_secret(headers_ref)
-        headers_ref = None
-        if headers:
-            headers_ref = "destination_%s_headers" % name
-            ctx.sys_gw.write_secret(headers_ref, json.dumps(headers, sort_keys=True))
-    if old.get("body_secret_ref") and not body_ref:  # no longer PagerDuty
-        ctx.sys_gw.delete_secret(old["body_secret_ref"])
-    if body_secret:
-        body_ref = "destination_%s_body" % name
-        ctx.sys_gw.write_secret(body_ref, body_secret)
-    dest = {"name": name, "url_secret_ref": url_ref, "headers_secret_ref": headers_ref,
-            "body_secret_ref": body_ref, "preset": preset, "host": urlsplit(url).hostname}
-    dests = [d for d in dests if d.get("name") != name] + [dest]
-    _save_destinations(ctx, dests)
-    ctx.emit({"type": "destination_saved", "destination": name, "host": dest["host"],
-              "created": not old})
-    return 201, {"destination": _public_destination(dest)}
-
-
-def delete_destination(ctx, body, name):
-    _require_admin(ctx, "manage_destinations")
-    dests = _destinations(ctx)
-    if not any(d.get("name") == name for d in dests):
-        raise ApiError(404, "not_found", "no destination %r" % name)
-    fallback = (ctx.store.get_settings() or {}).get("fallback") or {}
-    if fallback.get("type") == "webhook" and fallback.get("destination") == name:
-        raise ApiError(409, "destination_in_use", "destination %r is the fallback notification "
-                       "destination; change the fallback first" % name)
-    dest = next(d for d in dests if d.get("name") == name)
-    for ref in (dest.get("url_secret_ref"), dest.get("headers_secret_ref"),
-                dest.get("body_secret_ref")):
-        if not ref:
-            continue
-        try:
-            ctx.sys_gw.delete_secret(ref)
-        except GatewayError as err:  # the doc entry stays, so the delete can be retried
-            ctx.emit({"type": "destination_secret_delete_failed", "destination": name,
-                      "error": "HTTP %s" % err.status if err.status else type(err).__name__})
-            raise ApiError(502, "secret_delete_failed", "could not delete the stored secrets of "
-                           "destination %r; it was kept, try again" % name)
-    _save_destinations(ctx, [d for d in dests if d.get("name") != name])
-    ctx.emit({"type": "destination_deleted", "destination": name})
-    return 200, {"deleted": name}
 
 
 # Health and the caller.
@@ -1438,8 +1325,7 @@ def health(ctx, body):
     settings = ctx.store.get_settings() or {}
     fb = settings.get("fallback") or {}
     fallback_set = bool((fb.get("type") == "email" and fb.get("to")) or
-                        (fb.get("type") == "webhook" and fb.get("destination") in
-                         _destination_names(ctx)))
+                        (fb.get("type") == "alert_action" and fb.get("action")))
     lease = ctx.sys_gw.kv_get(LOCKS, LEASE_KEY)
     heartbeat = int(lease["expires"]) - LEASE_SECONDS if lease and lease.get("expires") else None
     alive = bool(lease) and int(lease.get("expires") or 0) > ctx.now
@@ -1450,7 +1336,7 @@ def health(ctx, body):
     if not alive:
         messages.append("The engine is not running: no run will advance.")
     if not fallback_set:
-        messages.append("No fallback notification destination is set, so a job with no failure "
+        messages.append("No fallback notification is set, so a job with no failure "
                         "or delay action fails silently.")
     pending = len(ctx.sys_gw.kv_query(COMMANDS))
     return 200, {"health": {"index_present": index_present, "engine_alive": alive,

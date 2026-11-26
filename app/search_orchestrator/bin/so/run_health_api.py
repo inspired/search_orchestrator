@@ -50,8 +50,7 @@ NOTE_DENIED = ("Splunk refused a search: reading these numbers needs search acce
 NOTE_RUNS_LIMIT = "Only the newest %d runs are counted; narrow the time range or pick a job." % MAX_RUNS
 
 ACTION_NAME = ('eval action=case(action_type="fallback", "Fallback notification", '
-               'action_type="webhook" AND (preset="slack" OR like(host, "%slack.com")), "Slack", '
-               'action_type="webhook", "Webhook", action_type="email", "Email", '
+               'action_type="webhook", "Webhook (removed)", action_type="email", "Email", '
                'action_type="event", "Event", action_type="alert_action", "Alert action", '
                'action_type="start_job", "Start job", true(), coalesce(action_type, "other"))')
 

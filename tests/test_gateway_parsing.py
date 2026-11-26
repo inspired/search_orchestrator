@@ -152,25 +152,12 @@ def test_kv_insert_409_is_false_and_other_errors_raise():
         g.SplunkGateway(StubService(down)).kv_insert("so_runs", {"_key": "a"})
 
 
-def test_webhook_refuses_non_https():
-    gw = g.SplunkGateway(StubService(lambda *a: None))
-    for url in ("http://example.com/x", "file:///etc/passwd", "ftp://h/x", "https:///x"):
-        with pytest.raises(g.GatewayError):
-            gw.post_webhook(url, {}, "{}")
-
-
 def test_from_session_accepts_loopback_only():
     for uri in ("https://127.0.0.1:8089", "https://localhost:8089", "https://[::1]:8089"):
         assert isinstance(g.SplunkGateway.from_session(uri, "key"), g.SplunkGateway)
     for uri in ("https://splunk.example.com:8089", "https://10.0.0.5:8089", "https://127.0.0.1.evil.com:8089"):
         with pytest.raises(g.GatewayError):
             g.SplunkGateway.from_session(uri, "key")
-
-
-def test_webhook_error_does_not_leak_url_secret():
-    with pytest.raises(g.GatewayError) as info:
-        g.check_webhook_url("http://hooks.example.com/services/T0/B0/SECRETTOKEN")
-    assert "SECRETTOKEN" not in str(info.value) and "hooks.example.com" in str(info.value)
 
 
 def test_status_includes_ttl():

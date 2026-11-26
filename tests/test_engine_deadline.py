@@ -40,8 +40,8 @@ def test_running_run_goes_late_once():
 
 def test_action_submitted_is_audited_when_the_job_has_an_on_late_action():
     w = World()
-    j = w.add_job(_late_job(actions=[{"hook": "on_late", "type": "webhook",
-                                      "url": "https://example.invalid/hook"}]),
+    j = w.add_job(_late_job(actions=[{"hook": "on_late", "type": "email", "to": "a@b.c",
+                                      "hidden_search": "_so_late_action"}]),
                   scripts={"a": {"states": ["running"]}})
     run_id = cron_run(w, j)
     w.tick(at=T0 + 600)

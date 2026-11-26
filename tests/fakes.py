@@ -50,7 +50,6 @@ class FakeGateway:
         self.crash_after_dispatch = False
         self.dispatch_log = []
         self.control_log = []
-        self.webhook_log = []
         self.saved_searches = {}
         self.secrets = {}
         self.jobs = {}  # sid -> {"states": [...], "idx": n, "result_count", "first", "error"}
@@ -340,11 +339,6 @@ class FakeGateway:
         rows = self.search_handler(owner, query) if self.search_handler else []
         return copy.deepcopy(rows[:count])
 
-    def post_webhook(self, url, headers, body):
-        if not url.startswith("https://"):
-            raise GatewayError("webhook URL must be https")
-        self.webhook_log.append({"url": url, "headers": dict(headers or {}), "body": body})
-        return 200
 
 
 def sync_hidden(gw, job, previous, issues=None, record=None):

@@ -30,7 +30,7 @@ def may_own(user_caps):
 
 
 def can_admin(user, job, user_roles, user_caps):
-    """May ``user`` manage all jobs, settings and webhook destinations?"""
+    """May ``user`` manage all jobs and settings?"""
     return ADMIN in _caps(user_caps)
 
 
