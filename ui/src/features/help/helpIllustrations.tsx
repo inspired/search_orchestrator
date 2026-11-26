@@ -16,6 +16,31 @@ const n = (id: string, f: Parameters<typeof Flow>[0]['nodes'][number]['f'], labe
 });
 
 export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
+    'get-started': () => (
+        <Figure caption="Start here: the words, six example jobs and where help is.">
+            <Notes items={['Words used', 'Example jobs', 'Help in the app']} />
+        </Figure>
+    ),
+    'steps-and-searches': () => (
+        <Figure caption="A step runs a search, reads earlier steps, writes results or waits for a person.">
+            <Notes items={['Search and Saved search', 'Results of earlier steps', 'Summary index and Lookup', 'Approval (Beta)']} />
+        </Figure>
+    ),
+    'conditions-tokens-and-parameters': () => (
+        <Figure caption="Decide what runs next, and pass values between steps.">
+            <Notes items={['If… conditions', '$tokens$', 'Run parameters']} />
+        </Figure>
+    ),
+    'triggers-and-deadlines': () => (
+        <Figure caption="What starts a job, who may start it, and when it must be done.">
+            <Notes items={['Schedules and other triggers', 'Finish by / within', 'Who may run', 'When a step gives up']} />
+        </Figure>
+    ),
+    'notifications': () => (
+        <Figure caption="Tell people what happened: email, any alert action, or follow a job.">
+            <Notes items={['Email', 'Alert action (Slack, Teams, ServiceNow apps)', 'Follow a job']} />
+        </Figure>
+    ),
     'words-used': () => (
         <Figure caption="A job is a flow of steps; a run is one time it ran; each step runs one search.">
             <Flow
@@ -564,15 +589,27 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
-    'search-slots': () => (
-        <Figure caption="The engine starts each search itself, so it shares Splunk's whole search limit with people's own searches and waits instead of being skipped. Runs → Timeline shows every Splunk search against that limit.">
+    'its-own-scheduler': () => (
+        <Figure caption="The app's engine is the scheduler: it starts each step's search itself, as the job owner, so Splunk's scheduler never sees the jobs.">
             <MiniTable
-                head={['', 'Scheduled search', "The app's search"]}
+                head={['', "Splunk's scheduler", 'This app']}
                 rows={[
-                    ['Started by', "Splunk's scheduler", 'The engine, as the owner'],
-                    ['Slots', "The scheduler's share", 'Shared with everyone'],
-                    ['When Splunk is full', 'Skipped', 'Waits, tried again'],
-                    ["Owner's role limit", 'Applies', 'Applies'],
+                    ['Decides when', 'The cron schedule', "The job's triggers and lines"],
+                    ['Search slots', "The scheduler's share", 'The whole limit, shared'],
+                    ['When Splunk is full', 'Skipped', 'Waits, starts later'],
+                    ["Owner's quotas", 'Apply', 'Apply (searches and disk)'],
+                ]}
+            />
+        </Figure>
+    ),
+    'search-slots': () => (
+        <Figure caption="Jobs share Splunk's whole search limit with people's own searches; Runs → Timeline shows every Splunk search against that limit.">
+            <MiniTable
+                head={['Uses the slots', 'Of']}
+                rows={[
+                    ['Scheduled searches', "The scheduler's share (50%)"],
+                    ["This app's searches", 'The whole limit'],
+                    ["People's searches and dashboards", 'The whole limit'],
                 ]}
             />
         </Figure>

@@ -3,25 +3,23 @@
  * ## sections of the user guide. Every heading has an anchor, so "Learn more" links elsewhere
  * in the app, and the guide's own #links, open the right tab and jump to the section. The
  * contents beside it list every tab's sections, and the open tab's ### headings. Every ## and
- * ### heading has an illustration under it (helpIllustrations). */
+ * ### heading has an illustration under it (helpIllustrations). A search box above the
+ * contents finds sections by their words (helpSearch) and lists them instead of the tab. */
 import React, { useEffect, useMemo, useState } from 'react';
 import Heading from '@splunk/react-ui/Heading';
 import Link from '@splunk/react-ui/Link';
 import Markdown from '@splunk/react-ui/Markdown';
+import Search from '@splunk/react-ui/Search';
 import TabBar from '@splunk/react-ui/TabBar';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import guide from '../../../../docs/user-guide.md';
 import HelpOverview from './HelpOverview';
 import { ILLUSTRATIONS } from './helpIllustrations';
+import { searchGuide } from './helpSearch';
 
-/** The anchor GitHub gives a heading, so the guide's own `#section` links work here too. */
-export function slugify(heading: string): string {
-    return heading
-        .toLowerCase()
-        .trim()
-        .replace(/ /g, '-')
-        .replace(/[^a-z0-9-]/g, '');
-}
+import { slugify } from './slug';
+
+export { slugify };
 
 function textOf(node: React.ReactNode): string {
     if (node === null || node === undefined || typeof node === 'boolean') {
@@ -80,8 +78,8 @@ export type HelpTab = 'start' | 'build' | 'runs' | 'troubleshoot' | 'how' | 'ref
 /** The tabs of the help page and the guide's ## sections (by anchor) in each. A section not
  * listed goes to Reference, so nothing written in the guide is ever hidden. */
 export const HELP_TABS: Array<{ id: HelpTab; label: string; sections: string[] }> = [
-    { id: 'start', label: 'Get started', sections: ['words-used', 'example-jobs', 'help-in-the-app'] },
-    { id: 'build', label: 'Build jobs', sections: ['build-a-job'] },
+    { id: 'start', label: 'Get started', sections: ['get-started'] },
+    { id: 'build', label: 'Build jobs', sections: ['build-a-job', 'steps-and-searches', 'conditions-tokens-and-parameters', 'triggers-and-deadlines', 'notifications'] },
     { id: 'runs', label: 'Follow runs', sections: ['follow-runs', 'dependencies', 'calendar', 'backfill', 're-run-from-a-step'] },
     { id: 'troubleshoot', label: 'Troubleshoot', sections: ['troubleshooting'] },
     { id: 'how', label: 'How it works', sections: ['how-it-works'] },
@@ -171,6 +169,18 @@ export default function HelpPage() {
     const { intro, parts } = useMemo(() => splitGuide(guide), []);
     const [tab, setTab] = useState<HelpTab>(() => tabOf(hashAnchor(), parts) || 'start');
     const [anchor, setAnchor] = useState<string>(hashAnchor);
+    const [query, setQuery] = useState('');
+    const hits = useMemo(() => searchGuide(parts, query), [parts, query]);
+    const searching = query.trim().length > 1;
+    const tabLabel = (id: string) => (HELP_TABS.find((t) => t.id === id) || HELP_TABS[0]).label;
+    const open = (slug: string) => {
+        const t = tabOf(slug, parts);
+        if (t) {
+            setTab(t);
+        }
+        setQuery('');
+        setAnchor(slug);
+    };
 
     // A link to a heading on another tab (Learn more, the guide's own #links, the contents)
     // switches to that tab, then scrolls to the heading.
@@ -210,6 +220,14 @@ export default function HelpPage() {
             </TabBar>
             <div style={{ display: 'flex', gap: '32px', alignItems: 'flex-start', marginTop: '16px' }}>
                 <nav aria-label="Help contents" style={{ position: 'sticky', top: '16px', flex: 'none', width: '210px', fontSize: '13px', maxHeight: '90vh', overflowY: 'auto' }}>
+                    <div style={{ marginBottom: '12px' }}>
+                        <Search
+                            aria-label="Search the help"
+                            placeholder="Search the help"
+                            value={query}
+                            onChange={(_e: unknown, { value }: { value: string }) => setQuery(value)}
+                        />
+                    </div>
                     {HELP_TABS.map((t) => {
                         const mine = parts.filter((p) => p.tab === t.id);
                         const current = t.id === tab;
@@ -230,7 +248,33 @@ export default function HelpPage() {
                     })}
                 </nav>
                 <div style={{ flex: '1 1 auto', minWidth: 0, maxWidth: '960px' }}>
-                    {tab === 'start' && (
+                    {searching && (
+                        <div style={{ maxWidth: '860px' }}>
+                            <Heading level={2}>Search results</Heading>
+                            {hits.length === 0 ? (
+                                <p>Nothing in the help matches "{query.trim()}".</p>
+                            ) : (
+                                <ul aria-label="Search results" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                                    {hits.map((h) => (
+                                        <li key={h.slug} style={{ padding: '8px 0', borderBottom: `1px solid ${theme.borderColorWeak || theme.borderColor}` }}>
+                                            <a
+                                                href={`#${h.slug}`}
+                                                onClick={() => open(h.slug)}
+                                                style={{ fontWeight: 600, color: theme.contentColorDefault }}
+                                            >
+                                                {h.title}
+                                            </a>
+                                            <span style={{ color: theme.contentColorMuted, fontSize: '12px', marginLeft: '8px' }}>
+                                                {[tabLabel(h.tab), h.parent].filter(Boolean).join(' › ')}
+                                            </span>
+                                            <div style={{ color: theme.contentColorMuted, fontSize: '13px', marginTop: '2px' }}>{h.snippet}</div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    )}
+                    {!searching && tab === 'start' && (
                         <>
                             {intro && (
                                 <div style={{ maxWidth: '860px' }}>
@@ -243,9 +287,11 @@ export default function HelpPage() {
                             <hr style={{ border: 'none', borderTop: `1px solid ${theme.borderColorWeak || theme.borderColor}`, margin: '32px 0 8px' }} />
                         </>
                     )}
-                    <div style={{ maxWidth: '860px' }} data-testid={`help-tab-${tab}`}>
-                        <Markdown text={shown.map((p) => p.text).join('\n\n')} headingRenderer={heading} linkRenderer={docLink} />
-                    </div>
+                    {!searching && (
+                        <div style={{ maxWidth: '860px' }} data-testid={`help-tab-${tab}`}>
+                            <Markdown text={shown.map((p) => p.text).join('\n\n')} headingRenderer={heading} linkRenderer={docLink} />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

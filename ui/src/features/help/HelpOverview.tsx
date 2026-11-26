@@ -52,10 +52,11 @@ export const FEATURES: FeatureCard[] = [
     { title: '| orchestrate', text: 'Start, check and test jobs from a search.', anchor: 'the--orchestrate-command', Icon: Magnifier },
     { title: 'Troubleshooting', text: 'What the app logged, by run, step and level; the log level is in Settings.', anchor: 'troubleshooting', Icon: Filter },
     { title: 'How it works', text: 'A drawing of every part of the app and how they call each other.', anchor: 'how-it-works', Icon: NodeConnection },
+    { title: 'Its own scheduler', text: "Jobs don't use Splunk's scheduler: what that means for search slots and quotas.", anchor: 'its-own-scheduler', Icon: Stopwatch },
 ];
 
 const STEPS = [
-    { n: 1, title: 'Create a job', text: 'Jobs → Create job, or Browse examples to start from one of eleven.' },
+    { n: 1, title: 'Create a job', text: 'Jobs → Create job, or Browse examples to start from one of six.' },
     { n: 2, title: 'Connect nodes', text: 'Point at a node, click + and pick what happens next.' },
     { n: 3, title: 'Preview and save', text: 'Preview runs each search for real; Save checks the whole flow.' },
     { n: 4, title: 'Run and follow', text: 'Run now, then watch the run graph and the Calendar.' },

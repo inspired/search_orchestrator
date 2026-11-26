@@ -16,12 +16,22 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.50.2](#1502-2026-11-26) | 2026-11-26 |
 | [1.50.1](#1501-2026-11-26) | 2026-11-26 |
 | [1.50.0](#1500-2026-11-25) | 2026-11-25 |
 | [1.49.0](#1490-2026-11-24) | 2026-11-24 |
 | [1.48.4](#1484-2026-11-23) | 2026-11-23 |
 | [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
+
+## 1.50.2 (2026-11-26)
+
+Search in the Help page, and shorter docs with clearer chapters.
+
+- **Search the help:** a box above the Help page's contents finds sections by their words (every word, in any order). It lists the matches with their tab and a snippet; click one to open it.
+- **Its own scheduler**, new under Help → How it works, in the overview and in the admin guide: the app's engine runs the jobs instead of Splunk's scheduler. What that means: search slots shared with people's searches, waiting instead of skipping, the owner's search and disk quotas, nothing in Splunk's scheduler reports, and nothing runs while the engine is stopped.
+- **The user guide is about 30% shorter** (17,600 to 12,500 words) and has clearer chapters: Get started, Build a job, Steps and searches, Conditions, tokens and parameters, Triggers and deadlines, Notifications, Follow runs, Troubleshooting, How it works and the reference. The longest sections (the flow editor, previews, conditions, triggers, troubleshooting) say the same in fewer words; the hidden-search details are in the admin guide only.
+- **The admin guide** is grouped the same way: Install and upgrade, Security, How the app runs searches, Settings, Monitoring, Operations and Reference.
 
 ## 1.50.1 (2026-11-26)
 

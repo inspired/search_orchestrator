@@ -11,14 +11,15 @@
 
 This guide covers installing, securing and running the app. The [user guide](user-guide.md) covers building and running jobs, and the [changelog](../CHANGELOG.md) what each version changed.
 
-| Set up | Secure | Run and watch | Reference |
+| Install and secure | How it runs | Settings and monitoring | Operations and reference |
 |---|---|---|---|
-| [Supported platforms](#supported-platforms) | [Roles and capabilities](#roles-and-capabilities) | [Settings page](#settings-page) | [REST API](#rest-api) |
-| [Install](#install) | [How steps run](#how-steps-run-security) · [What the app stores](#what-the-app-stores) · [Search slots](#search-slots) | [Audit index](#audit-index) · [Run health](#run-health) | [Known limits](#known-limits) |
-| [Upgrading from 1.0.x](#upgrading-from-10x) | [Deleting jobs](#deleting-jobs) · [Orphaned owners](#orphaned-owners) | [Logs and troubleshooting](#logs-and-troubleshooting) · [Self-test](#self-test) | [Search head clusters](#search-head-clusters) |
+| [Install and upgrade](#install-and-upgrade) | [Its own scheduler](#its-own-scheduler) | [Settings](#settings) · [Building blocks](#building-blocks) | [Search head clusters](#search-head-clusters) |
+| [Roles and capabilities](#roles-and-capabilities) | [Search slots](#search-slots) | [Audit index](#audit-index) · [Run health](#run-health) | [Deleting jobs](#deleting-jobs) · [Orphaned owners](#orphaned-owners) |
+| [How steps run](#how-steps-run-security) | [What the app stores](#what-the-app-stores) · [Step previews](#step-previews) | [Logs and troubleshooting](#logs-and-troubleshooting) · [Self-test](#self-test) | [REST API](#rest-api) · [Known limits](#known-limits) |
 
+## Install and upgrade
 
-## Supported platforms
+### Supported platforms
 
 | Platform | Status |
 |---|---|
@@ -30,11 +31,11 @@ This guide covers installing, securing and running the app. The [user guide](use
 > [!NOTE]
 > The app needs Python 3 (3.9 to 3.13), which ships with every supported version of Splunk.
 
-### Custom page templates (Splunk 10.4 and later)
+#### Custom page templates (Splunk 10.4 and later)
 
 The app's pages use custom Mako page templates so they work on Splunk Enterprise 9.4. Splunk deprecated custom templates in 10.4, and AppInspect warns about them. They still work. A move to Splunk's built-in template is planned before Splunk removes custom templates.
 
-## Install
+### Install
 
 1. Install `search_orchestrator-<version>.tgz` (from the [latest release](https://github.com/lyderhansen/search_orchestrator/releases/latest)) through **Apps > Manage Apps > Install app from file**, or Cloud self-service app install.
 2. Restart Splunk if asked.
@@ -48,11 +49,13 @@ The app's pages use custom Mako page templates so they work on Splunk Enterprise
 
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="images/architecture-dark.svg"><img alt="Where the parts run: pages in the browser; the REST handler, engine and | orchestrate command in splunkd; state in KV Store, hidden saved searches and the _audit index" src="images/architecture-light.svg" width="100%"></picture></p>
 
-## Upgrading from 1.0.x
+### Upgrading from 1.0.x
 
 A Results of earlier steps step saved before 1.1.0 may still have an Earliest and Latest, and so does its hidden saved search. Splunk applies that time range until the job is saved again. The Jobs page shows "Step <id>: re-save the job to drop this step's old time range" under such a job, and validation in the editor shows the same warning (`previous_old_time_range`). Open the job and save it; the save drops the time range and writes a new hidden saved search.
 
-## Roles and capabilities
+## Security
+
+### Roles and capabilities
 
 | Capability | Allows |
 |---|---|
@@ -76,7 +79,7 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 
 **Taking someone's roles away stops their jobs.** An owner needs `orchestrator_run`, `orchestrator_build` or `orchestrator_admin` to see, start or control their own jobs. The engine checks the owner before each step starts. If none of these is left, the step fails with "the job owner … no longer has orchestrator_run, orchestrator_build or orchestrator_admin" and nothing of theirs runs: schedules, completion triggers and "Who may run" members included. Give the role back, or have an admin take the job over (see [Orphaned owners](#orphaned-owners)).
 
-## How steps run (security)
+### How steps run (security)
 
 > [!IMPORTANT]
 > Every step runs as its job's owner, with exactly the owner's roles and index access. Members of a job's "Who may run" roles start searches **as the owner**, but only the SPL the owner saved.
@@ -94,7 +97,7 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 - **Following a job.** Anyone who may see a job may follow it. Email goes only to the address on the follower's own Splunk account, read when it is sent (the account's `email`), through the fallback notification's system search, so a follower can't send mail to an address of their choosing; the message carries the job, outcome and run link, never results. Each message is checked at send time: a follower who can no longer see the job gets nothing.
 - **TLS.** Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
 
-### Saved-search steps and the `| savedsearch` wrapper
+#### Saved-search steps and the `| savedsearch` wrapper
 
 A step that runs an existing saved search is dispatched directly only when the job owner owns it, it is private, and it runs as owner. Its own time range, summary indexing and alert actions then work as configured.
 
@@ -109,7 +112,7 @@ Either way, the saved search must be shared globally or saved in the Search Orch
 
 The engine checks a directly dispatched search again, with its own session, right before each run: if it is no longer the owner's private search with dispatchAs = owner, the step fails with a clear message instead of running. **Keep the app's default ACL (`[] write : [admin, sc_admin]` in `metadata/default.meta`).** It stops non-admins sharing objects into this app, which is part of what keeps a direct dispatch running as the owner.
 
-### Alert action "Start orchestrator job"
+#### Alert action "Start orchestrator job"
 
 The alert action starts a run with the alert's own session, so the alert's owner must be allowed to run the job. It refuses, and logs a clear error, when:
 
@@ -118,45 +121,23 @@ The alert action starts a run with the alert's own session, so the alert's owner
 
 Assign the alert to a real user who may run the job. Errors go to splunkd's alert action log (`index=_internal sourcetype=splunkd component=sendmodalert`).
 
-## What the app stores
+## How the app runs searches
 
-The app keeps its own records in KV Store and runs every search through saved searches it creates for the job owner.
+### Its own scheduler
 
-The same section is on the app's **Help** page, under How it works.
+Search Orchestrator doesn't use Splunk's scheduler. The engine (the `orchestrator_engine` modular input) is the scheduler: every 5 seconds the member holding the lease in KV Store creates the runs that are due and starts each step's hidden saved search through its dispatch endpoint, as the job owner. The `_so_` searches are never scheduled (`is_scheduled = 0`).
 
-| What | Where |
-|---|---|
-| Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, the 12 `so_*` collections (who may read them: see [How steps run](#how-steps-run-security)) |
-| Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
-| Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job |
-| Audit events | `index=_audit sourcetype=orchestrator:audit` |
-| The app's log | `_internal`, `search_orchestrator.*.log` |
+What that changes for an admin:
 
-### Hidden saved searches
+- **Splunk's scheduler doesn't see the jobs:** they aren't in `sourcetype=scheduler`, the Monitoring Console's scheduler views or skipped-search counts, and `schedule_window`, `schedule_priority` and `max_searches_perc` don't apply. Watch them in **Runs**, **Calendar**, **Troubleshooting** and **Run health**.
+- **Search slots:** the searches count as non-scheduled historical searches, so they share splunkd's whole limit with users' own searches; see [Search slots](#search-slots).
+- **Role quotas apply to the owner:** `srchJobsQuota` and `cumulativeSrchJobsQuota` cap how many of a job's steps run at once, and `srchDiskQuota` covers the step results the engine keeps for the result retention in Settings (24 hours by default) so later steps and re-runs can read them. A busy job owned by a small role can hit its disk quota; Splunk then queues the owner's new searches.
+- **One engine at a time:** on a search head cluster the lease decides which member runs it (see [Search head clusters](#search-head-clusters)); the searches run on that member, not where the captain's scheduler would place them.
+- **If the engine stops, nothing runs.** Each schedule's **Missed runs** setting decides what happens to the missed times; turn on the **Engine not running** alert (see [App health alerts](#app-health-alerts)).
 
-Saving a job writes one saved search for each search the job runs, with the saving user's own session (that user becomes the job owner). All of them start with `_so_`:
+### Search slots
 
-| Used for | Name | Notes |
-|---|---|---|
-| Search step | `_so_<job>_<step>_<hash>` | The step's SPL with tokens filled in as arguments. |
-| Results of earlier steps | `_so_<job>_<step>_<hash>`, two of them | One reads the earlier steps' results (`\| loadjob ...`); the other (description ends "(no inputs)") runs when no earlier step succeeded. |
-| Saved search step | none, or `_so_<job>_<step>_<hash>` | None when the job owner owns the search and it is private: it runs as it is, and the app never edits or deletes it. Otherwise a wrapper running `\| savedsearch "<name>"`; see [the wrapper](#saved-search-steps-and-the--savedsearch-wrapper). |
-| SPL condition on a line | `_so_<job>_cond_<hash>` | |
-| Email, event and alert actions | `_so_<job>_action_<n>_<hash>` | |
-| Fallback email | `_so_fallback_email` | Shipped with the app (`default/savedsearches.conf`), owned by `nobody`. |
-| Fallback alert action | `_so_fallback_alert` | Written when an admin saves an alert-action fallback, owned by `nobody`. |
-| Self-test | `_so_so_selftest_...` | See [Self-test](#self-test). |
-
-- **Private and owned by the job owner,** in this app. Their description says which job and step they belong to ("Search Orchestrator job `<job>`, step `<step>`"). A step therefore runs with the owner's permissions.
-- **Never scheduled in Splunk.** The engine starts them when the job's lines say so. Don't schedule or edit them by hand: a schedule set in Splunk would run the step outside the job, and an edit is overwritten when the job is saved again.
-- **Hidden from Reports only.** They are saved with `is_visible = 0`. That hides them from the app's **Reports** page (`/app/search_orchestrator/reports`), but not from **Settings > Searches, reports, and alerts** (`/manager/search_orchestrator/saved/searches`), where an admin sees every owner's. Filter on `_so_` there to find them.
-- **Old versions are kept while a run may need them.** The hash in the name changes when the SPL or time range changes, so a save that changes a search writes a new one beside the old. The old one stays while a run uses it: an active or held run, or a failed or cancelled run that ended within the result retention in Settings, since it can be re-run with its original definition. A later save of the job removes the searches nothing needs any more. A delete that fails is logged (`hidden_search_delete_failed`) and tried again at the next save.
-- **The job lists them.** The job record's `hidden_searches` holds every owner and name the app created for it, so none is lost if a save fails half way.
-- **Deleting a job deletes them all**; see [Deleting jobs](#deleting-jobs).
-
-## Search slots
-
-The app's searches are hidden saved searches that are never scheduled. The engine starts each one through the saved search's dispatch endpoint (`saved/searches/<name>/dispatch`), as the job owner, so splunkd counts them as non-scheduled historical searches, like a search someone runs by hand:
+Because the engine starts the app's searches itself (see [Its own scheduler](#its-own-scheduler)), splunkd counts them as non-scheduled historical searches, like a search someone runs by hand:
 
 - **They use Splunk's whole concurrent search limit** (`max_searches_per_cpu` × CPU cores + `base_max_searches` in `limits.conf`), not the scheduler's share (`max_searches_perc`, 50% by default). They compete with users' own searches and dashboards, and scheduled searches take slots from the same total.
 - **They are never skipped.** When splunkd is full it queues the search or refuses the dispatch (HTTP 503); the engine tries a refused dispatch again on a later tick without using the step's retries. A full search head therefore shows as late and delayed runs, not in the scheduler's skipped-search counts. Time spent in Splunk's queue counts toward a step's *delayed after* time.
@@ -179,7 +160,65 @@ Recommended:
 
 Previews and condition tests in the builder are ad-hoc searches run as the user, with a TTL of at most 30 minutes; they count toward the same limits.
 
-## Settings page
+### What the app stores
+
+The app keeps its own records in KV Store and runs every search through saved searches it creates for the job owner.
+
+The same section is on the app's **Help** page, under How it works.
+
+| What | Where |
+|---|---|
+| Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, the 12 `so_*` collections (who may read them: see [How steps run](#how-steps-run-security)) |
+| Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
+| Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job |
+| Audit events | `index=_audit sourcetype=orchestrator:audit` |
+| The app's log | `_internal`, `search_orchestrator.*.log` |
+
+#### Hidden saved searches
+
+Saving a job writes one saved search for each search the job runs, with the saving user's own session (that user becomes the job owner). All of them start with `_so_`:
+
+| Used for | Name | Notes |
+|---|---|---|
+| Search step | `_so_<job>_<step>_<hash>` | The step's SPL with tokens filled in as arguments. |
+| Results of earlier steps | `_so_<job>_<step>_<hash>`, two of them | One reads the earlier steps' results (`\| loadjob ...`); the other (description ends "(no inputs)") runs when no earlier step succeeded. |
+| Saved search step | none, or `_so_<job>_<step>_<hash>` | None when the job owner owns the search and it is private: it runs as it is, and the app never edits or deletes it. Otherwise a wrapper running `\| savedsearch "<name>"`; see [the wrapper](#saved-search-steps-and-the--savedsearch-wrapper). |
+| SPL condition on a line | `_so_<job>_cond_<hash>` | |
+| Email, event and alert actions | `_so_<job>_action_<n>_<hash>` | |
+| Fallback email | `_so_fallback_email` | Shipped with the app (`default/savedsearches.conf`), owned by `nobody`. |
+| Fallback alert action | `_so_fallback_alert` | Written when an admin saves an alert-action fallback, owned by `nobody`. |
+| Self-test | `_so_so_selftest_...` | See [Self-test](#self-test). |
+
+- **Private and owned by the job owner,** in this app. Their description says which job and step they belong to ("Search Orchestrator job `<job>`, step `<step>`"). A step therefore runs with the owner's permissions.
+- **Never scheduled in Splunk.** The engine starts them when the job's lines say so. Don't schedule or edit them by hand: a schedule set in Splunk would run the step outside the job, and an edit is overwritten when the job is saved again.
+- **Hidden from Reports only.** They are saved with `is_visible = 0`. That hides them from the app's **Reports** page (`/app/search_orchestrator/reports`), but not from **Settings > Searches, reports, and alerts** (`/manager/search_orchestrator/saved/searches`), where an admin sees every owner's. Filter on `_so_` there to find them.
+- **Old versions are kept while a run may need them.** The hash in the name changes when the SPL or time range changes, so a save that changes a search writes a new one beside the old. The old one stays while a run uses it: an active or held run, or a failed or cancelled run that ended within the result retention in Settings, since it can be re-run with its original definition. A later save of the job removes the searches nothing needs any more. A delete that fails is logged (`hidden_search_delete_failed`) and tried again at the next save.
+- **The job lists them.** The job record's `hidden_searches` holds every owner and name the app created for it, so none is lost if a save fails half way.
+- **Deleting a job deletes them all**; see [Deleting jobs](#deleting-jobs).
+
+### Step previews
+
+The job editor can run a step and show its rows. See [Previewing steps](user-guide.md#previewing-steps).
+
+- **Who:** `orchestrator_build` or `orchestrator_admin`, plus the right to edit the job. The REST handler checks this on every request.
+- **Runs as the caller.** A preview is an ad-hoc search dispatched as the user, in the Search Orchestrator app namespace (`servicesNS/<user>/search_orchestrator`). It is never run as the job owner or the system user, and it sees only what that user can see. Search job ids are `so_preview_<user hash>.<job id or new>.<step id>.<random>`, so the Job Inspector and the jobs list show the job and step in the sid. Splunk's `POST search/jobs` has no parameter that sets a label (`label` is a job property it reports, not one a request sets), so preview jobs have none.
+- **Auto-cancel:** 180 seconds. A running preview that nobody polls, such as after a closed tab, is cancelled. The margin covers browsers that slow timers in background tabs.
+- **TTL:** 1800 seconds (30 minutes) once finished. The editor keeps it alive while it uses the preview.
+- **Runtime cap:** the smaller of the step's max runtime and 600 seconds.
+- **Rows:** the search isn't row-capped, so later previews read all rows. The table shows 100.
+- **No actions.** A preview never sends actions. A saved-search step runs through the `| savedsearch` wrapper, so its own alert actions and summary indexing don't run.
+- **Audit:** every preview writes `type=preview_dispatched` to the audit index (`_audit`), with the job, step and sid.
+- **Past runs as input:** a preview reads the run's step results with `loadjob`. They expire after the run's result retention (24 hours by default); the editor greys out runs past it. A step result Splunk won't show the caller (another owner's run, for a user Splunk doesn't let read it) fails with 403 `run_results_forbidden`, not "expired". To tell the two apart, the handler asks splunkd with the system session only whether that recorded sid still exists.
+
+To see current previews:
+
+```
+| rest /services/search/jobs splunk_server=local count=0
+| search sid="so_preview_*"
+| table sid eai:acl.owner ttl
+```
+
+## Settings
 
 Only users with `orchestrator_admin` see it.
 
@@ -225,7 +264,9 @@ A delay, failure or late run is never meant to be silent. When a job has no fail
 - **Email** to an address, through Splunk's `sendemail`, so Splunk's mail server settings must be configured; or
 - **Alert action**: any installed alert action this app can use (for example Slack, Microsoft Teams or ServiceNow from their Splunkbase apps), with its parameters as `name=value` lines. Values take `{{job}}`, `{{hook}}`, `{{run_url}}` and the other message tokens. Saving writes the app's own hidden search `_so_fallback_alert`, owned by `nobody`.
 
-## Audit index
+## Monitoring
+
+### Audit index
 
 The engine writes every state change as JSON to Splunk's own `_audit` index, sourcetype `orchestrator:audit`: jobs saved, runs and steps changing state, actions, permission denials and ownership changes.
 
@@ -236,11 +277,11 @@ The engine writes every state change as JSON to Splunk's own `_audit` index, sou
 
 Run records (each run with its step attempts and action rows) are pruned from KV Store after the retention period; audit events stay for the index's own retention.
 
-## Run health
+### Run health
 
 **Run health** (view `run_health`) is the app's own page, like Troubleshooting, not a Dashboard Studio dashboard. Its sections come from `GET runhealth/<section>` (`runs`, `steps`, `actions`, `late`, `engine`, `performance`; with `job_id` and `range` 24h, 7d or 30d), which runs the searches **as the viewer** and sums them up, so Splunk's index access decides what each viewer sees. Every search goes through the app's macros, so it follows a changed index name:
 
-- `orchestrator_index`: the audit index. Late runs come from `run_late` (with `deadline_at`); runs come from `run_created`, `run_state`, `run_held`, `run_dismissed` and `step_attempt`; steps from `step_dispatched`, `step_attempt` and `step_delayed`; actions from `action_done` and `action_failed` (`action_type`, and `preset` or `host` for Slack). `step_delayed` and the action `preset` field are new with this dashboard; in events written before them a delay counts only where the step had an *on delayed* action.
+- `orchestrator_index`: the audit index. Late runs come from `run_late` (with `deadline_at`); runs come from `run_created`, `run_state`, `run_held`, `run_dismissed` and `step_attempt`; steps from `step_dispatched`, `step_attempt` and `step_delayed`; actions from `action_done` and `action_failed` (`action_type`). In events written before `step_delayed` existed, a delay counts only where the step had an *on delayed* action.
 - `orchestrator_internal`: the app's lines in splunkd.log (`index=_internal sourcetype=splunkd`): the engine modular input (component `ExecProcessor`), the REST handler (`PersistentScript`; its lines start with `orchestrator_rest:`), the alert action (`sendmodalert`) and the search command (`ChunkedExternProcessor`). The search command writes most of its messages to the search's own `search.log`, which isn't in `_internal`.
 - `orchestrator_search_process`: search processes in `_introspection` (`component=PerProcess data.search_props.sid=*`). The **Performance** section joins them to step attempts by search ID for **Peak CPU and memory per job**; the other Performance panels (**Runtime per job**, **Events scanned per job**, **Slowest steps by runtime**) read the `perf` numbers on `step_attempt` events, which runs from before 1.23.0 lack.
 - `orchestrator_engine_process`: the engine process in splunkd's resource-usage samples (`index=_introspection component=PerProcess`, every 10 seconds). With the engine's splunkd.log lines and audit events it gives **Last engine activity**, which turns red when the engine hasn't been seen for 5 minutes. An idle engine writes no log lines or audit events, so without `_introspection` access the tile can turn red while the engine is fine.
@@ -249,7 +290,7 @@ Run records (each run with its step attempts and action rows) are pruned from KV
 
 Viewers need read access to the audit index, `_internal` and `_introspection` (admin and sc_admin have it). The run page's **Performance** tab runs two searches as the viewer (CPU and memory from `_introspection`, and for steps from before 1.23.0 run time and counts from `_audit`); without access to either, the tab shows a note instead. The side-by-side test copy (`scripts/package_variant.sh`) suffixes all four macros and the script names they match, so each copy's Run health page shows only its own engine.
 
-## Logs and troubleshooting
+### Logs and troubleshooting
 
 The app writes its own log files to `$SPLUNK_HOME/var/log/splunk`, one per process: `search_orchestrator.engine.log` (the engine) and `search_orchestrator.rest.log` (the REST handler behind every screen, the alert action and `| orchestrate`). splunkd indexes that folder into `_internal` by itself; nothing needs configuring. Each file rotates at 10 MB and keeps 5 old files. The app's `props.conf` gives them the sourcetype `orchestrator:log` (one event per line, a Python traceback kept with its line, `key=value` fields); lines indexed before 1.32.1 keep the sourcetype Splunk guessed (`search_orchestrator.<process>-too_small`). The side-by-side test copy writes `search_orchestrator_<suffix>.<process>.log`, so the two never mix.
 
@@ -262,7 +303,7 @@ Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involve
 | INFO | A copy of every audit event (job saved, run created, step dispatched, approval decided, action done …), changing requests (method, path, user, status, ms), engine start, stop, lease taken and standby, a `heartbeat` every 5 minutes from the engine holding the lease (`ticks`, `avg_ms`, `slowest_ms`, `active_runs` now and `peak_runs`, the most at once in the 5 minutes, `jobs`); why something waits, once until the reason changes: `run_waiting` (`reason` held, waiting_for_run or behind, with `by_run`), `step_waiting` (search slots full, with the limits) and `completion_not_fired` (a downstream job disabled, or the run ended the wrong way) |
 | DEBUG | Each engine tick (ms, active runs, jobs), each search status check, every read request and every splunkd call (method, path, owner, status, ms) |
 
-Lines never hold passwords, session keys, tokens, headers, request bodies or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too (start and stop messages no longer do: splunkd records a modular input's stderr as ERROR), so the Run health dashboard's **Engine health** keeps working; the copies of audit events do not (they are in the audit index already).
+Lines never hold passwords, session keys, tokens, headers, request bodies or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too (start and stop messages no longer do: splunkd records a modular input's stderr as ERROR), so Run health's **Engine** section keeps working; the copies of audit events do not (they are in the audit index already).
 
 The **Troubleshooting** page (`logs` view) uses four routes, all searching these lines as the caller, so the caller needs read access to `_internal`. Filters: `run_id`, `job_id`, `step_id`, `event`, `process`, `level`, `text`, `range` (15m, 1h, 24h or 7d) and, for lines, `limit` (up to 1000) and `sort` (`newest` or `oldest`).
 
@@ -271,41 +312,7 @@ The **Troubleshooting** page (`logs` view) uses four routes, all searching these
 - `GET logs/breakdown`: the 15 slowest API routes and splunkd endpoints (ids taken out) by 95th percentile.
 - `GET logs/problems`: up to 2000 errors and warnings grouped by event, error code and error text with ids and numbers taken out. Search them yourself with the `orchestrator_logs` macro (`index=_internal source="*search_orchestrator.*.log"`).
 
-## Step previews
-
-The job editor can run a step and show its rows. See [Previewing steps](user-guide.md#previewing-steps).
-
-- **Who:** `orchestrator_build` or `orchestrator_admin`, plus the right to edit the job. The REST handler checks this on every request.
-- **Runs as the caller.** A preview is an ad-hoc search dispatched as the user, in the Search Orchestrator app namespace (`servicesNS/<user>/search_orchestrator`). It is never run as the job owner or the system user, and it sees only what that user can see. Search job ids are `so_preview_<user hash>.<job id or new>.<step id>.<random>`, so the Job Inspector and the jobs list show the job and step in the sid. Splunk's `POST search/jobs` has no parameter that sets a label (`label` is a job property it reports, not one a request sets), so preview jobs have none.
-- **Auto-cancel:** 180 seconds. A running preview that nobody polls, such as after a closed tab, is cancelled. The margin covers browsers that slow timers in background tabs.
-- **TTL:** 1800 seconds (30 minutes) once finished. The editor keeps it alive while it uses the preview.
-- **Runtime cap:** the smaller of the step's max runtime and 600 seconds.
-- **Rows:** the search isn't row-capped, so later previews read all rows. The table shows 100.
-- **No actions.** A preview never sends actions. A saved-search step runs through the `| savedsearch` wrapper, so its own alert actions and summary indexing don't run.
-- **Audit:** every preview writes `type=preview_dispatched` to the audit index (`_audit`), with the job, step and sid.
-- **Past runs as input:** a preview reads the run's step results with `loadjob`. They expire after the run's result retention (24 hours by default); the editor greys out runs past it. A step result Splunk won't show the caller (another owner's run, for a user Splunk doesn't let read it) fails with 403 `run_results_forbidden`, not "expired". To tell the two apart, the handler asks splunkd with the system session only whether that recorded sid still exists.
-
-To see current previews:
-
-```
-| rest /services/search/jobs splunk_server=local count=0
-| search sid="so_preview_*"
-| table sid eai:acl.owner ttl
-```
-
-## Search head clusters
-
-The engine runs on every member, and a KV Store lease (90 seconds, renewed about every 10 seconds and right before each search dispatch and action send; every engine call to splunkd times out after 15 seconds, so no call outlives the lease) makes sure only one member advances runs at a time. This was tested against a fake KV Store only; no real cluster was available. Watch the first runs after installing on a cluster.
-
-## Deleting jobs
-
-The Jobs page shows **Delete** to users who may edit the job: its owner (with `orchestrator_build`) and admins. It asks for confirmation, naming the job, then deletes the job, its hidden saved searches, saved versions and follows, and cancels a running backfill, so nothing of it runs again. A job with active or queued runs can't be deleted until those runs are cancelled; the dialog says so. Past runs stay in the Runs list until run-record retention prunes them.
-
-## Orphaned owners
-
-If a job owner's Splunk account is removed, or loses every orchestrator capability, that job's runs fail with a clear error. To recover, an admin opens the job in the builder and saves it. The admin becomes the owner (the builder asks first, and the change is audited), and the job's searches run as the admin from then on. The admin can then hand the job to someone else by having that person save it, if they hold `orchestrator_admin`, or by rebuilding it under their account.
-
-## Self-test
+### Self-test
 
 `| orchestrate selftest` (admin only) checks a build on the server without any screens. It creates and runs small built-in jobs made of `makeresults` searches.
 
@@ -331,7 +338,7 @@ To remove them, use **Delete** on the Jobs page for each `so_selftest*` job. Del
 
 Run records are pruned with the normal retention.
 
-### App health alerts
+#### App health alerts
 
 `default/savedsearches.conf` ships three alerts, all **disabled** (`disabled = 1`), readable and writable by `admin` and `sc_admin` only. Turn one on in **Settings > Searches, reports, and alerts** (app Search Orchestrator, **Edit > Enable**), or from the app's **Settings > Health**. Each searches the `orchestrator_logs` macro over the last 15 minutes, returns rows only when something is wrong and tracks a Triggered Alert (digest mode); add an email or other action to be told. They run as the alert's owner (nobody, so splunk-system-user), which can read `_internal`.
 
@@ -343,7 +350,23 @@ Run records are pruned with the normal retention.
 
 On a search head cluster the engine heartbeat comes from the member holding the lease, so the engine alert fires only when no member runs the engine. Turning an alert on is a local change (`local/savedsearches.conf`) and survives upgrades.
 
-## REST API
+## Operations
+
+### Search head clusters
+
+The engine runs on every member, and a KV Store lease (90 seconds, renewed about every 10 seconds and right before each search dispatch and action send; every engine call to splunkd times out after 15 seconds, so no call outlives the lease) makes sure only one member advances runs at a time. This was tested against a fake KV Store only; no real cluster was available. Watch the first runs after installing on a cluster.
+
+### Deleting jobs
+
+The Jobs page shows **Delete** to users who may edit the job: its owner (with `orchestrator_build`) and admins. It asks for confirmation, naming the job, then deletes the job, its hidden saved searches, saved versions and follows, and cancels a running backfill, so nothing of it runs again. A job with active or queued runs can't be deleted until those runs are cancelled; the dialog says so. Past runs stay in the Runs list until run-record retention prunes them.
+
+### Orphaned owners
+
+If a job owner's Splunk account is removed, or loses every orchestrator capability, that job's runs fail with a clear error. To recover, an admin opens the job in the builder and saves it. The admin becomes the owner (the builder asks first, and the change is audited), and the job's searches run as the admin from then on. The admin can then hand the job to someone else by having that person save it, if they hold `orchestrator_admin`, or by rebuilding it under their account.
+
+## Reference
+
+### REST API
 
 All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchestrator/orchestrator/`) and return JSON. Each checks the caller's capabilities.
 
@@ -382,7 +405,7 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `runs/<id>/performance` | GET (`steps` keyed by step id with the stored `perf` numbers and, when readable, `cpu_peak`, `cpu_avg` and `mem_peak_mb`, plus `notes`; the two searches run as the caller with a 30 second limit and cover at most 50 searches) |
 | `timerange/resolve` | POST (builders: `earliest`, `latest`, `scheduled_time`; returns the epoch window they cover) |
 
-## Known limits
+### Known limits
 
 - An approval waits 5 minutes to 7 days, and its message is at most 500 characters. A decision is applied on the engine's next tick, not at once.
 - The **Dependencies** page is built in the browser from `jobs`, so it shows only jobs the user may see; a job it can't see appears as "Job you can't see". The **Calendar** page reads `calendar` and shows only future scheduled times of turned-on jobs, at most 300 per job and 2,000 items per request, over at most 8 days.
@@ -395,3 +418,4 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 - No per-step workload pool: the dispatch endpoint rejected it.
 - A run parameter value is at most 4,096 characters, and a parameter's pattern at most 500. A pattern that repeats a group which already repeats, such as `(a+)+`, is refused when the job is saved, because matching a long value against it can stall the server.
 - Job ids are unique across all users: saving a new job whose id is taken says so even when the existing job is hidden from you.
+
