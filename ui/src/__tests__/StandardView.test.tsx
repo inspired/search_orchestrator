@@ -178,7 +178,7 @@ describe('Standard view', () => {
             steps: [{ id: 'daily', name: 'Daily summary', type: 'inline', spl: '| makeresults', actions: [{ hook: 'on_failure', type: 'email', to: 'ops@example.com' }, { hook: 'on_success', type: 'webhook', destination: 'nope' }] }],
             edges: [],
         });
-        const issue = { level: 'error', code: 'unknown_destination', step: 'daily', message: "webhook destination 'nope' does not exist" };
+        const issue = { level: 'error', code: 'bad_action', step: 'daily', message: "the email action needs to; fill it in" };
         const api = fakeApi({ getJob: jest.fn().mockResolvedValue(job), validateJob: jest.fn().mockResolvedValue({ issues: [issue], owner_will_change: false, owner: 'alice' }) });
         await show(<BuilderPage api={api} jobId="rollups" />);
         fireEvent.click(screen.getByRole('button', { name: 'Save' }));

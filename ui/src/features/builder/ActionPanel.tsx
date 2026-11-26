@@ -10,10 +10,9 @@ import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
-import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
+import type { Action, AlertAction, Issue, JobDefinition } from '../../api/types';
 import { ActionFields } from './ActionsEditor';
 import { stepLabel } from './GraphView';
-import PresetOptions from './PresetOptions';
 import { IssueList } from './StepPanel';
 import { ActionScope, HOOK_FOR_PORT, PortId, actionKey, nodeKindOfStep, outputPorts } from './nodeModel';
 import { PORT_STYLE } from './nodeStyle';
@@ -24,7 +23,6 @@ export interface ActionPanelProps {
     job: JobDefinition;
     scope: ActionScope;
     index: number;
-    destinations: Destination[];
     alertActions?: AlertAction[] | null;
     tokenGroups?: TokenGroup[];
     /** Problems the check found with this action. */
@@ -74,7 +72,7 @@ function diff(from: Action, to: Action): Partial<Action> {
     return changes as Partial<Action>;
 }
 
-export default function ActionPanel({ job, scope, index, destinations, alertActions, tokenGroups, issues = [], dispatch, onMoved, onRequestRemove }: ActionPanelProps) {
+export default function ActionPanel({ job, scope, index, alertActions, tokenGroups, issues = [], dispatch, onMoved, onRequestRemove }: ActionPanelProps) {
     const steps = job.steps || [];
     const list = (s: ActionScope): Action[] => (s === 'job' ? job.actions : steps.find((x) => x.id === s)?.actions) || [];
     const action = list(scope)[index];
@@ -112,7 +110,6 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
             <ActionFields
                 action={action}
                 idPrefix={`action-${scope}-${index}`}
-                destinations={destinations}
                 alertActions={alertActions}
                 tokenGroups={tokenGroups}
                 onChange={(next) => dispatch({ type: 'updateAction', scope, index, changes: diff(action, next) })}
@@ -139,14 +136,6 @@ export default function ActionPanel({ job, scope, index, destinations, alertActi
                         onChange={(_e: unknown, { value }: { value: string }) => dispatch({ type: 'updateAction', scope, index, changes: { condition: value || undefined } })}
                     />
                 </ControlGroup>
-            )}
-            {action.type === 'webhook' && (
-                <PresetOptions
-                    preset={action.preset}
-                    options={action.options}
-                    idPrefix={`action-${scope}-${index}-options`}
-                    onChange={(options) => dispatch({ type: 'updateAction', scope, index, changes: { options } })}
-                />
             )}
             {(action.type === 'email' || action.type === 'event') && (
                 <div style={{ marginTop: '12px' }}>

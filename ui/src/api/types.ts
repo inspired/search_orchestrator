@@ -64,11 +64,7 @@ export interface RunWhen {
 export interface Action {
     /** `on_approval_requested`: approval steps only. */
     hook: 'on_start' | 'on_success' | 'on_failure' | 'on_complete' | 'on_delayed' | 'on_late' | 'on_approval_requested';
-    type: 'webhook' | 'email' | 'event' | 'start_job' | 'alert_action';
-    /** Webhooks: the body format; absent uses the destination's. */
-    preset?: WebhookPreset;
-    /** PagerDuty and ServiceNow webhooks (bin/so/presets.py PRESET_OPTIONS); never `{}`. */
-    options?: Record<string, string>;
+    type: 'email' | 'event' | 'start_job' | 'alert_action';
     [field: string]: unknown;
 }
 
@@ -390,7 +386,7 @@ export interface Settings {
     queue_cap: number;
     result_retention: number;
     run_retention_days: number;
-    fallback: { type: 'email'; to: string } | { type: 'webhook'; destination: string; preset?: string } | null;
+    fallback: { type: 'email'; to: string } | { type: 'alert_action'; action: string; params?: Record<string, string> } | null;
     base_url: string | null;
     /** ERROR, WARNING, INFO (default) or DEBUG: what the app writes to its log files. */
     log_level?: string;
@@ -417,27 +413,6 @@ export interface AlertAction {
     name: string;
     label: string;
     params: AlertActionParam[];
-}
-
-export type WebhookPreset = 'generic' | 'slack' | 'teams' | 'pagerduty' | 'servicenow';
-
-export interface Destination {
-    name: string;
-    preset: WebhookPreset;
-    host: string | null;
-    has_headers: boolean;
-    /** PagerDuty: whether a routing key is stored (it is never shown). */
-    body_secret_set?: boolean;
-}
-
-export interface DestinationInput {
-    name: string;
-    /** PagerDuty: empty uses the Events API v2 endpoint. */
-    url: string;
-    preset?: WebhookPreset;
-    headers?: Record<string, string> | null;
-    /** PagerDuty only, write-only; absent keeps the stored key. */
-    routing_key?: string;
 }
 
 export interface Health {

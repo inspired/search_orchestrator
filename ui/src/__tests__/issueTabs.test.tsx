@@ -19,7 +19,7 @@ describe('tabForIssue', () => {
         ['timezone_fallback', null, 'settings'],
         ['bad_param', null, 'params'],
         ['bad_action', null, 'actions'],
-        ['unknown_destination', null, 'actions'],
+        ['action_removed', null, 'actions'],
         ['no_failure_notification', null, 'actions'],
         ['missing_target_job', null, 'actions'],
         ['whatever', null, 'steps'],
@@ -61,7 +61,7 @@ describe('nodeForIssue', () => {
         expect(nodeForIssue(job(null), mk(code))).toBe('trigger:0');
         expect(nodeForIssue(job(null, false), mk(code))).toBeNull();
     });
-    it.each(['bad_action', 'unknown_destination', 'no_failure_notification'])('%s of the whole job selects no node (it opens the Job actions tab)', (code) => {
+    it.each(['bad_action', 'action_removed', 'no_failure_notification'])('%s of the whole job selects no node (it opens the Job actions tab)', (code) => {
         expect(nodeForIssue(job(null), mk(code))).toBeNull();
     });
     it('a trigger issue naming a followed job selects that trigger', () => {
@@ -108,8 +108,8 @@ describe('nodeForIssue', () => {
             ],
             actions: [
                 { hook: 'on_failure', type: 'email', to: 'ops@x.com' },
-                { hook: 'on_failure', type: 'webhook', destination: 'slack-ops' },
-                { hook: 'on_success', type: 'webhook', destination: 'gone' },
+                { hook: 'on_failure', type: 'alert_action', action: 'slack' },
+                { hook: 'on_success', type: 'event', index: 'main' },
             ],
         });
         it('a step-level missing field selects the action of that kind with the field empty', () => {
@@ -119,11 +119,6 @@ describe('nodeForIssue', () => {
         it('a step-level issue with nothing to match selects the first action with an empty required field', () => {
             expect(nodeForIssue(acts(), at('bad_action', 'a', "unknown action time 'x'; choose one in When"))).toBe('action:a:1');
         });
-        it('a job-level unknown destination is on the Job actions tab, not a node', () => {
-            const issue = at('unknown_destination', null, "webhook destination 'gone' doesn't exist; pick another, or ask an admin to add it in Settings");
-            expect(nodeForIssue(acts(), issue)).toBeNull();
-            expect(tabForIssue(issue)).toBe('actions');
-        });
         it('a step with no actions keeps selecting the step', () => {
             expect(nodeForIssue(acts(), at('bad_action', 'c', 'the email action needs to; fill it in'))).toBe('step:c');
         });
@@ -131,12 +126,10 @@ describe('nodeForIssue', () => {
             const issues = [
                 at('bad_action', 'a', 'the email action needs to; fill it in'),
                 at('bad_action', 'a', 'the event action needs index; fill it in'),
-                at('unknown_destination', null, "webhook destination 'gone' doesn't exist; pick another"),
                 at('bad_step', 'a', 'other'),
             ];
             expect(issuesForAction(acts(), issues, 'a', 2)).toEqual([issues[0]]);
             expect(issuesForAction(acts(), issues, 'a', 1)).toEqual([issues[1]]);
-            expect(issuesForAction(acts(), issues, 'job', 2)).toEqual([issues[2]]);
             expect(issuesForAction(acts(), issues, 'job', 0)).toEqual([]);
         });
     });
@@ -235,12 +228,12 @@ describe('BuilderPage issue feedback', () => {
             steps: rollupJob().steps.map((st) => (st.id === 'weekly' ? { ...st, actions: [{ hook: 'on_failure', type: 'email', to: '' }] } : st)),
             actions: [
                 { hook: 'on_failure', type: 'email', to: 'ops@example.com' },
-                { hook: 'on_success', type: 'webhook', destination: 'gone' },
+                { hook: 'on_success', type: 'alert_action', action: 'gone' },
             ],
         });
         const issues: Issue[] = [
             { level: 'error', code: 'bad_action', message: 'the email action needs to; fill it in', step: 'weekly' },
-            { level: 'error', code: 'unknown_destination', message: "webhook destination 'gone' doesn't exist; pick another", step: null },
+            { level: 'error', code: 'bad_action', message: "alert action 'gone' isn't valid; pick one from the Alert action list", step: null },
         ];
         const api = fakeApi({
             getJob: jest.fn().mockResolvedValue(job),
@@ -254,7 +247,7 @@ describe('BuilderPage issue feedback', () => {
         expect(screen.getByTestId('node-action:weekly:0')).toHaveAttribute('aria-pressed', 'true');
         const panel = screen.getByRole('region', { name: 'Action' });
         expect(panel).toHaveTextContent('the email action needs to; fill it in');
-        fireEvent.click(screen.getByRole('button', { name: /^Go to .*webhook destination 'gone'/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^Go to .*alert action 'gone'/ }));
         expect(screen.getByTestId('job-actions-tab')).toBeInTheDocument();
     });
 

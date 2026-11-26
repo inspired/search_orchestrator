@@ -1,17 +1,16 @@
 /* Follow a job: be told when it fails, is late, is delayed or succeeds, by email to your own
- * Splunk address or (builders) through a webhook destination such as Slack, without editing
+ * Splunk address, without editing
  * the job. Unfollow stops it. */
 import React, { useEffect, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Message from '@splunk/react-ui/Message';
 import Modal from '@splunk/react-ui/Modal';
-import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import * as client from '../../api/client';
 import type { FollowEvent, FollowNotify } from '../../api/client';
-import type { Destination, Job } from '../../api/types';
+import type { Job } from '../../api/types';
 
 export const EVENT_LABEL: Record<FollowEvent, string> = {
     failure: 'It fails',
@@ -25,28 +24,23 @@ export interface FollowApi {
     getFollow: typeof client.getFollow;
     putFollow: typeof client.putFollow;
     deleteFollow: typeof client.deleteFollow;
-    listDestinations: typeof client.listDestinations;
 }
 
-const defaultApi: FollowApi = { getFollow: client.getFollow, putFollow: client.putFollow, deleteFollow: client.deleteFollow, listDestinations: client.listDestinations };
+const defaultApi: FollowApi = { getFollow: client.getFollow, putFollow: client.putFollow, deleteFollow: client.deleteFollow };
 
 export interface FollowDialogProps {
     job: Job;
-    /** May pick a webhook destination (builders and admins). */
-    canUseWebhooks: boolean;
     onClose: () => void;
     onChanged: () => void;
     returnFocus: React.MutableRefObject<HTMLElement | null>;
     api?: FollowApi;
 }
 
-export default function FollowDialog({ job, canUseWebhooks, onClose, onChanged, returnFocus, api = defaultApi }: FollowDialogProps) {
+export default function FollowDialog({ job, onClose, onChanged, returnFocus, api = defaultApi }: FollowDialogProps) {
     const [loading, setLoading] = useState(true);
     const [following, setFollowing] = useState(false);
     const [email, setEmail] = useState<string | null>(null);
     const [on, setOn] = useState<FollowEvent[]>(['failure', 'late']);
-    const [via, setVia] = useState<string>('email');
-    const [destinations, setDestinations] = useState<Destination[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
@@ -61,23 +55,17 @@ export default function FollowDialog({ job, canUseWebhooks, onClose, onChanged, 
                 if (r.follow) {
                     setFollowing(true);
                     setOn(r.follow.on);
-                    setVia(r.follow.notify.type === 'webhook' ? `webhook:${r.follow.notify.destination}` : 'email');
                 }
             })
             .catch((e: Error) => live && setError(e.message))
             .finally(() => live && setLoading(false));
-        if (canUseWebhooks) {
-            api.listDestinations()
-                .then((d) => live && setDestinations(d))
-                .catch(() => undefined);
-        }
         return () => {
             live = false;
         };
-    }, [api, job.id, canUseWebhooks]);
+    }, [api, job.id]);
 
     const toggle = (e: FollowEvent) => setOn((cur) => (cur.includes(e) ? cur.filter((x) => x !== e) : EVENTS.filter((x) => x === e || cur.includes(x))));
-    const notify: FollowNotify = via.startsWith('webhook:') ? { type: 'webhook', destination: via.slice('webhook:'.length) } : { type: 'email' };
+    const notify: FollowNotify = { type: 'email' };
     const noEmail = notify.type === 'email' && !email;
 
     const save = async () => {
@@ -130,14 +118,9 @@ export default function FollowDialog({ job, canUseWebhooks, onClose, onChanged, 
                                 ))}
                             </div>
                         </ControlGroup>
-                        <ControlGroup label="How" labelFor="follow-via" labelPosition="top" help={notify.type === 'email' ? (email ? `Email to ${email} (your Splunk account's address).` : 'Your Splunk account has no email address. Add one in your account settings, or pick a webhook.') : 'Posted to the webhook destination, like a job action.'}>
-                            <Select inputId="follow-via" value={via} onChange={(_e: unknown, { value }: { value: unknown }) => setVia(String(value))}>
-                                <Select.Option value="email" label="Email me" />
-                                {destinations.map((d) => (
-                                    <Select.Option key={d.name} value={`webhook:${d.name}`} label={`Webhook: ${d.name}`} />
-                                ))}
-                            </Select>
-                        </ControlGroup>
+                        <p data-testid="follow-how" style={{ margin: '8px 0 0' }}>
+                            {email ? `By email to ${email} (your Splunk account's address).` : 'Your Splunk account has no email address. Add one in your account settings to follow jobs.'}
+                        </p>
                     </>
                 )}
             </Modal.Body>

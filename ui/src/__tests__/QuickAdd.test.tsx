@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import QuickAdd from '../features/builder/QuickAdd';
-import { CATALOG, isRetired, searchCatalog, targetKinds } from '../features/builder/nodeCatalog';
+import { CATALOG, searchCatalog, targetKinds } from '../features/builder/nodeCatalog';
 import { FAMILY_OF } from '../features/builder/nodeStyle';
 
 describe('nodeCatalog', () => {
@@ -22,19 +22,8 @@ describe('nodeCatalog', () => {
         expect(targetKinds('success', 'job')).not.toContain('lookup');
         expect(targetKinds('then', 'condition')).toContain('lookup');
     });
-    it('never offers the retired Slack, Teams, PagerDuty and ServiceNow (an Alert action does it)', () => {
-        ['slack', 'teams', 'pagerduty', 'servicenow'].forEach((k) => {
-            expect(searchCatalog(k).map((e) => e.kind)).not.toContain(k);
-            expect(targetKinds('failure', 'search')).not.toContain(k);
-            expect(targetKinds('late', 'job')).not.toContain(k);
-            expect(targetKinds(null, null)).not.toContain(k);
-        });
-        expect(searchCatalog('incident')).toEqual([]);
-        // Still known, so a job that has one shows it by name.
-        expect(CATALOG.find((e) => e.kind === 'teams')?.label).toBe('Microsoft Teams');
-    });
     it('returns every offered kind for an empty query, filtered by kinds', () => {
-        expect(searchCatalog('')).toEqual(CATALOG.filter((e) => !isRetired(e.kind)));
+        expect(searchCatalog('')).toEqual(CATALOG);
         expect(searchCatalog('', ['email']).map((e) => e.kind)).toEqual(['email']);
     });
     it('offers only action kinds after a delayed port', () => {
@@ -50,10 +39,10 @@ describe('nodeCatalog', () => {
     });
     it('offers only actions from the job node', () => {
         expect(targetKinds('success', 'job')).not.toContain('search');
-        expect(targetKinds('success', 'job')).toContain('webhook');
+        expect(targetKinds('success', 'job')).toContain('alert_action');
     });
     it('offers everything without a port', () => {
-        expect(targetKinds(null, null)).toEqual(CATALOG.filter((e) => !isRetired(e.kind)).map((e) => e.kind));
+        expect(targetKinds(null, null)).toEqual(CATALOG.map((e) => e.kind));
     });
     it('uses the family map', () => {
         CATALOG.forEach((e) => expect(e.family).toBe(FAMILY_OF[e.kind]));
@@ -73,7 +62,7 @@ describe('QuickAdd', () => {
         const input = screen.getByRole('combobox');
         expect(input).toHaveFocus();
         await userEvent.type(input, 'web{Enter}');
-        expect(base.onChoose).toHaveBeenCalledWith('webhook');
+        expect(base.onChoose).toHaveBeenCalledWith('alert_action');
     });
     it('moves the highlight with ArrowDown', async () => {
         render(<QuickAdd {...base} />);
@@ -107,10 +96,10 @@ describe('QuickAdd', () => {
         expect(screen.getByText('Send an email when the step or job gets here.')).toBeInTheDocument();
     });
     it('chooses on click and respects kinds', async () => {
-        render(<QuickAdd {...base} kinds={['email', 'webhook']} />);
+        render(<QuickAdd {...base} kinds={['email', 'alert_action']} />);
         expect(screen.getAllByRole('option')).toHaveLength(2);
         await userEvent.click(screen.getByText('Webhook'));
-        expect(base.onChoose).toHaveBeenCalledWith('webhook');
+        expect(base.onChoose).toHaveBeenCalledWith('alert_action');
     });
     it('says when nothing matches', async () => {
         render(<QuickAdd {...base} />);

@@ -157,7 +157,6 @@ export default function JobsPage({ api = defaultApi }: { api?: JobsApi }) {
             {followingJob && (
                 <FollowDialog
                     job={followingJob}
-                    canUseWebhooks={Boolean(me && (me.can_build || me.can_admin))}
                     onClose={() => setFollowingJob(null)}
                     onChanged={jobs.refresh}
                     returnFocus={followOpener}

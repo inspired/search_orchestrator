@@ -12,7 +12,7 @@ import Typography from '@splunk/react-ui/Typography';
 import WaitSpinner from '@splunk/react-ui/WaitSpinner';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import * as client from '../../api/client';
-import type { AlertAction, Destination, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, SchedulePreviewResponse, ValidateResponse } from '../../api/types';
+import type { AlertAction, Issue, Job, JobDefinition, Me, RunFilters, RunSummary, SaveResponse, SchedulePreviewResponse, ValidateResponse } from '../../api/types';
 import PageShell, { pageHref } from '../../components/PageShell';
 import FlowCanvas, { FlowSelection } from './FlowCanvas';
 import SidePanel, { usePanelLayout } from './SidePanel';
@@ -43,6 +43,7 @@ import useFillHeight from './useFillHeight';
 import useLeaveWarning from './useLeaveWarning';
 import useClipboard from './useClipboard';
 import forgetChecklist from './forgetChecklist';
+import { droppedText } from './removedActions';
 import useSnippets from './useSnippets';
 import useFlowMenus from './useFlowMenus';
 import useSelection from './useSelection';
@@ -58,7 +59,6 @@ export interface BuilderApi extends PreviewApi {
     validateJob: (job: JobDefinition) => Promise<ValidateResponse>;
     createJob: (job: JobDefinition) => Promise<SaveResponse>;
     updateJob: (jobId: string, job: JobDefinition, baseRevision?: number) => Promise<SaveResponse>;
-    listDestinations: () => Promise<Destination[]>;
     listAlertActions: () => Promise<AlertAction[]>;
     listJobs: () => Promise<Job[]>;
     me: () => Promise<Me>;
@@ -75,7 +75,6 @@ const defaultApi: BuilderApi = {
     validateJob: client.validateJob,
     createJob: client.createJob,
     updateJob: client.updateJob,
-    listDestinations: client.listDestinations,
     listAlertActions: client.listAlertActions,
     listJobs: client.listJobsBrief,
     me: client.me,
@@ -141,7 +140,7 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
     // Groups are drawn in Advanced only, so only Advanced opens a collapsed one to show a node.
     const selectNode = (key: string) => (view === 'advanced' && grouping.reveal({ kind: 'node', key }), setSelected({ kind: 'node', key }));
 
-    const { loading, loadError, meta, setMeta, me, destinations, alertActions, jobs, runs, loadRuns } = useBuilderData(api, initialId, dispatch);
+    const { loading, loadError, meta, setMeta, me, alertActions, jobs, runs, loadRuns, dropped } = useBuilderData(api, initialId, dispatch);
     const { job } = state;
 
     // The job is checked against the server as it is edited, once it is ready to edit.
@@ -467,7 +466,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                 canEdit={meta.canEdit}
                 issues={issues}
                 jobs={jobs}
-                destinations={destinations}
                 nextSlots={api.nextSlots}
                 schedulePreview={api.schedulePreview}
                 savedJobId={jobId}
@@ -556,7 +554,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                     onArrange={arrange}
                     onTidy={tidy}
                     onOpenSettings={() => setActiveTab('settings')}
-                    destinations={destinations}
                     alertActions={alertActions}
                     jobs={jobs}
                     nextSlots={api.nextSlots}
@@ -595,6 +592,11 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
 
     return (
         <PageShell title={job.name || (jobId ? jobId : 'New job')} actions={actions}>
+            {dropped > 0 && (
+                <Message type="warning" appearance="default" data-testid="removed-actions">
+                    {droppedText(dropped)}
+                </Message>
+            )}
             {loadError && (
                 <Message type="error" appearance="default">
                     {`The job could not be loaded: ${loadError}`}
@@ -647,7 +649,6 @@ export default function BuilderPage({ jobId: initialId = null, imported = null, 
                         issues={issues}
                         canEdit={meta.canEdit}
                         knownTags={knownTags}
-                        destinations={destinations}
                         alertActions={alertActions}
                         history={{ jobId, dirty: isDirty(state), canEdit: meta.canEdit, onRestored: (r, n) => (dispatch({ type: 'load', job: client.toDefinition(r.job) }), afterSaved(r, client.toDefinition(r.job), `Restored version ${n}.`)) }}
                     />

@@ -23,12 +23,12 @@ afterEach(() => setTurnedOff([]));
 
 describe('Building blocks', () => {
     test('a turned-off kind leaves the builder menus; Search and Schedule stay on', () => {
-        setTurnedOff(['approval', 'slack', 'search', 'trigger_cron']);
+        setTurnedOff(['approval', 'event', 'search', 'trigger_cron']);
         expect(isTurnedOff('approval')).toBe(true);
         expect(isTurnedOff('search')).toBe(false);
         expect(activeCatalog().map((e) => e.kind)).not.toContain('approval');
         expect(targetKinds('success', 'search')).not.toContain('approval');
-        expect(targetKinds('success', 'search')).not.toContain('slack');
+        expect(targetKinds('success', 'search')).not.toContain('event');
         expect(targetKinds('success', 'search')).toContain('email');
         expect(searchCatalog('approve').map((e) => e.kind)).toEqual([]);
         expect(targetKinds(null, null)).toContain('trigger_cron');
@@ -41,16 +41,16 @@ describe('Building blocks', () => {
             triggers: [{ type: 'completion', job: 'y' }],
             steps: [
                 { id: 'a', type: 'inline', spl: 'x' },
-                { id: 'b', type: 'approval', actions: [{ hook: 'on_success', type: 'webhook', preset: 'slack', destination: 'd' }] },
+                { id: 'b', type: 'approval', actions: [{ hook: 'on_success', type: 'event', index: 'main' }] },
             ],
         } as unknown as JobDefinition;
-        expect([...kindsOfJob(def)].sort()).toEqual(['approval', 'search', 'slack', 'trigger_completion']);
-        expect(turnedOffIn(def, ['slack', 'approval', 'lookup'])).toEqual(['Approval', 'Slack']);
+        expect([...kindsOfJob(def)].sort()).toEqual(['approval', 'event', 'search', 'trigger_completion']);
+        expect(turnedOffIn(def, ['event', 'approval', 'lookup'])).toEqual(['Approval', 'Event to an index']);
     });
 
     test('Settings lists the blocks by group and saves only what changed', async () => {
         const onSave = jest.fn(() => Promise.resolve());
-        renderThemed(<SettingsForm settings={SETTINGS} destinations={[]} onSave={onSave} />);
+        renderThemed(<SettingsForm settings={SETTINGS} onSave={onSave} />);
         expect(screen.getByRole('heading', { name: 'Building blocks' })).toBeInTheDocument();
         expect(within(screen.getByRole('group', { name: 'Steps' })).getByText('Approval')).toBeInTheDocument();
         expect(screen.queryByTestId('block-search')).toBeNull();
@@ -79,10 +79,10 @@ describe('Building blocks', () => {
     });
 
     test('blocks still in development are tagged Beta in Settings', () => {
-        renderThemed(<SettingsForm settings={SETTINGS} destinations={[]} onSave={jest.fn()} />);
-        ['approval', 'webhook'].forEach((k) => expect(within(screen.getByTestId(`block-${k}`)).getByTestId('beta-tag')).toBeInTheDocument());
+        renderThemed(<SettingsForm settings={SETTINGS} onSave={jest.fn()} />);
+        ['approval'].forEach((k) => expect(within(screen.getByTestId(`block-${k}`)).getByTestId('beta-tag')).toBeInTheDocument());
         // Retired: replaced by an Alert action, so not a building block any more.
-        ['slack', 'teams', 'pagerduty', 'servicenow'].forEach((k) => expect(screen.queryByTestId(`block-${k}`)).toBeNull());
+        ['webhook', 'slack', 'teams', 'pagerduty', 'servicenow'].forEach((k) => expect(screen.queryByTestId(`block-${k}`)).toBeNull());
         expect(within(screen.getByTestId('block-email')).queryByTestId('beta-tag')).toBeNull();
         expect(screen.getByTestId('blocks-intro')).toHaveTextContent('Beta are still in development');
     });

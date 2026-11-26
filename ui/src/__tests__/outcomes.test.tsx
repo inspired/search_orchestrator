@@ -16,7 +16,7 @@ const job: JobDefinition = {
         { from: 'a', to: 'b', condition: 'on_success' },
         { from: 'a', to: 'c', condition: 'expression', expression: '$a.resultCount$ > 0' },
     ],
-    actions: [{ hook: 'on_failure', type: 'webhook', destination: 'ops', preset: 'slack' }],
+    actions: [{ hook: 'on_failure', type: 'email', to: 'ops@example.com' }],
 };
 const g = buildGraph(job);
 const link = (from: string, to: string) => g.links.find((l) => l.from === from && l.to === to)!;

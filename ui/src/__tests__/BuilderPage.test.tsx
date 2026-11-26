@@ -1,4 +1,5 @@
 import React from 'react';
+import type { Action } from '../api/types';
 import userEvent from '@testing-library/user-event';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import BuilderPage from '../features/builder/BuilderPage';
@@ -555,10 +556,10 @@ describe('BuilderPage removing nodes', () => {
         expect(screen.getByText('Weekly rollup, its actions and its connections are removed. Undo brings them back.')).toBeInTheDocument();
     });
 
-    it('a Slack action keeps its capital and an action with nothing filled in has no detail', async () => {
+    it('a webhook action saved before 1.50.0 is dropped on open, with a note; an empty email has no detail', async () => {
         const job = rollupJob({
             actions: [
-                { hook: 'on_failure', type: 'webhook', preset: 'slack', destination: 'ops-channel' },
+                { hook: 'on_failure', type: 'webhook', preset: 'slack', destination: 'ops-channel' } as unknown as Action,
                 { hook: 'on_failure', type: 'email', to: '' },
             ],
         });
@@ -566,10 +567,9 @@ describe('BuilderPage removing nodes', () => {
         job.actions = [];
         await show(<BuilderPage jobId="rollups" api={fakeApi({ getJob: jest.fn().mockResolvedValue(job) })} />);
         await screen.findByRole('button', { name: /^Search Daily summary/ });
+        expect(screen.getByTestId('removed-actions')).toHaveTextContent('A webhook, Slack, Teams, PagerDuty or ServiceNow action was removed from this job');
+        expect(screen.queryByTestId('node-action:monthly:1')).toBeNull();
         fireEvent.keyDown(screen.getByTestId('node-action:monthly:0'), { key: 'Delete' });
-        expect(screen.getByText('Remove Slack (ops-channel)?')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-        fireEvent.keyDown(screen.getByTestId('node-action:monthly:1'), { key: 'Delete' });
         expect(screen.getByText('Remove email?')).toBeInTheDocument();
     });
 

@@ -31,7 +31,7 @@ const INSTALLED: AlertAction[] = [
 function renderEditor(action: Partial<Action>, alertActions?: AlertAction[] | null) {
     const onChange = jest.fn();
     const a = { hook: 'on_failure', type: 'alert_action', ...action } as Action;
-    renderThemed(<ActionFields action={a} onChange={onChange} destinations={[]} alertActions={alertActions} idPrefix="t" />);
+    renderThemed(<ActionFields action={a} onChange={onChange} alertActions={alertActions} idPrefix="t" />);
     return onChange;
 }
 
@@ -123,7 +123,6 @@ describe('ActionFields insert value', () => {
             <ActionFields
                 action={{ hook: 'on_failure', type: 'email', to: 'a@b.c' } as Action}
                 onChange={jest.fn()}
-                destinations={[]}
                 idPrefix="t"
                 tokenGroups={[{ title: 'This run', options: [{ token: '$run.id$', label: 'Run id', description: 'The id of this run.' }] }]}
             />

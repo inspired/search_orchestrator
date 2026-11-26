@@ -10,7 +10,7 @@ import { lineKey } from './standardGraph';
 const JOB_LINK_CODES = ['missing_target_job', 'disabled_target_job'];
 
 const TRIGGER_CODES = ['bad_cron', 'bad_trigger', 'job_chain_cycle'];
-const ACTION_CODES = ['bad_action', 'unknown_destination', 'no_failure_notification'];
+const ACTION_CODES = ['bad_action', 'action_removed', 'no_failure_notification'];
 const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes'];
 const SETTINGS_CODES = ['bad_timezone', 'timezone_fallback', 'bad_deadline'];
 
@@ -50,7 +50,6 @@ function conditionFor(job: JobDefinition, issue: Issue, step: string): string | 
 /** The field each action type cannot leave empty (mirrors the server's check). */
 const REQUIRED_FIELD: Record<string, string> = {
     email: 'to',
-    webhook: 'destination',
     event: 'index',
     alert_action: 'action',
     start_job: 'job',
@@ -76,14 +75,14 @@ const actionsIn = (job: JobDefinition, scope: string): Action[] =>
  * destination the message names, else the first of the kind the message names with its
  * required field empty, else the first with any required field empty. */
 function actionIndexFor(job: JobDefinition, issue: Issue): number | null {
-    if (issue.code !== 'bad_action' && issue.code !== 'unknown_destination') {
+    if (issue.code !== 'bad_action') {
         return null;
     }
     const list = actionsIn(job, issue.step || 'job');
     const message = issue.message || '';
     const isObj = (a: unknown): a is Action => typeof a === 'object' && a !== null;
-    let at = list.findIndex((a) => isObj(a) && a.type === 'webhook' && names(message, a.destination));
-    if (at < 0 && /malformed/.test(message)) {
+    let at = -1;
+    if (/malformed/.test(message)) {
         at = list.findIndex((a) => !isObj(a));
     }
     if (at < 0) {

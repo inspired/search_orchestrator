@@ -12,7 +12,7 @@ const job = (): JobDefinition => ({
         { id: 'b', name: 'Weekly', type: 'inline', spl: '| makeresults', actions: [{ hook: 'on_success', type: 'email', to: 'q@x.com' }] },
     ],
     edges: [],
-    actions: [{ hook: 'on_failure', type: 'webhook', destination: 'slack-ops' }],
+    actions: [{ hook: 'on_failure', type: 'alert_action', action: 'slack' }],
 });
 
 function setup(scope: string, index: number) {
@@ -20,7 +20,7 @@ function setup(scope: string, index: number) {
     const onMoved = jest.fn();
     const onRequestRemove = jest.fn();
     renderThemed(
-        <ActionPanel job={job()} scope={scope} index={index} destinations={[{ name: 'slack-ops' } as never]} alertActions={[]} tokenGroups={[]} dispatch={dispatch} onMoved={onMoved} onRequestRemove={onRequestRemove} />
+        <ActionPanel job={job()} scope={scope} index={index} alertActions={[]} tokenGroups={[]} dispatch={dispatch} onMoved={onMoved} onRequestRemove={onRequestRemove} />
     );
     return { dispatch, onMoved, onRequestRemove };
 }
@@ -32,10 +32,9 @@ describe('ActionPanel', () => {
                 job={job()}
                 scope="job"
                 index={0}
-                destinations={[]}
                 alertActions={[]}
                 tokenGroups={[]}
-                issues={[{ level: 'error', code: 'unknown_destination', message: "webhook destination 'slack-ops' doesn't exist; pick another", step: null }]}
+                issues={[{ level: 'error', code: 'bad_action', message: "alert action 'slack' isn't installed; pick one from the Alert action list", step: null }]}
                 dispatch={jest.fn()}
                 onMoved={jest.fn()}
                 onRequestRemove={jest.fn()}
@@ -73,85 +72,6 @@ describe('ActionPanel', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Remove action' }));
         expect(onRequestRemove).toHaveBeenCalledWith('action:job:0');
         expect(dispatch).not.toHaveBeenCalled();
-    });
-});
-
-
-describe('channel action panels', () => {
-    const DESTS = [
-        { name: 'generic-ops', preset: 'generic', host: 'x', has_headers: false },
-        { name: 'pd-oncall', preset: 'pagerduty', host: 'events.pagerduty.com', has_headers: false, body_secret_set: true },
-        { name: 'snow-prod', preset: 'servicenow', host: 'acme.service-now.com', has_headers: true },
-    ] as never[];
-    const panel = (action: Record<string, unknown>, destinations = DESTS) => {
-        const dispatch = jest.fn();
-        const j = job();
-        j.actions = [{ hook: 'on_failure', type: 'webhook', destination: '', ...action } as never];
-        renderThemed(<ActionPanel job={j} scope="job" index={0} destinations={destinations} alertActions={[]} tokenGroups={[]} dispatch={dispatch} onMoved={jest.fn()} onRequestRemove={jest.fn()} />);
-        return dispatch;
-    };
-
-    test('the PagerDuty panel lists only PagerDuty destinations and has no message format', () => {
-        panel({ preset: 'pagerduty' });
-        expect(screen.getByRole('combobox', { name: 'Do' })).toHaveTextContent('PagerDuty');
-        expect(screen.queryByRole('combobox', { name: 'Message format' })).toBeNull();
-        fireEvent.click(screen.getByRole('combobox', { name: 'Destination' }));
-        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['pd-oncall']);
-    });
-
-    test('with no PagerDuty destinations it says how to get one', () => {
-        panel({ preset: 'pagerduty' }, DESTS.filter((d) => (d as { preset: string }).preset !== 'pagerduty'));
-        expect(screen.getByText('No PagerDuty destinations yet; ask an admin to add one in Settings')).toBeInTheDocument();
-    });
-
-    test('picking Severity Warning writes options, and picking the default removes them', () => {
-        const dispatch = panel({ preset: 'pagerduty', destination: 'pd-oncall' });
-        fireEvent.click(screen.getByRole('combobox', { name: 'Severity' }));
-        fireEvent.click(screen.getByRole('option', { name: 'Warning' }));
-        expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { options: { severity: 'warning' } } });
-    });
-
-    test('picking the default severity removes the key and the empty options', () => {
-        const dispatch = panel({ preset: 'pagerduty', destination: 'pd-oncall', options: { severity: 'warning' } });
-        expect(screen.getByRole('combobox', { name: 'Severity' })).toHaveTextContent('Warning');
-        fireEvent.click(screen.getByRole('combobox', { name: 'Severity' }));
-        fireEvent.click(screen.getByRole('option', { name: /^Default/ }));
-        expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { options: undefined } });
-    });
-
-    test('ServiceNow has urgency, impact and assignment group; the default urgency removes its key', () => {
-        const dispatch = panel({ preset: 'servicenow', destination: 'snow-prod', options: { urgency: '1', impact: '3' } });
-        expect(screen.getByRole('combobox', { name: 'Urgency' })).toHaveTextContent('1 High');
-        expect(screen.getByRole('combobox', { name: 'Impact' })).toHaveTextContent('3 Low');
-        fireEvent.click(screen.getByRole('combobox', { name: 'Urgency' }));
-        expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['1 High', '2 Medium', '3 Low']);
-        fireEvent.click(screen.getByRole('option', { name: '2 Medium' }));
-        expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { options: { impact: '3' } } });
-        fireEvent.change(screen.getByLabelText('Assignment group'), { target: { value: 'Ops' } });
-        expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { options: { urgency: '1', impact: '3', assignment_group: 'Ops' } } });
-    });
-
-    test('a Teams panel has no options and changing the destination never writes options', () => {
-        const dispatch = panel({ preset: 'teams' }, [...DESTS, { name: 'teams-ops', preset: 'teams', host: 'x', has_headers: false } as never]);
-        expect(screen.getByRole('combobox', { name: 'Do' })).toHaveTextContent('Microsoft Teams');
-        expect(screen.queryByRole('combobox', { name: 'Severity' })).toBeNull();
-        fireEvent.click(screen.getByRole('combobox', { name: 'Destination' }));
-        fireEvent.click(screen.getByRole('option', { name: 'teams-ops' }));
-        expect(dispatch).toHaveBeenLastCalledWith({ type: 'updateAction', scope: 'job', index: 0, changes: { destination: 'teams-ops' } });
-    });
-
-    test('Do no longer offers Slack, Teams, PagerDuty or ServiceNow, except the one an action already is', () => {
-        panel({ preset: 'generic', destination: 'generic-ops' });
-        fireEvent.click(screen.getByRole('combobox', { name: 'Do' }));
-        ['Slack', 'Microsoft Teams', 'PagerDuty', 'ServiceNow'].forEach((name) => expect(screen.queryByRole('option', { name })).toBeNull());
-        expect(screen.getByRole('option', { name: 'Alert action' })).toBeInTheDocument();
-    });
-
-    test('an existing PagerDuty action still shows as PagerDuty', () => {
-        panel({ preset: 'pagerduty', destination: 'pd-oncall' });
-        fireEvent.click(screen.getByRole('combobox', { name: 'Do' }));
-        expect(screen.getByRole('option', { name: 'PagerDuty' })).toBeInTheDocument();
-        expect(screen.queryByRole('option', { name: 'ServiceNow' })).toBeNull();
     });
 });
 

@@ -13,7 +13,7 @@ import Switch from '@splunk/react-ui/Switch';
 import TabBar from '@splunk/react-ui/TabBar';
 import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
-import type { AlertAction, Destination, Issue, Defaults, JobDefinition } from '../../api/types';
+import type { AlertAction, Issue, Defaults, JobDefinition } from '../../api/types';
 import JobActionsTab from './JobActionsTab';
 import DeadlineFields from './DeadlineFields';
 import AccessTab from './AccessTab';
@@ -65,7 +65,6 @@ export interface JobTabsProps {
     /** Tags other jobs use, offered in the Tags field. */
     knownTags?: string[];
     /** For the Job actions tab. */
-    destinations?: Destination[];
     alertActions?: AlertAction[] | null;
 }
 
@@ -218,7 +217,7 @@ export function tabLabel(id: TabId): string {
     return TAB_LABELS[id];
 }
 
-export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, triggers, view = 'advanced', issues = [], canEdit = true, history, knownTags, destinations = [], alertActions = null }: JobTabsProps) {
+export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, owner, roles, steps, triggers, view = 'advanced', issues = [], canEdit = true, history, knownTags, alertActions = null }: JobTabsProps) {
     const counts = issueCounts(issues, view);
     const tabs = Object.keys(TAB_LABELS) as TabId[];
     const label = (id: TabId) => tabLabel(id);
@@ -243,7 +242,7 @@ export default function JobTabs({ activeTab: tab, onTabChange, job, dispatch, ow
                         onChange={(value) => dispatch({ type: 'setJobField', field: 'run_roles', value })}
                     />
                 )}
-                {tab === 'actions' && <JobActionsTab job={job} dispatch={dispatch} destinations={destinations} alertActions={alertActions} canEdit={canEdit} />}
+                {tab === 'actions' && <JobActionsTab job={job} dispatch={dispatch} alertActions={alertActions} canEdit={canEdit} />}
                 {tab === 'settings' && <SettingsTab job={job} dispatch={dispatch} knownTags={knownTags} />}
                 {tab === 'source' && <SourceTab job={job} dispatch={dispatch} canEdit={canEdit} />}
                 {tab === 'history' && <HistoryTab jobId={history ? history.jobId : null} dirty={!!history?.dirty} canEdit={history ? history.canEdit : false} onRestored={history ? history.onRestored : () => undefined} />}

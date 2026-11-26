@@ -9,7 +9,7 @@ import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
+import type { Action, AlertAction, Issue, JobDefinition } from '../../api/types';
 import ActionPanel from './ActionPanel';
 import { CATALOG, isBeta, targetKinds } from './nodeCatalog';
 import { actionKey, buildGraph, HOOK_FOR_PORT, NodeKind, nodeKindOfStep, outputPorts, PortId, portForHook, stepKey } from './nodeModel';
@@ -20,7 +20,6 @@ import type { TokenGroup } from './tokens';
 export interface StepActionsProps {
     job: JobDefinition;
     stepId: string;
-    destinations: Destination[];
     alertActions?: AlertAction[] | null;
     tokenGroups?: TokenGroup[];
     issues?: Issue[];
@@ -37,7 +36,7 @@ const kindLabel = (kind: NodeKind) => {
     return isBeta(kind) ? `${label} · Beta` : label;
 };
 
-export default function StepActions({ job, stepId, destinations, alertActions, tokenGroups, issues = [], dispatch, onRequestRemove, openAction }: StepActionsProps) {
+export default function StepActions({ job, stepId, alertActions, tokenGroups, issues = [], dispatch, onRequestRemove, openAction }: StepActionsProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const step = (job.steps || []).find((s) => s.id === stepId);
     const [open, setOpen] = useState<number | null>(null);
@@ -91,7 +90,6 @@ export default function StepActions({ job, stepId, destinations, alertActions, t
                                         job={job}
                                         scope={stepId}
                                         index={i}
-                                        destinations={destinations}
                                         alertActions={alertActions}
                                         tokenGroups={tokenGroups}
                                         issues={issues}

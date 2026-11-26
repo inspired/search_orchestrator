@@ -63,7 +63,7 @@ describe('WhenMenu', () => {
     });
 
     it('with search, the node list offers only what the outcome allows', async () => {
-        render(<WhenMenu {...base} withSearch={{ kinds: () => ['email', 'webhook'] }} />);
+        render(<WhenMenu {...base} withSearch={{ kinds: () => ['email', 'alert_action'] }} />);
         await userEvent.click(screen.getByText('Starts'));
         expect(screen.getAllByRole('option').filter((o) => o.closest('[aria-label="Nodes"]'))).toHaveLength(2);
     });

@@ -31,23 +31,13 @@ export const CATALOG: CatalogEntry[] = [
     entry('lookup', 'Lookup', ['outputlookup', 'csv', 'write', 'store'], 'Write the results of earlier steps to a lookup.'),
     entry('approval', 'Approval', ['approve', 'sign-off', 'gate', 'human', 'manual'], 'Wait until someone approves or rejects before going on.'),
     entry('email', 'Email', ['mail', 'message', 'notify'], 'Send an email when the step or job gets here.'),
-    entry('webhook', 'Webhook', ['http', 'post', 'url', 'notify'], 'Send a web request when the step or job gets here.'),
-    entry('slack', 'Slack', ['chat', 'message', 'notify', 'channel'], 'Post a message to Slack when the step or job gets here.'),
-    entry('teams', 'Microsoft Teams', ['teams', 'chat'], 'Post a card to a Microsoft Teams channel when the step or job gets here.'),
-    entry('pagerduty', 'PagerDuty', ['pagerduty', 'page', 'incident', 'on-call'], 'Page the on-call person through PagerDuty when the step or job gets here.'),
-    entry('servicenow', 'ServiceNow', ['servicenow', 'ticket', 'incident', 'snow'], 'Open a ServiceNow incident when the step or job gets here.'),
     entry('event', 'Event to an index', ['index', 'hec', 'log', 'write'], 'Write an event to an index when the step or job gets here.'),
     entry('alert_action', 'Alert action', ['alert', 'action', 'notify'], 'Run a Splunk alert action when the step or job gets here.'),
     entry('start_job', 'Start another job', ['chain', 'run', 'job', 'trigger'], 'Start a different job when the step or job gets here.'),
 ];
 
 /** Still in development: shown with a Beta tag, as they may not work yet. */
-export const BETA_KINDS: NodeKind[] = ['approval', 'webhook'];
-
-/** No longer offered: Splunk's own Slack, Teams, PagerDuty and ServiceNow apps do the same as an
- * Alert action. Like a kind that is always off: jobs that already have one keep it. */
-export const RETIRED_KINDS: NodeKind[] = ['slack', 'teams', 'pagerduty', 'servicenow'];
-export const isRetired = (kind: string): boolean => (RETIRED_KINDS as string[]).includes(kind);
+export const BETA_KINDS: NodeKind[] = ['approval'];
 export const BETA_NOTE = 'Still in development; it may not work yet.';
 
 export const isBeta = (kind: string): boolean => (BETA_KINDS as string[]).includes(kind);
@@ -64,10 +54,10 @@ export function setTurnedOff(kinds: string[] | undefined | null): void {
 }
 
 export function isTurnedOff(kind: string): boolean {
-    return turnedOff.has(kind) || isRetired(kind);
+    return turnedOff.has(kind);
 }
 
-/** The catalog without the kinds that are turned off or retired. */
+/** The catalog without the kinds that are turned off. */
 export function activeCatalog(): CatalogEntry[] {
     return CATALOG.filter((e) => !isTurnedOff(e.kind));
 }
@@ -91,7 +81,7 @@ export function turnedOffIn(job: Partial<JobDefinition>, off: string[] = [...tur
     return CATALOG.filter((e) => off.includes(e.kind) && used.has(e.kind)).map((e) => e.label);
 }
 
-const ACTION_KINDS: NodeKind[] = ['email', 'webhook', 'event', 'alert_action', 'start_job', 'slack', 'teams', 'pagerduty', 'servicenow'];
+const ACTION_KINDS: NodeKind[] = ['email', 'event', 'alert_action', 'start_job'];
 
 const inCatalog = (kinds: NodeKind[]): NodeKind[] => activeCatalog().filter((e) => kinds.includes(e.kind)).map((e) => e.kind);
 

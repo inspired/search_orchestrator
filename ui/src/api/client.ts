@@ -7,8 +7,6 @@ import { getCSRFToken } from '@splunk/splunk-utils/config';
 import type {
     AlertAction,
     DefinitionChoice,
-    Destination,
-    DestinationInput,
     Health,
     Issue,
     Job,
@@ -346,7 +344,7 @@ export function cancelPreview(sid: string): Promise<{ cancelled: boolean }> {
     return request('POST', `preview/${enc(sid)}/cancel`, { body: {} });
 }
 
-// Settings, destinations, health and the caller.
+// Settings, health and the caller.
 
 export async function getSettings(): Promise<Settings> {
     return (await request<{ settings: Settings }>('GET', 'settings')).settings;
@@ -356,12 +354,8 @@ export async function putSettings(changes: Partial<Settings>): Promise<Settings>
     return (await request<{ settings: Settings }>('PUT', 'settings', { body: changes })).settings;
 }
 
-export async function listDestinations(): Promise<Destination[]> {
-    return (await request<{ destinations: Destination[] }>('GET', 'destinations')).destinations;
-}
-
 export type FollowEvent = 'failure' | 'late' | 'delayed' | 'success';
-export type FollowNotify = { type: 'email' } | { type: 'webhook'; destination: string };
+export type FollowNotify = { type: 'email' };
 export interface Follow {
     on: FollowEvent[];
     notify: FollowNotify;
@@ -385,14 +379,6 @@ export function deleteFollow(jobId: string): Promise<{ follow: null }> {
 /** The custom alert actions the caller can pick for an alert action step or job action. */
 export async function listAlertActions(): Promise<AlertAction[]> {
     return (await request<{ alert_actions: AlertAction[] }>('GET', 'alert_actions')).alert_actions;
-}
-
-export async function saveDestination(dest: DestinationInput): Promise<Destination> {
-    return (await request<{ destination: Destination }>('POST', 'destinations', { body: dest })).destination;
-}
-
-export function deleteDestination(name: string): Promise<{ deleted: string }> {
-    return request('DELETE', `destinations/${enc(name)}`);
 }
 
 export async function health(): Promise<Health> {
