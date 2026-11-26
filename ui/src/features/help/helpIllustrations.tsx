@@ -109,7 +109,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'slack-teams-pagerduty-and-servicenow': () => (
-        <Figure caption="Use an Alert action from Splunk's own Slack, Teams or ServiceNow app; jobs that already have one of the old actions keep it.">
+        <Figure caption="Use an Alert action from Splunk's own Slack, Teams or ServiceNow app; the old built-in Slack, Teams, PagerDuty, ServiceNow and Webhook actions are gone.">
             <Panel title="Alert action" rows={[['Action', 'Slack (from its Splunk app)'], ['Channel', '#ops'], ['When', '✗ Job fails']]} />
         </Figure>
     ),
@@ -221,10 +221,10 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
     actions: () => (
         <Figure caption="A step's actions are nodes on its outcome lines; the whole job's actions (fails, succeeds, is late) are on the Job actions tab.">
             <Flow
-                label="A step with an email on failure and a webhook when delayed"
+                label="A step with an email on failure and an alert action when delayed"
                 width={460}
                 height={120}
-                nodes={[n('a', 'search', 'Export', 0, 40), n('e', 'notify', 'Email ops', 300, 0), n('w', 'notify', 'Webhook', 300, 80)]}
+                nodes={[n('a', 'search', 'Export', 0, 40), n('e', 'notify', 'Email ops', 300, 0), n('w', 'notify', 'Alert action', 300, 80)]}
                 lines={[
                     { from: 'a', to: 'e', port: 'failure', label: '✗ Fails' },
                     { from: 'a', to: 'w', port: 'delayed', label: '⏱ Delayed' },
@@ -343,7 +343,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'follow-a-job': () => (
-        <Figure caption="Follow a job to be told when it fails or is late, by email to yourself or through a webhook, without editing it.">
+        <Figure caption="Follow a job to be told when it fails or is late, by email to yourself, without editing it.">
             <Panel title="Follow Daily logins" rows={[['Tell me when', '☑ It fails  ☑ It misses its deadline'], ['', '☐ A step is delayed  ☐ It succeeds'], ['How', 'Email me (you@example.com) ▾'], ['', '[Follow]']]} width={320} />
         </Figure>
     ),
@@ -536,7 +536,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                 rows={[
                     ['10:02:01', 'Warning', 'Daily logins missed 4 scheduled runs: nothing checked the schedule for 11 min', 'Daily logins'],
                     ['10:01:00', 'Warning', 'Scheduled run at 10:01 skipped: the job is disabled', 'Weekly rollup'],
-                    ['10:00:05', 'Error', 'Webhook failed after 3 tries: HTTP 404', 'Daily logins'],
+                    ['10:00:05', 'Error', 'Email failed after 3 tries: mail server refused the connection', 'Daily logins'],
                     ['10:00:00', 'Info', 'Run waits for run daily:cron:1 to finish (running)', 'Daily logins'],
                     ['09:58:00', 'Detail', 'Engine is alive: 60 ticks in the last 5 minutes, the slowest 42 ms', ''],
                 ]}
@@ -552,7 +552,6 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                     ['Jobs, versions, runs', 'KV Store, so_* collections'],
                     ['Each step, condition and action search', 'Hidden saved search _so_<job>_<step>_<hash>'],
                     ['Search results', "Splunk's search jobs"],
-                    ['Webhook URLs and headers', 'Password store'],
                     ['Audit events', 'index=_audit, admins only by default'],
                 ]}
             />

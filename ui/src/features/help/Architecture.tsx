@@ -413,7 +413,7 @@ export const MODULES: Array<[string, string, string]> = [
     ['so/deadline.py', 'Engine', 'Finish-by and finish-within deadlines, and Late alerts.'],
     ['so/lease.py', 'Engine', 'The engine leader lease in so_locks: one engine works at a time.'],
     ['so/actions.py · presets.py · alert_forms.py', 'Engine', 'The action outbox: email, lookups, summary index, events, alert actions, start job; message templates.'],
-    ['so/retired.py', 'Engine', 'Removes what 1.50.0 dropped, once: stored webhook destinations, their secrets, and a webhook fallback.'],
+    ['so/retired.py', 'Engine', 'Removes what 1.50.1 dropped, once: stored webhook destinations, their secrets, and a webhook fallback.'],
     ['so/gateway.py', 'Storage', 'Every call to splunkd: KV Store, saved searches, search jobs, secrets, email.'],
     ['so/store.py', 'Storage', 'The so_* collections as functions: jobs, runs, step runs, commands, settings.'],
     ['so/audit.py', 'Storage', 'Audit events to index=_audit, sourcetype orchestrator:audit (and a copy to the log file).'],

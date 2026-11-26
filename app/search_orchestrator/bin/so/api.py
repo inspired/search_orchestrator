@@ -70,7 +70,7 @@ AUDIT_INDEX = "_audit"
 RERUNNABLE = ("blocked", "failed", "cancelled")
 LIST_FIELDS = "definition:0"  # KV projection for run lists: no definition snapshot
 ACTION_TYPES = ("email", "event", "start_job", "alert_action")
-# Removed in 1.50.0: a save that still has one is refused with what to use instead.
+# Removed in 1.50.1: a save that still has one is refused with what to use instead.
 REMOVED_ACTION_TYPES = ("webhook",)
 HOOKS = ("on_start", "on_success", "on_failure", "on_complete", "on_delayed", "on_late",
          "on_approval_requested")

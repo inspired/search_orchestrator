@@ -16,11 +16,26 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.50.1](#1501-2026-11-26) | 2026-11-26 |
 | [1.50.0](#1500-2026-11-25) | 2026-11-25 |
 | [1.49.0](#1490-2026-11-24) | 2026-11-24 |
 | [1.48.4](#1484-2026-11-23) | 2026-11-23 |
 | [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
+
+## 1.50.1 (2026-11-26)
+
+The fallback email works again, the Beta notification actions are gone, and the fallback can be an alert action.
+
+- **Fix: the fallback email was never sent in 1.50.0.** The new check that a hidden search is still the owner's private search also refused the app's own `_so_fallback_email`, which is owned by `nobody`. The check now accepts the app's own searches.
+- **Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow actions are removed**, with webhook destinations and the Settings page's Destinations section. Use an **Alert action** from the service's own Splunk app instead (Slack 2878, Microsoft Teams 4994, ServiceNow 1928 on Splunkbase).
+  - A save that adds one is refused (`action_removed`), and says to use an Alert action.
+  - A job saved earlier drops it when opened in the builder, with a note to save. Until then the engine skips it (audit `action_skipped`) and sends the fallback notification instead.
+  - On its first start, the engine deletes the stored destinations and their URLs and headers once, and clears a webhook fallback (audit `destinations_removed`).
+  - Following a job is by email only; a follow that used a webhook is told by email.
+  - `GET/POST/DELETE destinations` are gone.
+- **The fallback notification can be an alert action:** in Settings choose None, Email or **Alert action**, pick an installed one and give its parameters as `name=value` lines (they take `{{job}}`, `{{hook}}`, `{{run_url}}` and the other message tokens). It runs as the app's own hidden search `_so_fallback_alert`.
+- Docs, Help and README updated for both.
 
 ## 1.50.0 (2026-11-25)
 

@@ -556,7 +556,7 @@ describe('BuilderPage removing nodes', () => {
         expect(screen.getByText('Weekly rollup, its actions and its connections are removed. Undo brings them back.')).toBeInTheDocument();
     });
 
-    it('a webhook action saved before 1.50.0 is dropped on open, with a note; an empty email has no detail', async () => {
+    it('a webhook action saved before 1.50.1 is dropped on open, with a note; an empty email has no detail', async () => {
         const job = rollupJob({
             actions: [
                 { hook: 'on_failure', type: 'webhook', preset: 'slack', destination: 'ops-channel' } as unknown as Action,

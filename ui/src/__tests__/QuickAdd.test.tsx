@@ -61,7 +61,7 @@ describe('QuickAdd', () => {
         render(<QuickAdd {...base} />);
         const input = screen.getByRole('combobox');
         expect(input).toHaveFocus();
-        await userEvent.type(input, 'web{Enter}');
+        await userEvent.type(input, 'alert{Enter}');
         expect(base.onChoose).toHaveBeenCalledWith('alert_action');
     });
     it('moves the highlight with ArrowDown', async () => {
@@ -98,7 +98,7 @@ describe('QuickAdd', () => {
     it('chooses on click and respects kinds', async () => {
         render(<QuickAdd {...base} kinds={['email', 'alert_action']} />);
         expect(screen.getAllByRole('option')).toHaveLength(2);
-        await userEvent.click(screen.getByText('Webhook'));
+        await userEvent.click(screen.getByText('Alert action'));
         expect(base.onChoose).toHaveBeenCalledWith('alert_action');
     });
     it('says when nothing matches', async () => {

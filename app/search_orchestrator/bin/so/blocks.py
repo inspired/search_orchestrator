@@ -6,7 +6,7 @@ not use it (approvals, say). A kind that is off is not offered in the builder, a
 adds one is refused. Jobs that already use it keep working and can still be saved: turning a
 kind off never breaks a running job.
 
-Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow were removed in 1.50.0: Splunk's own
+Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow were removed in 1.50.1: Splunk's own
 apps for them add alert actions, so an Alert action does it. A save with one is refused
 (``api._job_issues``, ``action_removed``); one still in a run is skipped (``actions``).
 """

@@ -28,7 +28,7 @@ left empty). Token values come from ``tokens``, the run's token context snapshot
 row at submit. Search action args are SPL-string escaped.
 
 Webhook actions (and their Slack, Teams, PagerDuty and ServiceNow formats) were removed in
-1.50.0: one still in a run's definition is skipped, with an ``action_skipped`` audit event,
+1.50.1: one still in a run's definition is skipped, with an ``action_skipped`` audit event,
 and does not count as the job's action for a hook, so the fallback steps in.
 
 Any step action may have ``only_if_results: true``: it is left out of the hook's firing
@@ -151,7 +151,7 @@ def _entry(index, action):
             "error": None, "next_at": 0, "sid": None, "started_at": None}
 
 
-# Action types that were removed (1.50.0): skipped when an old definition still has one.
+# Action types that were removed (1.50.1): skipped when an old definition still has one.
 REMOVED_TYPES = ("webhook",)
 
 
@@ -267,7 +267,7 @@ class ActionRunner:
             self._emit({"type": "action_skipped", "run_id": run_id, "job_id": run.get("job_id"),
                         "hook": hook, "step_id": step_id, "action_index": i,
                         "action_type": a.get("type"), "preset": a.get("preset"),
-                        "reason": "webhook actions were removed in 1.50.0; use an Alert action"},
+                        "reason": "webhook actions were removed in 1.50.1; use an Alert action"},
                        int(self.clock()))
         matching = [(i, a) for i, a in matching if a.get("type") not in REMOVED_TYPES]
         ctx = self._ctx(run, hook, scope, step_id)
@@ -502,7 +502,7 @@ class ActionRunner:
         access = self.gw.user_access(user) if user else {"roles": [], "capabilities": []}
         if job is None or not authz.can_view(user, job, access["roles"], access["capabilities"]):
             raise _Fail("follower %r may no longer see the job" % (user,))
-        # A follow by webhook (before 1.50.0) is told by email now.
+        # A follow by webhook (before 1.50.1) is told by email now.
         to = access.get("email")
         if not to:
             raise _Fail("follower %r has no email address in Splunk" % (user,))

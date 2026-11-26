@@ -1,4 +1,4 @@
-"""1.50.0 removes Webhook, Slack, Teams, PagerDuty and ServiceNow actions and webhook
+"""1.50.1 removes Webhook, Slack, Teams, PagerDuty and ServiceNow actions and webhook
 destinations; an Alert action does it instead, and is also the fallback notification's
 second kind (next to email)."""
 from so import actions as actionsmod

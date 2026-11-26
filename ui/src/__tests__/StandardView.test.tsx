@@ -175,7 +175,7 @@ describe('Standard view', () => {
 
     test("Go to on an action's problem opens the step with that action's panel", async () => {
         const job = rollupJob({
-            steps: [{ id: 'daily', name: 'Daily summary', type: 'inline', spl: '| makeresults', actions: [{ hook: 'on_failure', type: 'email', to: 'ops@example.com' }, { hook: 'on_success', type: 'webhook', destination: 'nope' }] }],
+            steps: [{ id: 'daily', name: 'Daily summary', type: 'inline', spl: '| makeresults', actions: [{ hook: 'on_failure', type: 'email', to: 'ops@example.com' }, { hook: 'on_success', type: 'alert_action', action: '' }] }],
             edges: [],
         });
         const issue = { level: 'error', code: 'bad_action', step: 'daily', message: "the email action needs to; fill it in" };
@@ -186,7 +186,7 @@ describe('Standard view', () => {
         const list = await screen.findByRole('list', { name: 'Actions of Daily summary' });
         const buttons = within(list).getAllByRole('button', { expanded: true });
         expect(buttons).toHaveLength(1);
-        expect(buttons[0].textContent).toMatch(/Webhook/);
+        expect(buttons[0].textContent).toMatch(/Alert action/);
     });
 
     test("Standard draws no group frames (they belong to Advanced's layout) and keeps them in the job", async () => {

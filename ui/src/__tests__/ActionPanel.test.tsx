@@ -40,7 +40,7 @@ describe('ActionPanel', () => {
                 onRequestRemove={jest.fn()}
             />
         );
-        expect(screen.getByText("webhook destination 'slack-ops' doesn't exist; pick another")).toBeInTheDocument();
+        expect(screen.getByText("alert action 'slack' isn't installed; pick one from the Alert action list")).toBeInTheDocument();
     });
 
     test('changing only the outcome keeps the key', () => {

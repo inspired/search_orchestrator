@@ -278,7 +278,7 @@ class Engine:
         self._skip = None
         self._beat = {"at": None, "ticks": 0, "slowest": 0}
         self._owner_caps = {}  # owner -> capabilities, looked up once per tick
-        self._retired_done = False  # what 1.50.0 removed is cleaned up once per process
+        self._retired_done = False  # what 1.50.1 removed is cleaned up once per process
 
     # -- the tick -------------------------------------------------------------
 

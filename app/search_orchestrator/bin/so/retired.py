@@ -1,4 +1,4 @@
-"""What 1.50.0 removed, cleaned up once: webhook destinations (the ``destinations``
+"""What 1.50.1 removed, cleaned up once: webhook destinations (the ``destinations``
 document in ``so_settings``) with their URL, header and body secrets, and a fallback
 notification that pointed at one. The engine calls ``forget_destinations`` with the system
 session when it takes the lease; it does nothing when there is nothing left."""

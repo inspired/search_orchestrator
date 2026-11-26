@@ -56,7 +56,7 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 
 | Capability | Allows |
 |---|---|
-| `orchestrator_admin` | Manage every job, the settings and the webhook destinations. Run the self-test. |
+| `orchestrator_admin` | Manage every job and the settings. Run the self-test. |
 | `orchestrator_build` | Create and edit their own jobs. |
 | `orchestrator_run` | Start and control the jobs they may run, and view those runs. |
 | `orchestrator_approve` | Approve or reject approval steps on runs they may see. |
@@ -89,10 +89,10 @@ A Results of earlier steps step saved before 1.1.0 may still have an Earliest an
 - **Hidden searches are checked before each run.** The engine starts them by name with its own session in the owner's namespace. Just before each step, SPL condition or search action, it checks that the search is still the owner's private search. If someone replaced it with a shared search of the same name, it isn't run, and the error says to re-save the job.
 - **`| orchestrate` is a risky command** (`is_risky` in `commands.conf`). It starts, cancels, re-runs and approves with the caller's own session, so Splunk warns before running it from a link or from a dashboard panel instead of running it silently.
 - **Wildcards in parameters.** Escaping stops SPL injection, but `*` in a quoted search term is still a wildcard: `user="$run.param.u$"` with the value `*` matches every user. If a "Who may run" member must not widen a search like this, give the parameter a pattern (such as `^[a-z0-9_.-]+$`) or make it a list.
-- **Secrets.** Webhook URLs and headers are kept in Splunk's credential store (`storage/passwords`). The Settings page never shows them again after saving.
-- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job. `so_backfills` holds one document per backfill (its planned run times and progress). Backfill documents are kept; they are not pruned with run records or removed when the job is deleted. `so_snippets` holds one document per snippet, kept until its owner or an admin deletes it. **Every builder (and admin) can see and insert every snippet, including its searches**, whoever owns it; only the owner or an admin renames or deletes one. A snippet holds no secrets, because actions name a destination and its URL and headers stay in the secret store. `so_follows` holds one document per person following a job (the events and how to tell them), removed with the job.
-- **Following a job.** Anyone who may see a job may follow it. Email goes only to the address on the follower's own Splunk account, read when it is sent (the account's `email`), through the fallback notification's system search, so a follower can't send mail to an address of their choosing; the message carries the job, outcome and run link, never results. Webhook destinations can be picked only by builders and admins. Each message is checked at send time: a follower who can no longer see the job gets nothing.
-- **TLS.** Outbound webhooks always verify TLS. Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
+- **Secrets.** The app stores no URLs, tokens or headers of its own: notifications go through email or an installed alert action, whose own app keeps its settings.
+- **KV Store.** The `so_*` collections are readable and writable only by `admin` and `sc_admin`. All changes go through the REST handler. `so_job_versions` holds each job's saved versions (one document per version, pruned to 50) and is deleted with the job. `so_backfills` holds one document per backfill (its planned run times and progress). Backfill documents are kept; they are not pruned with run records or removed when the job is deleted. `so_snippets` holds one document per snippet, kept until its owner or an admin deletes it. **Every builder (and admin) can see and insert every snippet, including its searches**, whoever owns it; only the owner or an admin renames or deletes one. A snippet holds no secrets. `so_follows` holds one document per person following a job (the events and how to tell them), removed with the job.
+- **Following a job.** Anyone who may see a job may follow it. Email goes only to the address on the follower's own Splunk account, read when it is sent (the account's `email`), through the fallback notification's system search, so a follower can't send mail to an address of their choosing; the message carries the job, outcome and run link, never results. Each message is checked at send time: a follower who can no longer see the job gets nothing.
+- **TLS.** Calls from the app to its own splunkd over loopback (127.0.0.1) skip verification because splunkd's default certificate is self-signed; any other host is refused.
 
 ### Saved-search steps and the `| savedsearch` wrapper
 
@@ -129,7 +129,6 @@ The same section is on the app's **Help** page, under How it works.
 | Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, the 12 `so_*` collections (who may read them: see [How steps run](#how-steps-run-security)) |
 | Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
 | Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job |
-| Webhook URLs and headers | Splunk's password store (`storage/passwords`, realm `search_orchestrator`), never KV Store or logs |
 | Audit events | `index=_audit sourcetype=orchestrator:audit` |
 | The app's log | `_internal`, `search_orchestrator.*.log` |
 
@@ -145,6 +144,7 @@ Saving a job writes one saved search for each search the job runs, with the savi
 | SPL condition on a line | `_so_<job>_cond_<hash>` | |
 | Email, event and alert actions | `_so_<job>_action_<n>_<hash>` | |
 | Fallback email | `_so_fallback_email` | Shipped with the app (`default/savedsearches.conf`), owned by `nobody`. |
+| Fallback alert action | `_so_fallback_alert` | Written when an admin saves an alert-action fallback, owned by `nobody`. |
 | Self-test | `_so_so_selftest_...` | See [Self-test](#self-test). |
 
 - **Private and owned by the job owner,** in this app. Their description says which job and step they belong to ("Search Orchestrator job `<job>`, step `<step>`"). A step therefore runs with the owner's permissions.
@@ -190,7 +190,7 @@ Only users with `orchestrator_admin` see it.
 | Queue cap per job | 20 | 1 to 1000 |
 | Keep step results after a run | 24 hours | 1 to 168 hours (7 days) |
 | Keep run records | 90 days | 1 to 3650 days |
-| Fallback notification | none | an email address or a webhook destination |
+| Fallback notification | none | an email address, or an installed alert action with its parameters |
 | Splunk Web address | empty | an http(s) URL; makes links in messages absolute |
 | Events scanned limit | none | a whole number of events (`scan_limit`); a step can set its own (`max_scan`) |
 | When a step goes over | Warn | Warn (audit `step_scan_limit`, the search finishes) or Stop the search (it is cancelled and the step fails, then retries if it has retries) |
@@ -198,13 +198,13 @@ Only users with `orchestrator_admin` see it.
 
 ### Building blocks
 
-Turn off what your teams don't use, to keep the builder simple. For example, turn off **Approval** if no one signs off on runs, or **Webhook** if you have no destinations. The kinds are grouped as in the builder:
+Turn off what your teams don't use, to keep the builder simple. For example, turn off **Approval** if no one signs off on runs. The kinds are grouped as in the builder:
 
 - **Triggers:** After another job.
 - **Steps:** Saved search, Results of earlier steps, Summary index, Lookup and Approval.
-- **Actions:** Email, Webhook, Event to an index, Alert action and Start another job.
+- **Actions:** Email, Event to an index, Alert action and Start another job.
 
-**Slack, Microsoft Teams, PagerDuty and ServiceNow are retired** (1.50.0): Splunk's own apps for them add alert actions, so builders use an **Alert action** instead. They are no longer building blocks; a save that adds one is refused (`block_retired`), and jobs that already have one keep it, and it still sends.
+**Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow actions are removed** (1.50.1). Splunk's own apps for these services add alert actions, so builders use an **Alert action** instead. A save that adds one of the removed actions is refused (`action_removed`). A job saved earlier drops it when opened in the builder, with a note to save. Until then, the engine skips it at run time (audit `action_skipped`) and sends the fallback notification instead. On its first start, 1.50.1 deletes the webhook destinations and their stored URLs and headers once, and clears a webhook fallback.
 
 A kind that is off:
 
@@ -214,29 +214,16 @@ A kind that is off:
 
 Jobs that already use it keep running, and can still be edited and saved with it. Turning a kind off never breaks a job. Turn it back on at any time.
 
-**Beta** marks blocks that are still in development and may not work yet: Approval and Webhook. The tag shows here and in the builder's add menu.
+**Beta** marks blocks that are still in development and may not work yet: Approval. The tag shows here and in the builder's add menu.
 
 **Health** shows whether the engine is running, whether the audit index exists, whether a fallback is set and how many commands are waiting, with a warning message for each problem.
 
-### Webhook destinations
-
-Admins define each destination once: a name, an `https://` URL, a body format (Generic JSON, Slack, Microsoft Teams, PagerDuty or ServiceNow) and optional headers such as `Authorization`. Job builders pick from the list by name and never see the URL. This keeps secrets out of jobs and stops builders pointing the search head at internal addresses.
-
-The Slack, Microsoft Teams, PagerDuty and ServiceNow body formats are kept for the actions jobs saved before 1.50.0 still have; new jobs use an Alert action from the service's own Splunk app instead.
-
-The URL and headers are write-only. The page shows only whether each is set. A header name must be a valid HTTP header name, and a value with a line break or another control character is refused (a pasted token often ends in one); header values never appear in error texts. To change a destination, use **Replace** and enter the URL again; leave the headers empty to keep them, or remove them. A destination used as the fallback can't be deleted until the fallback changes.
-
-Body formats:
-
-- **Microsoft Teams:** an Adaptive Card 1.4 message; use the URL of a Teams Workflows webhook.
-- **PagerDuty:** an Events API v2 event. **New URL** may stay empty: a new destination then uses `https://events.pagerduty.com/v2/enqueue`, and replacing a PagerDuty destination keeps its stored URL (for example the EU endpoint `https://events.eu.pagerduty.com/v2/enqueue`). **Routing key** is required and write-only, like the URL: the page shows only whether one is stored, and an empty value keeps it. Take it from the service's Events API v2 integration.
-- **ServiceNow:** a Table API incident. The URL must end in `/api/now/table/incident`; put the credentials in the headers (for example `Authorization`). Job builders set urgency, impact and assignment group (up to 100 characters) on each action.
-
-**Splunk Cloud may block outbound webhooks.** If deliveries fail with connection errors, ask Splunk support to allow the destination host, such as `events.pagerduty.com` for PagerDuty and your ServiceNow instance's host.
-
 ### Fallback notification
 
-A delay, failure or late run is never meant to be silent. When a job has no failure, delay or late action (hook `on_late`), or that action keeps failing, the engine sends the fallback notification. It carries only job, run and step names, status and links, and doesn't run as the job owner, so it still works when the owner's account is gone. Email uses Splunk's `sendemail`, so Splunk's mail server settings must be configured.
+A delay, failure or late run is never meant to be silent. When a job has no failure, delay or late action (hook `on_late`), or that action keeps failing, the engine sends the fallback notification. It carries only job, run and step names, status and links, and doesn't run as the job owner, so it still works when the owner's account is gone. It is either:
+
+- **Email** to an address, through Splunk's `sendemail`, so Splunk's mail server settings must be configured; or
+- **Alert action**: any installed alert action this app can use (for example Slack, Microsoft Teams or ServiceNow from their Splunkbase apps), with its parameters as `name=value` lines. Values take `{{job}}`, `{{hook}}`, `{{run_url}}` and the other message tokens. Saving writes the app's own hidden search `_so_fallback_alert`, owned by `nobody`.
 
 ## Audit index
 
@@ -275,7 +262,7 @@ Lines are `key=value`: `level`, `process`, `logger`, `event` and the ids involve
 | INFO | A copy of every audit event (job saved, run created, step dispatched, approval decided, action done …), changing requests (method, path, user, status, ms), engine start, stop, lease taken and standby, a `heartbeat` every 5 minutes from the engine holding the lease (`ticks`, `avg_ms`, `slowest_ms`, `active_runs` now and `peak_runs`, the most at once in the 5 minutes, `jobs`); why something waits, once until the reason changes: `run_waiting` (`reason` held, waiting_for_run or behind, with `by_run`), `step_waiting` (search slots full, with the limits) and `completion_not_fired` (a downstream job disabled, or the run ended the wrong way) |
 | DEBUG | Each engine tick (ms, active runs, jobs), each search status check, every read request and every splunkd call (method, path, owner, status, ms) |
 
-Lines never hold passwords, session keys, tokens, headers, request bodies, webhook URLs or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too (start and stop messages no longer do: splunkd records a modular input's stderr as ERROR), so the Run health dashboard's **Engine health** keeps working; the copies of audit events do not (they are in the audit index already).
+Lines never hold passwords, session keys, tokens, headers, request bodies or search results; long values are cut at 500 characters. Warnings and errors still go to `splunkd.log` too (start and stop messages no longer do: splunkd records a modular input's stderr as ERROR), so the Run health dashboard's **Engine health** keeps working; the copies of audit events do not (they are in the audit index already).
 
 The **Troubleshooting** page (`logs` view) uses four routes, all searching these lines as the caller, so the caller needs read access to `_internal`. Filters: `run_id`, `job_id`, `step_id`, `event`, `process`, `level`, `text`, `range` (15m, 1h, 24h or 7d) and, for lines, `limit` (up to 1000) and `sort` (`newest` or `oldest`).
 
@@ -370,11 +357,10 @@ All routes are under `/services/orchestrator/` (or `/servicesNS/-/search_orchest
 | `jobs/<id>/runs` | POST (start a run: `params`, optional `scheduled_time`; `strict_params: true` refuses undeclared parameters, otherwise they are dropped) |
 | `runs`, `runs/<id>` | GET. `GET runs` takes `q` (part of a job's name, or an exact job ID), `job_id`, `state` and `limit`. |
 | `runs/<id>/pause`, `resume`, `cancel`, `dismiss`, `rerun` | POST |
-| `jobs/<id>/follow` | GET, PUT (`on`: any of `failure`, `late`, `delayed`, `success`; `notify`: `{"type": "email"}` or `{"type": "webhook", "destination"}`), DELETE: the caller's own follow; `GET jobs` adds `following` |
+| `jobs/<id>/follow` | GET, PUT (`on`: any of `failure`, `late`, `delayed`, `success`; `notify`: `{"type": "email"}`), DELETE: the caller's own follow; `GET jobs` adds `following` |
 | `runs/bulk` | POST (`action` `cancel`, `pause`, `resume`, `dismiss`, `rerun`, `approve` or `reject`, `run_ids` 1 to 100, `comment` required to reject; each run is checked as its own route would, so the answer is 200 with `results`: `run_id`, `ok` and, when not, `code` and `message`. A re-run starts from the run's first failed step with the original definition; approve and reject decide every step the run waits on. Audit event `bulk_run_action`) |
 | `runs/<id>/approve` | POST (`step_id`, `decision` `approve` or `reject`, `comment` up to 1000 characters and required to reject; needs `orchestrator_approve`, or the run's starter on a step with no roles; 409 `not_awaiting_approval` when the step isn't waiting or is already decided) |
 | `settings` | GET, PUT (admin) |
-| `destinations`, `destinations/<name>` | GET, POST, DELETE (admin; builders may list) |
 | `health`, `me` | GET (`me` includes `can_approve`) |
 | `selftest` | POST (admin) |
 | `schedule/next` | POST (builders: `cron`, optional `timezone` and `count` 1 to 10; returns the next `slots`, each slot's `utc_offsets`, the `timezone` used or null for server time, and `timezone_status`; with `clashes: true` (and `job_id` to leave out), per slot the other enabled jobs you may see that fire in the same minute) |

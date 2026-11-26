@@ -10,7 +10,7 @@ One ``so_follows`` document per job and user, keyed by a hash of both::
 Email goes to the follower's own Splunk account address, read when it is sent, so nobody can
 point someone else's job at an address of their choosing; it is sent with the fallback
 notification's system search (job name, outcome and run link only, never results). A follow
-saved before 1.50.0 with a webhook destination is told by email too.
+saved before 1.50.1 with a webhook destination is told by email too.
 
 Routes (``api.py``): ``GET``, ``PUT`` and ``DELETE jobs/<id>/follow`` for the caller's own
 follow. The action runner (``actions.py``) adds one ``kind="follow"`` row per matching

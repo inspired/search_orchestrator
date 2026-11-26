@@ -1,6 +1,6 @@
 """Message text for actions and notifications: ``default_message(ctx)`` and ``fill`` for
 templates. (Webhook body presets for Slack, Teams, PagerDuty and ServiceNow were removed in
-1.50.0; an Alert action from the service's own Splunk app does it.)
+1.50.1; an Alert action from the service's own Splunk app does it.)
 
 ``ctx`` keys: ``job``, ``run_id``, ``hook``, ``scope`` (``job`` or ``step``), ``step`` (name or
 None), ``status``, ``run_url``, ``failed`` (list of ``{"step", "url"}``), and for

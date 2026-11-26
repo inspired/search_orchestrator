@@ -1,4 +1,4 @@
-/* Webhook, Slack, Teams, PagerDuty and ServiceNow actions were removed in 1.50.0 (an Alert
+/* Webhook, Slack, Teams, PagerDuty and ServiceNow actions were removed in 1.50.1 (an Alert
  * action from the service's own Splunk app does it). A job saved before still has them: the
  * builder drops them when it opens the job and says so, and saving keeps the job without them.
  * The server refuses a save that still has one, and skips one still in a run. */

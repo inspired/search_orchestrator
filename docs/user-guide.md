@@ -122,7 +122,7 @@ Each kind of node has its own shape and colour. The colour is a stripe on the le
 | **Search**, **Saved search** | rounded corners; a saved search has a second stripe | blue |
 | **Results of earlier steps** | cut corners | teal |
 | **If…** (a condition) | diamond | amber |
-| Notify: **Email**, **Webhook**, **Alert action** | notched right edge | pink |
+| Notify: **Email**, **Alert action** | notched right edge | pink |
 | **Approval** | octagon | amber |
 | Write: **Summary index**, **Lookup**, **Event to an index** | cylinder | orange |
 | **Start another job** | slanted sides | slate |
@@ -297,9 +297,9 @@ With the canvas focused:
 
 ### Slack, Teams, PagerDuty and ServiceNow
 
-These are no longer offered as their own actions. Splunk's own apps for them (such as the Slack, Microsoft Teams and ServiceNow add-ons on Splunkbase) add alert actions, so use an **Alert action** and pick theirs: it gets the same fields as in Splunk's alert editor. One way to send messages means less for the app to keep working.
+Use an **Alert action** and pick the one the service's own Splunk app adds (such as the Slack, Microsoft Teams and ServiceNow add-ons on Splunkbase). It gets the same fields as in Splunk's alert editor.
 
-A job saved before 1.50.0 with a Slack, Teams, PagerDuty or ServiceNow action keeps it, and it still sends; you can change its fields, but a job can't add a new one (the save says to use an Alert action instead).
+Webhook, Slack, Teams, PagerDuty and ServiceNow actions were removed in 1.50.1. A job that still has one drops it when you open it in the builder, with a note: save to keep the change. Until it is saved, the engine skips that action and sends the fallback notification instead.
 
 ### Approval steps
 
@@ -318,7 +318,7 @@ An **Approval** node (an octagon) makes a run wait for a person before going on.
 
 Its fields:
 
-- **Message:** shown to approvers on the run page, up to 500 characters; it takes tokens such as `$run.now$`. An **Asks for approval** action includes it: Slack, Microsoft Teams, PagerDuty (as `approval_message` in the details) and ServiceNow show it, and so does the default email and webhook message.
+- **Message:** shown to approvers on the run page, up to 500 characters; it takes tokens such as `$run.now$`. An **Asks for approval** action includes it: the default email message shows it.
 - **Who may approve:** roles. Members of those roles who also hold `orchestrator_approve` can decide; admins always can. Empty means anyone who may approve runs of the job.
 - **Wait at most:** 5 minutes to 7 days. Empty waits until the step gives up; the builder warns when it is longer than the step's **Give up after**.
 - **If nobody decides:** **Reject** (the default) or **Approve**, when **Wait at most** runs out.
@@ -473,12 +473,11 @@ There are two kinds of action:
 - **A step's actions** are nodes on the Flow tab. Drag a line to one from the step's **+** handle; the line's outcome says when it fires (Starts, Succeeds, Fails, Finishes either way or Is delayed). An action's **When** field moves its line, to another step or outcome, from the keyboard.
 - **The whole job's actions** are on the **Job actions** tab, next to Flow: **Add job action**, then pick **When** (the job fails, succeeds, finishes either way, starts, a step is delayed, or the job misses its deadline) and what it does. They fire once for the whole run.
 
-- **Webhook** to a destination your admin set up. For Slack, Teams, PagerDuty or ServiceNow, use an **Alert action** from their Splunk app (see [Slack, Teams, PagerDuty and ServiceNow](#slack-teams-pagerduty-and-servicenow)).
 - **Email**, **event to an index**, **start another job**, or **any installed alert action**. Pick the alert action from the list, which shows the enabled custom alert actions this app can use. Built-in actions such as email can't run this way. Its parameters then appear as labelled fields, taken from the form the action shows in Splunk's alert editor. A field left empty uses the action's own default. **Other parameters** takes anything the form doesn't list, one `name=value` per line; an action with no form or settings has only this box.
 
-Action messages (email subject and message, webhook body, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Webhook bodies are JSON-encoded after filling, and values sent to email, event and alert actions are escaped.
+Action messages (email subject and message, event payload and alert action parameters) take the tokens above, filled in when the action is sent, for example an email subject of `Daily rows: $daily.resultCount$`. A token with no value uses its default (`$weekly.sid|none$`) or is left empty. They also take `{{job}}`, `{{run_id}}`, `{{hook}}`, `{{step}}`, `{{status}}`, `{{run_url}}` and `{{message}}` (the default message). Values sent to email, event and alert actions are escaped.
 
-**Retries.** When sending fails for a reason that may pass (a mail server or webhook that is down), an action is tried again: 3 times by default, waiting 30 s, then 1 and 2 minutes. An action's **Retries** (0 to 10) and **First wait** (10 seconds to 1 hour, doubling each time, at most an hour) change that; the panel spells out the waits. Errors that won't go away, such as a 404 or a missing destination, fail at once.
+**Retries.** When sending fails for a reason that may pass (a mail server that is down), an action is tried again: 3 times by default, waiting 30 s, then 1 and 2 minutes. An action's **Retries** (0 to 10) and **First wait** (10 seconds to 1 hour, doubling each time, at most an hour) change that; the panel spells out the waits. Errors that won't go away, such as a missing alert action, fail at once.
 
 An action failing never changes the run's outcome; it shows on the run's Actions tab. If a job has no failure or delay action, your admin's fallback notification is used.
 
@@ -630,7 +629,7 @@ Give a job up to 10 tags (team, system, environment) in the builder's **Settings
 Choose **Follow…** in a job's **⋯** menu to be told about it without changing the job; anyone who can see the job may follow it.
 
 - **Tell me when:** it fails, it misses its deadline, a step is delayed, or it succeeds.
-- **How:** an email to the address on your own Splunk account, or (builders) a webhook destination such as Slack.
+- **How:** an email to the address on your own Splunk account.
 - The message names the job, what happened and links to the run; it never carries results.
 - A bell next to the name shows the jobs you follow. **Following…** in the same menu changes what you are told, or **Unfollow** stops it.
 - If you can no longer see the job, or your account has no email address, nothing is sent and the run's Actions tab says why.
@@ -764,7 +763,7 @@ Retries and re-runs run a search again. If the search writes with `collect` or s
   - Point at a graph to show its action bar, under the panel at the right as in Dashboard Studio; the magnifying glass opens the graph's search (the base search and its chain together) in Search in a new tab, as in Dashboard Studio. Graphs refresh every 10 seconds while **Live** is on.
   - The lists (slowest routes, Splunk calls, events) have an **Open in Search** link under them.
   - Small columns at night are half hours with few lines, such as the engine's heartbeat and hourly jobs; point at one for its numbers.
-- **What happened:** every line in words, such as "Webhook failed after 3 tries: HTTP 404 Not Found" or "alice could not load the runs list: KV Store was still starting up", with the job, run and step by name, who did it and the result.
+- **What happened:** every line in words, such as "Email failed after 3 tries: mail server refused the connection" or "alice could not load the runs list: KV Store was still starting up", with the job, run and step by name, who did it and the result.
   - Technical errors are said plainly ("KV Store was still starting up", "Splunk could not reach its mail server", "Splunk was not answering"); the line as written, with Splunk's own message, is in its details. **Problems** uses the same words.
   - The **Level** is coloured as in the graphs, with an icon and a word.
   - Expand a line for **Why** and **What to do** (for known failures), every field, the traceback and the line as written, with links to the run, its story, lines like it and Search.
@@ -799,7 +798,7 @@ Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Trig
 - They live in `_internal`, one file per process: `search_orchestrator.engine.log` and `search_orchestrator.rest.log` in `$SPLUNK_HOME/var/log/splunk`.
 - Each is `key=value` fields: `level`, `process`, `event`, `run_id`, `job_id`, `step_id`, `user`, `ms` and more.
 - Example: `index=_internal source="*search_orchestrator.*.log" run_id="daily:1764547200"`. Inside the app, the `orchestrator_logs` macro gives the first part.
-- Reading them needs read access to `_internal`, which admins have. They never hold passwords, tokens, webhook URLs or search results.
+- Reading them needs read access to `_internal`, which admins have. They never hold passwords, tokens or search results.
 
 ### Run health
 
@@ -808,7 +807,7 @@ Once on, each adds a Triggered Alert (**Activity > Triggered Alerts**, or **Trig
 - **Tiles:** runs, succeeded, failed, held or blocked, the success rate of finished runs, the median run, late runs and when the engine was last seen (red after 5 minutes). A tone always has an icon and a word, never colour alone.
 - **Runs:** runs over time, stacked by state, and **Runs that need attention** (failed, held and blocked, newest first, with the last step error and a link to the run). A run counts by its latest state; **held** is a failed run that keeps later runs of its job waiting.
 - **Steps:** the steps that fail most, with the latest error, and the slowest steps (median and 95th percentile, and how many runs found the step delayed). Durations are measured to within one engine tick.
-- **Actions:** sent and failed actions per type (email, webhook, Slack, event, alert action, start job, fallback notification), and the latest failures.
+- **Actions:** sent and failed actions per type (email, event, alert action, start job, fallback notification), and the latest failures.
 - **Late runs:** runs that passed their deadline, by how much, and their state.
 - **Engine:** errors, warnings and Python tracebacks from the app's scripts in `_internal`.
 - **Performance:** median runtime and events scanned per job over time, the slowest steps by runtime, and peak CPU and memory per job. They come from the numbers stored on step attempts (none for runs from before 1.23.0); CPU and memory need `_introspection`.
@@ -872,7 +871,6 @@ The app keeps its own records in KV Store and runs every search through saved se
 | Jobs and their saved versions, runs, step attempts, action rows, commands from the pages, the engine lease, settings, backfills, snippets, follows, self-test scratch | KV Store, 12 collections named `so_*`. Only `admin` and `sc_admin` can read or write them directly; everything else goes through the app. |
 | Each search a job runs: steps, SPL conditions on lines, search actions | Hidden saved searches owned by the job owner (below) |
 | Search results | Splunk's own search jobs. Later steps read them by search ID with `loadjob`, so they last only as long as Splunk keeps the search job. |
-| Webhook URLs and headers | Splunk's password store (`storage/passwords`, realm `search_orchestrator`), never KV Store or logs |
 | Audit events | `index=_audit sourcetype=orchestrator:audit` (admins only, unless an admin gives your role `_audit`) |
 | The app's log | `_internal`, `search_orchestrator.*.log` |
 
@@ -886,6 +884,7 @@ The app keeps its own records in KV Store and runs every search through saved se
 | SPL condition on a line | `_so_<job>_cond_<hash>` | |
 | Email, event and alert actions | `_so_<job>_action_<n>_<hash>` | |
 | Fallback email | `_so_fallback_email` | Shipped with the app, owned by `nobody`. |
+| Fallback alert action | `_so_fallback_alert` | Written when an admin saves an alert-action fallback, owned by `nobody`. |
 | Self-test | `_so_so_selftest_...` | Written by `\| orchestrate selftest`. |
 
 - **Private and owned by the job owner,** in this app. Their description says which job and step they belong to ("Search Orchestrator job `<job>`, step `<step>`"). A step therefore runs with the owner's permissions.
