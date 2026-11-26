@@ -305,6 +305,27 @@ def test_fallback_email_uses_system_search_as_nobody():
     assert d["args"]["to"] == "me@example.com"
 
 
+def test_fallback_email_runs_the_apps_own_shared_search():
+    # As Splunk has it: owned by nobody, shared in this app (default/savedsearches.conf). The
+    # check for a replaced private search must not refuse it.
+    w = W(settings={"fallback": {"type": "email", "to": "me@example.com"}})
+    w.gw.upsert_saved_search("nobody", "_so_fallback_email", "| makeresults", "", "")
+    w.gw.saved_searches[("nobody", "_so_fallback_email")]["sharing"] = "app"
+    w.submit("on_failure", "job")
+    w.pump()
+    assert [d["name"] for d in w.gw.dispatch_log] == ["_so_fallback_email"]
+
+
+def test_fallback_search_from_another_app_is_not_run():
+    w = W(settings={"fallback": {"type": "email", "to": "me@example.com"}})
+    w.gw.upsert_saved_search("nobody", "_so_fallback_email", "| makeresults", "", "")
+    w.gw.saved_searches[("nobody", "_so_fallback_email")].update(sharing="global", app="evil")
+    w.submit("on_failure", "job")
+    w.pump()
+    assert not w.gw.dispatch_log
+    assert "_so_fallback_email" in w.rows(kind="fallback")[0]["error"]
+
+
 def test_fallback_when_action_exhausted():
     w = W(actions=[WEBHOOK], settings=FALLBACK)
     w.gw.secrets["ops_url"] = "http://bad.example.com/x"

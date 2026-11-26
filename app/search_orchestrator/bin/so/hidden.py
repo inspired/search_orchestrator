@@ -333,11 +333,19 @@ def apply(gw, planned, searches, previous, record=None):
 
 def not_private_problem(gw, owner, name):
     """Re-check an app-created hidden search right before the system session dispatches
-    it by name in ``owner``'s namespace: if it was deleted, another user's shared search
+    it by name in ``owner``'s namespace (for ``nobody``: one of the app's own system searches): if it was deleted, another user's shared search
     with the same name would run instead. The problem text, or None when it is the
     owner's private search or not found at all (the dispatch then fails with a 404 and
     says to re-save). A ``GatewayError`` is raised to the caller."""
     info = gw.saved_search_info(owner, name)
+    if owner == FALLBACK_OWNER:
+        # The app's own system searches (the fallback email, the fallback alert action): owned
+        # by nobody and shared in this app, never another app's search of the same name.
+        from .gateway import APP
+        if not info.get("exists") or (info.get("owner") == owner and info.get("app") == APP):
+            return None
+        return ("saved search %r is not this app's own (owner %s, app %s), so it was not run"
+                % (name, info.get("owner"), info.get("app")))
     if not info.get("exists") or (info.get("owner") == owner and info.get("sharing") == "user"):
         return None
     return ("hidden saved search %r is no longer a private search of %s (owner %s, sharing "
