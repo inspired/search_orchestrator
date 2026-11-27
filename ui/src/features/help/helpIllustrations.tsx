@@ -4,7 +4,7 @@ import React from 'react';
 import Architecture from './Architecture';
 import { Bars, Chips, Code, Figure, Flow, MiniCalendar, MiniTable, Notes, Panel } from './illustrationKit';
 import ExampleDiagram from '../jobs/ExampleDiagram';
-import { EXAMPLE_JOBS, GROUPS } from '../jobs/examples';
+import { EXAMPLE_JOBS, VIEWS } from '../jobs/examples';
 
 const n = (id: string, f: Parameters<typeof Flow>[0]['nodes'][number]['f'], label: string, x: number, y: number, extra: Partial<Parameters<typeof Flow>[0]['nodes'][number]> = {}) => ({
     id,
@@ -16,6 +16,31 @@ const n = (id: string, f: Parameters<typeof Flow>[0]['nodes'][number]['f'], labe
 });
 
 export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
+    'get-started': () => (
+        <Figure caption="Start here: the words, six example jobs and where help is.">
+            <Notes items={['Words used', 'Example jobs', 'Help in the app']} />
+        </Figure>
+    ),
+    'steps-and-searches': () => (
+        <Figure caption="A step runs a search, reads earlier steps, writes results or waits for a person.">
+            <Notes items={['Search and Saved search', 'Results of earlier steps', 'Summary index and Lookup', 'Approval (Beta)']} />
+        </Figure>
+    ),
+    'conditions-tokens-and-parameters': () => (
+        <Figure caption="Decide what runs next, and pass values between steps.">
+            <Notes items={['If… conditions', '$tokens$', 'Run parameters']} />
+        </Figure>
+    ),
+    'triggers-and-deadlines': () => (
+        <Figure caption="What starts a job, who may start it, and when it must be done.">
+            <Notes items={['Schedules and other triggers', 'Finish by / within', 'Who may run', 'When a step gives up']} />
+        </Figure>
+    ),
+    'notifications': () => (
+        <Figure caption="Tell people what happened: email, any alert action, or follow a job.">
+            <Notes items={['Email', 'Alert action (Slack, Teams, ServiceNow apps)', 'Follow a job']} />
+        </Figure>
+    ),
     'words-used': () => (
         <Figure caption="A job is a flow of steps; a run is one time it ran; each step runs one search.">
             <Flow
@@ -32,12 +57,12 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'example-jobs': () => (
-        <Figure caption="Browse examples: 18 jobs in five tabs, each drawn as its flow; Add brings along the examples it starts or follows.">
+        <Figure caption="Browse examples: 6 jobs on one page, from Simple to Advanced, each drawn as its flow and opened in its view; Add brings along the examples it starts or follows.">
             <div style={{ flex: '1 1 320px', minWidth: 0 }}>
                 <ExampleDiagram job={EXAMPLE_JOBS.find((e) => e.job.id === 'example_condition')!.job} title="Investigate only when errors were found" height={110} />
             </div>
             <Chips
-                items={GROUPS.map((g) => ({ text: `${g.label} (${EXAMPLE_JOBS.filter((e) => e.group === g.id).length})`, tone: 'muted' as const }))}
+                items={VIEWS.map((v) => ({ text: `${v.label} (${EXAMPLE_JOBS.filter((e) => e.view === v.id).length})`, tone: 'muted' as const }))}
             />
         </Figure>
     ),
@@ -108,21 +133,9 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
-    slack: () => (
-        <Figure caption="A Webhook node with the Slack preset posts a message when its hook fires.">
-            <Panel title="Webhook" rows={[['Destination', 'slack-ops'], ['Preset', 'Slack'], ['When', '✗ Job fails']]} />
-            <Panel title="#ops" rows={[['Search Orchestrator', 'Daily summary failed: step export_stats'], ['', '[Open run]']]} />
-        </Figure>
-    ),
-    'microsoft-teams-pagerduty-and-servicenow': () => (
-        <Figure caption="Presets fill the right body for each service; PagerDuty takes a severity, ServiceNow an urgency and impact.">
-            <Chips
-                items={[
-                    { text: 'Microsoft Teams · its own message format', tone: 'info' },
-                    { text: 'PagerDuty · severity critical/error/warning/info', tone: 'bad' },
-                    { text: 'ServiceNow · urgency 1–3, impact 1–3', tone: 'warn' },
-                ]}
-            />
+    'slack-teams-pagerduty-and-servicenow': () => (
+        <Figure caption="Use an Alert action from Splunk's own Slack, Teams or ServiceNow app; the old built-in Slack, Teams, PagerDuty, ServiceNow and Webhook actions are gone.">
+            <Panel title="Alert action" rows={[['Action', 'Slack (from its Splunk app)'], ['Channel', '#ops'], ['When', '✗ Job fails']]} />
         </Figure>
     ),
     'approval-steps': () => (
@@ -233,10 +246,10 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
     actions: () => (
         <Figure caption="A step's actions are nodes on its outcome lines; the whole job's actions (fails, succeeds, is late) are on the Job actions tab.">
             <Flow
-                label="A step with an email on failure and a webhook when delayed"
+                label="A step with an email on failure and an alert action when delayed"
                 width={460}
                 height={120}
-                nodes={[n('a', 'search', 'Export', 0, 40), n('e', 'notify', 'Email ops', 300, 0), n('w', 'notify', 'Webhook', 300, 80)]}
+                nodes={[n('a', 'search', 'Export', 0, 40), n('e', 'notify', 'Email ops', 300, 0), n('w', 'notify', 'Alert action', 300, 80)]}
                 lines={[
                     { from: 'a', to: 'e', port: 'failure', label: '✗ Fails' },
                     { from: 'a', to: 'w', port: 'delayed', label: '⏱ Delayed' },
@@ -355,7 +368,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'follow-a-job': () => (
-        <Figure caption="Follow a job to be told when it fails or is late, by email to yourself or through a webhook, without editing it.">
+        <Figure caption="Follow a job to be told when it fails or is late, by email to yourself, without editing it.">
             <Panel title="Follow Daily logins" rows={[['Tell me when', '☑ It fails  ☑ It misses its deadline'], ['', '☐ A step is delayed  ☐ It succeeds'], ['How', 'Email me (you@example.com) ▾'], ['', '[Follow]']]} width={320} />
         </Figure>
     ),
@@ -415,8 +428,8 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
             />
         </Figure>
     ),
-    'run-health-dashboard': () => (
-        <Figure caption="Run health: runs, failures and late runs over time, from the audit index and _internal.">
+    'run-health': () => (
+        <Figure caption="Run health: tiles for runs, failures, late runs and the engine, then a section each for runs, steps, actions, late runs, the engine and performance.">
             <Chips
                 items={[
                     { text: '1 204 runs', tone: 'info' },
@@ -522,7 +535,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'audit-events': () => (
-        <Figure caption="Everything is written to index=orchestrator, one event per change.">
+        <Figure caption="Everything is written to index=_audit (sourcetype orchestrator:audit), one event per change.">
             <MiniTable
                 head={['_time', 'type', 'job_id', 'user']}
                 rows={[
@@ -548,7 +561,7 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
                 rows={[
                     ['10:02:01', 'Warning', 'Daily logins missed 4 scheduled runs: nothing checked the schedule for 11 min', 'Daily logins'],
                     ['10:01:00', 'Warning', 'Scheduled run at 10:01 skipped: the job is disabled', 'Weekly rollup'],
-                    ['10:00:05', 'Error', 'Webhook failed after 3 tries: HTTP 404', 'Daily logins'],
+                    ['10:00:05', 'Error', 'Email failed after 3 tries: mail server refused the connection', 'Daily logins'],
                     ['10:00:00', 'Info', 'Run waits for run daily:cron:1 to finish (running)', 'Daily logins'],
                     ['09:58:00', 'Detail', 'Engine is alive: 60 ticks in the last 5 minutes, the slowest 42 ms', ''],
                 ]}
@@ -556,6 +569,51 @@ export const ILLUSTRATIONS: Record<string, () => React.ReactElement> = {
         </Figure>
     ),
     'how-it-works': Architecture,
+    'what-the-app-stores': () => (
+        <Figure caption="Jobs and runs are kept in KV Store; each search a job runs is a hidden saved search named _so_…, left out of Reports but listed in Settings > Searches, reports, and alerts.">
+            <MiniTable
+                head={['Kept', 'Where']}
+                rows={[
+                    ['Jobs, versions, runs', 'KV Store, so_* collections'],
+                    ['Each step, condition and action search', 'Hidden saved search _so_<job>_<step>_<hash>'],
+                    ['Search results', "Splunk's search jobs"],
+                    ['Audit events', 'index=_audit, admins only by default'],
+                ]}
+            />
+            <MiniTable
+                head={['Page', 'Shows the _so_ searches']}
+                rows={[
+                    ['Reports', 'No'],
+                    ['Settings > Searches, reports, and alerts', 'Yes'],
+                ]}
+            />
+        </Figure>
+    ),
+    'its-own-scheduler': () => (
+        <Figure caption="The app's engine is the scheduler: it starts each step's search itself, as the job owner, so Splunk's scheduler never sees the jobs.">
+            <MiniTable
+                head={['', "Splunk's scheduler", 'This app']}
+                rows={[
+                    ['Decides when', 'The cron schedule', "The job's triggers and lines"],
+                    ['Search slots', "The scheduler's share", 'The whole limit, shared'],
+                    ['When Splunk is full', 'Skipped', 'Waits, starts later'],
+                    ["Owner's quotas", 'Apply', 'Apply (searches and disk)'],
+                ]}
+            />
+        </Figure>
+    ),
+    'search-slots': () => (
+        <Figure caption="Jobs share Splunk's whole search limit with people's own searches; Runs → Timeline shows every Splunk search against that limit.">
+            <MiniTable
+                head={['Uses the slots', 'Of']}
+                rows={[
+                    ['Scheduled searches', "The scheduler's share (50%)"],
+                    ["This app's searches", 'The whole limit'],
+                    ["People's searches and dashboards", 'The whole limit'],
+                ]}
+            />
+        </Figure>
+    ),
     'help-in-the-app': () => (
         <Figure caption="Learn more links beside fields open the matching section of this page.">
             <Panel title="Conditions" rows={[['Check', 'SPL expression ▾'], ['', '[Learn more about conditions]']]} />

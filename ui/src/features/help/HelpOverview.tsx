@@ -40,7 +40,7 @@ export const FEATURES: FeatureCard[] = [
     { title: 'Parameters', text: 'Lists, numbers and text you pick on Run now; defaults for schedules.', anchor: 'parameters', Icon: Bookmark },
     { title: 'Approval steps', text: 'Pause a run until someone approves, with a timeout and approver roles.', anchor: 'approval-steps', Icon: Shield },
     { title: 'Deadlines', text: 'Finish by a time or within a duration, or get a Late alert.', anchor: 'deadline', Icon: Hourglass },
-    { title: 'Teams, PagerDuty, ServiceNow', text: 'Webhook presets with severity, urgency and impact.', anchor: 'microsoft-teams-pagerduty-and-servicenow', Icon: Megaphone },
+    { title: 'Slack, Teams, ServiceNow', text: 'Use an Alert action from their Splunk app.', anchor: 'slack-teams-pagerduty-and-servicenow', Icon: Megaphone },
     { title: 'Backfill', text: 'Run a job for each missed schedule slot in a past range.', anchor: 'backfill', Icon: ArrowClockwise },
     { title: 'Calendar', text: 'Day, week and month views of schedules, runs and backfills.', anchor: 'calendar', Icon: Calendar },
     { title: 'Dependencies', text: 'Which jobs start which, drawn as one graph.', anchor: 'dependencies', Icon: LayersTriple },
@@ -48,14 +48,15 @@ export const FEATURES: FeatureCard[] = [
     { title: 'Snippets', text: 'Save nodes as a reusable sub-flow and insert them anywhere.', anchor: 'snippets', Icon: PuzzlePiece },
     { title: 'Run graph', text: 'Watch a run live: active steps pulse and lines flow.', anchor: 'the-run-graph', Icon: Pulse },
     { title: 'Performance', text: 'Runtime, events scanned, disk, CPU and memory per step.', anchor: 'performance', Icon: Stopwatch },
-    { title: 'Run health', text: 'A dashboard from the audit index and _internal.', anchor: 'run-health-dashboard', Icon: ChartGauge },
+    { title: 'Run health', text: 'How the jobs are doing, from the audit index and _internal.', anchor: 'run-health', Icon: ChartGauge },
     { title: '| orchestrate', text: 'Start, check and test jobs from a search.', anchor: 'the--orchestrate-command', Icon: Magnifier },
     { title: 'Troubleshooting', text: 'What the app logged, by run, step and level; the log level is in Settings.', anchor: 'troubleshooting', Icon: Filter },
     { title: 'How it works', text: 'A drawing of every part of the app and how they call each other.', anchor: 'how-it-works', Icon: NodeConnection },
+    { title: 'Its own scheduler', text: "Jobs don't use Splunk's scheduler: what that means for search slots and quotas.", anchor: 'its-own-scheduler', Icon: Stopwatch },
 ];
 
 const STEPS = [
-    { n: 1, title: 'Create a job', text: 'Jobs → Create job, or Browse examples to start from one of eleven.' },
+    { n: 1, title: 'Create a job', text: 'Jobs → Create job, or Browse examples to start from one of six.' },
     { n: 2, title: 'Connect nodes', text: 'Point at a node, click + and pick what happens next.' },
     { n: 3, title: 'Preview and save', text: 'Preview runs each search for real; Save checks the whole flow.' },
     { n: 4, title: 'Run and follow', text: 'Run now, then watch the run graph and the Calendar.' },

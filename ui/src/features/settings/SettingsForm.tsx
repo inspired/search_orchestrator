@@ -10,7 +10,9 @@ import RadioList from '@splunk/react-ui/RadioList';
 import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
-import type { Destination, Settings } from '../../api/types';
+import TextArea from '@splunk/react-ui/TextArea';
+import type { AlertAction, Settings } from '../../api/types';
+import { formatPairs, parsePairs } from '../builder/ActionsEditor';
 import BetaTag from '../builder/BetaTag';
 import { ALWAYS_ON, CATALOG, isBeta } from '../builder/nodeCatalog';
 import { STEP_KINDS } from '../builder/nodeModel';
@@ -77,15 +79,15 @@ export const INT_FIELDS: IntField[] = [
     },
 ];
 
-type FallbackType = 'none' | 'email' | 'webhook';
+type FallbackType = 'none' | 'email' | 'alert_action';
 
 export interface Draft {
     ints: Record<string, string>;
     fallbackType: FallbackType;
     email: string;
-    destination: string;
-    /** A webhook fallback's body preset; the page doesn't edit it, but keeps it. */
-    preset: string;
+    /** An alert-action fallback: the action's name and its parameters as name=value lines. */
+    alertAction: string;
+    alertParams: string;
     baseUrl: string;
     logLevel: LogLevel;
     /** Events scanned limit, as typed; empty is no limit. */
@@ -114,8 +116,8 @@ function toDraft(s: Settings): Draft {
         ints,
         fallbackType: fb ? fb.type : 'none',
         email: fb && fb.type === 'email' ? fb.to : '',
-        destination: fb && fb.type === 'webhook' ? fb.destination : '',
-        preset: (fb && fb.type === 'webhook' && fb.preset) || '',
+        alertAction: fb && fb.type === 'alert_action' ? fb.action : '',
+        alertParams: fb && fb.type === 'alert_action' ? formatPairs(fb.params || {}) : '',
         baseUrl: s.base_url || '',
         logLevel: ((s.log_level as string) || 'INFO').toUpperCase() as LogLevel,
         scanLimit: typeof s.scan_limit === 'number' && s.scan_limit > 0 ? String(s.scan_limit) : '',
@@ -140,10 +142,8 @@ function fallbackOf(d: Draft): Settings['fallback'] {
     if (d.fallbackType === 'email') {
         return { type: 'email', to: d.email.trim() };
     }
-    if (d.fallbackType === 'webhook') {
-        return d.preset
-            ? { type: 'webhook', destination: d.destination, preset: d.preset }
-            : { type: 'webhook', destination: d.destination };
+    if (d.fallbackType === 'alert_action') {
+        return { type: 'alert_action', action: d.alertAction, params: parsePairs(d.alertParams) };
     }
     return null;
 }
@@ -182,11 +182,12 @@ export function changes(original: Settings, d: Draft): Partial<Settings> {
 
 export interface SettingsFormProps {
     settings: Settings;
-    destinations: Destination[];
+    /** The alert actions an admin may pick for the fallback (null while they load). */
+    alertActions?: AlertAction[] | null;
     onSave: (changes: Partial<Settings>) => Promise<unknown>;
 }
 
-export default function SettingsForm({ settings, destinations, onSave }: SettingsFormProps) {
+export default function SettingsForm({ settings, alertActions = null, onSave }: SettingsFormProps) {
     const [draft, setDraft] = useState<Draft>(() => toDraft(settings));
     const [error, setError] = useState<string | null>(null);
     const [saved, setSaved] = useState(false);
@@ -210,7 +211,7 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
     const emailError =
         draft.fallbackType === 'email' && !draft.email.includes('@') ? 'Enter an email address.' : null;
     const destError =
-        draft.fallbackType === 'webhook' && !draft.destination ? 'Choose a webhook destination.' : null;
+        draft.fallbackType === 'alert_action' && !draft.alertAction ? 'Choose an alert action.' : null;
     const scanText = draft.scanLimit.replace(/[\s,]/g, '');
     const scanError = scanText && (!/^\d+$/.test(scanText) || parseInt(scanText, 10) < 1) ? 'Enter a whole number of events, or leave it empty for no limit.' : null;
     const invalid = Object.values(errors).some(Boolean) || Boolean(emailError) || Boolean(destError) || Boolean(scanError);
@@ -343,9 +344,7 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
             >
                 <RadioList.Option value="none">None</RadioList.Option>
                 <RadioList.Option value="email">Email</RadioList.Option>
-                <RadioList.Option value="webhook" disabled={destinations.length === 0}>
-                    Webhook destination
-                </RadioList.Option>
+                <RadioList.Option value="alert_action">Alert action</RadioList.Option>
             </RadioList>
             {draft.fallbackType === 'email' && (
                 <ControlGroup
@@ -363,24 +362,36 @@ export default function SettingsForm({ settings, destinations, onSave }: Setting
                     />
                 </ControlGroup>
             )}
-            {draft.fallbackType === 'webhook' && (
-                <ControlGroup
-                    label="Destination"
-                    labelFor="settings-fallback-dest"
-                    labelPosition="top"
-                    help={destError || undefined}
-                    error={Boolean(destError)}
-                >
-                    <Select
-                        inputId="settings-fallback-dest"
-                        value={draft.destination}
-                        onChange={(_e: unknown, { value }: { value: unknown }) => set({ destination: String(value) })}
+            {draft.fallbackType === 'alert_action' && (
+                <>
+                    <ControlGroup
+                        label="Alert action"
+                        labelFor="settings-fallback-action"
+                        labelPosition="top"
+                        help={destError || 'Any alert action installed in Splunk, such as the one from the Slack, Microsoft Teams or ServiceNow app. It runs as the system, not as a job owner.'}
+                        error={Boolean(destError)}
                     >
-                        {destinations.map((d) => (
-                            <Select.Option key={d.name} label={d.name} value={d.name} />
-                        ))}
-                    </Select>
-                </ControlGroup>
+                        <Select
+                            inputId="settings-fallback-action"
+                            value={draft.alertAction}
+                            placeholder={alertActions === null ? 'Loading…' : 'Pick an alert action'}
+                            onChange={(_e: unknown, { value }: { value: unknown }) => set({ alertAction: String(value) })}
+                        >
+                            {(alertActions || []).map((a) => (
+                                <Select.Option key={a.name} label={a.label || a.name} value={a.name} />
+                            ))}
+                            {draft.alertAction && !(alertActions || []).some((a) => a.name === draft.alertAction) && <Select.Option label={draft.alertAction} value={draft.alertAction} />}
+                        </Select>
+                    </ControlGroup>
+                    <ControlGroup
+                        label="Parameters"
+                        labelFor="settings-fallback-params"
+                        labelPosition="top"
+                        help="One name=value per line, as the action's own settings (for example channel=#ops). Values may use {{job}}, {{hook}}, {{status}}, {{run_url}} and {{message}}."
+                    >
+                        <TextArea inputId="settings-fallback-params" value={draft.alertParams} onChange={(_e: unknown, { value }: { value: string }) => set({ alertParams: value })} />
+                    </ControlGroup>
+                </>
             )}
 
             <Heading level={2}>Links</Heading>

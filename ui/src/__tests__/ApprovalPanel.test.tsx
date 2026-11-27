@@ -99,7 +99,6 @@ describe('ApprovalPanel', () => {
                     onSelect={jest.fn()}
                     onRequestRemove={jest.fn()}
                     onOpenSettings={jest.fn()}
-                    destinations={[]}
                     alertActions={[]}
                     jobs={[]}
                     previewFields={{}}

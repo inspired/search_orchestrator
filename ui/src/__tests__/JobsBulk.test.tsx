@@ -12,7 +12,7 @@ function bulkApi(over: Partial<JobsBulkApi> = {}): JobsBulkApi {
     return {
         startRun: jest.fn(() => Promise.resolve()),
         setJobEnabled: jest.fn(() => Promise.resolve()),
-        updateJob: jest.fn(() => Promise.resolve()),
+        addTags: jest.fn(() => Promise.resolve()),
         deleteJob: jest.fn(() => Promise.resolve()),
         onDone: jest.fn(),
         ...over,
@@ -22,8 +22,8 @@ function bulkApi(over: Partial<JobsBulkApi> = {}): JobsBulkApi {
 const row = (name: string) => screen.getAllByRole('row').find((r) => within(r).queryByText(name)) as HTMLElement;
 const tick = (name: string) => fireEvent.click(within(row(name)).getByRole('checkbox'));
 
-function show(bulk: JobsBulkApi, onExport = jest.fn()) {
-    renderThemed(<JobsTable jobs={jobs} me={me} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onExport={onExport} bulk={bulk} />);
+function show(bulk: JobsBulkApi, onExport = jest.fn(), who: typeof me | null = me) {
+    renderThemed(<JobsTable jobs={jobs} me={who} onRunNow={jest.fn()} onToggleEnabled={jest.fn()} onExport={onExport} bulk={bulk} />);
     return onExport;
 }
 
@@ -80,7 +80,7 @@ describe('Jobs bulk actions', () => {
         await waitFor(() => expect(api.deleteJob).toHaveBeenCalledWith('a'));
     });
 
-    test('Add tag adds it to your own jobs', async () => {
+    test('Add tag changes only the tags, on every job you may edit, whoever owns it', async () => {
         const api = bulkApi();
         show(api);
         tick('Alpha');
@@ -89,9 +89,23 @@ describe('Jobs bulk actions', () => {
         fireEvent.click(within(bar).getByRole('button', { name: 'Add tag' }));
         fireEvent.change(within(bar).getByRole('textbox', { name: 'Tag' }), { target: { value: 'nightly' } });
         fireEvent.click(within(bar).getByRole('button', { name: 'Add' }));
-        await waitFor(() => expect(api.updateJob).toHaveBeenCalledTimes(1));
-        expect(api.updateJob).toHaveBeenCalledWith('a', expect.objectContaining({ tags: ['nightly'] }));
-        expect(await screen.findByText('Skipped Beta: owned by bob; adding a tag would make you its owner.')).toBeInTheDocument();
+        await waitFor(() => expect(api.addTags).toHaveBeenCalledTimes(2));
+        expect(api.addTags).toHaveBeenCalledWith('a', ['nightly']);
+        expect(api.addTags).toHaveBeenCalledWith('b', ['nightly']);
+        expect(await screen.findByText('Tagged 2 jobs nightly.')).toBeInTheDocument();
+    });
+
+    test('the result is a warning when jobs were skipped or failed, and info when nothing was done', async () => {
+        const api = bulkApi();
+        show(api);
+        tick('Alpha');
+        tick('Beta');
+        fireEvent.click(within(screen.getByTestId('jobs-bulk')).getByRole('button', { name: 'Disable' }));
+        expect(await screen.findByTestId('jobs-bulk-result')).toHaveAttribute('data-tone', 'warning');
+        fireEvent.click(within(row('Beta')).getByRole('checkbox'));
+        fireEvent.click(within(screen.getByTestId('jobs-bulk')).getByRole('button', { name: 'Enable' }));
+        await waitFor(() => expect(screen.getByTestId('jobs-bulk-result')).toHaveAttribute('data-tone', 'success'));
+        expect(api.setJobEnabled).toHaveBeenLastCalledWith('b', true);
     });
 
     test('Export downloads the selected jobs', () => {

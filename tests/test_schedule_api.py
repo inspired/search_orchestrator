@@ -168,3 +168,9 @@ def test_preview_monthly_window_is_around_the_next_run(w):
     assert [r["start"] for r in out["schedules"][0]["runs"]] == [nxt]
     soon = w.call("alice", "POST", "/orchestrator/schedule/preview", {"job": cron_job("m", "0 2 3 * *")})[1]
     assert soon["from"] == T0
+
+
+def test_no_orchestrator_capability_is_403(w):
+    # dave has no capability of this app (test_api's World).
+    assert w.call("dave", "GET", "/orchestrator/schedule")[0] == 403
+    assert w.call("carol", "GET", "/orchestrator/schedule")[0] == 200

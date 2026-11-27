@@ -3,12 +3,14 @@ import type { Action, Issue, JobDefinition } from '../../api/types';
 import type { TabId } from './JobTabs';
 import { actionKey, condKey, stepKey, triggerKey } from './nodeModel';
 import type { BuilderView } from '../simple/useBuilderView';
+import type { FlowSelection } from './selection';
+import { lineKey } from './standardGraph';
 
 /** Warnings about the jobs a job starts (a whole-job Start job action). */
 const JOB_LINK_CODES = ['missing_target_job', 'disabled_target_job'];
 
 const TRIGGER_CODES = ['bad_cron', 'bad_trigger', 'job_chain_cycle'];
-const ACTION_CODES = ['bad_action', 'unknown_destination', 'no_failure_notification'];
+const ACTION_CODES = ['bad_action', 'action_removed', 'no_failure_notification'];
 const EXPRESSION_CODES = ['bad_expression', 'unknown_token', 'condition_writes'];
 const SETTINGS_CODES = ['bad_timezone', 'timezone_fallback', 'bad_deadline'];
 
@@ -48,7 +50,6 @@ function conditionFor(job: JobDefinition, issue: Issue, step: string): string | 
 /** The field each action type cannot leave empty (mirrors the server's check). */
 const REQUIRED_FIELD: Record<string, string> = {
     email: 'to',
-    webhook: 'destination',
     event: 'index',
     alert_action: 'action',
     start_job: 'job',
@@ -74,14 +75,14 @@ const actionsIn = (job: JobDefinition, scope: string): Action[] =>
  * destination the message names, else the first of the kind the message names with its
  * required field empty, else the first with any required field empty. */
 function actionIndexFor(job: JobDefinition, issue: Issue): number | null {
-    if (issue.code !== 'bad_action' && issue.code !== 'unknown_destination') {
+    if (issue.code !== 'bad_action') {
         return null;
     }
     const list = actionsIn(job, issue.step || 'job');
     const message = issue.message || '';
     const isObj = (a: unknown): a is Action => typeof a === 'object' && a !== null;
-    let at = list.findIndex((a) => isObj(a) && a.type === 'webhook' && names(message, a.destination));
-    if (at < 0 && /malformed/.test(message)) {
+    let at = -1;
+    if (/malformed/.test(message)) {
         at = list.findIndex((a) => !isObj(a));
     }
     if (at < 0) {
@@ -153,4 +154,22 @@ export function issueCounts(issues: Issue[], view: BuilderView = 'advanced'): Pa
         }
     });
     return out;
+}
+
+/** Where "Go to" lands in the Standard view, which draws only steps: a step's action opens
+ * the step with that action's panel open; a condition selects its line; a job action or a
+ * trigger selects nothing (its tab is enough). `key` is nodeForIssue's Advanced node key. */
+export function standardTarget(key: string): { select?: FlowSelection; openAction?: { stepId: string; index: number } } {
+    const action = /^action:(.+):(\d+)$/.exec(key);
+    if (action) {
+        return action[1] === 'job' ? {} : { select: { kind: 'node', key: stepKey(action[1]) }, openAction: { stepId: action[1], index: Number(action[2]) } };
+    }
+    const cond = /^cond:(.+)>(.+)$/.exec(key);
+    if (cond) {
+        return { select: { kind: 'link', key: lineKey(cond[1], 'if', cond[2]) } };
+    }
+    if (key.startsWith('trigger:')) {
+        return {};
+    }
+    return { select: { kind: 'node', key } };
 }

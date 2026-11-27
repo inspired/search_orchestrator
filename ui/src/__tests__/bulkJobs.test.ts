@@ -1,4 +1,4 @@
-import { plan, runEach } from '../features/jobs/bulkJobs';
+import { plan, resultTone, runEach } from '../features/jobs/bulkJobs';
 import { job as makeJob, me } from './fixtures';
 
 const mine = makeJob({ id: 'a', name: 'Alpha', owner: me.user, enabled: true, tags: ['x'] });
@@ -25,11 +25,11 @@ describe('bulk job plans', () => {
         expect(p.skipped[0].reason).toBe("you can't run it");
     });
 
-    test("add tag only takes your own jobs, since saving another person's job makes you its owner", () => {
-        const p = plan([mine, theirs], 'tag', me, 'nightly');
-        expect(p.targets.map((j) => j.id)).toEqual(['a']);
-        expect(p.skipped).toEqual([{ job: theirs, reason: 'owned by bob; adding a tag would make you its owner' }]);
-        expect(plan([mine], 'tag', me, 'X').skipped).toEqual([{ job: mine, reason: 'already tagged X' }]);
+    test('add tag takes every job you can edit, whoever owns it, and skips jobs that have the tag', () => {
+        const p = plan([mine, theirs, readOnly], 'tag', me, 'nightly');
+        expect(p.targets.map((j) => j.id)).toEqual(['a', 'b']);
+        expect(p.skipped).toEqual([{ job: readOnly, reason: "you can't edit it" }]);
+        expect(plan([mine], 'tag', null, 'X').skipped).toEqual([{ job: mine, reason: 'already tagged X' }]);
     });
 
     test('delete takes jobs you can edit; export takes every job', () => {
@@ -45,5 +45,12 @@ describe('bulk job plans', () => {
             { job: mine, ok: true },
             { job: theirs, ok: false, message: 'KV Store error' },
         ]);
+    });
+
+    test('result tone: warning on any skip or failure, info when nothing ran, success otherwise', () => {
+        expect(resultTone([{ job: mine, ok: true }], [])).toBe('success');
+        expect(resultTone([{ job: mine, ok: false, message: 'x' }], [])).toBe('warning');
+        expect(resultTone([], [{ job: theirs, reason: 'r' }])).toBe('warning');
+        expect(resultTone([], [])).toBe('info');
     });
 });

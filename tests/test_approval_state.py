@@ -213,8 +213,8 @@ def test_engine_never_dispatches_or_counts_an_approval_step():
     branches = ["b1", "b2", "b3", "b4"]
     gate = {"id": "gate", "type": "approval", "hidden_search": None,
             "approval": {"message": "Go?"},
-            "actions": [{"hook": "on_approval_requested", "type": "webhook",
-                         "destination": "d"}]}
+            "actions": [{"hook": "on_approval_requested", "type": "email",
+                         "to": "a@b.c", "hidden_search": "_so_gate_action"}]}
     j = w.add_job(te.make_job(steps=[gate] + branches + ["after"],
                               edges=[("gate", "after")] + [(b, "after") for b in branches]),
                   scripts={b: {"states": ["running"]} for b in branches})

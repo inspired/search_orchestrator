@@ -16,11 +16,84 @@ Every release of Search Orchestrator, newest first. Download a release from the 
 
 | Latest releases | Date |
 |---|---|
+| [1.50.2](#1502-2026-11-26) | 2026-11-26 |
+| [1.50.1](#1501-2026-11-26) | 2026-11-26 |
+| [1.50.0](#1500-2026-11-25) | 2026-11-25 |
+| [1.49.0](#1490-2026-11-24) | 2026-11-24 |
+| [1.48.4](#1484-2026-11-23) | 2026-11-23 |
+| [1.48.3](#1483-2026-11-23) | 2026-11-23 |
 | [1.48.2](#1482-2026-11-21) | 2026-11-21 |
-| [1.48.1](#1481-2026-11-21) | 2026-11-21 |
-| [1.48.0](#1480-2026-11-21) | 2026-11-21 |
-| [1.47.0](#1470-2026-11-21) | 2026-11-21 |
-| [1.46.1](#1461-2026-11-20) | 2026-11-20 |
+
+## 1.50.2 (2026-11-26)
+
+Search in the Help page, and shorter docs with clearer chapters.
+
+- **Search the help:** a box above the Help page's contents finds sections by their words (every word, in any order). It lists the matches with their tab and a snippet; click one to open it.
+- **Its own scheduler**, new under Help → How it works, in the overview and in the admin guide: the app's engine runs the jobs instead of Splunk's scheduler. What that means: search slots shared with people's searches, waiting instead of skipping, the owner's search and disk quotas, nothing in Splunk's scheduler reports, and nothing runs while the engine is stopped.
+- **The user guide is about 30% shorter** (17,600 to 12,500 words) and has clearer chapters: Get started, Build a job, Steps and searches, Conditions, tokens and parameters, Triggers and deadlines, Notifications, Follow runs, Troubleshooting, How it works and the reference. The longest sections (the flow editor, previews, conditions, triggers, troubleshooting) say the same in fewer words; the hidden-search details are in the admin guide only.
+- **The admin guide** is grouped the same way: Install and upgrade, Security, How the app runs searches, Settings, Monitoring, Operations and Reference.
+
+## 1.50.1 (2026-11-26)
+
+The fallback email works again, the Beta notification actions are gone, and the fallback can be an alert action.
+
+- **Fix: the fallback email was never sent in 1.50.0.** The new check that a hidden search is still the owner's private search also refused the app's own `_so_fallback_email`, which is owned by `nobody`. The check now accepts the app's own searches.
+- **Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow actions are removed**, with webhook destinations and the Settings page's Destinations section. Use an **Alert action** from the service's own Splunk app instead (Slack 2878, Microsoft Teams 4994, ServiceNow 1928 on Splunkbase).
+  - A save that adds one is refused (`action_removed`), and says to use an Alert action.
+  - A job saved earlier drops it when opened in the builder, with a note to save. Until then the engine skips it (audit `action_skipped`) and sends the fallback notification instead.
+  - On its first start, the engine deletes the stored destinations and their URLs and headers once, and clears a webhook fallback (audit `destinations_removed`).
+  - Following a job is by email only; a follow that used a webhook is told by email.
+  - `GET/POST/DELETE destinations` are gone.
+- **The fallback notification can be an alert action:** in Settings choose None, Email or **Alert action**, pick an installed one and give its parameters as `name=value` lines (they take `{{job}}`, `{{hook}}`, `{{run_url}}` and the other message tokens). It runs as the app's own hidden search `_so_fallback_alert`.
+- Docs, Help and README updated for both.
+
+## 1.50.0 (2026-11-25)
+
+A security review of the server, Run health as the app's own page, every Splunk search on the Runs timeline, and fewer examples.
+
+- **Run health is the app's own page**, like Troubleshooting, instead of a Dashboard Studio dashboard: Splunk UI tiles, charts and tables, a job picker and 24 hours, 7 days or 30 days (kept in the address), and a section each for runs, steps, actions, late runs, the engine and performance, each with Open in Search links. A new route, `GET runhealth/<section>`, runs the same searches as the viewer, so Splunk's index access still decides what each viewer sees.
+- **Taller load graphs** on the Runs timeline (120 px, with their scale), so one search is visible.
+- **All Splunk searches on the Runs timeline.** Under the app's own Concurrent searches, a new row shows every search on the search head against Splunk's own limit: up to now, stacked by this app's, scheduled and other searches (from `_audit`); from now, Splunk's scheduled saved searches expected from their schedules and usual run times, with this app's on top. `GET schedule/splunk`, searched as the viewer (by default only admins may read what it needs).
+- **Examples: 6 instead of 18**, one for Simple, two for Standard and three for Advanced, on one page; **Open in builder** opens each in its view (the per-card **Add as a job** button is gone; **Add all examples** stays). The Simple one now does more: two searches in order, a lookup save, an email when a condition is true and one if it fails.
+- **The builder's first tab is called Flow** in Simple, Standard and Advanced (Simple and Standard said Steps).
+- **The minimap can be dragged,** smoothly: grab the outline of the view to move it without a jump (press elsewhere to centre there), and the view follows at most once per frame.
+- **Slack, Microsoft Teams, PagerDuty and ServiceNow are retired** as their own actions: Splunk's own apps for them add alert actions, so use an **Alert action**. They're no longer offered or building blocks, and a save that adds one is refused; jobs that already have one keep it and it still sends.
+
+Security:
+
+- **Audit events move to Splunk's `_audit` index** (sourcetype `orchestrator:audit`), so Splunk's own roles decide who may read them: by default only admins. Until now every user could search `index=orchestrator`, including events about jobs hidden from them. The app no longer ships an index. Search `index=_audit sourcetype=orchestrator:audit` outside the app; the `orchestrator_index` macro and the Run health dashboard follow on their own. To let others see Run health, give their role `_audit`. Events written before 1.50.0 stay in the old index until its retention removes them (see the admin guide's Audit index section).
+- **`| orchestrate` is marked as a risky command,** so Splunk asks before running it from a link or a dashboard panel. Before, a crafted link could make an approver approve a step, or an admin start or cancel runs, just by opening it.
+- **Taking someone's orchestrator roles away now stops their jobs.** An owner needs `orchestrator_run`, `orchestrator_build` or `orchestrator_admin` to see, start or control their own jobs, and the engine checks the owner before each step: their schedules, completion triggers and "Who may run" members no longer run searches as them.
+- **A completion trigger fires only if its job's owner may see the job it follows,** so nobody learns when a hidden job ran or how it ended.
+- **Hidden searches are checked before every run.** If a job's `_so_` search was replaced by someone else's shared search of the same name, the step, SPL condition or search action isn't run, and the error says to re-save the job.
+- **Webhook headers:** a header value with a line break or another control character, and a header name that isn't valid, are refused when the destination is saved. Header values are also removed from error texts, which before could show a token pasted with a trailing newline to everyone who could see the run.
+- **The Runs timeline** (`GET schedule`) needs one of the app's capabilities, like the Calendar.
+- **Limits:** a run parameter value is at most 4,096 characters and a pattern at most 500, and a pattern that repeats a group that already repeats, such as `(a+)+`, can't be saved, so a value can't stall the server.
+- The self-test's Event actions write to `main`. `hidden.sync`, which nothing used, is gone.
+- Docs: wildcards in parameters (`*` still matches everything, so use a pattern), job ids being unique across all users, and the new checks.
+- **Docs and Help: Search slots.** How the app's searches use Splunk's search slots: saved searches the engine starts itself, so they share Splunk's whole search limit with people's own searches (not the scheduler's share), wait instead of being skipped, and are held to the owner's role limit; with what to set. On the Help page under How it works, with an illustration, and in the admin guide.
+
+## 1.49.0 (2026-11-24)
+
+- **A save no longer silently replaces someone else's newer save.** Every job now has a `revision`, counted by the server on each save, enable or disable and tag change. The builder sends the revision it opened; if the job changed since, the save is refused and **This job was changed** names who changed it and when, with **Reload their version** and **Save mine anyway**. REST clients that send no `_base_revision` overwrite as before (409 `job_changed` otherwise).
+- **Tags have their own route,** `POST jobs/<id>/tags` (`add`, `remove`), which keeps the owner and the rest of the job. Bulk **Add tag** on the Jobs page uses it, so it now works on other people's jobs you may edit, never changes their owner, and never undoes an edit. Audit event `job_tags_changed`.
+- **Standard view:** **Go to** on a problem with a step's action selects the step and opens that action; on a condition it selects the line. Group frames, which belong to Advanced's layout, are no longer drawn in Standard, where they outlined only some steps.
+- Docs: the REST API table lists `jobs/<id>/enabled`, `jobs/<id>/tags` and `_base_revision`; the audit table lists `job_enabled`, `job_tags_changed` and `job_owner_changed`.
+
+## 1.48.4 (2026-11-23)
+
+- **Help: What the app stores.** The section from the admin guide is now on the Help page too, under How it works, with its own illustration: what is kept where (KV Store, hidden saved searches, search jobs, the password store, the audit index), how each hidden search is named, why they are never scheduled, when old versions are removed, and that they are left out of the Reports page but listed in Settings > Searches, reports, and alerts.
+
+## 1.48.3 (2026-11-23)
+
+Fixes from a review of the bulk actions on the Jobs page.
+
+- **Add tag no longer makes you the owner of other people's jobs** when the page hasn't yet learned who you are (or failed to). It stays off until it knows, and every job is skipped in that case.
+- **Add tag no longer undoes recent edits.** It reads each job as saved now and adds the tag to that copy, instead of saving the copy the list loaded up to 30 seconds earlier.
+- **An unknown bulk action can't fall through to Delete.** Each action has its own case; anything else is an error.
+- **The result message has the right colour:** yellow when anything was skipped or failed, green when everything worked, and grey when nothing was done. A job named with "failed:" no longer changes it, and two jobs with the same name each get their line.
+- **The builder clears what the removed setup checklist left in the browser** (`so.checklist.hidden.*` in localStorage).
+- **Docs: What the app stores**, a new admin guide section on what is kept where (KV Store, hidden saved searches, search jobs, the password store, the audit index), how the hidden searches are named, why they are never scheduled, when old versions are removed, and that they are hidden from the app's Reports page but still listed in Settings > Searches, reports, and alerts. How it works on the Help page points to it.
 
 ## 1.48.2 (2026-11-21)
 

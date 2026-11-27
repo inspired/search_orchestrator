@@ -8,7 +8,7 @@ const job = () => ({ name: 'x', enabled: true, steps: [], actions: [{ hook: 'on_
 describe('Job actions tab', () => {
     test('lists the whole-job actions with When, their fields and retries; add and remove', () => {
         const dispatch = jest.fn();
-        renderThemed(<JobActionsTab job={job()} dispatch={dispatch} destinations={[]} />);
+        renderThemed(<JobActionsTab job={job()} dispatch={dispatch} />);
         expect(screen.getAllByTestId('job-action')).toHaveLength(1);
         expect(screen.getByLabelText('To')).toHaveValue('a@b.c');
         expect(screen.getByText(/^3 retries, waiting 30 s/)).toBeInTheDocument();
@@ -21,7 +21,7 @@ describe('Job actions tab', () => {
     });
 
     test('a viewer sees the actions but cannot change them', () => {
-        renderThemed(<JobActionsTab job={job()} dispatch={jest.fn()} destinations={[]} canEdit={false} />);
+        renderThemed(<JobActionsTab job={job()} dispatch={jest.fn()} canEdit={false} />);
         expect(screen.queryByRole('button', { name: 'Add job action' })).toBeNull();
         expect(screen.queryByRole('button', { name: /Remove job action/ })).toBeNull();
     });

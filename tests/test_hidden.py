@@ -1,7 +1,7 @@
 import configparser
 from pathlib import Path
 
-from fakes import FakeGateway
+from fakes import FakeGateway, sync_hidden
 from so import actions, hidden
 
 APP = Path(__file__).resolve().parent.parent / "app" / "search_orchestrator"
@@ -21,9 +21,9 @@ def names(gw):
 
 def test_hidden_name_changes_with_spl():
     gw = FakeGateway()
-    one = hidden.sync(gw, job(), None)
-    two = hidden.sync(gw, job(spl="| makeresults count=2"), one)
-    again = hidden.sync(gw, job(), two)
+    one = sync_hidden(gw, job(), None)
+    two = sync_hidden(gw, job(spl="| makeresults count=2"), one)
+    again = sync_hidden(gw, job(), two)
     n1, n2 = one["steps"][0]["hidden_search"], two["steps"][0]["hidden_search"]
     assert n1 != n2 and n1 == again["steps"][0]["hidden_search"]
     assert n1.startswith("_so_daily_a_") and len(n1) == len("_so_daily_a_") + 8
@@ -32,16 +32,16 @@ def test_hidden_name_changes_with_spl():
 
 def test_hidden_name_changes_with_time_range():
     gw = FakeGateway()
-    one = hidden.sync(gw, job(), None)
+    one = sync_hidden(gw, job(), None)
     j = job()
     j["steps"][0]["earliest"] = "-7d@d"
-    two = hidden.sync(gw, j, one)
+    two = sync_hidden(gw, j, one)
     assert one["steps"][0]["hidden_search"] != two["steps"][0]["hidden_search"]
 
 
 def test_sync_compiles_tokens_and_keeps_literal_dollars():
     gw = FakeGateway()
-    out = hidden.sync(gw, job(spl='search x | rex "foo$" | eval p="$run.param.p$" | eval u="$nope$"'),
+    out = sync_hidden(gw, job(spl='search x | rex "foo$" | eval p="$run.param.p$" | eval u="$nope$"'),
                       None)
     st = out["steps"][0]
     saved = gw.saved_searches[("alice", st["hidden_search"])]
@@ -62,7 +62,7 @@ def test_saved_step_owned_direct_else_wrapped():
                    {"id": "w", "type": "saved_search", "saved_search_ref": "theirs"},
                    {"id": "u", "type": "saved_search", "saved_search_ref": "mine_user"}])
     issues = []
-    out = hidden.sync(gw, j, None, issues)
+    out = sync_hidden(gw, j, None, issues)
     d, w, u = out["steps"]
     assert d["mode"] == "direct" and d["hidden_search"] == "mine"
     assert w["mode"] == "wrapped" and w["hidden_search"].startswith("_so_daily_w_")
@@ -95,7 +95,7 @@ def test_action_searches_numbered_like_indexed_actions():
     j["steps"][0]["actions"] = [{"hook": "on_success", "type": "event", "index": "summary"},
                                 {"hook": "on_failure", "type": "alert_action", "action": "notify",
                                  "params": {"severity": "high"}}]
-    out = hidden.sync(gw, j, None)
+    out = sync_hidden(gw, j, None)
     idx = {i: a["type"] for i, _, _, a in actions.indexed_actions(out)}
     assert idx == {0: "webhook", 1: "email", 2: "event", 3: "alert_action"}
     flat = [a for _, _, _, a in actions.indexed_actions(out)]
@@ -128,8 +128,8 @@ def _run(definition, owner="alice", state="running"):
 
 def test_gc_keeps_versions_for_active_runs():
     gw = FakeGateway()
-    one = hidden.sync(gw, job(), None)
-    two = hidden.sync(gw, job(spl="| makeresults count=2"), one)
+    one = sync_hidden(gw, job(), None)
+    two = sync_hidden(gw, job(spl="| makeresults count=2"), one)
     old = one["steps"][0]["hidden_search"]
     assert hidden.gc(two, [_run(one)]) == []
     assert hidden.gc(two, []) == [{"owner": "alice", "name": old}]
@@ -137,8 +137,8 @@ def test_gc_keeps_versions_for_active_runs():
 
 def test_gc_tracks_owner_after_takeover():
     gw = FakeGateway()
-    one = hidden.sync(gw, job(), None)
-    two = hidden.sync(gw, dict(job(), owner="root"), one)
+    one = sync_hidden(gw, job(), None)
+    two = sync_hidden(gw, dict(job(), owner="root"), one)
     name = one["steps"][0]["hidden_search"]
     assert two["steps"][0]["hidden_search"] == name
     assert hidden.gc(two, [_run(one, owner="alice")]) == []
@@ -148,7 +148,7 @@ def test_gc_tracks_owner_after_takeover():
 def test_gc_never_deletes_direct_saved_search():
     gw = FakeGateway()
     gw.upsert_saved_search("alice", "mine", "index=a", "-1h", "now")
-    j = hidden.sync(gw, job(steps=[{"id": "d", "type": "saved_search",
+    j = sync_hidden(gw, job(steps=[{"id": "d", "type": "saved_search",
                                     "saved_search_ref": "mine"}]), None)
     assert hidden.gc(dict(j, steps=[]), []) == []
 
@@ -174,20 +174,20 @@ def _email_job(**action):
 
 def test_action_name_changes_with_type_and_spl_only():
     gw = FakeGateway()
-    one = hidden.sync(gw, _email_job(), None)["actions"][0]["hidden_search"]
-    same = hidden.sync(gw, _email_job(to="b@example.com"), None)["actions"][0]["hidden_search"]
+    one = sync_hidden(gw, _email_job(), None)["actions"][0]["hidden_search"]
+    same = sync_hidden(gw, _email_job(to="b@example.com"), None)["actions"][0]["hidden_search"]
     assert one == same  # recipients are run-time args, not SPL
-    ev = hidden.sync(gw, job(actions=[{"hook": "on_failure", "type": "event", "index": "s"}]),
+    ev = sync_hidden(gw, job(actions=[{"hook": "on_failure", "type": "event", "index": "s"}]),
                      None)["actions"][0]["hidden_search"]
     assert ev != one and ev.startswith("_so_daily_action_0_")
-    alert = lambda p: hidden.sync(gw, job(actions=[{  # noqa: E731
+    alert = lambda p: sync_hidden(gw, job(actions=[{  # noqa: E731
         "hook": "on_failure", "type": "alert_action", "action": "n", "params": p}]),
         None)["actions"][0]["hidden_search"]
     assert alert({"a": "1"}) != alert({"b": "1"})
 
 
 def test_request_cannot_set_action_hidden_search():
-    out = hidden.sync(FakeGateway(), job(actions=[
+    out = sync_hidden(FakeGateway(), job(actions=[
         {"hook": "on_failure", "type": "webhook", "destination": "x", "hidden_search": "evil"},
         {"hook": "on_failure", "type": "email", "to": "a@b.c", "hidden_search": "evil"}]), None)
     assert "hidden_search" not in out["actions"][0]
@@ -196,8 +196,8 @@ def test_request_cannot_set_action_hidden_search():
 
 def test_gc_keeps_action_versions_for_active_runs():
     gw = FakeGateway()
-    one = hidden.sync(gw, _email_job(), None)
-    two = hidden.sync(gw, job(actions=[{"hook": "on_failure", "type": "event", "index": "s"}]),
+    one = sync_hidden(gw, _email_job(), None)
+    two = sync_hidden(gw, job(actions=[{"hook": "on_failure", "type": "event", "index": "s"}]),
                       one)
     old = one["actions"][0]["hidden_search"]
     assert hidden.gc(two, [_run(one)]) == []
@@ -244,7 +244,7 @@ def test_previous_step_saved_with_input_arg_first():
                     "latest": "@d"},
                    {"id": "b", "type": "previous", "spl": '| where p="$run.param.p$"'}],
             edges=[{"from": "a", "to": "b", "condition": "on_success"}])
-    out = hidden.sync(gw, j, None)
+    out = sync_hidden(gw, j, None)
     b = out["steps"][1]
     assert b["mode"] == "previous" and b["hidden_search"].startswith("_so_daily_b_")
     saved = gw.saved_searches[("alice", b["hidden_search"])]
@@ -289,11 +289,11 @@ def test_gc_keeps_empty_variant_while_used():
     gw = FakeGateway()
     steps = [{"id": "a", "type": "inline", "spl": "| makeresults"},
              {"id": "b", "type": "previous", "spl": "| stats count"}]
-    one = hidden.sync(gw, job(steps=steps, edges=[{"from": "a", "to": "b"}]), None)
+    one = sync_hidden(gw, job(steps=steps, edges=[{"from": "a", "to": "b"}]), None)
     empty = one["steps"][1]["hidden_search_empty"]
     assert ("alice", empty) in hidden.used(one, "alice")
     assert hidden.gc(one, []) == []
-    two = hidden.sync(gw, job(steps=steps[:1]), one)
+    two = sync_hidden(gw, job(steps=steps[:1]), one)
     assert {"owner": "alice", "name": empty} not in hidden.gc(two, [_run(one)])
     assert {"owner": "alice", "name": empty} in hidden.gc(two, [])
 

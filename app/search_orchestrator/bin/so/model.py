@@ -132,6 +132,23 @@ def _downstream(succ, starts):
     return seen
 
 
+
+PATTERN_MAX = 500
+# A group that repeats something and is itself repeated, such as (a+)+ or (\w*)*: matching
+# a long value against it can take minutes, which would stall the engine or the REST handler.
+_NESTED_REPEAT = re.compile(r"\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)[+*{]")
+
+
+def _pattern_problem(rx):
+    """Why a parameter's pattern is refused before it is compiled, or None."""
+    if len(rx) > PATTERN_MAX:
+        return "the pattern is longer than %d characters; shorten it" % PATTERN_MAX
+    if _NESTED_REPEAT.search(rx):
+        return ("the pattern repeats a group that already repeats, such as (a+)+, which can "
+                "take minutes to match; rewrite it without the outer repeat")
+    return None
+
+
 def _validate_params(job, issues):
     names = set()
     for p in job.get("params", []) or []:
@@ -149,6 +166,10 @@ def _validate_params(job, issues):
         if t == "enum" and not p.get("values"):
             issues.append(_issue("error", "bad_param", "parameter %r is a list with no values; add values separated by commas" % n))
         if p.get("regex"):
+            problem = _pattern_problem(p["regex"])
+            if problem:
+                issues.append(_issue("error", "bad_param", "parameter %r: %s" % (n, problem)))
+                continue
             try:
                 re.compile(p["regex"])
             except re.error as e:
@@ -308,6 +329,24 @@ def _output_ok(out):
             and all(isinstance(v, (str, bool)) for v in out.values()))
 
 
+def tag_problems(tags):
+    """What is wrong with a job's ``tags`` (None is fine), as messages."""
+    out = []
+    if tags is None:
+        return out
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return ["tags must be a list of words"]
+    if len(tags) > MAX_TAGS:
+        return ["a job can have at most %d tags; remove some" % MAX_TAGS]
+    for t in tags:
+        if not TAG_RE.fullmatch(t):
+            out.append("tag %r isn't valid: use 1-40 letters, digits, spaces, _ . or -, "
+                       "starting with a letter or digit" % t)
+    if len({t.lower() for t in tags}) != len(tags):
+        out.append("a tag is listed twice; give each tag once")
+    return out
+
+
 def _shape_issues(job):
     out = []
 
@@ -324,19 +363,8 @@ def _shape_issues(job):
         bad("defaults must be an object")
     if job.get("timezone") is not None and not isinstance(job["timezone"], str):
         bad("timezone must be a string")
-    tags = job.get("tags")
-    if tags is not None:
-        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
-            bad("tags must be a list of words")
-        elif len(tags) > MAX_TAGS:
-            bad("a job can have at most %d tags; remove some" % MAX_TAGS)
-        else:
-            for t in tags:
-                if not TAG_RE.fullmatch(t):
-                    bad("tag %r isn't valid: use 1-40 letters, digits, spaces, _ . or -, "
-                        "starting with a letter or digit" % t)
-            if len({t.lower() for t in tags}) != len(tags):
-                bad("a tag is listed twice; give each tag once")
+    for msg in tag_problems(job.get("tags")):
+        bad(msg)
     if job.get("deadline") is not None and not isinstance(job["deadline"], dict):
         out.append(_issue("error", "bad_deadline", deadlinemod.shape_issues(job["deadline"])[0]))
 

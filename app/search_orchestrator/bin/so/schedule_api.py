@@ -134,6 +134,8 @@ def _future_bar(run):
 
 
 def get_schedule(ctx, body):
+    if not any(c in authz.CAPABILITIES for c in ctx.access["capabilities"]):
+        raise ctx.deny("read_schedule")
     start, end = _window(ctx, body)
     max_searches, per_job = _limits(ctx)
     jobs = {_job_id(j): j for j in ctx.store.list_jobs()}

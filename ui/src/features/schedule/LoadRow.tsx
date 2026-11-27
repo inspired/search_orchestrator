@@ -81,6 +81,11 @@ export default function LoadRow({ load, from, to, max, now, height = 36, overlay
                     }}
                 />
             ))}
+            {height >= 80 && (
+                <span data-testid="load-scale" aria-hidden style={{ position: 'absolute', top: '2px', left: '4px', fontSize: '11px', color: theme.contentColorMuted }}>
+                    {scale}
+                </span>
+            )}
             {now !== undefined && now >= from && now < to && (
                 <div style={{ position: 'absolute', top: 0, bottom: 0, width: '2px', left: `${pct(now, from, to)}%`, background: theme.focusColor }} />
             )}

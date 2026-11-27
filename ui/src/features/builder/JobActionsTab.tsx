@@ -8,7 +8,7 @@ import Heading from '@splunk/react-ui/Heading';
 import NumberInput from '@splunk/react-ui/Number';
 import Select from '@splunk/react-ui/Select';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Action, AlertAction, Destination, JobDefinition } from '../../api/types';
+import type { Action, AlertAction, JobDefinition } from '../../api/types';
 import { ActionFields } from './ActionsEditor';
 import { DEFAULT_RETRIES, DEFAULT_RETRY_WAIT, retryText } from './ActionPanel';
 import type { BuilderAction } from './reducer';
@@ -25,12 +25,11 @@ export const JOB_HOOKS: Array<{ value: Action['hook']; label: string }> = [
 export interface JobActionsTabProps {
     job: JobDefinition;
     dispatch: (action: BuilderAction) => void;
-    destinations: Destination[];
     alertActions?: AlertAction[] | null;
     canEdit?: boolean;
 }
 
-export default function JobActionsTab({ job, dispatch, destinations, alertActions, canEdit = true }: JobActionsTabProps) {
+export default function JobActionsTab({ job, dispatch, alertActions, canEdit = true }: JobActionsTabProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const actions = job.actions || [];
     const add = () => dispatch({ type: 'setJobField', field: 'actions', value: [...actions, { hook: 'on_failure', type: 'email', to: '' } as Action] });
@@ -63,7 +62,6 @@ export default function JobActionsTab({ job, dispatch, destinations, alertAction
                     <ActionFields
                         action={a}
                         idPrefix={`job-action-${i}`}
-                        destinations={destinations}
                         alertActions={alertActions}
                         onChange={(next) => {
                             const changes: Record<string, unknown> = {};

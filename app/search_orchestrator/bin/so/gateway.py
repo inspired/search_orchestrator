@@ -16,7 +16,7 @@ Rulings proven on the real server (docs/m1-procedure.md):
   outbound, and splunkd's default certificate is self-signed, so verification
   is off for them (``verify=False``). ``SplunkGateway.from_session`` therefore
   accepts only a loopback host (127.0.0.1, ::1, localhost) and raises
-  otherwise. Outbound webhooks always verify TLS.
+  otherwise. The app makes no other outbound calls.
 * KV Store: only the documented storage/collections/data REST (insert, update
   by key, query, delete, batch_save). A duplicate ``_key`` insert returns 409.
 * ``orchestrator_api`` calls this app's own REST endpoint
@@ -32,8 +32,6 @@ import re
 import socket
 import ssl
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol
 from urllib.parse import quote, urlsplit
@@ -43,7 +41,6 @@ from . import alert_forms, logs
 APP = "search_orchestrator"
 PASSWORD_REALM = "search_orchestrator"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
-WEBHOOK_TIMEOUT = 10
 # Per-call timeout of the engine's splunkd calls: well under the 90 s lease, so a hung
 # call cannot outlive the lease while another member takes over.
 ENGINE_CALL_TIMEOUT = 15
@@ -419,14 +416,6 @@ def encoded_path(*parts):
     return UrlEncoded("/".join([parts[0]] + [one(p) for p in parts[1:]]), skip_encode=True)
 
 
-def check_webhook_url(url):
-    """https only. Errors name the scheme and host only: URLs often carry secrets."""
-    parts = urlsplit(url)
-    if parts.scheme != "https" or not parts.hostname:
-        raise GatewayError("webhook URL must be https with a host (scheme {!r}, host {!r})".format(
-            parts.scheme, parts.hostname or ""))
-
-
 # The Protocol the engine and its tests code against.
 
 class Gateway(Protocol):
@@ -461,7 +450,6 @@ class Gateway(Protocol):
     def read_secret(self, name: str) -> Optional[str]: ...
     def write_secret(self, name: str, value: str) -> None: ...
     def delete_secret(self, name: str) -> None: ...
-    def post_webhook(self, url: str, headers: Dict[str, str], body: str) -> int: ...
     def orchestrator_api(self, method: str, path: str,
                          body: Optional[Dict[str, Any]] = None) -> Any: ...
     def search_oneshot(self, owner: str, query: str, earliest: str = "-1h",
@@ -482,11 +470,6 @@ def _log_call(method, path, owner, started, status=None, error=None):
     handles it, so it stays DEBUG here too."""
     logs.event(_call_log, logging.DEBUG, "splunkd_call", method=method.upper(), path=path,
                owner=owner, status=status, ms=int((time.time() - started) * 1000), error=error)
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
 
 
 # Real implementation.
@@ -931,23 +914,3 @@ class SplunkGateway:
         except Exception as err:
             if self._status(err) != 404:
                 raise GatewayError("delete secret failed: {}".format(err), self._status(err))
-
-    # Webhooks.
-
-    def post_webhook(self, url, headers, body):
-        """POST over https only, TLS verified, 10 s timeout, no redirects. Returns the status."""
-        check_webhook_url(url)
-        data = body.encode("utf-8") if isinstance(body, str) else body
-        request = urllib.request.Request(url, data=data, method="POST")
-        for key, value in (headers or {}).items():
-            request.add_header(key, value)
-        opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=ssl.create_default_context()), _NoRedirect())
-        try:
-            with opener.open(request, timeout=WEBHOOK_TIMEOUT) as response:
-                return response.status
-        except urllib.error.HTTPError as err:
-            raise GatewayError("webhook returned HTTP {}".format(err.code), status=err.code,
-                               transient=is_transient_status(err.code))
-        except (urllib.error.URLError, socket.error) as err:
-            raise GatewayError("webhook failed: {}".format(err), transient=True)

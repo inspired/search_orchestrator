@@ -172,4 +172,31 @@ describe('Standard view', () => {
         await show(<BuilderPage api={fakeApi()} />);
         expect(screen.getByRole('button', { name: 'Standard' })).toHaveAttribute('aria-pressed', 'true');
     });
+
+    test("Go to on an action's problem opens the step with that action's panel", async () => {
+        const job = rollupJob({
+            steps: [{ id: 'daily', name: 'Daily summary', type: 'inline', spl: '| makeresults', actions: [{ hook: 'on_failure', type: 'email', to: 'ops@example.com' }, { hook: 'on_success', type: 'alert_action', action: '' }] }],
+            edges: [],
+        });
+        const issue = { level: 'error', code: 'bad_action', step: 'daily', message: "the email action needs to; fill it in" };
+        const api = fakeApi({ getJob: jest.fn().mockResolvedValue(job), validateJob: jest.fn().mockResolvedValue({ issues: [issue], owner_will_change: false, owner: 'alice' }) });
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+        fireEvent.click(await screen.findByRole('button', { name: /^Go to Daily summary/ }));
+        const list = await screen.findByRole('list', { name: 'Actions of Daily summary' });
+        const buttons = within(list).getAllByRole('button', { expanded: true });
+        expect(buttons).toHaveLength(1);
+        expect(buttons[0].textContent).toMatch(/Alert action/);
+    });
+
+    test("Standard draws no group frames (they belong to Advanced's layout) and keeps them in the job", async () => {
+        const group = { id: 'g1', title: 'Daily', color: 'categoricalA3' as const, x: 250, y: 50, w: 300, h: 200 };
+        const job = rollupJob({ layout: { nodes: { 'step:daily': { x: 300, y: 100 } }, groups: [group] } });
+        const api = fakeApi({ getJob: jest.fn().mockResolvedValue(job) });
+        await show(<BuilderPage api={api} jobId="rollups" />);
+        await waitFor(() => expect(nodeKeys().length).toBeGreaterThan(0));
+        expect(screen.queryByTestId('group-g1')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+        expect(await screen.findByTestId('group-g1')).toBeInTheDocument();
+    });
 });

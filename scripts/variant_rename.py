@@ -42,11 +42,11 @@ def rules(s, label):
          r"[role_orchestrator_\1_role" + s + "]", 4),
         ("default/authorize.conf", r"^" + caps + r" = enabled$", r"orchestrator_\1" + s + " = enabled", 17),
         ("bin/so/authz.py", r'^(ADMIN|BUILD|RUN|APPROVE) = "' + caps + '"$', r'\1 = "orchestrator_\2' + s + '"', 4),
-        # Index, sourcetype, macro.
-        ("default/indexes.conf", r"^\[orchestrator\]$", "[orchestrator%s]" % s, 1),
-        ("default/indexes.conf", r"\$SPLUNK_DB/orchestrator/", "$SPLUNK_DB/orchestrator%s/" % s, 3),
+        # Sourcetype and macro (the audit index is Splunk's own _audit).
         ("default/macros.conf", r"^\[orchestrator_index\]$", "[orchestrator_index%s]" % s, 1),
-        ("default/macros.conf", r"^definition = index=orchestrator$", "definition = index=orchestrator" + s, 1),
+        # Both copies write to _audit: the sourcetype tells their events apart.
+        ("default/macros.conf", r'^definition = index=_audit sourcetype="orchestrator:audit"$',
+         'definition = index=_audit sourcetype="orchestrator:audit%s"' % s, 1),
         # The _internal and _introspection macros of the Run health dashboard: their stanzas,
         # and the exact script and command names that tell this copy's splunkd.log lines apart.
         ("default/macros.conf", r"^\[orchestrator_(internal|engine_process|search_process)\]$", r"[orchestrator_\1%s]" % s, 3),
@@ -60,11 +60,9 @@ def rules(s, label):
          'source="*search_orchestrator%s.*.log"' % s, 1),
         # The app health alerts search the copy's own log lines.
         ("default/savedsearches.conf", r"`orchestrator_logs`", "`orchestrator_logs%s`" % s, 3),
-        # The dashboard: its macros, and its links to the Run page (the app id).
-        ("default/data/ui/views/run_health.xml", r"`orchestrator_(index|internal|engine_process|search_process)`",
-         r"`orchestrator_\1%s`" % s, 17),
-        ("default/data/ui/views/run_health.xml", r"/app/search_orchestrator/run\?",
-         "/app/search_orchestrator%s/run?" % s, 3),
+        # The Run health page's searches use the copy's macros.
+        ("bin/so/run_health_api.py", r'^(INDEX|INTERNAL|ENGINE_PROCESS|SEARCH_PROCESS) = "`orchestrator_(index|internal|engine_process|search_process)`"$',
+         r'\1 = "`orchestrator_\2%s`"' % s, 4),
         ("default/props.conf", r"^\[orchestrator:audit\]$", "[orchestrator:audit%s]" % s, 1),
         # The log files' sourcetype: this copy's files and its own sourcetype.
         ("default/props.conf", r"^\[source::\.\.\./var/log/splunk/search_orchestrator\.",
@@ -73,15 +71,10 @@ def rules(s, label):
         ("default/props.conf", r"^\[orchestrator:log\]$", "[orchestrator:log%s]" % s, 1),
         ("bin/so/audit.py", r'^SOURCETYPE = "orchestrator:audit"$', 'SOURCETYPE = "orchestrator:audit%s"' % s, 1),
         ("bin/so/audit.py", r'^SOURCE = "orchestrator_engine"$', 'SOURCE = "orchestrator_engine%s"' % s, 1),
-        ("bin/so/api.py", r'^AUDIT_INDEX = "orchestrator"$', 'AUDIT_INDEX = "orchestrator%s"' % s, 1),
-        ("bin/so/selftest.py", r'^AUDIT_INDEX = "orchestrator"$', 'AUDIT_INDEX = "orchestrator%s"' % s, 1),
-        ("bin/so/selftest.py", r'sourcetype="orchestrator:audit"', 'sourcetype="orchestrator:audit%s"' % s, 1),
-        ("bin/orchestrator_rest.py", r'^AUDIT_INDEX = "orchestrator"$', 'AUDIT_INDEX = "orchestrator%s"' % s, 1),
+        ("bin/so/selftest.py", r'sourcetype="orchestrator:audit"', 'sourcetype="orchestrator:audit%s"' % s, 2),
         ("bin/orchestrator_rest.py", r'^AUDIT_SOURCE = "orchestrator_rest"$', 'AUDIT_SOURCE = "orchestrator_rest%s"' % s, 1),
-        ("bin/orchestrator_engine.py", r'^DEFAULT_INDEX = "orchestrator"$', 'DEFAULT_INDEX = "orchestrator%s"' % s, 1),
         # Modular input scheme (the script name is the scheme).
         ("default/inputs.conf", r"^\[orchestrator_engine(://main)?\]$", r"[orchestrator_engine%s\1]" % s, 2),
-        ("default/inputs.conf", r"^index = orchestrator$", "index = orchestrator" + s, 1),
         ("default/inputs.conf", r"^sourcetype = orchestrator:audit$", "sourcetype = orchestrator:audit" + s, 1),
         ("README/inputs.conf.spec", r"^\[orchestrator_engine://", "[orchestrator_engine%s://" % s, 1),
         ("bin/orchestrator_engine.py", r'^MAIN_STANZA = "orchestrator_engine://main"$',
@@ -144,7 +137,7 @@ def command_name(s):
     return name
 
 
-PAGES = ("builder", "calendar", "dependencies", "help", "jobs", "logs", "run", "runs", "settings")
+PAGES = ("builder", "calendar", "dependencies", "help", "jobs", "logs", "run", "run_health", "runs", "settings")
 
 # Script files whose name is part of a stanza (modular input scheme, command
 # filename, alert action, REST handler module), applied after the text rules.

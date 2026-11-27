@@ -171,11 +171,6 @@ const ID_PREFIX: Partial<Record<NodeKind, string>> = { summary_index: 'summary',
 const newStepId = (steps: StepDef[], kind: NodeKind) => nextStepId(steps, ID_PREFIX[kind]);
 const ACTION_DEFAULTS: Partial<Record<NodeKind, Omit<Action, 'hook'>>> = {
     email: { type: 'email', to: '' },
-    webhook: { type: 'webhook', destination: '' },
-    slack: { type: 'webhook', preset: 'slack', destination: '' },
-    teams: { type: 'webhook', preset: 'teams', destination: '' },
-    pagerduty: { type: 'webhook', preset: 'pagerduty', destination: '' },
-    servicenow: { type: 'webhook', preset: 'servicenow', destination: '' },
     event: { type: 'event', index: '' },
     alert_action: { type: 'alert_action', action: '', params: {} },
     start_job: { type: 'start_job', job: '' },

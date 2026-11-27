@@ -59,7 +59,7 @@ def test_selftest_definition_is_valid():
         assert edges(rollup) == [("daily", "weekly"), ("weekly", "monthly")]
         assert rollup["defaults"]["delayed_after"] == 10
         delayed = [a for a in rollup["actions"] if a["hook"] == "on_delayed"]
-        assert delayed == [{"hook": "on_delayed", "type": "event", "index": "orchestrator"}]
+        assert delayed == [{"hook": "on_delayed", "type": "event", "index": "main"}]
         assert not any(a["type"] == "webhook" for a in rollup["actions"])
         daily = steps(rollup)["daily"]
         if fail_first:

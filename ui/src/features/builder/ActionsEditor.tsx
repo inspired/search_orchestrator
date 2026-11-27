@@ -1,6 +1,5 @@
-/* The fields of one action: webhook, email, event, start_job or alert_action (see
- * bin/so/actions.py). When it fires is the action node's line, set in ActionPanel. Webhooks
- * pick a named destination; the URL and headers stay on the server and are never shown. */
+/* The fields of one action: email, event, start_job or alert_action (see bin/so/actions.py).
+ * When it fires is the action node's line, set in ActionPanel. */
 import React, { useState } from 'react';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Select from '@splunk/react-ui/Select';
@@ -8,14 +7,10 @@ import Text from '@splunk/react-ui/Text';
 import TextArea from '@splunk/react-ui/TextArea';
 import { TokenInput } from './InsertToken';
 import type { TokenGroup } from './tokens';
-import type { Action, AlertAction, AlertActionParam, Destination } from '../../api/types';
+import type { Action, AlertAction, AlertActionParam } from '../../api/types';
 
-/** A webhook with the Slack, Teams, PagerDuty or ServiceNow preset is shown, and picked, as its own type. */
-const CHANNELS: Record<string, string> = { slack: 'Slack', teams: 'Microsoft Teams', pagerduty: 'PagerDuty', servicenow: 'ServiceNow' };
 const TYPES: { value: string; label: string }[] = [
     { value: 'email', label: 'Email' },
-    { value: 'webhook', label: 'Webhook' },
-    ...Object.entries(CHANNELS).map(([value, label]) => ({ value, label })),
     { value: 'event', label: 'Event to an index' },
     { value: 'start_job', label: 'Start another job' },
     { value: 'alert_action', label: 'Alert action' },
@@ -144,7 +139,6 @@ export function alertActionOptions(alertActions: AlertAction[], current: string)
 export interface ActionFieldsProps {
     action: Action;
     onChange: (next: Action) => void;
-    destinations: Destination[];
     alertActions?: AlertAction[] | null;
     /** Prefix for input ids, unique per editor on the page. */
     idPrefix: string;
@@ -152,17 +146,8 @@ export interface ActionFieldsProps {
 }
 
 /** One action's kind and the fields that kind needs (everything but its hook). */
-export function ActionFields({ action: a, onChange, destinations, alertActions = null, idPrefix, tokenGroups }: ActionFieldsProps) {
-    const channel = a.type === 'webhook' && typeof a.preset === 'string' && CHANNELS[a.preset] ? a.preset : null;
-    // Slack keeps every destination; the other channels need one of their own format (PagerDuty's holds its key).
-    const filtered = channel && channel !== 'slack';
-    const choices = filtered ? destinations.filter((d) => d.preset === channel) : destinations;
-    const noChoices = filtered
-        ? `No ${CHANNELS[channel as string]} destinations yet; ask an admin to add one in Settings`
-        : 'No destinations yet. An admin adds them in Settings.';
+export function ActionFields({ action: a, onChange, alertActions = null, idPrefix, tokenGroups }: ActionFieldsProps) {
     const typeId = `${idPrefix}-type`;
-    const destId = `${idPrefix}-destination`;
-    const presetId = `${idPrefix}-preset`;
     const paramsId = `${idPrefix}-params`;
     const alertId = `${idPrefix}-action`;
     const field = (key: string, label: string, opts: { placeholder?: string; multiline?: boolean; help?: string; tokens?: boolean } = {}) => {
@@ -194,16 +179,8 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
             <ControlGroup label="Do" labelFor={typeId} labelPosition="top">
                 <Select
                     inputId={typeId}
-                    value={channel || a.type}
-                    onChange={(_e: unknown, { value }: { value: unknown }) =>
-                        onChange(
-                            value === 'slack'
-                                ? { hook: a.hook, type: 'webhook', preset: 'slack', destination: str(a.destination) }
-                                : CHANNELS[String(value)]
-                                  ? { hook: a.hook, type: 'webhook', preset: value as Action['preset'], destination: '' }
-                                  : { hook: a.hook, type: value as Action['type'] }
-                        )
-                    }
+                    value={a.type}
+                    onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ hook: a.hook, type: value as Action['type'] })}
                 >
                     {TYPES.map((t) => (
                         <Select.Option key={t.value} label={t.label} value={t.value} />
@@ -215,43 +192,6 @@ export function ActionFields({ action: a, onChange, destinations, alertActions =
                     {field('to', 'To', { placeholder: 'ops@example.com' })}
                     {field('subject', 'Subject', { placeholder: '{{job}}: {{hook}}', tokens: true })}
                     {field('message', 'Message', { placeholder: 'Empty sends the default message.', multiline: true, tokens: true })}
-                </>
-            )}
-            {a.type === 'webhook' && (
-                <>
-                    <ControlGroup
-                        label="Destination"
-                        labelFor={destId}
-                        labelPosition="top"
-                        help={choices.length ? undefined : noChoices}
-                    >
-                        <Select
-                            inputId={destId}
-                            value={str(a.destination)}
-                            placeholder="Pick a destination"
-                            onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ ...a, destination: String(value) })}
-                        >
-                            {choices.map((d) => (
-                                <Select.Option key={d.name} label={d.name} value={d.name} />
-                            ))}
-                        </Select>
-                    </ControlGroup>
-                    {!channel && (
-                        <ControlGroup label="Message format" labelFor={presetId} labelPosition="top">
-                            <Select
-                                inputId={presetId}
-                                value={str(a.preset)}
-                                onChange={(_e: unknown, { value }: { value: unknown }) => {
-                                    const { preset: _old, ...rest } = a;
-                                    onChange(value ? { ...rest, preset: value as Action['preset'] } : (rest as Action));
-                                }}
-                            >
-                                <Select.Option label="The destination's default" value="" />
-                                <Select.Option label="Slack" value="slack" />
-                                <Select.Option label="Generic JSON" value="generic" />
-                            </Select>
-                        </ControlGroup>
-                    )}
                 </>
             )}
             {a.type === 'event' && (

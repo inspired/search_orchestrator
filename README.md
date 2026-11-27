@@ -42,7 +42,7 @@
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/build-dark.svg"><img src="docs/images/icons/build-light.svg" width="40" height="40" alt=""></picture>
       <h3>Build</h3>
-      Three views of one job: <b>Simple</b> (searches in order), <b>Standard</b> (steps on a canvas) or <b>Advanced</b> (every node). Start from <b>18 example jobs</b>, preview each step, and act on many jobs at once.
+      Three views of one job: <b>Simple</b> (searches in order), <b>Standard</b> (steps on a canvas) or <b>Advanced</b> (every node). Start from <b>6 example jobs</b>, one or more for each view, preview each step, and act on many jobs at once.
     </td>
     <td width="33%" valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/trigger-dark.svg"><img src="docs/images/icons/trigger-light.svg" width="40" height="40" alt=""></picture>
@@ -64,7 +64,7 @@
     <td valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/act-dark.svg"><img src="docs/images/icons/act-light.svg" width="40" height="40" alt=""></picture>
       <h3>Act</h3>
-      Write to an index or a lookup, start another job, or run any installed alert action.<br><br><b>Planned:</b> email, webhook, Slack, Teams, PagerDuty and ServiceNow notifications, and approval steps. They are in the app as <b>Beta</b> but not ready yet.
+      Write to an index or a lookup, start another job, or run any installed alert action.<br><br>Send email, or reach Slack, Teams or ServiceNow through their own Splunk apps' alert actions.<br><br><b>Planned:</b> approval steps, in the app as <b>Beta</b>.
     </td>
     <td valign="top">
       <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/icons/follow-dark.svg"><img src="docs/images/icons/follow-light.svg" width="40" height="40" alt=""></picture>
@@ -83,7 +83,7 @@
 Roles, the audit index and settings are in the [admin guide](docs/admin-guide.md). Building and running jobs is in the [user guide](docs/user-guide.md), which is also built into the app.
 
 > [!NOTE]
-> This is a test release. Email, webhook, Slack, Teams, PagerDuty and ServiceNow notifications and approval steps are planned but not ready yet. You may find some of them in the app marked **Beta**; an admin can turn them off under **Settings → Building blocks**. Please [open an issue](../../issues) when something breaks or reads oddly.
+> This is a test release. Approval steps are planned but not ready yet. You may find them in the app marked **Beta**; an admin can turn them off under **Settings → Building blocks**. Please [open an issue](../../issues) when something breaks or reads oddly.
 
 ## Documentation
 

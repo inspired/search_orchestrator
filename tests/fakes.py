@@ -50,7 +50,6 @@ class FakeGateway:
         self.crash_after_dispatch = False
         self.dispatch_log = []
         self.control_log = []
-        self.webhook_log = []
         self.saved_searches = {}
         self.secrets = {}
         self.jobs = {}  # sid -> {"states": [...], "idx": n, "result_count", "first", "error"}
@@ -61,7 +60,9 @@ class FakeGateway:
         self.clock = None  # optional callable: history records real dispatch time, like splunkd
         self.removed_users = set()  # owners whose accounts no longer exist
         self.users = {}  # name -> {"roles": [...], "capabilities": [...]}
-        self.indexes = {"orchestrator"}
+        # A user not in ``users`` is a plain user of the app (job owners in engine tests).
+        self.default_access = {"roles": ["user"], "capabilities": ["orchestrator_run"]}
+        self.indexes = {"_audit", "main"}
         self.alert_action_list = []  # what alert_actions returns
         self.alert_action_log = []  # the user of each alert_actions call
         self.api_handler = None  # (method, path, body) -> (status, payload)
@@ -199,7 +200,7 @@ class FakeGateway:
     def user_access(self, name):
         if name in self.removed_users:
             return {"roles": [], "capabilities": []}
-        return copy.deepcopy(self.users.get(name, {"roles": [], "capabilities": []}))
+        return copy.deepcopy(self.users.get(name, self.default_access))
 
     def history(self, owner, name, since_epoch):
         return [d["sid"] for d in self.history_details(owner, name, since_epoch)]
@@ -287,6 +288,8 @@ class FakeGateway:
         for (o, n), entry in sorted(self.saved_searches.items()):
             if n == name and (o == owner or entry.get("sharing", "user") in ("app", "global")):
                 found.append((o, entry))
+        if not found and name in self._scripts:
+            found.append((owner, {}))  # a scripted step search: the owner's own
         if not found:
             return {"exists": False, "owner": None, "sharing": None, "dispatch_as": None,
                     "app": None, "visible": False}
@@ -336,8 +339,14 @@ class FakeGateway:
         rows = self.search_handler(owner, query) if self.search_handler else []
         return copy.deepcopy(rows[:count])
 
-    def post_webhook(self, url, headers, body):
-        if not url.startswith("https://"):
-            raise GatewayError("webhook URL must be https")
-        self.webhook_log.append({"url": url, "headers": dict(headers or {}), "body": body})
-        return 200
+
+
+def sync_hidden(gw, job, previous, issues=None, record=None):
+    """What a save does to a job's hidden searches (``hidden.plan`` then ``hidden.apply``),
+    with the user's session ``gw``: the job with ``hidden_search``/``mode`` per step and
+    action and the updated ``hidden_searches`` list. Issues are appended to ``issues``."""
+    from so import hidden
+    planned, searches, found = hidden.plan(gw, job)
+    if issues is not None:
+        issues.extend(found)
+    return hidden.apply(gw, planned, searches, previous, record)

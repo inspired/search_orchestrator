@@ -42,7 +42,7 @@ import uuid
 
 from . import authz, preview, tokens
 
-AUDIT_INDEX = "orchestrator"
+AUDIT_INDEX = "_audit"
 JOB_IDS = {"basic": "so_selftest", "rollup_late": "so_selftest_rollup_late",
            "rollup_fail": "so_selftest_rollup_fail"}
 SCENARIOS = ("basic", "rollup_late", "rollup_fail", "probe")
@@ -64,8 +64,12 @@ PROBE_SLEEP_MAX = 40  # in all, so the probe ends inside the command's 60 s loop
 DETAIL_MAX = 400
 
 
+# The self-test's Event actions write here (not into _audit).
+EVENT_INDEX = "main"
+
+
 def _event_action(hook):
-    return {"hook": hook, "type": "event", "index": AUDIT_INDEX}
+    return {"hook": hook, "type": "event", "index": EVENT_INDEX}
 
 
 def _fail_first(step_id):
@@ -369,7 +373,7 @@ def probe(user, user_gw, sys_gw, write_audit, job, clock=time.time, sleep=time.s
         started = clock()
         write_audit({"_time": int(started), "type": "selftest_probe", "probe_id": probe_id,
                      "user": user})
-        query = 'search index=%s "%s" | head 1' % (AUDIT_INDEX, probe_id)
+        query = 'search index=%s sourcetype="orchestrator:audit" "%s" | head 1' % (AUDIT_INDEX, probe_id)
         rows = _poll(lambda: user_gw.search_oneshot(user, query, "-1h", "+1h"), bool,
                      sleep, every=2, budget=budget)
         if not rows:

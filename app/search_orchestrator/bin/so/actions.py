@@ -16,21 +16,20 @@ with its own ``state`` (``pending``, ``running``, ``done``, ``failed``),
 
 Action definitions (``job["actions"]`` and ``step["actions"]``, read from the
 run's definition snapshot): ``{"hook", "type", ...}`` with
-* ``webhook``: ``destination`` (a name), optional ``preset`` (``slack``,
-  ``generic``, ``teams``, ``pagerduty`` or ``servicenow``), ``options`` (per preset,
-  ``presets.PRESET_OPTIONS``) and ``body`` (a JSON template; ``{{job}}``, ``{{run_id}}``,
-  ``{{message}}`` and the other ctx names are filled in; a body ignores ``options``)
-
-Templates (webhook body, email subject and message, event payload, alert
-action parameters) also take the SPL tokens ``$run.*$`` and ``$<step>.*$``
-(with ``|default``; a token with no value and no default is left empty). Their
-values come from ``tokens``, the run's token context snapshotted into the row
-at submit. Webhook bodies are JSON-encoded after filling; search action args
-are SPL-string escaped.
 * ``email``: ``to``, optional ``subject`` and ``message``
 * ``event``: ``index``, optional ``payload`` (template)
 * ``start_job``: ``job`` (target job ID) and optional ``params``
 * ``alert_action``: ``action`` (name) and ``params``
+
+Templates (email subject and message, event payload, alert action parameters) take
+``{{job}}``, ``{{run_id}}``, ``{{message}}`` and the other ctx names, and the SPL tokens
+``$run.*$`` and ``$<step>.*$`` (with ``|default``; a token with no value and no default is
+left empty). Token values come from ``tokens``, the run's token context snapshotted into the
+row at submit. Search action args are SPL-string escaped.
+
+Webhook actions (and their Slack, Teams, PagerDuty and ServiceNow formats) were removed in
+1.50.1: one still in a run's definition is skipped, with an ``action_skipped`` audit event,
+and does not count as the job's action for a hook, so the fallback steps in.
 
 Any step action may have ``only_if_results: true``: it is left out of the hook's firing
 when the step's ``result_count`` is 0 (the Simple view's "only if it found results"), and
@@ -40,24 +39,16 @@ Email, event and alert_action dispatch a hidden search as the run's owner,
 named by the action's ``hidden_search`` in the run's definition snapshot
 (content-addressed, written at job save; see ``hidden.py`` for the args contract).
 
-Webhook destinations live in ``so_settings`` document ``destinations``:
-``{"destinations": [{"name", "url_secret_ref", "headers_secret_ref", "body_secret_ref",
-"preset"}]}``. The URL (and optional headers JSON) are read from the credential store and
-are never logged or audited: only scheme and host are reported. A PagerDuty destination's
-``body_secret_ref`` (a JSON object holding its routing key) is merged into the body at
-send time; its values are scrubbed from every error text like the URL.
-
 Retries: a failing action is retried 3 times (4 attempts) after ``state.backoff``
 seconds (30 s, doubling, at most 15 minutes). An action may set its own ``retries``
 (0 to 10) and ``retry_wait`` (the first wait, 10 to 3600 seconds; it doubles each time, at
-most an hour). A non-transient error (https rule, 4xx, unknown destination, no
-permission) fails at once.
+most an hour). A non-transient error (4xx, no permission) fails at once.
 
 Fallback (spec section 10, decided here, on the job-scope event only): the run
 failing (``on_failure``), being delayed (``on_delayed``) or missing its deadline
 (``on_late``) is sent to
-``settings.fallback`` (``{"type": "webhook", "destination": name}`` or
-``{"type": "email", "to": address}``) unless the job has a job-level action for
+``settings.fallback`` (``{"type": "email", "to": address}`` or
+``{"type": "alert_action", "action": name, "params": {...}}``) unless the job has a job-level action for
 the hook, or (failure) an unhandled failed step has a step-level on_failure
 action, or (delay) a delayed step has a step-level on_delayed action. Handled
 step failures never use the fallback. A matching action that runs out of
@@ -71,7 +62,8 @@ between rows and ``keep_lease(force=True)`` right before each send, and starts
 no new action after ``PUMP_BUDGET`` seconds.
 Fallback rows have ``kind="fallback"`` and ``scope="fallback"``. Content is only job,
 run and step names, status and links. Email goes through the
-system-owned hidden search ``_so_fallback_email`` under ``nobody``.
+system-owned hidden search ``_so_fallback_email`` under ``nobody``; an alert action through
+``_so_fallback_alert``, which saving the setting writes under ``nobody`` (``hidden``).
 Links are relative unless settings has ``base_url``.
 
 Delivery is at least once: a crash between dispatching a search and saving its
@@ -80,11 +72,11 @@ sid can repeat that one action.
 import json
 import logging
 import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from . import authz, expr as exprmod, follows, hidden, presets, scheduler, tokens
 from . import deadline as deadlinemod
-from .gateway import DispatchError, GatewayError, check_webhook_url
+from .gateway import DispatchError, GatewayError
 from .state import backoff
 
 log = logging.getLogger(__name__)
@@ -159,46 +151,41 @@ def _entry(index, action):
             "error": None, "next_at": 0, "sid": None, "started_at": None}
 
 
-def _scrub(text, url, secrets=()):
-    """Remove a webhook URL (and its path, query and credentials) and the body secret's
-    values from an error text."""
-    text = str(text)
-    for value in sorted(set(v for v in secrets if v), key=len, reverse=True):
-        text = text.replace(value, "[secret]")
-    parts = urlsplit(url)
-    bits = [url, parts.path if len(parts.path) > 1 else "", parts.query,
-            parts.netloc.rpartition("@")[0]]
-    for bit in sorted(set(b for b in bits if b), key=len, reverse=True):
-        text = text.replace(bit, "[url]")
-    return text
+# Action types that were removed (1.50.1): skipped when an old definition still has one.
+REMOVED_TYPES = ("webhook",)
+
+
+def _live(actions):
+    """The actions that still run: without the removed types."""
+    return [a for a in actions or [] if a.get("type") not in REMOVED_TYPES]
 
 
 def _needs_failure_fallback(run, definition):
-    if any(a.get("hook") == "on_failure" for a in definition.get("actions") or []):
+    if any(a.get("hook") == "on_failure" for a in _live(definition.get("actions"))):
         return False
     handled = {e.get("from") for e in definition.get("edges") or []
                if e.get("condition") in ("on_failure", "always")}
     for step in definition.get("steps") or []:
         st = (run.get("steps") or {}).get(step.get("id")) or {}
         if st.get("state") == "failed" and step.get("id") not in handled \
-                and any(a.get("hook") == "on_failure" for a in step.get("actions") or []):
+                and any(a.get("hook") == "on_failure" for a in _live(step.get("actions"))):
             return False
     return True
 
 
 def _needs_delay_fallback(run, definition):
-    if any(a.get("hook") == "on_delayed" for a in definition.get("actions") or []):
+    if any(a.get("hook") == "on_delayed" for a in _live(definition.get("actions"))):
         return False
     for step in definition.get("steps") or []:
         st = (run.get("steps") or {}).get(step.get("id")) or {}
         if st.get("delay_alerted") \
-                and any(a.get("hook") == "on_delayed" for a in step.get("actions") or []):
+                and any(a.get("hook") == "on_delayed" for a in _live(step.get("actions"))):
             return False
     return True
 
 
 def _needs_late_fallback(run, definition):
-    return not any(a.get("hook") == "on_late" for a in definition.get("actions") or [])
+    return not any(a.get("hook") == "on_late" for a in _live(definition.get("actions")))
 
 
 def _run_lookup(run, now):
@@ -276,6 +263,13 @@ class ActionRunner:
                     if s == scope and sid == step_id and a.get("hook") == hook
                     and not (a.get("only_if_results") is True and scope == "step" and not found)
                     and _condition_holds(a, run, int(self.clock()))]
+        for i, a in [m for m in matching if m[1].get("type") in REMOVED_TYPES]:
+            self._emit({"type": "action_skipped", "run_id": run_id, "job_id": run.get("job_id"),
+                        "hook": hook, "step_id": step_id, "action_index": i,
+                        "action_type": a.get("type"), "preset": a.get("preset"),
+                        "reason": "webhook actions were removed in 1.50.1; use an Alert action"},
+                       int(self.clock()))
+        matching = [(i, a) for i, a in matching if a.get("type") not in REMOVED_TYPES]
         ctx = self._ctx(run, hook, scope, step_id)
         doc = {"_key": key, "kind": "action", "run_id": run_id, "job_id": run.get("job_id"),
                "owner": run.get("owner"), "scheduled_time": run.get("scheduled_time"),
@@ -466,8 +460,6 @@ class ActionRunner:
         kind = entry["type"]
         if row.get("tokens"):
             ctx["tokens"] = row["tokens"]  # $run.*$ and $<step>.*$ in templates
-        if kind == "webhook":
-            return self._webhook(row, entry, action, ctx, now)
         if kind in SEARCH_TYPES:
             return self._search(row, entry, action, ctx, now)
         if kind == "start_job":
@@ -484,76 +476,15 @@ class ActionRunner:
                          for f in ctx.get("failed") or []]
         return out
 
-    def _destination(self, name):
-        doc = self.gw.kv_get(SETTINGS, "destinations") or {}
-        for dest in doc.get("destinations") or []:
-            if dest.get("name") == name:
-                return dest
-        raise _Fail("unknown webhook destination %r" % (name,))
-
-    def _body_secret(self, dest):
-        """The destination's body secret (PagerDuty only) as a dict of strings, or {}."""
-        if dest.get("preset") != "pagerduty" or not dest.get("body_secret_ref"):
-            return {}
-        raw = self.gw.read_secret(dest["body_secret_ref"])
-        try:
-            extra = json.loads(raw) if raw else {}
-            return {str(k): str(v) for k, v in extra.items()}
-        except (ValueError, AttributeError):
-            raise _Fail("destination %r body secret is not a JSON object" % dest.get("name"))
-
-    def _post(self, row, entry, dest_name, preset, body_template, ctx, now, options=None):
-        dest = self._destination(dest_name)
-        url = self.gw.read_secret(dest.get("url_secret_ref") or "")
-        if not url:
-            raise _Fail("destination %r has no URL secret" % dest_name)
-        headers = {"Content-Type": "application/json"}
-        secret = {}
-        try:
-            check_webhook_url(url)
-            if dest.get("headers_secret_ref"):
-                raw = self.gw.read_secret(dest["headers_secret_ref"])
-                if raw:
-                    try:
-                        extra = json.loads(raw)
-                        headers.update({str(k): str(v) for k, v in extra.items()})
-                    except (ValueError, AttributeError):
-                        raise _Fail("destination %r headers secret is not a JSON object"
-                                    % dest_name)
-            if body_template:
-                template = json.loads(body_template) if isinstance(body_template, str) \
-                    else body_template
-                body = presets.fill(template, ctx)
-            else:
-                body = presets.render(preset or dest.get("preset") or "generic", ctx, options)
-            secret = self._body_secret(dest)
-            if secret and isinstance(body, dict):
-                body = dict(body, **secret)
-            parts = urlsplit(url)
-            where = {"destination": dest_name, "scheme": parts.scheme, "host": parts.hostname,
-                     "preset": None if body_template else (preset or dest.get("preset") or "generic")}
-            try:
-                status = self.gw.post_webhook(url, headers, json.dumps(body))
-            except GatewayError as err:
-                raise GatewayError(_scrub(err, url, secret.values()), status=err.status,
-                                   transient=err.transient)
-        except _Fail:
-            raise
-        except GatewayError as err:
-            raise _Fail(_scrub(err, url, secret.values()), err.transient)
-        except Exception as err:  # e.g. http.client.InvalidURL, whose text has the URL
-            raise _Fail("bad webhook request (%s): %s" % (type(err).__name__,
-                                                          _scrub(err, url, secret.values())))
-        self._done(row, entry, now, http_status=status, **where)
-
-    def _webhook(self, row, entry, action, ctx, now):
-        self._post(row, entry, action.get("destination"), action.get("preset"),
-                   action.get("body"), ctx, now, action.get("options"))
-
     def _fallback(self, row, entry, ctx, settings, now):
         fb = settings.get("fallback") or {}
-        if fb.get("type") == "webhook" and fb.get("destination"):
-            return self._post(row, entry, fb["destination"], fb.get("preset"), None, ctx, now)
+        if fb.get("type") == "alert_action" and fb.get("action"):
+            full = dict(ctx, message=presets.default_message(ctx))
+            args = {"action": fb["action"]}
+            for k, v in (fb.get("params") or {}).items():
+                args["param." + str(k)] = presets.fill(str(v), full)
+            return self._dispatch(row, entry, hidden.FALLBACK_OWNER, hidden.FALLBACK_ALERT_SEARCH,
+                                  args, now)
         if fb.get("type") == "email" and fb.get("to"):
             args = {"to": fb["to"], "subject": "Search Orchestrator: %s %s" % (
                 ctx["job"], presets._VERB.get(ctx["hook"], ctx["hook"])),
@@ -571,9 +502,7 @@ class ActionRunner:
         access = self.gw.user_access(user) if user else {"roles": [], "capabilities": []}
         if job is None or not authz.can_view(user, job, access["roles"], access["capabilities"]):
             raise _Fail("follower %r may no longer see the job" % (user,))
-        notify = action.get("notify") or {}
-        if notify.get("type") == "webhook":
-            return self._post(row, entry, notify.get("destination"), None, None, ctx, now)
+        # A follow by webhook (before 1.50.1) is told by email now.
         to = access.get("email")
         if not to:
             raise _Fail("follower %r has no email address in Splunk" % (user,))
@@ -619,6 +548,9 @@ class ActionRunner:
         self._dispatch(row, entry, row["owner"], name, args, now)
 
     def _dispatch(self, row, entry, owner, name, args, now):
+        problem = hidden.not_private_problem(self.gw, owner, name)
+        if problem is not None:
+            raise _Fail(problem)
         escaped = {k: tokens.escape_spl_string(v) for k, v in args.items()}
         sid = self.gw.dispatch(owner, name, int(row.get("scheduled_time") or now), escaped,
                                trigger_actions=False)

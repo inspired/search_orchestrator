@@ -419,3 +419,11 @@ def test_tags_are_a_short_list_of_simple_words():
                        (["t%d" % i for i in range(11)], "at most 10")):
         issues = m.validate_job(dict(base, tags=tags))
         assert any(text in i["message"] for i in issues if i["level"] == "error"), tags
+
+
+def test_param_pattern_too_long_or_with_nested_repeats_is_refused():
+    for rx in ("a" * 501, "(a+)+$", "^(\\w*)*x", "(.*a){20}", "([a-z]+)*"):
+        issues = validate_job(job(params=[{"name": "r", "type": "string", "regex": rx}]))
+        assert "bad_param" in codes(issues), rx
+    fine = validate_job(job(params=[{"name": "r", "type": "string", "regex": "^[a-z]+(-[a-z]+)?$"}]))
+    assert "bad_param" not in codes(fine)

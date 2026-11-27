@@ -255,12 +255,6 @@ def test_start_job_cycle_warns(w):
     assert [i for i in out["issues"] if i["code"] == "job_chain_cycle"]
 
 
-def test_unknown_destination_blocks_save(w):
-    body = job_body(actions=[{"hook": "on_failure", "type": "webhook", "destination": "nope"}])
-    status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
-    assert status == 400 and any(i["code"] == "unknown_destination" for i in out["error"]["issues"])
-
-
 # Sessions.
 
 def test_hidden_writes_use_user_session_and_kv_uses_system(w):
@@ -486,46 +480,6 @@ def test_rerun_rejects_bad_state_and_step(w):
 
 # Settings and destinations.
 
-def test_destination_secret_not_returned(w):
-    status, out = w.call("root", "POST", "/orchestrator/destinations",
-                         {"name": "ops", "url": "https://hooks.example.com/T/secret",
-                          "headers": {"Authorization": "Bearer tok"}, "preset": "slack"})
-    assert status == 201, out
-    for user in ("root", "alice"):
-        status, out = w.call(user, "GET", "/orchestrator/destinations")
-        assert status == 200
-        text = repr(out)
-        # body_secret_set is a flag (features-2 Task 19), not a secret.
-        assert "secret" not in text.replace("_secret_ref", "").replace("body_secret_set", "") \
-            and "tok" not in text
-        assert [d["name"] for d in out["destinations"]] == ["ops"]
-    doc = w.gw.kv_get("so_settings", "destinations")
-    dest = doc["destinations"][0]
-    assert w.gw.read_secret(dest["url_secret_ref"]) == "https://hooks.example.com/T/secret"
-    assert "Bearer tok" in w.gw.read_secret(dest["headers_secret_ref"])
-    assert "url" not in dest and "headers" not in dest
-    secret_writes = {label for label, name in w.calls if name == "write_secret"}
-    assert secret_writes == {"system"}
-    assert not any("secret" in repr(e).replace("_secret_ref", "") for e in w.audit.events)
-
-
-def test_non_https_destination_rejected(w):
-    for url in ("http://hooks.example.com/x", "https:///nohost", "ftp://x"):
-        status, out = w.call("root", "POST", "/orchestrator/destinations",
-                             {"name": "ops", "url": url})
-        assert status == 400 and error(out) == "bad_destination"
-    assert w.gw.secrets == {}
-
-
-def test_only_admin_manages_destinations(w):
-    body = {"name": "ops", "url": "https://hooks.example.com/x"}
-    assert w.call("alice", "POST", "/orchestrator/destinations", body)[0] == 403
-    assert w.call("root", "POST", "/orchestrator/destinations", body)[0] == 201
-    assert w.call("alice", "DELETE", "/orchestrator/destinations/ops")[0] == 403
-    assert w.call("root", "DELETE", "/orchestrator/destinations/ops")[0] == 200
-    assert w.call("root", "GET", "/orchestrator/destinations")[1]["destinations"] == []
-    assert w.call("carol", "GET", "/orchestrator/destinations")[0] == 403
-
 
 def test_settings_admin_only_and_validated(w):
     assert w.call("alice", "GET", "/orchestrator/settings")[0] == 403
@@ -623,26 +577,6 @@ def test_rest_adapter_errors(w):
     assert out["status"] == 500 and json.loads(out["payload"])["error"]["code"] == "misconfigured"
 
 
-def test_destination_delete_removes_its_secrets(w):
-    w.call("root", "POST", "/orchestrator/destinations",
-           {"name": "ops", "url": "https://hooks.example.com/x", "headers": {"A": "b"}})
-    w.call("root", "POST", "/orchestrator/destinations",
-           {"name": "other", "url": "https://hooks.example.com/y"})
-    assert set(w.gw.secrets) == {"destination_ops_url", "destination_ops_headers",
-                                 "destination_other_url"}
-    assert w.call("root", "DELETE", "/orchestrator/destinations/ops")[0] == 200
-    assert set(w.gw.secrets) == {"destination_other_url"}
-    assert {label for label, name in w.calls if name == "delete_secret"} == {"system"}
-
-
-def test_destination_headers_cleared_deletes_secret(w):
-    w.call("root", "POST", "/orchestrator/destinations",
-           {"name": "ops", "url": "https://hooks.example.com/x", "headers": {"A": "b"}})
-    w.call("root", "POST", "/orchestrator/destinations",
-           {"name": "ops", "url": "https://hooks.example.com/x", "headers": None})
-    assert set(w.gw.secrets) == {"destination_ops_url"}
-
-
 # Fix round 1.
 
 @pytest.mark.parametrize("bad", ["..", "..%2Fso_runs%2Fx", "a%2Fb", "%2E%2E", "a b", "a:b"])
@@ -675,11 +609,6 @@ def test_real_run_ids_accepted(w):
     assert w.call("alice", "GET", "/orchestrator/runs/" + quote(run_id, safe=""))[0] == 200
 
 
-def test_bad_destination_name_in_path_404(w):
-    status, out = w.call("root", "DELETE", "/orchestrator/destinations/..%2Fsettings")
-    assert status == 404
-
-
 def test_cycle_warning_redacts_hidden_jobs(w):
     saved(w, "bob", job_body("bobs", actions=[{"hook": "on_success", "type": "start_job",
                                                "job": "mine"}], run_roles=[]))
@@ -704,7 +633,7 @@ def test_health_reports_missing_index(w):
     w.gw.indexes.clear()
     out = w.call("alice", "GET", "/orchestrator/health")[1]["health"]
     assert out["index_present"] is False and any("index" in m for m in out["messages"])
-    assert out["audit_index"] == "orchestrator"  # the screens show the name from here
+    assert out["audit_index"] == "_audit"  # the screens show the name from here
 
 
 def test_route_keyword_job_ids_reserved(w):
@@ -716,33 +645,6 @@ def test_route_keyword_job_ids_reserved(w):
     status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
     assert status == 201 and out["job"]["id"] != "validate"
     assert w.call("alice", "GET", "/orchestrator/jobs/" + out["job"]["id"])[0] == 200
-
-
-def test_delete_destination_deletes_secrets_first(w):
-    w.call("root", "POST", "/orchestrator/destinations",
-           {"name": "ops", "url": "https://hooks.example.com/x", "headers": {"A": "b"}})
-    order = []
-    real_delete, real_update = w.gw.delete_secret, w.gw.kv_update
-    w.gw.delete_secret = lambda n: (order.append(("secret", n)), real_delete(n))[1]
-    w.gw.kv_update = lambda c, k, d: (order.append(("doc", k)), real_update(c, k, d))[1]
-    assert w.call("root", "DELETE", "/orchestrator/destinations/ops")[0] == 200
-    assert [o[0] for o in order] == ["secret", "secret", "doc"]
-
-
-def test_delete_destination_secret_failure_keeps_doc_and_audits(w):
-    from so.gateway import GatewayError
-    w.call("root", "POST", "/orchestrator/destinations",
-           {"name": "ops", "url": "https://hooks.example.com/x"})
-
-    def boom(name):
-        raise GatewayError("HTTP 500", status=500)
-    w.gw.delete_secret = boom
-    status, out = w.call("root", "DELETE", "/orchestrator/destinations/ops")
-    assert status == 502 and error(out) == "secret_delete_failed"
-    assert [d["name"] for d in w.call("root", "GET", "/orchestrator/destinations")[1]
-            ["destinations"]] == ["ops"]
-    failed = w.audit.of("destination_secret_delete_failed")
-    assert failed and failed[0]["destination"] == "ops"
 
 
 @pytest.mark.parametrize("key,top", [("max_searches", 100), ("max_searches_per_job", 50),
@@ -1832,146 +1734,6 @@ def test_job_without_deadline_is_saved_without_one(w):
 
 # Teams, PagerDuty and ServiceNow presets.
 
-def _dest(w, body):
-    return w.call("root", "POST", "/orchestrator/destinations", body)
-
-
-def _webhook_issues(w, preset, options, destination="ops", job_id="daily"):
-    _dest(w, {"name": "ops", "url": "https://hooks.example.com/x"})
-    action = {"hook": "on_failure", "type": "webhook", "destination": destination,
-              "options": options}
-    if preset is not None:
-        action["preset"] = preset
-    status, out = w.call("alice", "POST", "/orchestrator/jobs", job_body(job_id, actions=[action]))
-    return status, [i["message"] for i in (out.get("error") or {}).get("issues") or []]
-
-
-@pytest.mark.parametrize("preset,options,message", [
-    ("pagerduty", {"severity": "loud"}, "severity must be critical, error, warning or info"),
-    ("servicenow", {"urgency": "9"}, "urgency must be 1, 2 or 3"),
-    ("servicenow", {"impact": "9"}, "impact must be 1, 2 or 3"),
-    ("servicenow", {"assignment_group": "g" * 101},
-     "assignment group can be at most 100 characters"),
-    ("slack", {"severity": "info"},
-     "options only apply to Teams, PagerDuty and ServiceNow actions"),
-])
-def test_webhook_option_messages(w, preset, options, message):
-    status, messages = _webhook_issues(w, preset, options)
-    assert status == 400 and message in messages
-
-
-def test_webhook_options_use_the_destination_format(w):
-    # No preset on the action: the destination's (generic) format applies.
-    status, messages = _webhook_issues(w, None, {"severity": "info"})
-    assert status == 400
-    assert "options only apply to Teams, PagerDuty and ServiceNow actions" in messages
-
-
-def test_webhook_good_options_save(w):
-    status, _ = _webhook_issues(w, "pagerduty", {"severity": "warning"})
-    assert status == 201
-    status, _ = _webhook_issues(w, "servicenow", {"urgency": "1", "impact": "3",
-                                                  "assignment_group": "Data"}, job_id="other")
-    assert status == 201
-
-
-def test_webhook_unknown_preset_blocks_save(w):
-    status, messages = _webhook_issues(w, "fax", None)
-    assert status == 400 and messages
-
-
-@pytest.mark.parametrize("preset", ["teams", "pagerduty", "servicenow"])
-def test_destination_accepts_new_presets(w, preset):
-    body = {"name": "d", "preset": preset, "url": "https://acme.service-now.com/api/now/table/incident"}
-    if preset == "pagerduty":
-        body["routing_key"] = "k" * 32
-    status, out = _dest(w, body)
-    assert status == 201, out
-    assert out["destination"]["preset"] == preset
-    assert out["destination"]["body_secret_set"] is (preset == "pagerduty")
-
-
-def test_pagerduty_destination_defaults_url_and_stores_routing_key(w):
-    status, out = _dest(w, {"name": "pd", "preset": "pagerduty", "routing_key": "RKEY-123"})
-    assert status == 201, out
-    dest = w.gw.kv_get("so_settings", "destinations")["destinations"][0]
-    assert w.gw.read_secret(dest["url_secret_ref"]) == "https://events.pagerduty.com/v2/enqueue"
-    assert json.loads(w.gw.read_secret(dest["body_secret_ref"])) == {"routing_key": "RKEY-123"}
-    assert "routing_key" not in dest
-    assert {label for label, name in w.calls if name == "write_secret"} == {"system"}
-    listed = w.call("root", "GET", "/orchestrator/destinations")[1]
-    assert listed["destinations"][0]["body_secret_set"] is True
-    assert "RKEY-123" not in json.dumps(listed) + json.dumps(w.audit.events) + json.dumps(out)
-    # Saving again without a routing key keeps the stored one.
-    status, out = _dest(w, {"name": "pd", "preset": "pagerduty"})
-    assert status == 201 and out["destination"]["body_secret_set"] is True
-    assert json.loads(w.gw.read_secret("destination_pd_body")) == {"routing_key": "RKEY-123"}
-    # Switching to another format removes it; deleting removes every secret.
-    status, out = _dest(w, {"name": "pd", "preset": "generic", "url": "https://hooks.example.com/x"})
-    assert status == 201 and out["destination"]["body_secret_set"] is False
-    assert "destination_pd_body" not in w.gw.secrets
-    _dest(w, {"name": "pd", "preset": "pagerduty", "routing_key": "RKEY-123"})
-    assert w.call("root", "DELETE", "/orchestrator/destinations/pd")[0] == 200
-    assert w.gw.secrets == {}
-
-
-def test_replacing_a_pagerduty_destination_without_url_keeps_the_stored_url(w):
-    eu = "https://events.eu.pagerduty.com/v2/enqueue"
-    status, _ = _dest(w, {"name": "pd", "preset": "pagerduty", "url": eu, "routing_key": "RK"})
-    assert status == 201 and w.gw.read_secret("destination_pd_url") == eu
-    for url in (None, ""):
-        body = {"name": "pd", "preset": "pagerduty"}
-        if url is not None:
-            body["url"] = url
-        status, out = _dest(w, body)
-        assert status == 201, out
-        assert w.gw.read_secret("destination_pd_url") == eu
-        assert out["destination"]["host"] == "events.eu.pagerduty.com"
-    # A format switch to PagerDuty still fills the default.
-    _dest(w, {"name": "x", "preset": "generic", "url": "https://hooks.example.com/x"})
-    status, _ = _dest(w, {"name": "x", "preset": "pagerduty", "routing_key": "RK"})
-    assert status == 201
-    assert w.gw.read_secret("destination_x_url") == "https://events.pagerduty.com/v2/enqueue"
-
-
-@pytest.mark.parametrize("key", [None, "", "  ", 42])
-def test_pagerduty_destination_needs_routing_key(w, key):
-    body = {"name": "pd", "preset": "pagerduty"}
-    if key is not None:
-        body["routing_key"] = key
-    status, out = _dest(w, body)
-    assert status == 400 and error(out) == "bad_destination"
-    assert out["error"]["message"] == ("Enter the routing key from the PagerDuty service's "
-                                       "Events API v2 integration")
-    assert w.gw.secrets == {}
-
-
-def test_servicenow_destination_url_rule(w):
-    status, out = _dest(w, {"name": "sn", "preset": "servicenow",
-                            "url": "https://acme.service-now.com/api/now/table/problem"})
-    assert status == 400 and out["error"]["message"] == "A ServiceNow URL ends in /api/now/table/incident"
-    assert w.gw.secrets == {}
-    status, out = _dest(w, {"name": "sn", "preset": "servicenow",
-                            "url": "https://acme.service-now.com/api/now/table/incident"})
-    assert status == 201
-
-
-def test_slack_and_generic_destinations_still_need_a_url(w):
-    for preset in ("slack", "generic", "teams"):
-        status, out = _dest(w, {"name": "x", "preset": preset})
-        assert status == 400 and error(out) == "bad_destination"
-    status, out = _dest(w, {"name": "x", "url": "https://hooks.example.com/x"})
-    assert status == 201 and out["destination"] == {
-        "name": "x", "preset": "generic", "host": "hooks.example.com", "has_headers": False,
-        "body_secret_set": False}
-
-
-def test_routing_key_ignored_for_other_formats(w):
-    status, out = _dest(w, {"name": "x", "url": "https://hooks.example.com/x",
-                            "routing_key": "NOPE"})
-    assert status == 201 and out["destination"]["body_secret_set"] is False
-    assert "NOPE" not in json.dumps(w.gw.secrets)
-
 
 def test_approval_requested_only_on_approval_steps(w):
     body = job_body()
@@ -2381,3 +2143,67 @@ def test_run_list_without_a_search_is_unchanged(w):
     out = runs_search(w, user="root", limit="2")
     assert [r["id"] for r in out["runs"]] == ["s:2", "i:1"] and "partial" not in out
     assert calls[0]["query"] == {}
+
+
+# Saves that would overwrite someone else's newer save (1.49.0).
+
+def test_save_with_old_revision_is_refused(w):
+    job = saved(w)
+    assert job["revision"] == 1
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(name="Mine"), _base_revision=1))
+    assert status == 200 and out["job"]["revision"] == 2
+    w.now += 60
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(name="Stale"), _base_revision=1))
+    assert status == 409 and error(out) == "job_changed"
+    assert out["error"]["updated_by"] == "alice" and out["error"]["revision"] == 2
+    assert w.store.get_job("daily")["name"] == "Mine"
+
+
+def test_save_without_base_revision_overwrites_as_before(w):
+    saved(w)
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", job_body(name="Plain"))
+    assert status == 200 and out["job"]["revision"] == 2
+
+
+def test_revision_is_server_owned_and_counts_enable_and_tags(w):
+    saved(w, body=job_body(revision=99))
+    assert w.store.get_job("daily")["revision"] == 1
+    w.call("alice", "POST", "/orchestrator/jobs/daily/enabled", {"enabled": False})
+    assert w.store.get_job("daily")["revision"] == 2
+    status, out = w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(), _base_revision=1))
+    assert status == 409 and error(out) == "job_changed"
+
+
+def test_a_job_saved_before_revisions_counts_as_revision_0(w):
+    saved(w)
+    doc = w.store.get_job("daily")
+    doc.pop("revision")
+    w.store.save_job(doc)
+    assert w.call("alice", "PUT", "/orchestrator/jobs/daily", dict(job_body(), _base_revision=0))[0] == 200
+
+
+# Tags without saving the whole job (1.49.0).
+
+def test_tags_route_adds_and_removes_and_keeps_owner(w):
+    saved(w, body=job_body(tags=["ops"]))
+    status, out = w.call("root", "POST", "/orchestrator/jobs/daily/tags", {"add": ["Nightly", "OPS"], "remove": []})
+    assert status == 200, out
+    job = w.store.get_job("daily")
+    assert job["tags"] == ["ops", "Nightly"] and job["owner"] == "alice" and job["revision"] == 2
+    assert not w.audit.of("job_owner_changed")
+    events = w.audit.of("job_tags_changed")
+    assert events and events[-1]["added"] == ["Nightly"] and events[-1]["removed"] == []
+    w.call("alice", "POST", "/orchestrator/jobs/daily/tags", {"remove": ["nightly"]})
+    assert w.store.get_job("daily")["tags"] == ["ops"]
+
+
+def test_tags_route_checks_rights_and_tags(w):
+    saved(w)
+    assert w.call("carol", "POST", "/orchestrator/jobs/daily/tags", {"add": ["x"]})[0] == 403
+    assert w.call("bob", "POST", "/orchestrator/jobs/daily/tags", {"add": ["x"]})[0] == 404
+    for bad in ({"add": "x"}, {"add": ["bad/tag"]}, {"add": [str(i) for i in range(11)]}, {}):
+        status, out = w.call("alice", "POST", "/orchestrator/jobs/daily/tags", bad)
+        assert status == 400, bad
+    assert not w.store.get_job("daily").get("tags")
+
+

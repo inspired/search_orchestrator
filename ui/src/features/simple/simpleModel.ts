@@ -12,7 +12,7 @@ import { removeStepJob } from '../builder/flowEdits';
 import { outputSpl } from '../builder/outputs';
 import { nextStepId } from '../builder/stepRename';
 
-export type ThenKind = 'summary_index' | 'lookup' | 'email' | 'slack' | 'teams' | 'pagerduty' | 'servicenow' | 'event';
+export type ThenKind = 'summary_index' | 'lookup' | 'email' | 'event';
 
 /** When a "then" happens, as the Flow editor's When list: a save only on success or a condition. */
 export type When = 'success' | 'failure' | 'always' | 'start' | 'delayed' | 'condition';
@@ -52,10 +52,6 @@ export const THEN_LABEL: Record<ThenKind, string> = {
     summary_index: 'Save to summary index',
     lookup: 'Save to lookup',
     email: 'Email',
-    slack: 'Post to Slack',
-    teams: 'Post to Teams',
-    pagerduty: 'Page PagerDuty',
-    servicenow: 'Open a ServiceNow incident',
     event: 'Write an event',
 };
 
@@ -69,10 +65,6 @@ function actionKind(a: Action): Exclude<ThenKind, 'summary_index' | 'lookup'> | 
     }
     if (a.type === 'event') {
         return 'event';
-    }
-    if (a.type === 'webhook') {
-        const p = a.preset as string | undefined;
-        return p === 'teams' || p === 'pagerduty' || p === 'servicenow' ? p : 'slack';
     }
     return null;
 }
@@ -248,10 +240,6 @@ export function addThen(job: JobDefinition, id: string, kind: ThenKind, when: Wh
     }
     const defaults: Record<string, Omit<Action, 'hook'>> = {
         email: { type: 'email', to: '' },
-        slack: { type: 'webhook', preset: 'slack', destination: '' },
-        teams: { type: 'webhook', preset: 'teams', destination: '' },
-        pagerduty: { type: 'webhook', preset: 'pagerduty', destination: '' },
-        servicenow: { type: 'webhook', preset: 'servicenow', destination: '' },
         event: { type: 'event', index: 'main' },
     };
     const action = { hook: WHEN_HOOK[when], ...defaults[kind] } as Action;

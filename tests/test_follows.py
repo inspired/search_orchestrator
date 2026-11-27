@@ -35,7 +35,7 @@ def test_bad_follows(w):
     status, out = follow(w, {"on": ["failure"]})  # alice has no email in the fake
     assert error(out) in ("no_email", "bad_request")
     status, out = follow(w, {"on": ["failure"], "notify": {"type": "webhook", "destination": "nope"}})
-    assert error(out) == "unknown_destination"
+    assert (status, error(out)) == (400, "bad_request")  # webhook destinations were removed
 
 
 def test_a_job_you_cannot_see_cannot_be_followed(w):
@@ -100,10 +100,3 @@ def test_a_follower_who_lost_access_or_has_no_email_is_not_sent_anything():
     assert "no email address" in w2.rows(kind="follow")[0]["error"]
 
 
-def test_a_follower_can_use_a_webhook_destination():
-    w = W()
-    _follower(w, notify={"type": "webhook", "destination": "ops"})
-    w.submit("on_failure", "job")
-    w.pump()
-    assert len(w.gw.webhook_log) == 1
-    assert w.rows(kind="follow")[0]["state"] == "done"

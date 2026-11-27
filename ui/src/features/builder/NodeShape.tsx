@@ -2,16 +2,13 @@
  * the shape, an icon, a label and a detail line. The + handle and outcome tabs are PlusHandle.tsx. */
 import React from 'react';
 import Bell from '@splunk/react-icons/Bell';
-import BalloonsChat from '@splunk/react-icons/BalloonsChat';
 import Briefcase from '@splunk/react-icons/Briefcase';
-import Clipboard from '@splunk/react-icons/Clipboard';
 import Clock from '@splunk/react-icons/Clock';
 import Cylinder from '@splunk/react-icons/Cylinder';
 import Diamond from '@splunk/react-icons/Diamond';
 import Filter from '@splunk/react-icons/Filter';
 import HandRise from '@splunk/react-icons/HandRise';
 import Magnifier from '@splunk/react-icons/Magnifier';
-import MobilePhone from '@splunk/react-icons/MobilePhone';
 import ArrowRight from '@splunk/react-icons/ArrowRight';
 import type { Theme } from './GraphView';
 import type { FlowNode, NodeKind } from './nodeModel';
@@ -30,11 +27,7 @@ const ICON: Record<Family, Icon> = {
     job: Briefcase,
 };
 /** Kinds with an icon of their own instead of their family's. */
-const KIND_ICON: Partial<Record<NodeKind, Icon>> = {
-    teams: BalloonsChat,
-    pagerduty: MobilePhone,
-    servicenow: Clipboard,
-};
+const KIND_ICON: Partial<Record<NodeKind, Icon>> = {};
 
 const STRIPE = 4;
 const ICON_SIZE = 16;

@@ -78,11 +78,14 @@ partial failure still leaves every name tracked. ``gc(job, active_runs)``
 returns the entries that neither the job nor any active run's definition
 snapshot uses; the caller deletes them and drops them from the list.
 
-Fallback email
---------------
+Fallback email and alert action
+-------------------------------
 ``FALLBACK_EMAIL_SEARCH`` (``_so_fallback_email``) is system-owned, shipped as
 a static stanza in ``default/savedsearches.conf`` and dispatched under owner
 ``nobody``. It reads ``args.to``, ``args.subject`` and ``args.message``.
+``FALLBACK_ALERT_SEARCH`` (``_so_fallback_alert``) is written under ``nobody`` when an
+admin saves an alert-action fallback (``fallback_alert_spl``: ``sendalert`` with that
+action's parameter names); it reads ``args.action`` and ``args.param.<name>``.
 """
 import copy
 import hashlib
@@ -91,6 +94,7 @@ import re
 from . import names, tokens
 
 FALLBACK_EMAIL_SEARCH = "_so_fallback_email"
+FALLBACK_ALERT_SEARCH = "_so_fallback_alert"
 FALLBACK_OWNER = "nobody"
 SEARCH_ACTIONS = ("email", "event", "alert_action")
 ACTION_EARLIEST = "-1m"
@@ -165,6 +169,12 @@ def action_spl(action):
     params = "".join(' param.%s="$args.param.%s$"' % (k, k)
                      for k in sorted((action.get("params") or {}).keys()))
     return "| makeresults | sendalert $args.action$%s" % params
+
+
+def fallback_alert_spl(fallback):
+    """The SPL of ``_so_fallback_alert`` for an alert-action fallback setting."""
+    return action_spl({"type": "alert_action", "action": fallback.get("action"),
+                       "params": fallback.get("params") or {}})
 
 
 def _action_issues(action, step):
@@ -331,15 +341,26 @@ def apply(gw, planned, searches, previous, record=None):
     return planned
 
 
-def sync(gw, job, previous, issues=None, record=None):
-    """Create the job's hidden searches with the user's session ``gw``; return the job
-    with ``hidden_search``/``mode`` per step and action and the updated
-    ``hidden_searches`` list. Issues found (warnings, or errors that skip a search)
-    are appended to ``issues``."""
-    planned, searches, found = plan(gw, job)
-    if issues is not None:
-        issues.extend(found)
-    return apply(gw, planned, searches, previous, record)
+def not_private_problem(gw, owner, name):
+    """Re-check an app-created hidden search right before the system session dispatches
+    it by name in ``owner``'s namespace (for ``nobody``: one of the app's own system searches): if it was deleted, another user's shared search
+    with the same name would run instead. The problem text, or None when it is the
+    owner's private search or not found at all (the dispatch then fails with a 404 and
+    says to re-save). A ``GatewayError`` is raised to the caller."""
+    info = gw.saved_search_info(owner, name)
+    if owner == FALLBACK_OWNER:
+        # The app's own system searches (the fallback email, the fallback alert action): owned
+        # by nobody and shared in this app, never another app's search of the same name.
+        from .gateway import APP
+        if not info.get("exists") or (info.get("owner") == owner and info.get("app") == APP):
+            return None
+        return ("saved search %r is not this app's own (owner %s, app %s), so it was not run"
+                % (name, info.get("owner"), info.get("app")))
+    if not info.get("exists") or (info.get("owner") == owner and info.get("sharing") == "user"):
+        return None
+    return ("hidden saved search %r is no longer a private search of %s (owner %s, sharing "
+            "%s), so it was not run; re-save the job to recreate it"
+            % (name, owner, info.get("owner"), info.get("sharing")))
 
 
 def used(definition, owner):

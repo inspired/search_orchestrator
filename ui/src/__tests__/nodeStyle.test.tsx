@@ -25,8 +25,7 @@ describe('nodeStyle', () => {
         expect(FAMILY_OF.lookup).toBe('write');
         expect(FAMILY_OF.event).toBe('write');
         expect(FAMILY_OF.email).toBe('notify');
-        expect(FAMILY_OF.webhook).toBe('notify');
-        expect(FAMILY_OF.slack).toBe('notify');
+        expect(FAMILY_OF.alert_action).toBe('notify');
         expect(FAMILY_OF.alert_action).toBe('notify');
         expect(FAMILY_OF.start_job).toBe('chain');
         expect(FAMILY_OF.trigger_cron).toBe('trigger');
@@ -75,7 +74,7 @@ describe('nodeStyle', () => {
     });
     it('gives a + to steps, the whole job, conditions and triggers only', () => {
         const yes: NodeKind[] = ['search', 'saved_search', 'previous', 'summary_index', 'lookup', 'job', 'condition', 'trigger_cron', 'trigger_completion'];
-        const no: NodeKind[] = ['email', 'webhook', 'slack', 'event', 'alert_action', 'start_job'];
+        const no: NodeKind[] = ['email', 'event', 'alert_action', 'start_job'];
         yes.forEach((k) => expect(hasHandle(k)).toBe(true));
         no.forEach((k) => expect(hasHandle(k)).toBe(false));
     });

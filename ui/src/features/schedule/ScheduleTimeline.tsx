@@ -1,14 +1,16 @@
-/* The global timeline: a "Concurrent searches" row, then one row per job with its past,
- * running and scheduled runs on a shared axis. Rows use the run page Timeline's layout:
+/* The global timeline: a "Concurrent searches" row (this app's searches), an "All Splunk
+ * searches" row (every search on the search head against splunkd's limit, when the viewer may
+ * read it), then one row per job with its past, running and scheduled runs on a shared axis. Rows use the run page Timeline's layout:
  * label, track, and a right-hand column. */
 import React from 'react';
 import Link from '@splunk/react-ui/Link';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { ScheduleBar, ScheduleResponse } from '../../api/types';
+import type { ScheduleBar, ScheduleResponse, SplunkLoad } from '../../api/types';
 import { pageHref } from '../../components/PageShell';
 import StatusText, { statusLabel } from '../../components/StatusText';
 import { formatDuration, formatTime } from '../../format';
 import LoadRow from './LoadRow';
+import SplunkLoadRow, { SplunkLoadKey } from './SplunkLoadRow';
 import { BarFill, barFill, orderRows, pct, place, ticks } from './layout';
 
 export interface ScheduleTimelineProps {
@@ -20,9 +22,15 @@ export interface ScheduleTimelineProps {
     q?: string;
     /** Only past runs in this state (scheduled runs always show). */
     state?: string;
+    /** Every Splunk search over the window (GET schedule/splunk); null while it loads. */
+    splunk?: SplunkLoad | null;
+    /** Why the Splunk row could not be loaded. */
+    splunkError?: string | null;
 }
 
 const GRID = '180px 1fr 170px';
+/** The two load rows are graphs to read, not a strip: tall enough to see one search. */
+export const LOAD_HEIGHT = 120;
 
 function describe(bar: ScheduleBar): string {
     const when = `${formatTime(bar.start)} – ${formatTime(bar.end)}`;
@@ -38,7 +46,7 @@ function describe(bar: ScheduleBar): string {
     return `${state}: ${when}`;
 }
 
-export default function ScheduleTimeline({ data, from, to, now, q = '', state }: ScheduleTimelineProps) {
+export default function ScheduleTimeline({ data, from, to, now, q = '', state, splunk = null, splunkError = null }: ScheduleTimelineProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const term = q.trim().toLowerCase();
     const rows = orderRows(data.jobs).filter(({ job }) => !term || (!job.hidden && job.name.toLowerCase().includes(term)));
@@ -129,9 +137,38 @@ export default function ScheduleTimeline({ data, from, to, now, q = '', state }:
                 }}
             >
                 <span style={{ fontWeight: theme.fontWeightSemiBold as React.CSSProperties['fontWeight'] }}>Concurrent searches</span>
-                <LoadRow load={data.load} from={from} to={to} max={data.max_searches} now={now} />
+                <LoadRow load={data.load} from={from} to={to} max={data.max_searches} now={now} height={LOAD_HEIGHT} />
                 <span style={{ color: theme.contentColorMuted }}>{`Limit ${data.max_searches}`}</span>
             </div>
+            {(splunk || splunkError) && (
+                <div
+                    data-testid="splunk-load"
+                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: '4px 10px', alignItems: 'center', padding: '6px 14px', borderBottom: `1px solid ${theme.borderColor}` }}
+                >
+                    <span style={{ fontWeight: theme.fontWeightSemiBold as React.CSSProperties['fontWeight'] }}>All Splunk searches</span>
+                    {splunk ? <SplunkLoadRow data={splunk} appLoad={data.load} from={from} to={to} now={now} height={LOAD_HEIGHT} /> : <span style={{ color: theme.contentColorMuted }}>{splunkError}</span>}
+                    <span style={{ color: theme.contentColorMuted }}>{splunk && splunk.limit ? `Splunk limit ${splunk.limit.searches}` : ''}</span>
+                    {splunk && (
+                        <>
+                            <span />
+                            <div style={{ display: 'grid', gap: '2px' }}>
+                                <SplunkLoadKey />
+                                {splunk.notes.map((n) => (
+                                    <span key={n} style={{ fontSize: '12px', color: theme.contentColorMuted }}>
+                                        {n}
+                                    </span>
+                                ))}
+                                {splunk.skipped_crons > 0 && (
+                                    <span style={{ fontSize: '12px', color: theme.contentColorMuted }}>
+                                        {`${splunk.skipped_crons} scheduled search${splunk.skipped_crons === 1 ? ' has a schedule' : 'es have schedules'} the app can't read, so ${splunk.skipped_crons === 1 ? 'it is' : 'they are'} left out of the expected load.`}
+                                    </span>
+                                )}
+                            </div>
+                            <span />
+                        </>
+                    )}
+                </div>
+            )}
             <div role="list" aria-label="Jobs">
                 {rows.map(({ job, depth }) => {
                     const bars = job.bars.filter((b) => !state || b.state === 'scheduled' || b.state === state);

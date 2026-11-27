@@ -13,7 +13,7 @@ import Select from '@splunk/react-ui/Select';
 import Switch from '@splunk/react-ui/Switch';
 import Text from '@splunk/react-ui/Text';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Action, Destination, Issue, Job, JobDefinition, StepOutput } from '../../api/types';
+import type { Action, Issue, Job, JobDefinition, StepOutput } from '../../api/types';
 import type { BuilderAction } from '../builder/reducer';
 import type { BuilderApi } from '../builder/BuilderPage';
 import type { NextSlots } from '../builder/ScheduleEditor';
@@ -24,7 +24,6 @@ import { IssueList } from '../builder/StepPanel';
 import TimeRangeField from '../builder/TimeRangeField';
 import TriggerPanel, { TriggerPanelProps } from '../builder/TriggerPanel';
 import { ActionFields } from '../builder/ActionsEditor';
-import PresetOptions from '../builder/PresetOptions';
 import { availableTokens } from '../builder/tokens';
 import type { TokenGroup } from '../builder/tokens';
 import OutputViewer from '../output/OutputViewer';
@@ -41,7 +40,6 @@ export interface SimpleViewProps {
     canEdit: boolean;
     issues: Issue[];
     jobs: Pick<Job, 'id' | 'name'>[];
-    destinations: Destination[];
     nextSlots?: NextSlots;
     schedulePreview?: TriggerPanelProps['schedulePreview'];
     savedJobId?: string | null;
@@ -57,7 +55,7 @@ export interface SimpleViewProps {
     previewFields?: Record<string, string[]>;
 }
 
-const THEN_KINDS: ThenKind[] = ['summary_index', 'lookup', 'email', 'slack', 'teams', 'pagerduty', 'servicenow', 'event'];
+const THEN_KINDS: ThenKind[] = ['summary_index', 'lookup', 'email', 'event'];
 const WHEN_ORDER: When[] = ['success', 'condition', 'failure', 'always', 'start', 'delayed'];
 const WHEN_PORT: Record<When, PortId> = { success: 'success', failure: 'failure', always: 'always', start: 'start', delayed: 'delayed', condition: 'if' };
 const WHEN_LABEL: Record<When, string> = {
@@ -79,38 +77,23 @@ const WHEN_HEADING: Record<When, string> = {
 const FAIL_KINDS: Array<{ value: string; label: string }> = [
     { value: '', label: 'Stop (the admin fallback is told)' },
     { value: 'email', label: 'Stop and email' },
-    { value: 'slack', label: 'Stop and post to Slack' },
-    { value: 'teams', label: 'Stop and post to Teams' },
-    { value: 'pagerduty', label: 'Stop and page PagerDuty' },
-    { value: 'servicenow', label: 'Stop and open a ServiceNow incident' },
 ];
 
 function failAction(kind: string): Action | null {
     if (!kind) {
         return null;
     }
-    return kind === 'email' ? { hook: 'on_failure', type: 'email', to: '' } : ({ hook: 'on_failure', type: 'webhook', preset: kind, destination: '' } as Action);
+    return { hook: 'on_failure', type: 'email', to: '' };
 }
 
-const kindOfAction = (a: Action | undefined): string => (!a ? '' : a.type === 'email' ? 'email' : String(a.preset || 'slack'));
+const kindOfAction = (a: Action | undefined): string => (!a ? '' : a.type);
 
-/** A destination picker for a webhook preset, or an address field for email. */
-function Target({ id, action, destinations, onChange, disabled }: { id: string; action: Action; destinations: Destination[]; onChange: (a: Partial<Action>) => void; disabled: boolean }) {
-    if (action.type === 'email') {
-        return <Text inputId={id} aria-label="Email to" placeholder="ops@example.com" value={String(action.to || '')} disabled={disabled} onChange={(_e: unknown, { value }: { value: string }) => onChange({ to: value })} />;
-    }
+/** The address of an email, or the index of an event. */
+function Target({ id, action, onChange, disabled }: { id: string; action: Action; onChange: (a: Partial<Action>) => void; disabled: boolean }) {
     if (action.type === 'event') {
         return <Text inputId={id} aria-label="Index" value={String(action.index || '')} disabled={disabled} onChange={(_e: unknown, { value }: { value: string }) => onChange({ index: value })} />;
     }
-    const fitting = destinations.filter((d) => d.preset === action.preset);
-    return (
-        <Select inputId={id} aria-label="Destination" value={String(action.destination || '')} disabled={disabled} onChange={(_e: unknown, { value }: { value: unknown }) => onChange({ destination: String(value) })}>
-            <Select.Option label={fitting.length ? 'Pick a destination' : 'No destination yet (ask an admin)'} value="" />
-            {fitting.map((d) => (
-                <Select.Option key={d.name} label={d.name} value={d.name} />
-            ))}
-        </Select>
-    );
+    return <Text inputId={id} aria-label="Email to" placeholder="ops@example.com" value={String(action.to || '')} disabled={disabled} onChange={(_e: unknown, { value }: { value: string }) => onChange({ to: value })} />;
 }
 
 export default function SimpleView(p: SimpleViewProps) {
@@ -245,7 +228,6 @@ export default function SimpleView(p: SimpleViewProps) {
                                     thens={thens}
                                     job={job}
                                     readOnly={readOnly}
-                                    destinations={p.destinations}
                                     set={set}
                                     byStep={byStep}
                                     tokenGroups={availableTokens(job, step.id, p.previewFields || {})}
@@ -286,7 +268,7 @@ export default function SimpleView(p: SimpleViewProps) {
                 </div>
                 {failure && (
                     <div style={{ minWidth: '220px', flex: '1 1 220px' }}>
-                        <Target id="simple-fail-target" action={failure} destinations={p.destinations} disabled={readOnly} onChange={(c) => set(setJobAction(job, simple.failure, { ...failure, ...c } as Action), 'fail-target')} />
+                        <Target id="simple-fail-target" action={failure} disabled={readOnly} onChange={(c) => set(setJobAction(job, simple.failure, { ...failure, ...c } as Action), 'fail-target')} />
                     </div>
                 )}
             </section>
@@ -321,7 +303,6 @@ function ThenList({
     thens,
     job,
     readOnly,
-    destinations,
     set,
     byStep,
     tokenGroups,
@@ -330,7 +311,6 @@ function ThenList({
     thens: Then[];
     job: JobDefinition;
     readOnly: boolean;
-    destinations: Destination[];
     set: (next: JobDefinition, key?: string) => void;
     byStep: Record<string, Issue[]>;
     tokenGroups: TokenGroup[];
@@ -365,7 +345,7 @@ function ThenList({
                         {'stepId' in t ? (
                             outputField(t.output)
                         ) : (
-                            <Target id={id} action={t.action} destinations={destinations} disabled={readOnly} onChange={(c) => set(updateThen(job, stepId, t, { action: c }), id)} />
+                            <Target id={id} action={t.action} disabled={readOnly} onChange={(c) => set(updateThen(job, stepId, t, { action: c }), id)} />
                         )}
                     </div>
                     {t.when === 'condition' && (
@@ -399,7 +379,7 @@ function ThenList({
                         data-testid="simple-then-settings"
                         style={{ border: `1px solid ${theme.borderColorWeak || theme.borderColor}`, borderRadius: '6px', margin: '0 0 0 24px', padding: '8px 12px', minWidth: 0 }}
                     >
-                        <ThenSettings then={t} stepId={stepId} job={job} idPrefix={id} destinations={destinations} tokenGroups={tokenGroups} set={set} />
+                        <ThenSettings then={t} stepId={stepId} job={job} idPrefix={id} tokenGroups={tokenGroups} set={set} />
                     </fieldset>
                 )}
                 {issues.length > 0 && <IssueList issues={issues} />}
@@ -514,7 +494,6 @@ function ThenSettings({
     stepId,
     job,
     idPrefix,
-    destinations,
     tokenGroups,
     set,
 }: {
@@ -522,7 +501,6 @@ function ThenSettings({
     stepId: string;
     job: JobDefinition;
     idPrefix: string;
-    destinations: Destination[];
     tokenGroups: TokenGroup[];
     set: (next: JobDefinition, key?: string) => void;
 }) {
@@ -557,18 +535,9 @@ function ThenSettings({
             <ActionFields
                 action={action}
                 idPrefix={idPrefix}
-                destinations={destinations}
                 tokenGroups={tokenGroups}
                 onChange={(next) => set(updateThen(job, stepId, t, { action: next }), `${idPrefix}-fields`)}
             />
-            {action.type === 'webhook' && (
-                <PresetOptions
-                    preset={action.preset}
-                    options={action.options}
-                    idPrefix={`${idPrefix}-options`}
-                    onChange={(options) => set(updateThen(job, stepId, t, { action: { options } }), `${idPrefix}-options`)}
-                />
-            )}
             {(action.type === 'email' || action.type === 'event') && (
                 <div style={{ marginTop: '8px' }}>
                     <OutputViewer target={{ action: { scope: stepId, index: t.index } }} name={THEN_LABEL[t.kind]} job={job} label={action.type === 'email' ? 'View sent emails' : 'View output'} />

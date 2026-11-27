@@ -30,7 +30,7 @@ except ImportError:  # outside splunkd (tests)
         def __init__(self):
             pass
 
-AUDIT_INDEX = "orchestrator"
+AUDIT_INDEX = "_audit"
 AUDIT_SOURCE = "orchestrator_rest"
 DEFAULT_URI = "https://127.0.0.1:8089"
 

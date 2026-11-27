@@ -2,7 +2,8 @@ import React from 'react';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import ExamplesDialog from '../features/jobs/ExamplesDialog';
 import JobsPage, { JobsApi } from '../features/jobs/JobsPage';
-import { EXAMPLE_JOBS, GROUPS, addExamples, examplesNeeded } from '../features/jobs/examples';
+import { EXAMPLE_JOBS, VIEWS, addExamples, examplesNeeded } from '../features/jobs/examples';
+import { readSimple } from '../features/simple/simpleModel';
 import { buildGraph } from '../features/builder/nodeModel';
 import { findIssues } from '../features/builder/graphLogic';
 import { takeImportedJob } from '../features/builder/sourceLogic';
@@ -31,10 +32,19 @@ function open(props: Partial<React.ComponentProps<typeof ExamplesDialog>> = {}) 
     return { navigate, createJob, onAdded };
 }
 
+const KEPT = {
+    simple: ['example_hourly_errors'],
+    standard: ['example_rollup', 'example_condition'],
+    advanced: ['example_failure_path', 'example_chaining', 'example_platform_health'],
+};
+
 describe('example jobs', () => {
-    test('there are eighteen, in five groups, each a complete job that is turned off', () => {
-        expect(EXAMPLE_JOBS).toHaveLength(18);
-        expect(new Set(EXAMPLE_JOBS.map((e) => e.group))).toEqual(new Set(GROUPS.map((g) => g.id)));
+    test('there are six: one for Simple, two for Standard and three for Advanced, each a complete job that is turned off', () => {
+        expect(EXAMPLE_JOBS).toHaveLength(6);
+        expect(VIEWS.map((v) => v.id)).toEqual(['simple', 'standard', 'advanced']);
+        (Object.keys(KEPT) as Array<keyof typeof KEPT>).forEach((view) => {
+            expect(EXAMPLE_JOBS.filter((e) => e.view === view).map((e) => e.job.id)).toEqual(KEPT[view]);
+        });
         EXAMPLE_JOBS.forEach((e) => {
             expect(e.job.id).toMatch(/^example_[a-z0-9_]+$/);
             expect(e.job.enabled).toBe(false);
@@ -46,14 +56,23 @@ describe('example jobs', () => {
             const nodes = (e.job.layout && e.job.layout.nodes) || {};
             buildGraph(e.job).nodes.forEach((n) => expect(nodes[n.key]).toBeDefined());
         });
-        expect(new Set(EXAMPLE_JOBS.map((e) => e.job.id)).size).toBe(18);
+    });
+
+    test('the Simple example can be shown in Simple, with more than one search and a save', () => {
+        EXAMPLE_JOBS.filter((e) => e.view === 'simple').forEach((e) => {
+            const read = readSimple(e.job);
+            expect(read.reasons).toEqual([]);
+            expect(read.chain.length).toBeGreaterThan(1);
+            expect(read.chain.flatMap((c) => c.thens.map((t) => t.kind))).toEqual(expect.arrayContaining(['lookup', 'email']));
+            expect(read.failure).toBeGreaterThanOrEqual(0);
+        });
     });
 
     test('examplesNeeded follows Start job actions and After another job triggers', () => {
         const health = EXAMPLE_JOBS.find((e) => e.job.id === 'example_platform_health') as (typeof EXAMPLE_JOBS)[0];
         expect(examplesNeeded(health).map((e) => e.job.id).sort()).toEqual(['example_hourly_errors', 'example_rollup']);
-        const fan = EXAMPLE_JOBS.find((e) => e.job.id === 'example_fan_out') as (typeof EXAMPLE_JOBS)[0];
-        expect(examplesNeeded(fan).map((e) => e.job.id)).toEqual(['example_hourly_errors', 'example_top_sourcetypes']);
+        const chained = EXAMPLE_JOBS.find((e) => e.job.id === 'example_chaining') as (typeof EXAMPLE_JOBS)[0];
+        expect(examplesNeeded(chained).map((e) => e.job.id).sort()).toEqual(['example_hourly_errors', 'example_rollup']);
     });
 
     test('adding one example adds what it needs first', async () => {
@@ -68,50 +87,55 @@ describe('example jobs', () => {
         const createJob = jest.fn((def) =>
             def.id === 'example_rollup'
                 ? Promise.reject(new ApiError(400, 'invalid_job', 'job is invalid', [{ level: 'error', code: 'bad_cron', message: 'schedule: bad', step: null }]))
-                : def.id === 'example_parallel'
-                  ? Promise.reject(new ApiError(409, 'job_exists', "a job with id 'example_parallel' already exists"))
+                : def.id === 'example_condition'
+                  ? Promise.reject(new ApiError(409, 'job_exists', "a job with id 'example_condition' already exists"))
                   : saved()
         );
         const out = await addExamples(['example_hourly_errors'], createJob);
         const created = createJob.mock.calls.map(([def]) => def.id);
         expect(created).not.toContain('example_hourly_errors');
-        expect(created).toHaveLength(17);
+        expect(created).toHaveLength(5);
         createJob.mock.calls.forEach(([def]) => expect(def.enabled).toBe(false));
-        expect(out.added).toHaveLength(15);
-        expect(out.skipped.map((e) => e.job.id)).toEqual(['example_hourly_errors', 'example_parallel']);
+        expect(out.added).toHaveLength(3);
+        expect(out.skipped.map((e) => e.job.id)).toEqual(['example_hourly_errors', 'example_condition']);
         expect(out.failed).toEqual([{ example: expect.objectContaining({ title: expect.any(String) }), message: 'schedule: bad' }]);
     });
 });
 
 describe('ExamplesDialog', () => {
-    test('tabs by group, each example a card with its diagram, level, description and features', () => {
+    test('every example on one page, each a card with its diagram, view, description and features', () => {
         open();
-        const first = within(screen.getByTestId(`example-${EXAMPLE_JOBS[0].job.id}`));
-        expect(first.getByText(EXAMPLE_JOBS[0].title)).toBeInTheDocument();
-        expect(first.getByText('Simple')).toBeInTheDocument();
-        expect(first.getByText(EXAMPLE_JOBS[0].summary)).toBeInTheDocument();
-        expect(first.getByText(`Shows: ${EXAMPLE_JOBS[0].features.join(', ')}`)).toBeInTheDocument();
+        expect(screen.queryAllByRole('tab')).toHaveLength(0);
+        expect(screen.getAllByRole('listitem')).toHaveLength(6);
+        const first = within(screen.getByTestId('example-example_hourly_errors'));
+        const hourly = EXAMPLE_JOBS[0];
+        expect(first.getByText(hourly.title)).toBeInTheDocument();
+        expect(first.getByText('Opens in Simple')).toBeInTheDocument();
+        expect(first.getByText(hourly.summary)).toBeInTheDocument();
+        expect(first.getByText(`Shows: ${hourly.features.join(', ')}`)).toBeInTheDocument();
         expect(first.getByTestId('example-diagram')).toBeInTheDocument();
-        expect(screen.getAllByRole('listitem')).toHaveLength(EXAMPLE_JOBS.filter((e) => e.group === 'getting started').length);
-        fireEvent.click(screen.getByRole('tab', { name: /Chaining jobs/ }));
-        expect(screen.getByTestId('example-example_fan_out')).toHaveTextContent('Uses Hourly splunkd errors and Top sourcetypes to a lookup, added with it.');
+        // One button per card: Open in builder (Add all examples is at the bottom).
+        expect(first.getAllByRole('button').map((b) => b.textContent)).toEqual(['Open in builder']);
+        expect(screen.getByTestId('example-example_chaining')).toHaveTextContent('Opens in Advanced');
+        expect(screen.getByTestId('example-example_chaining')).toHaveTextContent('added with it.');
     });
 
-    test('Open in builder on an example that starts others adds those first', async () => {
+    test('Open in builder on an example that uses others adds those first, and opens it in its view', async () => {
         const { navigate, createJob } = open();
-        fireEvent.click(screen.getByRole('tab', { name: /Chaining jobs/ }));
-        fireEvent.click(screen.getByRole('button', { name: 'Open Start two jobs when done in builder' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Open Chained jobs in builder' }));
         await waitFor(() => expect(navigate).toHaveBeenCalled());
-        expect(createJob.mock.calls.map(([d]) => d.id)).toEqual(['example_hourly_errors', 'example_top_sourcetypes']);
+        expect(createJob.mock.calls.map(([d]) => d.id).sort()).toEqual(['example_hourly_errors', 'example_rollup']);
+        expect(navigate).toHaveBeenCalledWith(expect.stringContaining('view=advanced'));
     });
 
     test('Open in builder opens the example as a new unsaved job', async () => {
         const { navigate, createJob } = open();
-        fireEvent.click(screen.getByRole('tab', { name: /Branches and conditions/ }));
-        fireEvent.click(screen.getByRole('button', { name: `Open ${EXAMPLE_JOBS[3].title} in builder` }));
+        const rollup = EXAMPLE_JOBS.find((e) => e.job.id === 'example_rollup')!;
+        fireEvent.click(screen.getByRole('button', { name: `Open ${rollup.title} in builder` }));
         await waitFor(() => expect(navigate).toHaveBeenCalledWith(expect.stringContaining('import=1')));
+        expect(navigate).toHaveBeenCalledWith(expect.stringContaining('view=standard'));
         const imported = takeImportedJob() as unknown as Record<string, unknown>;
-        expect(imported.name).toBe(EXAMPLE_JOBS[3].job.name);
+        expect(imported.name).toBe(rollup.job.name);
         expect(imported.id).toBeUndefined();
         expect(imported.enabled).toBe(false);
         expect(createJob).not.toHaveBeenCalled();
@@ -122,9 +146,9 @@ describe('ExamplesDialog', () => {
         const { createJob, onAdded } = open({ existingIds: existing });
         fireEvent.click(screen.getByRole('button', { name: 'Add all examples' }));
         expect(
-            await screen.findByText(/^Added 16 examples: .*They're turned off; turn one on from its Settings when you're ready\.$/)
+            await screen.findByText(/^Added 4 examples: .*They're turned off; turn one on from its Settings when you're ready\.$/)
         ).toBeInTheDocument();
-        expect(createJob).toHaveBeenCalledTimes(16);
+        expect(createJob).toHaveBeenCalledTimes(4);
         createJob.mock.calls.forEach(([def]) => {
             expect(existing).not.toContain(def.id);
             expect(def.enabled).toBe(false);
@@ -138,7 +162,7 @@ describe('ExamplesDialog', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Add all examples' }));
         const title = EXAMPLE_JOBS.find((e) => e.job.id === 'example_condition')!.title;
         expect(await screen.findByText(`${title}: Network down`)).toBeInTheDocument();
-        expect(screen.getByText(/Added 17 examples/)).toBeInTheDocument();
+        expect(screen.getByText(/Added 5 examples/)).toBeInTheDocument();
     });
 
     test('without build access there is no Add all examples', () => {

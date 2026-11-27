@@ -1,13 +1,13 @@
-/* Browse examples: the example jobs shipped with the app, in tabs by group, each as a card with
- * a picture of its flow. Open one in the builder as a new, unsaved job (like Import jobs), add
- * one as a job, or add every missing one; all are added turned off. An example that starts or
+/* Browse examples: the example jobs shipped with the app on one page, from Simple to Advanced,
+ * each as a card with a picture of its flow and the builder view it opens in. Open one in the
+ * builder, in its view, as a new, unsaved job (like Import jobs), or add every missing one with
+ * Add all examples; all are added turned off. An example that starts or
  * waits for other examples brings those along (added first), so its Start job actions and After
  * another job triggers point at jobs that exist. */
 import React, { useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import Message from '@splunk/react-ui/Message';
 import Modal from '@splunk/react-ui/Modal';
-import TabBar from '@splunk/react-ui/TabBar';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
 import type { JobDefinition, SaveResponse } from '../../api/types';
 import { pageHref } from '../../components/PageShell';
@@ -15,7 +15,8 @@ import { joinNames } from '../../format';
 import { turnedOffIn } from '../builder/nodeCatalog';
 import { stashImportedJob } from '../builder/sourceLogic';
 import ExampleDiagram from './ExampleDiagram';
-import { AddExamplesResult, EXAMPLE_JOBS, ExampleGroup, ExampleJob, GROUPS, addExamples, examplesNeeded } from './examples';
+import type { BuilderView } from '../simple/useBuilderView';
+import { AddExamplesResult, EXAMPLE_JOBS, ExampleJob, VIEWS, addExamples, examplesNeeded } from './examples';
 
 export interface ExamplesDialogProps {
     onClose: () => void;
@@ -44,7 +45,6 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
     const [error, setError] = useState<string | null>(null);
     const [adding, setAdding] = useState<string | null>(null);
     const [result, setResult] = useState<AddExamplesResult | null>(null);
-    const [group, setGroup] = useState<ExampleGroup>(GROUPS[0].id);
     const [added, setAdded] = useState<string[]>([]);
     const exists = (id: string) => existingIds.includes(id) || added.includes(id);
     /** Turned-off blocks an example (or an example it brings along) uses. */
@@ -82,10 +82,11 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
             setError('The example could not be passed to the builder because the browser blocks session storage. Allow site data for this page and try again.');
             return;
         }
-        navigate(pageHref('builder', { import: '1' }));
+        navigate(pageHref('builder', { import: '1', view: example.view }));
     };
 
-    const shown = EXAMPLE_JOBS.filter((e) => e.group === group);
+    const shown = EXAMPLE_JOBS;
+    const viewLabel = (v: BuilderView) => (VIEWS.find((x) => x.id === v) || VIEWS[0]).label;
     const muted = { color: theme.contentColorMuted, margin: '2px 0', fontSize: '12px' };
 
     return (
@@ -93,7 +94,7 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
             <Modal.Header title="Example jobs" />
             <Modal.Body>
                 <p style={{ marginTop: 0 }}>
-                    {`${EXAMPLE_JOBS.length} jobs that use only data every Splunk has. Open one to look at it in the builder, or add it as a job. Examples are added turned off, so nothing runs until you turn one on. Email actions go to you@example.com until you change them.`}
+                    {`${EXAMPLE_JOBS.length} jobs that use only data every Splunk has. Open one to look at it in the builder and save it, or add them all. Examples are added turned off, so nothing runs until you turn one on. Email actions go to you@example.com until you change them.`}
                 </p>
                 {error && (
                     <Message type="error" appearance="default">
@@ -120,40 +121,25 @@ export default function ExamplesDialog({ onClose, returnFocus, navigate = go, ca
                         </div>
                     </Message>
                 )}
-                <TabBar activeTabId={group} onChange={(_e: unknown, { selectedTabId }: { selectedTabId?: string }) => setGroup((selectedTabId as ExampleGroup) || GROUPS[0].id)}>
-                    {GROUPS.map((g) => (
-                        <TabBar.Tab key={g.id} tabId={g.id} label={`${g.label} (${EXAMPLE_JOBS.filter((e) => e.group === g.id).length})`} />
-                    ))}
-                </TabBar>
                 <ul aria-label="Examples" style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
                     {shown.map((example) => {
                         const needs = examplesNeeded(example);
-                        const isThere = exists(example.job.id);
                         const blocked = blockedBy(example);
                         return (
                             <li key={example.job.id} data-testid={`example-${example.job.id}`} style={{ border: `1px solid ${theme.borderColor}`, borderRadius: '4px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <ExampleDiagram job={example.job} title={example.title} height={150} />
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap' }}>
                                     <strong>{example.title}</strong>
-                                    <span style={{ fontSize: '12px', color: theme.contentColorMuted }}>{example.level}</span>
+                                    <span style={{ fontSize: '12px', color: theme.contentColorMuted }}>{`Opens in ${viewLabel(example.view)}`}</span>
                                 </div>
                                 <p style={{ margin: 0 }}>{example.summary}</p>
                                 <p style={muted}>{`Shows: ${example.features.join(', ')}`}</p>
                                 {blocked.length > 0 && (
-                                    <p style={muted} data-testid="example-blocked">{`Uses ${joinNames(blocked)}, which an admin turned off in Settings > Building blocks, so it can't be added.`}</p>
+                                    <p style={muted} data-testid="example-blocked">{`Uses ${joinNames(blocked)}, which an admin turned off in Settings > Building blocks, so Add all examples skips it.`}</p>
                                 )}
                                 {needs.length > 0 && <p style={muted}>{`Uses ${joinNames(needs.map((n) => n.title))}, ${canAdd ? 'added with it' : 'which must be jobs too'}.`}</p>}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', flexWrap: 'wrap' }}>
                                     <Button appearance="secondary" label="Open in builder" aria-label={`Open ${example.title} in builder`} disabled={Boolean(adding)} onClick={() => openExample(example)} />
-                                    {canAdd && (
-                                        <Button
-                                            appearance="secondary"
-                                            label={isThere ? 'Added' : adding === `add:${example.job.id}` ? 'Adding…' : 'Add as a job'}
-                                            aria-label={`Add ${example.title} as a job`}
-                                            disabled={isThere || blocked.length > 0 || Boolean(adding)}
-                                            onClick={() => run(`add:${example.job.id}`, [example])}
-                                        />
-                                    )}
                                 </div>
                             </li>
                         );

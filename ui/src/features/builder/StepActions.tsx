@@ -3,13 +3,13 @@
  * when and what; a row opens the same action panel Advanced uses. All edits are the
  * builder's usual actions (addNode from the step's outcome, updateAction, moveAction,
  * removeAction), so the job is the same in every view. */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Button from '@splunk/react-ui/Button';
 import ControlGroup from '@splunk/react-ui/ControlGroup';
 import Heading from '@splunk/react-ui/Heading';
 import Select from '@splunk/react-ui/Select';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { Action, AlertAction, Destination, Issue, JobDefinition } from '../../api/types';
+import type { Action, AlertAction, Issue, JobDefinition } from '../../api/types';
 import ActionPanel from './ActionPanel';
 import { CATALOG, isBeta, targetKinds } from './nodeCatalog';
 import { actionKey, buildGraph, HOOK_FOR_PORT, NodeKind, nodeKindOfStep, outputPorts, PortId, portForHook, stepKey } from './nodeModel';
@@ -20,13 +20,14 @@ import type { TokenGroup } from './tokens';
 export interface StepActionsProps {
     job: JobDefinition;
     stepId: string;
-    destinations: Destination[];
     alertActions?: AlertAction[] | null;
     tokenGroups?: TokenGroup[];
     issues?: Issue[];
     dispatch: React.Dispatch<BuilderAction>;
     /** The page confirms, then removes (by the action's node key). */
     onRequestRemove: (key: string) => void;
+    /** Open this action's panel (a problem's Go to); `n` changes to open it again. */
+    openAction?: { index: number; n: number } | null;
 }
 
 const kindLabel = (kind: NodeKind) => {
@@ -35,7 +36,7 @@ const kindLabel = (kind: NodeKind) => {
     return isBeta(kind) ? `${label} · Beta` : label;
 };
 
-export default function StepActions({ job, stepId, destinations, alertActions, tokenGroups, issues = [], dispatch, onRequestRemove }: StepActionsProps) {
+export default function StepActions({ job, stepId, alertActions, tokenGroups, issues = [], dispatch, onRequestRemove, openAction }: StepActionsProps) {
     const theme = useSplunkTheme() as unknown as Record<string, string>;
     const step = (job.steps || []).find((s) => s.id === stepId);
     const [open, setOpen] = useState<number | null>(null);
@@ -43,6 +44,13 @@ export default function StepActions({ job, stepId, destinations, alertActions, t
     const [port, setPort] = useState<PortId | ''>('');
     const [kind, setKind] = useState<NodeKind | ''>('');
     const nodes = useMemo(() => buildGraph(job).nodes, [job]);
+    const openN = openAction ? openAction.n : 0;
+    useEffect(() => {
+        if (openAction) {
+            setOpen(openAction.index);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openN]);
     if (!step) {
         return null;
     }
@@ -82,7 +90,6 @@ export default function StepActions({ job, stepId, destinations, alertActions, t
                                         job={job}
                                         scope={stepId}
                                         index={i}
-                                        destinations={destinations}
                                         alertActions={alertActions}
                                         tokenGroups={tokenGroups}
                                         issues={issues}

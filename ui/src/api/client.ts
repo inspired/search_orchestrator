@@ -7,8 +7,6 @@ import { getCSRFToken } from '@splunk/splunk-utils/config';
 import type {
     AlertAction,
     DefinitionChoice,
-    Destination,
-    DestinationInput,
     Health,
     Issue,
     Job,
@@ -28,6 +26,7 @@ import type {
     SaveResponse,
     SchedulePreviewResponse,
     ScheduleResponse,
+    SplunkLoad,
     Settings,
     ValidateResponse,
 } from './types';
@@ -141,6 +140,7 @@ const SERVER_FIELDS = [
     'created_by',
     'updated_at',
     'updated_by',
+    'revision',
 ];
 
 /** A job's definition as the save routes expect it. */
@@ -183,8 +183,20 @@ export function createJob(job: JobDefinition): Promise<SaveResponse> {
     return request<SaveResponse>('POST', 'jobs', { body: toDefinition(job) });
 }
 
-export function updateJob(jobId: string, job: JobDefinition | Job): Promise<SaveResponse> {
-    return request<SaveResponse>('PUT', `jobs/${enc(jobId)}`, { body: toDefinition(job) });
+/** Save a job. With `baseRevision` (the revision the editor opened), the server refuses the
+ * save with 409 `job_changed` if someone changed the job since; without it, the save
+ * overwrites. */
+export function updateJob(jobId: string, job: JobDefinition | Job, baseRevision?: number): Promise<SaveResponse> {
+    const body: Record<string, unknown> = { ...toDefinition(job) };
+    if (baseRevision !== undefined) {
+        body._base_revision = baseRevision;
+    }
+    return request<SaveResponse>('PUT', `jobs/${enc(jobId)}`, { body });
+}
+
+/** Add or remove tags only. The owner and the rest of the job are left as they are. */
+export function setJobTags(jobId: string, add: string[], remove: string[] = []): Promise<{ job: Job }> {
+    return request<{ job: Job }>('POST', `jobs/${enc(jobId)}/tags`, { body: { add, remove } });
 }
 
 /** Enable or disable a job. The owner is kept: nobody takes the job over. */
@@ -268,6 +280,11 @@ export function getSchedule(from: number, to: number): Promise<ScheduleResponse>
     return request('GET', 'schedule', { query: { from, to } });
 }
 
+/** Every Splunk search over the window: what ran, what Splunk's scheduler will run, and its limits. */
+export function getSplunkLoad(from: number, to: number): Promise<SplunkLoad> {
+    return request('GET', 'schedule/splunk', { query: { from, to } });
+}
+
 /** The load of every other job around a draft job's cron schedules, with suggestions. */
 export function schedulePreview(job: JobDefinition | Job): Promise<SchedulePreviewResponse> {
     return request('POST', 'schedule/preview', { body: { job: toDefinition(job) } });
@@ -327,7 +344,7 @@ export function cancelPreview(sid: string): Promise<{ cancelled: boolean }> {
     return request('POST', `preview/${enc(sid)}/cancel`, { body: {} });
 }
 
-// Settings, destinations, health and the caller.
+// Settings, health and the caller.
 
 export async function getSettings(): Promise<Settings> {
     return (await request<{ settings: Settings }>('GET', 'settings')).settings;
@@ -337,12 +354,8 @@ export async function putSettings(changes: Partial<Settings>): Promise<Settings>
     return (await request<{ settings: Settings }>('PUT', 'settings', { body: changes })).settings;
 }
 
-export async function listDestinations(): Promise<Destination[]> {
-    return (await request<{ destinations: Destination[] }>('GET', 'destinations')).destinations;
-}
-
 export type FollowEvent = 'failure' | 'late' | 'delayed' | 'success';
-export type FollowNotify = { type: 'email' } | { type: 'webhook'; destination: string };
+export type FollowNotify = { type: 'email' };
 export interface Follow {
     on: FollowEvent[];
     notify: FollowNotify;
@@ -366,14 +379,6 @@ export function deleteFollow(jobId: string): Promise<{ follow: null }> {
 /** The custom alert actions the caller can pick for an alert action step or job action. */
 export async function listAlertActions(): Promise<AlertAction[]> {
     return (await request<{ alert_actions: AlertAction[] }>('GET', 'alert_actions')).alert_actions;
-}
-
-export async function saveDestination(dest: DestinationInput): Promise<Destination> {
-    return (await request<{ destination: Destination }>('POST', 'destinations', { body: dest })).destination;
-}
-
-export function deleteDestination(name: string): Promise<{ deleted: string }> {
-    return request('DELETE', `destinations/${enc(name)}`);
 }
 
 export async function health(): Promise<Health> {

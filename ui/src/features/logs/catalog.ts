@@ -205,7 +205,7 @@ const MESSAGE_RULES: Array<[RegExp, Category, Tone, (m: RegExpMatchArray) => str
     [/run (\S+) skipped this tick: (.*)/i, 'run', 'warning', (m) => `Run ${m[1]} was skipped this tick: ${m[2]}`, 'Something failed while advancing this run; the others continued.', 'It tries again next tick; check the error if it repeats.'],
     [/run (\S+) skipped this tick/i, 'run', 'error', (m) => `Run ${m[1]} was skipped this tick because of an error`, 'An unexpected error happened while advancing the run (see the traceback).', 'Report the traceback; the engine tries again next tick.'],
     [/command (\S+) failed/i, 'engine', 'error', (m) => `A command from the screens (${m[1]}) failed`, 'The engine could not apply a pause, resume, cancel, re-run or approval (see the traceback).', 'Try the action again; report the traceback if it repeats.'],
-    [/audit event lost/i, 'engine', 'error', () => 'An audit event could not be written to the audit index', 'The index may be missing, or the writer could not reach splunkd.', 'Check that the orchestrator index exists (Settings → Indexes).'],
+    [/audit event lost/i, 'engine', 'error', () => 'An audit event could not be written to the audit index', 'The index may be missing, or the writer could not reach splunkd.', 'Check that splunkd is running and the engine can reach it; the events go to the _audit index.'],
     [/session key/i, 'engine', 'warning', (m) => m.input || 'Session key problem', 'The engine’s Splunk session expired.', 'The engine reloads it by itself; splunkd restarts the engine if that fails.'],
     [/request failed/i, 'api', 'error', () => 'A request failed with an internal error', 'An unexpected error in the REST handler (see the traceback).', 'Report the traceback.'],
 ];

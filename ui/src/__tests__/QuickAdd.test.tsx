@@ -10,37 +10,19 @@ describe('nodeCatalog', () => {
         expect(searchCatalog('mail')[0].kind).toBe('email');
         expect(searchCatalog('MAIL')[0].kind).toBe('email');
     });
-    it('finds the output and Slack nodes', () => {
+    it('finds the output nodes', () => {
         expect(searchCatalog('summary')[0].kind).toBe('summary_index');
         expect(searchCatalog('lookup')[0].kind).toBe('lookup');
-        expect(searchCatalog('slack')[0].kind).toBe('slack');
         expect(CATALOG.find((e) => e.kind === 'summary_index')?.label).toBe('Summary index');
     });
-    it('offers summary and lookup as steps and Slack as an action', () => {
-        expect(targetKinds('success', 'search')).toEqual(expect.arrayContaining(['summary_index', 'lookup', 'slack']));
-        expect(targetKinds('delayed', 'search')).toContain('slack');
+    it('offers summary and lookup as steps, and alert actions as actions', () => {
+        expect(targetKinds('success', 'search')).toEqual(expect.arrayContaining(['summary_index', 'lookup', 'alert_action']));
+        expect(targetKinds('delayed', 'search')).toContain('alert_action');
         expect(targetKinds('delayed', 'search')).not.toContain('summary_index');
-        expect(targetKinds('success', 'job')).toContain('slack');
         expect(targetKinds('success', 'job')).not.toContain('lookup');
         expect(targetKinds('then', 'condition')).toContain('lookup');
-        expect(targetKinds('then', 'condition')).not.toContain('slack');
     });
-    it('finds Teams, PagerDuty and ServiceNow by their words and offers them as actions', () => {
-        expect(searchCatalog('page').map((e) => e.kind)).toContain('pagerduty');
-        expect(searchCatalog('page')[0].kind).toBe('pagerduty');
-        expect(searchCatalog('on-call').map((e) => e.kind)).toEqual(['pagerduty']);
-        expect(searchCatalog('teams')[0].kind).toBe('teams');
-        expect(searchCatalog('snow').map((e) => e.kind)).toEqual(['servicenow']);
-        expect(searchCatalog('ticket').map((e) => e.kind)).toEqual(['servicenow']);
-        expect(searchCatalog('incident').map((e) => e.kind)).toEqual(['pagerduty', 'servicenow']);
-        expect(CATALOG.find((e) => e.kind === 'teams')?.label).toBe('Microsoft Teams');
-        ['teams', 'pagerduty', 'servicenow'].forEach((k) => {
-            expect(targetKinds('failure', 'search')).toContain(k);
-            expect(targetKinds('late', 'job')).toContain(k);
-            expect(targetKinds('then', 'condition')).not.toContain(k);
-        });
-    });
-    it('returns everything for an empty query, filtered by kinds', () => {
+    it('returns every offered kind for an empty query, filtered by kinds', () => {
         expect(searchCatalog('')).toEqual(CATALOG);
         expect(searchCatalog('', ['email']).map((e) => e.kind)).toEqual(['email']);
     });
@@ -57,7 +39,7 @@ describe('nodeCatalog', () => {
     });
     it('offers only actions from the job node', () => {
         expect(targetKinds('success', 'job')).not.toContain('search');
-        expect(targetKinds('success', 'job')).toContain('webhook');
+        expect(targetKinds('success', 'job')).toContain('alert_action');
     });
     it('offers everything without a port', () => {
         expect(targetKinds(null, null)).toEqual(CATALOG.map((e) => e.kind));
@@ -79,8 +61,8 @@ describe('QuickAdd', () => {
         render(<QuickAdd {...base} />);
         const input = screen.getByRole('combobox');
         expect(input).toHaveFocus();
-        await userEvent.type(input, 'web{Enter}');
-        expect(base.onChoose).toHaveBeenCalledWith('webhook');
+        await userEvent.type(input, 'alert{Enter}');
+        expect(base.onChoose).toHaveBeenCalledWith('alert_action');
     });
     it('moves the highlight with ArrowDown', async () => {
         render(<QuickAdd {...base} />);
@@ -114,10 +96,10 @@ describe('QuickAdd', () => {
         expect(screen.getByText('Send an email when the step or job gets here.')).toBeInTheDocument();
     });
     it('chooses on click and respects kinds', async () => {
-        render(<QuickAdd {...base} kinds={['email', 'webhook']} />);
+        render(<QuickAdd {...base} kinds={['email', 'alert_action']} />);
         expect(screen.getAllByRole('option')).toHaveLength(2);
-        await userEvent.click(screen.getByText('Webhook'));
-        expect(base.onChoose).toHaveBeenCalledWith('webhook');
+        await userEvent.click(screen.getByText('Alert action'));
+        expect(base.onChoose).toHaveBeenCalledWith('alert_action');
     });
     it('says when nothing matches', async () => {
         render(<QuickAdd {...base} />);

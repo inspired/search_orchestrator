@@ -6,7 +6,7 @@ import Button from '@splunk/react-ui/Button';
 import Heading from '@splunk/react-ui/Heading';
 import Typography from '@splunk/react-ui/Typography';
 import useSplunkTheme from '@splunk/themes/useSplunkTheme';
-import type { AlertAction, Destination, Issue, Job, JobDefinition, PreviewInput } from '../../api/types';
+import type { AlertAction, Issue, Job, JobDefinition, PreviewInput } from '../../api/types';
 import ActionPanel from './ActionPanel';
 import type { BuilderApi } from './BuilderPage';
 import EdgePanel from './EdgePanel';
@@ -55,13 +55,14 @@ export interface NodePanelProps {
     /** Tidy up the selected nodes (the caller knows the node size in use). */
     onTidy?: (keys: string[]) => void;
     onOpenSettings: () => void;
-    destinations: Destination[];
     alertActions: AlertAction[] | null;
     jobs: Pick<Job, 'id' | 'name'>[];
     nextSlots?: NextSlots;
     schedulePreview?: TriggerPanelProps['schedulePreview'];
     /** The Standard view: a step's actions are listed under its panel (no action nodes). */
     standard?: boolean;
+    /** Standard: open this action of the step (from a problem's Go to). */
+    openAction?: { stepId: string; index: number; n: number } | null;
     savedJobId?: string | null;
     previewFields: Record<string, string[]>;
     scheduledTime: number;
@@ -151,12 +152,12 @@ export default function NodePanel(props: NodePanelProps) {
                 key={`${node.key}-actions`}
                 job={job}
                 stepId={id}
-                destinations={props.destinations}
                 alertActions={props.alertActions}
                 tokenGroups={availableTokens(job, id, previewFields)}
                 issues={byStep[id] || []}
                 dispatch={dispatch}
                 onRequestRemove={onRequestRemove}
+                openAction={props.openAction && props.openAction.stepId === id ? props.openAction : null}
             />
         ) : null;
         if (node.kind === 'summary_index' || node.kind === 'lookup') {
@@ -206,7 +207,6 @@ export default function NodePanel(props: NodePanelProps) {
                 job={job}
                 scope={scope}
                 index={index}
-                destinations={props.destinations}
                 alertActions={props.alertActions}
                 tokenGroups={availableTokens(job, scope === 'job' ? null : scope, previewFields)}
                 issues={issuesForAction(job, byStep[scope === 'job' ? '' : scope] || [], scope, index)}

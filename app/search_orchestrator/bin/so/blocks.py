@@ -5,12 +5,15 @@ Schedule are always on; every other kind can be turned off, for a simpler app wh
 not use it (approvals, say). A kind that is off is not offered in the builder, and a save that
 adds one is refused. Jobs that already use it keep working and can still be saved: turning a
 kind off never breaks a running job.
+
+Webhook, Slack, Microsoft Teams, PagerDuty and ServiceNow were removed in 1.50.1: Splunk's own
+apps for them add alert actions, so an Alert action does it. A save with one is refused
+(``api._job_issues``, ``action_removed``); one still in a run is skipped (``actions``).
 """
 
 ALWAYS_ON = ("trigger_cron", "search")
 OPTIONAL = ("trigger_completion", "saved_search", "previous", "summary_index", "lookup",
-            "approval", "email", "webhook", "slack", "teams", "pagerduty", "servicenow",
-            "event", "alert_action", "start_job")
+            "approval", "email", "event", "alert_action", "start_job")
 LABELS = {"trigger_completion": "After another job", "saved_search": "Saved search",
           "previous": "Results of earlier steps", "summary_index": "Summary index",
           "lookup": "Lookup", "approval": "Approval", "email": "Email", "webhook": "Webhook",
@@ -18,6 +21,8 @@ LABELS = {"trigger_completion": "After another job", "saved_search": "Saved sear
           "servicenow": "ServiceNow", "event": "Event to an index",
           "alert_action": "Alert action", "start_job": "Start another job"}
 CHANNEL_PRESETS = ("slack", "teams", "pagerduty", "servicenow")
+# Removed kinds: an old ``turned_off`` setting may still name one.
+RETIRED = ("webhook",) + CHANNEL_PRESETS
 
 
 def step_kind(step):
@@ -69,6 +74,7 @@ def check(value):
     """The stored form of a ``turned_off`` setting, or ValueError."""
     if not isinstance(value, list) or not all(isinstance(k, str) for k in value):
         raise ValueError("turned_off must be a list of building block names")
+    value = [k for k in value if k not in RETIRED]  # an old setting may still name one
     unknown = [k for k in value if k not in OPTIONAL]
     if unknown:
         always = [k for k in unknown if k in ALWAYS_ON]

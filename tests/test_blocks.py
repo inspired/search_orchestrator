@@ -27,11 +27,11 @@ def test_setting_is_checked_and_shown_to_everyone(w):
     for bad in (["search"], ["nope"], "approval", [1]):
         status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": bad})
         assert status == 400, bad
-    status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": ["webhook", "approval"]})
+    status, out = w.call("root", "PUT", "/orchestrator/settings", {"turned_off": ["event", "approval"]})
     assert status == 200, out
-    assert out["settings"]["turned_off"] == ["approval", "webhook"]
+    assert out["settings"]["turned_off"] == ["approval", "event"]
     status, out = w.call("alice", "GET", "/orchestrator/me")
-    assert out["turned_off"] == ["approval", "webhook"]
+    assert out["turned_off"] == ["approval", "event"]
     status, out = w.call("alice", "PUT", "/orchestrator/settings", {"turned_off": []})
     assert status == 403
 
@@ -58,3 +58,5 @@ def test_a_turned_off_block_cant_be_added_but_existing_jobs_keep_it(w):
     w.call("root", "PUT", "/orchestrator/settings", {"turned_off": []})
     status, out = w.call("alice", "POST", "/orchestrator/jobs", body)
     assert status == 201, out
+
+

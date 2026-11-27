@@ -323,8 +323,8 @@ describe('builder reducer: layout and node edits', () => {
 
     test('addNode defaults: slack, trigger, step key', () => {
         const s0 = initialState(job);
-        const sl = reducer(s0, { type: 'addNode', kind: 'slack' });
-        expect(sl.job.actions?.[0]).toEqual({ hook: 'on_failure', type: 'webhook', preset: 'slack', destination: '' });
+        const sl = reducer(s0, { type: 'addNode', kind: 'email' });
+        expect(sl.job.actions?.[0]).toMatchObject({ hook: 'on_failure', type: 'email' });
         const st = reducer(s0, { type: 'addNode', kind: 'start_job' });
         expect(st.job.actions?.[0].hook).toBe('on_success');
         const tr = reducer(s0, { type: 'addNode', kind: 'trigger_cron' });
